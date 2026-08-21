@@ -375,15 +375,26 @@ function renderNodeRow(taxon, opts = {}) {
       : null,
   );
 
-  // WoRMS enrichment badge — hidden in CoL view so the backbone stays
-  // clean (no cross-source labels). In WoRMS view two variants render:
-  //   * WoRMS-only  (coldp_id IS NULL, worms_id IS NOT NULL): rare marine
-  //     taxa that WoRMS has but CoL doesn't. Filled accent badge so
-  //     they pop in the tree.
-  //   * CoL+WoRMS   (both coldp_id and worms_id set): matched pair,
-  //     subtle outline so they don't compete with the rank badge.
+  // Source badges — symmetrical across views:
+  //   * CoL view: show "CoL" badge for CoL-only taxa (worms_id NULL) so the
+  //     user can see which CoL backbone entries don't have a WoRMS match.
+  //     CoL+WoRMS taxa stay unbadged (they appear identically in WoRMS view
+  //     with the WoRMS badge there).
+  //   * WoRMS view: show "WoRMS" badge — filled for WoRMS-only, outline for
+  //     CoL+WoRMS matches (see legacy comment below).
   let wormsBadge = null;
-  if (taxon.worms_id && state.treeSource !== "col") {
+  let colBadge = null;
+  if (state.treeSource === "col" && taxon.coldp_id && !taxon.worms_id) {
+    colBadge = el(
+      "span",
+      {
+        class:
+          "text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-on-surface-variant/10 text-on-surface-variant no-underline cursor-default",
+        title: `CoL-only — ColDP ID ${taxon.coldp_id} (no WoRMS match).`,
+      },
+      "CoL",
+    );
+  } else if (taxon.worms_id && state.treeSource !== "col") {
     const isWormsOnly = !taxon.coldp_id;
     wormsBadge = el(
       "a",
@@ -407,6 +418,7 @@ function renderNodeRow(taxon, opts = {}) {
     "div",
     { class: "flex items-center gap-2 shrink-0" },
     wormsBadge,
+    colBadge,
     statusDot(taxon.status),
     taxon.species_count
       ? el(
@@ -751,10 +763,26 @@ function renderDetailPanel() {
       ),
     );
   }
+  // CoL source badge — only in CoL view for CoL-only taxa (no WoRMS match).
+  // Mirrors the WoRMS badge symmetry: same outline weight, neutral gray so
+  // it doesn't compete with the rank badge.
+  if (state.treeSource === "col" && taxon.coldp_id && !taxon.worms_id) {
+    badges.appendChild(
+      el(
+        "span",
+        {
+          class:
+            "rank-badge uppercase tracking-[0.1em] px-2 py-0.5 rounded text-on-surface-variant bg-surface-container-highest",
+          title: `CoL-only — ColDP ID ${taxon.coldp_id} (no WoRMS match).`,
+        },
+        `CoL · ${taxon.coldp_id}`,
+      ),
+    );
+  }
   // WoRMS enrichment link — only in WoRMS view (CoL stays clean) and
   // only when the taxon has a worms_id. Clickable badge that jumps
   // straight to the WoRMS taxon page.
-  if (taxon.worms_id && state.treeSource !== "col") {
+  else if (taxon.worms_id && state.treeSource !== "col") {
     badges.appendChild(
       el(
         "a",
@@ -1211,7 +1239,7 @@ async function boot() {
     const h = await api("/api/health");
     document.getElementById("footer-status").textContent =
       `System Online · ${h.taxa.toLocaleString()} taxa · ${h.vernaculars.toLocaleString()} vernaculars`;
-  } catch (e) {
+  } catch {
     document.getElementById("footer-status").textContent = "API unreachable";
     document
       .getElementById("footer-status")
