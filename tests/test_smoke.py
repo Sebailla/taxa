@@ -12,9 +12,10 @@ locally running server.
 """
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient  # type: ignore[import-not-found]
 
-from api.server import app  # type: ignore[import-not-found]
+from api.server import DB_PATH, app  # type: ignore[import-not-found]
 
 
 client = TestClient(app)
@@ -83,11 +84,18 @@ def test_static_app_js_served():
 
 def test_health_endpoint_returns_503_without_db():
     """
-    Without taxa.db present, /api/health should return 503 with a clear
-    message - not 500 or a crash. This is the expected behaviour for a
-    fresh checkout before ETL has run.
+    Without taxa.db present, /api/health must return 503 with a clear
+    message — not 500 with a stack trace, not 200 with a lie.
+
+    This test is only meaningful when the DB is missing. On a developer
+    machine where ETL has run, /api/health will return 200, which is the
+    correct behaviour but tells us nothing about the 503 path. So we skip
+    locally and rely on CI (no taxa.db in the runner) to enforce it.
     """
+    if DB_PATH.exists():
+        pytest.skip(
+            f"taxa.db present at {DB_PATH}; the 503 path is exercised by CI"
+        )
     resp = client.get("/api/health")
-    assert resp.status_code in (200, 503)
-    if resp.status_code == 503:
-        assert "taxa.db" in resp.text or "ETL" in resp.text
+    assert resp.status_code == 503
+    assert "taxa.db" in resp.text or "ETL" in resp.text
