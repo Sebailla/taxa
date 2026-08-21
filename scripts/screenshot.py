@@ -18,7 +18,7 @@ from __future__ import annotations
 import sys
 import time
 from pathlib import Path
-from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
+from playwright.sync_api import expect, sync_playwright  # type: ignore[import-not-found]
 
 BASE_URL = "http://127.0.0.1:8765"
 OUT_DIR = Path(__file__).resolve().parent.parent / "screenshots"
@@ -61,8 +61,12 @@ def main() -> int:
         shot(page, "01-col-view-default", captured)
 
         print("[2/4] Toggle to WoRMS view")
-        page.click('#tree-source-toggle [data-tree-source="worms"]')
-        page.wait_for_timeout(800)  # let the tree re-render
+        # Wait for the toggle's aria-pressed to flip to 'true' as the
+        # source of truth that the view switch completed (replaces a
+        # 800ms magic wait that was the most likely source of CI flake).
+        worms_toggle = page.locator('#tree-source-toggle [data-tree-source="worms"]')
+        worms_toggle.click()
+        expect(worms_toggle).to_have_attribute("aria-pressed", "true", timeout=5000)
         shot(page, "02-worms-view", captured)
 
         print("[3/4] Expand Biota → Animalia in WoRMS view")
@@ -73,7 +77,15 @@ def main() -> int:
         biota = page.locator('[data-taxon-id="5413596"]').first
         if biota.count():
             biota.click()
-            page.wait_for_timeout(1200)
+            # Wait for the tree to grow by at least 8 rows (Biota's
+            # WoRMS kingdoms: Animalia, Archaea, Bacteria, Chromista,
+            # Fungi, Plantae, Protozoa, Viruses). Threshold-based so it
+            # works regardless of the specific ids assigned in any
+            # DB build — no magic 1200ms wait.
+            initial_count = page.locator("#tree-view [data-taxon-id]").count()
+            expect(page.locator("#tree-view [data-taxon-id]")).to_have_count(
+                initial_count + 8, timeout=5000
+            )
             shot(page, "03-worms-biota-expanded", captured)
         else:
             print(
@@ -102,8 +114,14 @@ def main() -> int:
             shot(page, "04-col-view-diaphorina-detail", captured)
             browser.close()
         else:
-            # Give boot() time to expand ancestors + load detail (5-deep path).
-            page.wait_for_timeout(5000)
+            # Wait for boot() to expand the 9-level ancestor chain AND
+            # loadDetail() to populate the panel. The .detail-card class
+            # is only added once renderDetailPanel() has actual content
+            # (not the loading stub), so it's a true end-of-render signal
+            # — no magic 5s wait needed.
+            page.wait_for_selector(
+                "#detail-panel .detail-card", timeout=15000
+            )
             # Diagnostic: dump panel state + selected/detail values.
             panel_class = page.locator("#detail-panel").get_attribute("class")
             panel_html_len = page.evaluate(
