@@ -12,6 +12,8 @@ locally running server.
 """
 from __future__ import annotations
 
+import os
+
 import pytest
 from fastapi.testclient import TestClient  # type: ignore[import-not-found]
 
@@ -91,10 +93,19 @@ def test_health_endpoint_returns_503_without_db():
     machine where ETL has run, /api/health will return 200, which is the
     correct behaviour but tells us nothing about the 503 path. So we skip
     locally and rely on CI (no taxa.db in the runner) to enforce it.
+
+    To force the 503 path locally (e.g. when CI is broken and you want to
+    verify the failure mode without waiting for the runner), set
+    FORCE_HEALTH_503=1 in the environment. The skip is bypassed and the
+    assertion runs even with taxa.db present — the assertion will fail
+    on a developer machine because /api/health returns 200, which is
+    exactly the safety net we want: the test only passes when the 503
+    path is genuinely exercised.
     """
-    if DB_PATH.exists():
+    if DB_PATH.exists() and not os.environ.get("FORCE_HEALTH_503"):
         pytest.skip(
-            f"taxa.db present at {DB_PATH}; the 503 path is exercised by CI"
+            f"taxa.db present at {DB_PATH}; the 503 path is exercised by CI "
+            "(set FORCE_HEALTH_503=1 to force locally)"
         )
     resp = client.get("/api/health")
     assert resp.status_code == 503
