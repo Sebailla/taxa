@@ -1,0 +1,32 @@
+# Local Pi runtime state
+.atl/
+.pi/
+
+# API key — DO NOT COMMIT
+.mcp.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Data — large local snapshots
+data/raw/
+data/db/*.db
+data/db/*.db-shm
+data/db/*.db-wal
+data/*.log
+
+# Editors
+.vscode/
+.idea/
+.DS_Store

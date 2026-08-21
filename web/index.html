@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Taxonomic Tree</title>
+    <style>
+      @layer base {
+        html,
+        body {
+          margin: 0;
+          padding: 0;
+        }
+        body {
+          overscroll-behavior: none;
+          font-family: "Raleway", sans-serif;
+          color: #333333;
+          background: #ffffff;
+          line-height: 1.6;
+        }
+        main > :first-child {
+          margin-top: 0 !important;
+        }
+        main > :last-child {
+          margin-bottom: 0 !important;
+        }
+      }
+
+      /* Design tokens — exposed as CSS variables so plain-CSS rules
+             (not just Tailwind classes) can read them. Tailwind CDN
+             generates its own copies for its own utility classes. */
+      :root {
+        --primary: #1d7ea9;
+        --accent: #176587;
+        --surface: #ffffff;
+        --elevated: #bbbbbb;
+        --on-surface: #333333;
+        --on-surface-variant: #555555;
+        --outline: #bbbbbb;
+        --outline-variant: #d9d9d9;
+        --surface-container-low: #fafafa;
+        --surface-container: #f5f5f5;
+        --surface-container-high: #eeeeee;
+        --surface-container-highest: #e8e8e8;
+      }
+      ::-webkit-scrollbar {
+        display: none;
+      }
+
+      /* Tier-group header — flat (no shadow), 8px radius, 1px border.
+             The brief calls for a flat aesthetic: depth comes from the
+             1px subtle border, not from elevation. */
+      .tier-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        background: var(--surface);
+        border-bottom: 1px solid var(--outline-variant);
+        border-radius: 8px;
+        margin-bottom: 4px;
+        position: relative;
+        z-index: 10;
+      }
+      .tier-header h2 {
+        font-family: "Raleway", sans-serif;
+        font-size: 16px;
+        font-weight: 600;
+        line-height: 1.4;
+        letter-spacing: 1px;
+        color: var(--on-surface);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      /* Button — #1D7EA9 bg, white text, 8px radius, 10px 16px, 600 weight */
+      .load-all {
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        font-weight: 600;
+        color: #ffffff;
+        padding: 10px 16px;
+        background: #1d7ea9;
+        border-radius: 8px;
+        border: 0;
+        cursor: pointer;
+        transition: background-color 200ms linear;
+      }
+      .load-all:hover {
+        background: #176587;
+      }
+      .load-all:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      /* Search results dropdown — flat, 8px radius, 1px subtle border.
+           z-index: 99 matches the brief's dropdown layer. isolation:
+           isolate forces a new stacking context so the dropdown isn't
+           trapped inside the header's backdrop-filter. */
+      #search-results {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        margin-top: 4px;
+        max-height: 480px;
+        overflow-y: auto;
+        background: #ffffff;
+        border: 1px solid #d9d9d9;
+        border-radius: 8px;
+        z-index: 99;
+        display: none;
+        isolation: isolate;
+      }
+      #search-results.open {
+        display: block;
+      }
+      .search-hit {
+        padding: 12px 16px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border-bottom: 1px solid #eeeeee;
+        transition: background-color 200ms linear;
+      }
+      .search-hit:hover {
+        background: #f5f5f5;
+      }
+      .search-hit:last-child {
+        border-bottom: 0;
+      }
+      .search-hit .tag {
+        font-family: "Raleway", sans-serif;
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-weight: 600;
+        line-height: 1.4;
+      }
+      /* Tags tinted with the new palette — flat, semantic, no shadows */
+      .tag-vernacular {
+        background: #fff8e1;
+        color: #b45309;
+      }
+      .tag-scientific {
+        background: #e3f2f9;
+        color: #1d7ea9;
+      }
+      .tag-authorship {
+        background: #f5f5f5;
+        color: #555555;
+      }
+
+      /* Tree-source toggle (CoL / WoRMS / All) — segmented control, flat,
+             8px radius, subtle 1px border. Active button fills with the
+             primary blue from the brief. */
+      .tree-source-toggle {
+        border: 1px solid var(--outline-variant);
+        border-radius: 8px;
+        overflow: hidden;
+        height: 32px;
+        background: var(--surface);
+      }
+      .tree-source-toggle .tree-source-btn {
+        padding: 0 12px;
+        height: 100%;
+        font-family: "Raleway", sans-serif;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        background: transparent;
+        color: var(--on-surface-variant);
+        border: 0;
+        cursor: pointer;
+        transition:
+          background-color 200ms linear,
+          color 200ms linear;
+      }
+      .tree-source-toggle .tree-source-btn:hover:not(.active) {
+        background: var(--surface-container-low);
+        color: var(--on-surface);
+      }
+      .tree-source-toggle .tree-source-btn.active {
+        background: #1d7ea9;
+        color: #ffffff;
+      }
+
+      /* Rank badge — Raleway, 11px, 600, 1px tracking (H4 from brief) */
+      .rank-badge {
+        font-family: "Raleway", sans-serif;
+        font-size: 11px;
+        line-height: 1.4;
+        letter-spacing: 1px;
+        font-weight: 600;
+      }
+
+      /* Detail panel — modern card with subtle layered shadow.
+             The shadow is multi-layered (close + mid + far) so the card feels
+             physically lifted off the tree behind it without being heavy.
+
+             sticky + top: 144px keeps the card pinned just below the breadcrumb
+             while the tree scrolls underneath. The tree's taxon rows carry
+             scroll-margin-top below so scrollIntoView centers them in the
+             remaining visible area, not the full viewport. */
+      #detail-panel {
+        position: sticky;
+        top: 144px;
+        z-index: 30;
+        animation: detail-card-enter 280ms cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      #detail-panel.closing {
+        animation: detail-card-leave 180ms cubic-bezier(0.4, 0, 0.6, 1) forwards;
+      }
+      @keyframes detail-card-enter {
+        from {
+          opacity: 0;
+          transform: translateY(-8px) scale(0.995);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+      @keyframes detail-card-leave {
+        from {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+        to {
+          opacity: 0;
+          transform: translateY(-6px) scale(0.995);
+        }
+      }
+      .detail-card {
+        background: #ffffff;
+        border: 1px solid rgba(15, 23, 42, 0.06);
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow:
+          0 1px 2px rgba(15, 23, 42, 0.04),
+          0 4px 12px rgba(15, 23, 42, 0.06),
+          0 12px 32px rgba(15, 23, 42, 0.04);
+        /* Keep the card from eating the whole viewport — scroll the
+               card's own content when a taxon has lots of vernaculars,
+               synonyms, or distribution entries. Otherwise the sticky
+               panel covers the tree and "center in remaining space"
+               becomes "center in zero space". */
+        max-height: min(560px, calc(100vh - 180px));
+        overflow-y: auto;
+      }
+      .detail-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--surface-container);
+      }
+      .detail-header h2 {
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: -0.015em;
+        line-height: 1.2;
+        margin-top: 4px;
+      }
+      .detail-section {
+        padding: 16px 24px;
+        border-bottom: 1px solid var(--surface-container);
+      }
+      .detail-section:last-child {
+        border-bottom: 0;
+      }
+      .detail-section h3 {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--on-surface-variant);
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .detail-section .count {
+        font-size: 11px;
+        color: var(--outline);
+        background: var(--surface-container-high);
+        padding: 1px 6px;
+        border-radius: 999px;
+        font-weight: 500;
+        letter-spacing: 0;
+      }
+      .detail-item {
+        font-size: 13px;
+        color: var(--on-surface);
+        padding: 7px 8px;
+        margin: 0 -8px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: background-color 120ms ease-out;
+      }
+      .detail-item:hover {
+        background-color: var(--surface-container-low);
+      }
+      .detail-item .lang {
+        font-size: 10px;
+        color: var(--outline);
+        background: var(--surface-container-high);
+        padding: 1px 5px;
+        border-radius: 4px;
+        font-family: "JetBrains Mono", monospace;
+        text-transform: uppercase;
+      }
+      .detail-item .country {
+        font-size: 10px;
+        color: var(--outline);
+        font-family: "JetBrains Mono", monospace;
+      }
+      .detail-item .authorship {
+        color: var(--on-surface-variant);
+        font-size: 12px;
+      }
+      .detail-item .means {
+        font-size: 10px;
+        padding: 1px 6px;
+        border-radius: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-weight: 600;
+      }
+      .means-native {
+        background: #dcfce7;
+        color: #166534;
+      }
+      .means-introduced {
+        background: #fed7aa;
+        color: #9a3412;
+      }
+      .means-uncertain {
+        background: #f3f4f6;
+        color: #6b7280;
+      }
+      .means-unknown {
+        background: #f3f4f6;
+        color: #9ca3af;
+      }
+
+      /* One-shot ping applied to a tree row that was just navigated to
+             from the search dropdown. Box-shadow expands outward and fades.
+             Uses linear easing (brief: 0.2s / 0.3s durations, linear) and the
+             primary color #1D7EA9 from the new palette. */
+      .search-pulse {
+        border-radius: 8px;
+        animation: search-pulse-anim 1.6s linear;
+      }
+      @keyframes search-pulse-anim {
+        0% {
+          box-shadow: 0 0 0 0 rgba(29, 126, 169, 0.55);
+        }
+        100% {
+          box-shadow: 0 0 0 16px rgba(29, 126, 169, 0);
+        }
+      }
+
+      /* scroll-margin-top reserves the space taken by the sticky header,
+             breadcrumb, and detail card so scrollIntoView({block: "center"})
+             centers the taxon row in the *visible tree area below the card*,
+             not the entire viewport. 64 (header) + 80 (breadcrumb) +
+             ~280 (card, worst case) ≈ 420 — slightly conservative. */
+      [id^="taxon-"] {
+        scroll-margin-top: 420px;
+      }
+    </style>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script id="tailwind-config">
+      // Design tokens — flat, modern, vibrant. Inspired by the Ant
+      // Design language but with an original palette of our own.
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              // Primary blue, used for selected rows, focus, links.
+              primary: "#1D7EA9",
+              // Darker variant for hover / pressed states.
+              accent: "#176587",
+              // Page surface — clean white per the brief.
+              surface: "#FFFFFF",
+              // Slightly raised panels (search dropdown, tier header).
+              elevated: "#BBBBBB",
+              // Body and heading text.
+              "on-surface": "#333333",
+              // Captions, authorship, secondary text.
+              "on-surface-variant": "#555555",
+              // Strong divider lines.
+              outline: "#BBBBBB",
+              // Default borders — #D9D9D9 from the brief.
+              "outline-variant": "#D9D9D9",
+              // Neutral container tones used as the muted row bg.
+              "surface-container-lowest": "#FFFFFF",
+              "surface-container-low": "#FAFAFA",
+              "surface-container": "#F5F5F5",
+              "surface-container-high": "#EEEEEE",
+              "surface-container-highest": "#E8E8E8",
+              background: "#FFFFFF",
+            },
+            borderRadius: {
+              DEFAULT: "0.5rem",
+              lg: "0.5rem",
+              xl: "0.5rem",
+              full: "0.75rem",
+            },
+            spacing: {
+              "indent-step": "1.5rem",
+              "row-padding-y": "0.5rem",
+              "margin-page": "2rem",
+              gutter: "1rem",
+              "row-padding-x": "1rem",
+            },
+            fontFamily: {
+              // Raleway across the board — the only typeface the brief
+              // asks for. mono-data stays monospaced for numerics.
+              "mono-data": ["JetBrains Mono", "monospace"],
+              "body-sm": ["Raleway", "sans-serif"],
+              "body-md": ["Raleway", "sans-serif"],
+              h1: ["Raleway", "sans-serif"],
+              display: ["Raleway", "sans-serif"],
+              "rank-label": ["Raleway", "sans-serif"],
+            },
+            fontSize: {
+              "mono-data": ["12px", { lineHeight: "16px", fontWeight: "400" }],
+              // Body — Raleway 11.9px / 1.6 from the brief.
+              "body-sm": ["11.9px", { lineHeight: "19px", fontWeight: "400" }],
+              "body-md": ["11.9px", { lineHeight: "19px", fontWeight: "400" }],
+              // H3 — Raleway 16px / 1.4 (tier headers, section titles).
+              h3: [
+                "16px",
+                { lineHeight: "22px", letterSpacing: "1px", fontWeight: "600" },
+              ],
+              // H4 — Raleway 14px / 1.4 (rank badges, sub-section labels).
+              h4: [
+                "14px",
+                { lineHeight: "20px", letterSpacing: "1px", fontWeight: "600" },
+              ],
+              // h1 in the tree — 18px 600 with the negative tracking the
+              // brief uses for hierarchy.
+              h1: [
+                "18px",
+                {
+                  lineHeight: "24px",
+                  letterSpacing: "-0.01em",
+                  fontWeight: "600",
+                },
+              ],
+              "rank-label": [
+                "11px",
+                {
+                  lineHeight: "16px",
+                  letterSpacing: "0.1em",
+                  fontWeight: "600",
+                },
+              ],
+            },
+          },
+        },
+      };
+    </script>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Raleway:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+    />
+  </head>
+  <body class="bg-surface font-body-md text-on-surface overflow-hidden">
+    <header
+      class="fixed top-0 w-full z-50 bg-surface/95 backdrop-blur-md shadow-[0_1px_8px_rgba(0,0,0,0.04)]"
+    >
+      <div
+        class="h-16 w-full px-row-padding-x flex items-center justify-between gap-gutter"
+      >
+        <div class="flex items-center gap-gutter min-w-0">
+          <h1 class="font-h1 text-h1 text-on-surface whitespace-nowrap">
+            Taxonomic Tree
+          </h1>
+          <div class="relative w-64 lg:w-96">
+            <span
+              class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[18px]"
+              >search</span
+            >
+            <input
+              id="search-input"
+              class="w-full bg-surface-container-low border border-outline-variant rounded-xl py-2 pl-10 pr-4 text-body-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all"
+              placeholder="Find taxon..."
+              type="text"
+              autocomplete="off"
+            />
+            <div id="search-results"></div>
+          </div>
+          <!-- Tree-source toggle: filter the tree to CoL or WoRMS only. -->
+          <div
+            class="tree-source-toggle flex items-center shrink-0"
+            id="tree-source-toggle"
+            role="group"
+            aria-label="Tree data source"
+          >
+            <button
+              type="button"
+              data-tree-source="col"
+              class="tree-source-btn active"
+              aria-pressed="true"
+            >
+              CoL
+            </button>
+            <button
+              type="button"
+              data-tree-source="worms"
+              class="tree-source-btn"
+            >
+              WoRMS
+            </button>
+          </div>
+        </div>
+        <nav class="flex items-center gap-6">
+          <a
+            id="nav-browser"
+            aria-current="page"
+            class="transition-colors text-primary font-bold"
+            href="#"
+            >Browser</a
+          >
+          <a
+            id="nav-classification"
+            class="text-body-sm text-on-surface-variant hover:text-on-surface transition-colors font-medium"
+            href="#"
+            >Classification</a
+          >
+          <a
+            id="nav-settings"
+            class="text-body-sm text-on-surface-variant hover:text-on-surface transition-colors font-medium"
+            href="#"
+            >Settings</a
+          >
+          <div
+            class="w-8 h-8 rounded-full bg-primary flex items-center justify-center ml-2"
+          >
+            <span class="material-symbols-outlined text-on-primary text-[18px]"
+              >person</span
+            >
+          </div>
+        </nav>
+      </div>
+    </header>
+
+    <main class="w-full pt-16 h-screen overflow-y-auto bg-[#f8fafc]">
+      <div class="flex flex-col w-full text-on-surface">
+        <div
+          class="sticky top-0 z-40 w-full px-margin-page py-6 border-b border-outline-variant/20 bg-surface/95 backdrop-blur-md"
+        >
+          <div class="flex items-center justify-between gap-gutter">
+            <nav
+              id="breadcrumb"
+              class="flex items-center gap-2 text-body-sm font-body-sm text-on-surface-variant min-w-0 overflow-x-auto"
+            ></nav>
+            <button
+              id="collapse-all"
+              class="shrink-0 flex items-center gap-1 text-body-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              title="Collapse all expanded nodes"
+            >
+              <span class="material-symbols-outlined text-[18px]"
+                >unfold_less</span
+              >
+              <span>Collapse all</span>
+            </button>
+          </div>
+        </div>
+        <div
+          class="flex flex-col w-full max-w-5xl mx-auto py-8 px-row-padding-x lg:px-0"
+        >
+          <div id="detail-panel" class="hidden mb-6"></div>
+          <div id="tree-view" class="flex flex-col gap-1 w-full relative">
+            <div class="text-center text-on-surface-variant py-12">
+              Loading domains…
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <footer
+      class="w-full bg-surface-container-low border-t border-outline-variant/30 py-8 mt-auto"
+    >
+      <div
+        class="w-full px-row-padding-x flex flex-col md:flex-row justify-between items-center gap-4 text-on-surface-variant text-body-sm"
+      >
+        <div class="flex items-center gap-4">
+          <span>© 2024 Taxonomic Database System</span>
+          <span class="text-outline-variant">|</span>
+          <a class="hover:text-on-surface" href="/docs" target="_blank"
+            >API docs</a
+          >
+          <a
+            class="hover:text-on-surface"
+            href="https://www.catalogueoflife.org"
+            target="_blank"
+            rel="noopener"
+            >Data: Catalogue of Life</a
+          >
+        </div>
+        <div class="flex items-center gap-6">
+          <span class="flex items-center gap-1 text-mono-data">
+            <span class="w-2 h-2 rounded-full bg-green-500"></span>
+            <span id="footer-status">System Online</span>
+          </span>
+          <span class="text-mono-data uppercase opacity-60">v0.3.0</span>
+        </div>
+      </div>
+    </footer>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
