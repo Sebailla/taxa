@@ -1,6 +1,7 @@
 {
-  "include": ["scripts", "api", "etl"],
-  "exclude": ["**/__pycache__", "data", "screenshots"],
+  "include": ["scripts", "api", "etl", "tests"],
+  "exclude": ["**/__pycache__", "data", "screenshots", ".venv"],
   "venvPath": ".",
-  "venv": ".venv"
+  "venv": ".venv",
+  "extraPaths": [".venv/lib/python3.14/site-packages"]
 }

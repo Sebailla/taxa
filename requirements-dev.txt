@@ -1,0 +1,13 @@
+# Development-only dependencies. Install with:
+#   pip install -r requirements.txt -r requirements-dev.txt
+#   playwright install chromium
+
+# Headless browser for visual review (scripts/screenshot.py)
+playwright==1.62.0
+
+# Test runner for CI + local smoke tests
+pytest==8.3.4
+
+# Async HTTP client used by FastAPI's TestClient (already a transitive dep
+# of FastAPI, pinned explicitly so CI doesn't surprise us).
+httpx==0.27.2
