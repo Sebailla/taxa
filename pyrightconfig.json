@@ -1,0 +1,6 @@
+{
+  "include": ["scripts", "api", "etl"],
+  "exclude": ["**/__pycache__", "data", "screenshots"],
+  "venvPath": ".",
+  "venv": ".venv"
+}
