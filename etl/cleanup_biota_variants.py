@@ -50,6 +50,16 @@ DB_PATH = Path(__file__).resolve().parent.parent / "data" / "db" / "taxa.db"
 TARGET_RANKS = ("form", "variety")
 TARGET_NAME = "Biota"
 
+# Investigation that motivated this script:
+#   date: 2026-08-21
+#   match count: 13 rows named 'Biota' with rank in (form, variety)
+#   post-load_coldp state: all parented to Platycladus orientalis (id=5315857),
+#     zero vernaculars, zero distribution references.
+# Hoisted to module scope so future readers can see the scope of the cleanup
+# without grepping git history or running the script on the current DB.
+INVESTIGATION_DATE = "2026-08-21"
+INVESTIGATION_ROW_COUNT = 13
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
