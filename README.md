@@ -147,3 +147,64 @@ etl/parse_textree.py             etl/load_coldp.py
 Catalogue of Life, Base release 2026-07-14, dataset 315777.
 DOI: https://doi.org/10.48580/d37j
 License: CC BY 4.0.
+
+## Development
+
+### Install dev dependencies
+
+```bash
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/playwright install chromium   # for scripts/screenshot.py
+```
+
+### Run tests
+
+```bash
+make test          # offline pytest suite (runs in CI, ~5s)
+make smoke         # live smoke test against `make api` (needs populated taxa.db)
+```
+
+The pytest suite in `tests/test_smoke.py` exercises the FastAPI app in-process
+via `TestClient` — no live server or DB needed, so it runs on a fresh checkout
+in seconds. CI runs it on every push and PR via `.github/workflows/ci.yml`.
+
+### Visual review (headless screenshots)
+
+```bash
+# 1. start the server in one terminal
+make api
+# 2. take screenshots in another
+.venv/bin/python scripts/screenshot.py
+```
+
+Captures land in `./screenshots/`:
+
+| File | Shows |
+| --- | --- |
+| `01-col-view-default.png` | CoL view at `/`, Eukaryota expanded |
+| `02-worms-view.png` | WoRMS view collapsed, single Biota root |
+| `03-worms-biota-expanded.png` | Biota expanded, 8 kingdoms with WoRMS badges |
+| `04-col-view-diaphorina-detail.png` | Diaphorina citri with the `COL · 35BY4` header badge |
+
+The script uses cache-busted reloads (`?nc={timestamp}#taxon_id`) so it always
+gets a fresh `boot()` pass — same-origin hash navigation alone wouldn't
+trigger a reload.
+
+## Database maintenance
+
+### One-shot cleanup of orphan Biota form/variety rows
+
+The CoL TextTree parser sometimes assigns `parent_id=NULL` to short infraspecific
+names like `Biota orientalis f. ...`. These surface as extra roots in
+`/api/domains` and conflict with the legitimate Biota superdomain (WoRMS root).
+
+`etl/cleanup_biota_variants.py` drops those rows safely:
+
+```bash
+.venv/bin/python etl/cleanup_biota_variants.py --dry-run   # preview
+.venv/bin/python etl/cleanup_biota_variants.py             # apply
+```
+
+The script is idempotent and refuses to delete rows that have vernacular or
+distribution references. Re-run any time after a fresh ETL to keep the root
+list clean.
