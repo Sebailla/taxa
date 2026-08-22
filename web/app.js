@@ -70,7 +70,15 @@ async function loadChildren(id) {
     // which is independent of CoL's parent_id. This lets Biota → Animalia
     // → Mollusca → ... drill through the marine tree even though those
     // CoL rows have parent_id pointing at Eukaryota, not Biota.
-    const src = state.treeSource === "worms" ? "&source=worms" : "";
+    // In Freshwater view the tree walks the freshwater overlay
+    // (freshwater_parent_id); the freshwater rows are isolated, so the
+    // CoL/WoRMS branches return empty for a freshwater taxon and vice
+    // versa. Without `source=freshwater` here, clicking the freshwater
+    // root fetches its CoL children (zero matches) and the tree looks
+    // empty.
+    let src = "";
+    if (state.treeSource === "worms") src = "&source=worms";
+    else if (state.treeSource === "freshwater") src = "&source=freshwater";
     let children = await api(`/api/taxon/${id}/children?limit=200${src}`);
     if (state.extantOnly) children = children.filter((t) => !t.is_extinct);
     node.children = children;
@@ -561,12 +569,17 @@ function renderNode(taxon, depth) {
 }
 
 // Decide whether a taxon passes the tree-source filter.
-//   col   — only CoL taxa (coldp_id IS NOT NULL)
-//   worms — only WoRMS taxa (worms_id IS NOT NULL); covers both
-//           CoL+WoRMS matches and WoRMS-only marine taxa
+//   col        — only CoL taxa (coldp_id IS NOT NULL)
+//   worms      — only WoRMS taxa (worms_id IS NOT NULL); covers both
+//                CoL+WoRMS matches and WoRMS-only marine taxa
+//   freshwater — only freshwater taxa (freshwater_id IS NOT NULL). The
+//                freshwater rows are isolated, so CoL-only and WoRMS-only
+//                rows get filtered out — otherwise the freshwater view
+//                would render all 6 domain roots mixed in.
 function matchesTreeSource(taxon) {
   if (state.treeSource === "col") return !!taxon.coldp_id;
   if (state.treeSource === "worms") return !!taxon.worms_id;
+  if (state.treeSource === "freshwater") return !!taxon.freshwater_id;
   return true;
 }
 
@@ -1114,8 +1127,14 @@ async function expandAncestorsOf(id) {
   // Walk the hierarchy that matches the current view. CoL uses
   // `parent_id` (the global backbone); WoRMS uses `worms_parent_id`
   // (Biota → kingdom → phylum → ... → species), independent of CoL.
+  // Freshwater uses `freshwater_parent_id`, isolated from both.
   const useWorms = state.treeSource === "worms";
-  let parentId = useWorms ? taxon.taxon.worms_parent_id : taxon.taxon.parent_id;
+  const useFreshwater = state.treeSource === "freshwater";
+  let parentId = useWorms
+    ? taxon.taxon.worms_parent_id
+    : useFreshwater
+      ? taxon.taxon.freshwater_parent_id
+      : taxon.taxon.parent_id;
   while (parentId) {
     if (!state.expanded.has(parentId)) {
       await loadChildren(parentId);
@@ -1137,7 +1156,9 @@ async function expandAncestorsOf(id) {
     const parent = state.cache.get(parentId);
     parentId = useWorms
       ? parent?.taxon.worms_parent_id
-      : parent?.taxon.parent_id;
+      : useFreshwater
+        ? parent?.taxon.freshwater_parent_id
+        : parent?.taxon.parent_id;
   }
 }
 
@@ -1242,30 +1263,30 @@ async function boot() {
       .previousElementSibling.classList.add("bg-red-500");
   }
 
-// Load the 4 domains as roots.
-      const roots = await api("/api/domains");
-      for (const r of roots) {
-        state.cache.set(r.id, { taxon: r, children: null });
-      }
-      state.roots = roots;
+  // Load the 4 domains as roots.
+  const roots = await api("/api/domains");
+  for (const r of roots) {
+    state.cache.set(r.id, { taxon: r, children: null });
+  }
+  state.roots = roots;
 
-      // If freshwater is loaded, append a "Freshwater" toggle button. The
-      // event delegation set up at module-load handles its click.
-      if (roots.some((r) => r.freshwater_id != null)) {
-        const toggle = document.getElementById("tree-source-toggle");
-        if (toggle && !toggle.querySelector('[data-tree-source="freshwater"]')) {
-          const freshBtn = el(
-            "button",
-            {
-              type: "button",
-              "data-tree-source": "freshwater",
-              class: "tree-source-btn",
-            },
-            "Freshwater",
-          );
-          toggle.appendChild(freshBtn);
-        }
-      }
+  // If freshwater is loaded, append a "Freshwater" toggle button. The
+  // event delegation set up at module-load handles its click.
+  if (roots.some((r) => r.freshwater_id != null)) {
+    const toggle = document.getElementById("tree-source-toggle");
+    if (toggle && !toggle.querySelector('[data-tree-source="freshwater"]')) {
+      const freshBtn = el(
+        "button",
+        {
+          type: "button",
+          "data-tree-source": "freshwater",
+          class: "tree-source-btn",
+        },
+        "Freshwater",
+      );
+      toggle.appendChild(freshBtn);
+    }
+  }
 
   // Pre-expand Eukaryota (most populous) for a useful initial view.
   const euk = roots.find((r) => r.scientific_name === "Eukaryota");
