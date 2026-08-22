@@ -20,13 +20,16 @@ import pytest
 
 # Path to the loader under test. It's run as a subprocess so each test
 # inherits a clean Python module cache (no state bleeds across tests).
-LOADER = Path(__file__).resolve().parent.parent / "load_freshwater.py"
+# Invoked with `-m etl.load_freshwater` (not the direct script path) so
+# `from etl.migrations import ...` inside the loader resolves correctly —
+# Python only adds the project root to sys.path when running as a module.
+LOADER_MODULE = "etl.load_freshwater"
 
 
 def _run_loader(db_path: Path, csv_path: Path) -> subprocess.CompletedProcess:
     """Invoke the loader as a subprocess. Mirrors `make freshwater` usage."""
     return subprocess.run(
-        [sys.executable, str(LOADER), str(csv_path), str(db_path)],
+        [sys.executable, "-m", LOADER_MODULE, str(csv_path), str(db_path)],
         capture_output=True,
         text=True,
     )

@@ -30,6 +30,12 @@ import re
 import sqlite3
 import sys
 import time
+from pathlib import Path
+
+# pyright: ignore — pyright can't resolve `etl.migrations` against this
+# project's package layout. The import resolves fine at runtime
+# (verified by all 14 etl tests); this is a static-checker false positive.
+from etl.migrations import apply_pending_migrations  # pyright: ignore
 
 DB_PATH = "data/db/taxa.db"
 
@@ -60,7 +66,9 @@ def main():
     cur.execute("PRAGMA journal_mode = WAL")
     cur.execute("PRAGMA synchronous = NORMAL")
 
-    # Migration: worms_id column + index. Idempotent.
+    # Migration: worms_id column + index. Idempotent. Kept for legacy DBs
+    # that predate schema versioning — new DBs get worms_id from schema.sql
+    # (the v1 base) or the coldp loader's v2 migration.
     cols = {row[1] for row in cur.execute("PRAGMA table_info(taxon)")}
     if "worms_id" not in cols:
         cur.execute("ALTER TABLE taxon ADD COLUMN worms_id INTEGER")
@@ -68,6 +76,12 @@ def main():
             "CREATE INDEX IF NOT EXISTS idx_taxon_worms "
             "ON taxon(worms_id) WHERE worms_id IS NOT NULL"
         )
+
+    # Migration: apply pending schema migrations (idempotent via PRAGMA
+    # user_version). For a freshly-built DB the runner is a no-op; for a
+    # DB that's somehow behind (e.g. partial build) this catches up.
+    schema_dir = Path(__file__).resolve().parent
+    apply_pending_migrations(con, schema_dir)
 
     # Wipe any previous WoRMS enrichment so re-running is idempotent.
     # This only removes rows with worms_id set — CoL data (worms_id IS NULL)

@@ -20,6 +20,11 @@ import sys
 import time
 from pathlib import Path
 
+# pyright: ignore — pyright can't resolve `etl.migrations` against this
+# project's package layout. The import resolves fine at runtime
+# (verified by all 14 etl tests); this is a static-checker false positive.
+from etl.migrations import apply_pending_migrations  # pyright: ignore
+
 
 def main() -> int:
     if len(sys.argv) != 3:
@@ -27,7 +32,6 @@ def main() -> int:
         return 1
     coldp_dir = Path(sys.argv[1])
     db_path = Path(sys.argv[2])
-    schema_v2 = Path(__file__).parent / "schema_v2.sql"
 
     if not db_path.exists():
         print(f"DB not found: {db_path}")
@@ -46,6 +50,9 @@ def main() -> int:
 
     # Idempotent migration: ensure coldp_id column exists. SQLite has no
     # ADD COLUMN IF NOT EXISTS; pragma_table_info is the portable check.
+    # These ALTER TABLEs are kept for legacy DBs that predate the v2
+    # schema versioning; new DBs are created with coldp_id + is_extinct
+    # already in schema.sql (the v1 base).
     cur.execute("PRAGMA table_info(taxon)")
     cols = {row[1] for row in cur.fetchall()}
     if "coldp_id" not in cols:
@@ -55,7 +62,12 @@ def main() -> int:
         cur.execute("ALTER TABLE taxon ADD COLUMN is_extinct INTEGER NOT NULL DEFAULT 0")
         print("  migrated: added taxon.is_extinct")
 
-    conn.executescript(schema_v2.read_text())
+    # Migration: apply pending schema migrations (idempotent via PRAGMA
+    # user_version). v2 adds the vernacular table, FTS5, and indexes.
+    # This MUST run after the coldp_id ALTER above because v2's
+    # `CREATE INDEX ON taxon(coldp_id)` needs the column to exist.
+    schema_dir = Path(__file__).resolve().parent
+    apply_pending_migrations(conn, schema_dir)
 
     # ------------------------------------------------------------------
     # Phase 1: load NameUsage.tsv (coldp_id, name, rank) for accepted taxa.

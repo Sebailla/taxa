@@ -29,6 +29,12 @@ import sys
 import time
 from pathlib import Path
 
+# pyright: ignore — pyright can't resolve `etl.migrations` against this
+# project's package layout even with py.typed + non-empty __init__.py.
+# The import resolves fine at runtime (verified by all 14 etl tests);
+# this is a static-checker false positive.
+from etl.migrations import apply_pending_migrations  # pyright: ignore
+
 
 def main() -> int:
     if len(sys.argv) != 3:
@@ -36,7 +42,6 @@ def main() -> int:
         return 1
     coldp_dir = Path(sys.argv[1])
     db_path = Path(sys.argv[2])
-    schema_v3 = Path(__file__).parent / "schema_v3.sql"
 
     if not db_path.exists():
         print(f"DB not found: {db_path}")
@@ -54,8 +59,11 @@ def main() -> int:
     conn = sqlite3.connect(db_path, isolation_level=None)
     cur = conn.cursor()
 
-    # Apply schema (idempotent CREATE TABLE / INDEX IF NOT EXISTS).
-    conn.executescript(schema_v3.read_text())
+    # Migration: apply pending schema migrations (idempotent via PRAGMA
+    # user_version). The coldp_id column must exist before v2 can run;
+    # `make coldp` is a prerequisite.
+    schema_dir = Path(__file__).resolve().parent
+    apply_pending_migrations(conn, schema_dir)
 
     # ------------------------------------------------------------------
     # Phase 1: stream Distribution.tsv, look up taxon by coldp_id,

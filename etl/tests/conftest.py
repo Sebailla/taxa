@@ -63,11 +63,16 @@ def bootstrapped_db(tmp_path):
     to a pre-bootstrapped SQLite file matches the production setup: the
     user runs `parse_textree.py` (or `make etl`) once, then runs the
     loaders against the same file. Tests mirror that contract by
-    pre-creating the schema.
+    pre-creating the schema and stamping PRAGMA user_version = 4 so the
+    migration runner (etl.migrations) treats the DB as already at the
+    current schema version. Without the user_version stamp the runner
+    would try to apply schema_v4.sql again and hit
+    `duplicate column name: freshwater_id` on the freshwater_id ALTER.
     """
     db_path = tmp_path / "taxa.db"
     conn = sqlite3.connect(db_path)
     conn.executescript(BASE_SCHEMA)
+    conn.execute("PRAGMA user_version = 4")
     conn.commit()
     conn.close()
     yield db_path

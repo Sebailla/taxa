@@ -23,11 +23,11 @@ venv:
 
 download:
 	@mkdir -p data/raw
-	@if [ ! -f $(TEXTREE_FILE) ]; then \  # shellcheck disable=SC1089
+	@if [ ! -f "$(TEXTREE_FILE)" ]; then \
 		echo "Downloading TextTree Base from CoL..."; \
-		curl -sSL -o $(TEXTREE_ZIP) "$(TEXTREE_URL)"; \
-		unzip -o -q $(TEXTREE_ZIP) -d data/raw/textree_base; \
-	else \  # shellcheck disable=SC1089
+		curl -sSL -o "$(TEXTREE_ZIP)" "$(TEXTREE_URL)"; \
+		unzip -o -q "$(TEXTREE_ZIP)" -d data/raw/textree_base; \
+	else \
 		echo "TextTree already downloaded"; \
 	fi
 
@@ -35,15 +35,15 @@ etl: download
 	.venv/bin/python3 etl/parse_textree.py $(TEXTREE_FILE) $(DB)
 
 coldp:
-	@if [ ! -d $(COLDP_DIR) ]; then \  # shellcheck disable=SC1089
+	@if [ ! -d "$(COLDP_DIR)" ]; then \
 		echo "Downloading ColDP from CoL (1 GB)..."; \
 		mkdir -p data/raw/coldp; \
 		curl -sSL -o data/raw/coldp/coldp.zip "$(COLDP_URL)"; \
-		unzip -o -q data/raw/coldp/coldp.zip -d $(COLDP_DIR); \
-	else \  # shellcheck disable=SC1089
+		unzip -o -q data/raw/coldp/coldp.zip -d "$(COLDP_DIR)"; \
+	else \
 		echo "ColDP already extracted at $(COLDP_DIR)"; \
 	fi
-	.venv/bin/python3 etl/load_coldp.py $(COLDP_DIR) $(DB)
+	.venv/bin/python3 -m etl.load_coldp $(COLDP_DIR) $(DB)
 
 # Selector: load sources independently. WoRMS is ENRICHMENT over CoL —
 # matched by (name, rank), worms_id added to existing CoL rows, WoRMS-only
@@ -56,7 +56,31 @@ coldp:
 #
 # Each is idempotent. Re-running worms clears worms_id and re-enriches.
 worms: $(WORMS_TSV)
-	.venv/bin/python3 etl/load_worms.py $(WORMS_TSV)
+	.venv/bin/python3 -m etl.load_worms $(WORMS_TSV)
+
+# Freshwater fish (cladification from the user's Google Sheet) — ISOLATED tree
+# with its own synthetic root, separate from CoL and WoRMS. Manual workflow:
+# the user exports the Sheet to CSV and drops it at data/raw/freshwater.csv.
+#
+# The spreadsheet has no explicit parent IDs nor a rank column — rank is
+# inferred from which taxonomic columns are populated and the parent chain
+# is reconstructed by scripts/transform_freshwater.py. The loader reads the
+# flat (freshwater_id, freshwater_parent_id, rank, name, authorship) format
+# produced by that step.
+#
+# Usage:
+#   make freshwater                       # load the CSV into taxa.db
+#   make load-all                         # col + worms + freshwater
+#
+# Each is idempotent. Re-running freshwater clears freshwater_id and re-loads.
+FRESHWATER_CSV := data/raw/freshwater.csv
+freshwater:
+	@if [ ! -f $(FRESHWATER_CSV) ]; then \
+		echo "Missing $(FRESHWATER_CSV). Export your Freshwater Fishes Google Sheet to CSV and place it at this path."; \
+		exit 1; \
+	fi
+	.venv/bin/python3 scripts/transform_freshwater.py $(FRESHWATER_CSV)
+	.venv/bin/python3 -m etl.load_freshwater /tmp/freshwater.flat.csv
 
 # Freshwater fish (cladification from the user's Google Sheet) — ISOLATED tree
 # with its own synthetic root, separate from CoL and WoRMS. Manual workflow:
