@@ -63,11 +63,69 @@ def test_openapi_schema_is_valid_json():
         "/api/taxon/{taxon_id}/vernaculars",
         "/api/taxon/{taxon_id}/synonyms",
         "/api/taxon/{taxon_id}/distribution",
+        "/api/taxon/{taxon_id}/searches",
         "/api/search",
     }
     assert expected_paths.issubset(set(schema["paths"].keys())), (
         f"missing routes: {expected_paths - set(schema['paths'].keys())}"
     )
+
+
+def test_search_engine_contract():
+    """AC-21: api/server.py::_SEARCH_ENGINES and web/search_urls.js::SEARCH_ENGINES
+    must agree on `key`, `label`, and `with_authorship` in the same order.
+
+    This is the cross-file engine contract — it catches accidental drift
+    between the server's URL composer (Python) and the frontend's static
+    table (JS). Both files MUST stay byte-identical on these user-facing
+    fields. The `template` and `icon` fields are not compared (template is
+    server-only; icon is intentionally free to differ between the server's
+    material-symbols-outlined glyph and the frontend's unicode fallback).
+    """
+    import re
+    import ast
+
+    server_src = open("api/server.py").read()
+    js_src = open("web/search_urls.js").read()
+
+    # ---- Python side: extract _SEARCH_ENGINES literal via regex + ast.literal_eval
+    # The constant is a list of dicts, one per line. The regex `[^]]*` matches
+    # any char except `]` (including newlines), so the entire list literal —
+    # including nested strings — is captured in one match.
+    m = re.search(r"_SEARCH_ENGINES\s*=\s*(\[[^\]]*\])", server_src, re.DOTALL)
+    assert m is not None, (
+        "_SEARCH_ENGINES not found in api/server.py — keep the constant in "
+        "server.py (the AC-21 contract test reads it from there)."
+    )
+    py_entries = ast.literal_eval(m.group(1))
+
+    # ---- JS side: extract SEARCH_ENGINES entries via regex
+    # The JS template strings contain `{name}` and `{auth}` placeholders, which
+    # have `}` characters inside them — so we use `.*?` (any-char non-greedy)
+    # rather than `[^}]*?` to span the template strings safely. Each entry has
+    # exactly one `with_authorship: true|false`, so the non-greedy match stops
+    # at the right place.
+    js_entries = re.findall(
+        r'\{\s*key:\s*"([^"]+)",\s*label:\s*"([^"]+)",.*?with_authorship:\s*(true|false)',
+        js_src,
+        re.DOTALL,  # entries span multiple lines (template strings have \n)
+    )
+
+    assert len(py_entries) == len(js_entries), (
+        f"entry count drift: py={len(py_entries)} js={len(js_entries)}; "
+        "both must be exactly 14 engines"
+    )
+    for i, (py, js) in enumerate(zip(py_entries, js_entries)):
+        assert py["key"] == js[0], (
+            f"key drift at index {i}: py={py['key']!r} js={js[0]!r}"
+        )
+        assert py["label"] == js[1], (
+            f"label drift at index {i}: py={py['label']!r} js={js[1]!r}"
+        )
+        assert py["with_authorship"] == (js[2] == "true"), (
+            f"with_authorship drift at index {i}: "
+            f"py={py['with_authorship']} js={js[2]}"
+        )
 
 
 def test_static_index_html_served():
