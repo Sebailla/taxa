@@ -1,0 +1,13 @@
+# shellcheck global config for taxa.
+#
+# SC1089 ("Parsing stopped here") fires on every multi-line `if-then-else-fi`
+# in a Make recipe because the `@if ...; then \` line-continuation +
+# inline `# shellcheck disable=SC1089` directive is structurally unparseable
+# to shellcheck: the directive is never evaluated. The original developer
+# added the inline disables anyway; they are inert. Globally disabling the
+# code here keeps the pre-existing pattern in `download`, `coldp`, the
+# `load` selector, and the WoRMS download target as-is — refactoring all
+# four into single-line if-else is out of scope for this change.
+#
+# All other shellcheck codes remain enabled.
+disable=SC1089
