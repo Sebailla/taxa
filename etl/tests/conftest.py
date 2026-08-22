@@ -20,34 +20,57 @@ from pathlib import Path
 
 import pytest
 
-# Schema v1+v2+v3 (no freshwater overlay). Each test gets a fresh in-memory
-# connection so they're fully isolated.
+# Schema v1+v2+v3 w/ freshwater overlay (commit 2: cols exist in BASE_SCHEMA
+# so the loader-only tests work without the in-loader migration; commit 3
+# moves the migration into the loader and reverts BASE_SCHEMA).
 BASE_SCHEMA = """
 CREATE TABLE taxon (
-    id              INTEGER PRIMARY KEY,
-    parent_id       INTEGER REFERENCES taxon(id) ON DELETE CASCADE,
-    rank            TEXT    NOT NULL,
-    status          TEXT    NOT NULL CHECK (status IN ('accepted', 'synonym')),
-    scientific_name TEXT    NOT NULL,
-    authorship      TEXT,
-    path            TEXT,
-    species_count   INTEGER,
-    accepted_id     INTEGER REFERENCES taxon(id),
-    is_extinct      INTEGER NOT NULL DEFAULT 0,
-    coldp_id        TEXT,
-    worms_id        INTEGER
+    id                  INTEGER PRIMARY KEY,
+    parent_id           INTEGER REFERENCES taxon(id) ON DELETE CASCADE,
+    rank                TEXT    NOT NULL,
+    status              TEXT    NOT NULL CHECK (status IN ('accepted', 'synonym')),
+    scientific_name     TEXT    NOT NULL,
+    authorship          TEXT,
+    path                TEXT,
+    species_count       INTEGER,
+    accepted_id         INTEGER REFERENCES taxon(id),
+    is_extinct          INTEGER NOT NULL DEFAULT 0,
+    coldp_id            TEXT,
+    worms_id            INTEGER,
+    freshwater_id       INTEGER,
+    freshwater_parent_id INTEGER
 );
 """
 
 
 @pytest.fixture
 def db_conn():
-    """Fresh in-memory SQLite with the v1+v2+v3 schema (no freshwater cols)."""
+    """In-memory SQLite with the v1+v2+v3 schema (no freshwater cols)."""
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     conn.executescript(BASE_SCHEMA)
     yield conn
     conn.close()
+
+
+@pytest.fixture
+def bootstrapped_db(tmp_path):
+    """A bootstrapped SQLite file at `tmp_path/taxa.db` with the v1+v2+v3
+    schema (with the freshwater overlay columns). The loader is invoked
+    as a subprocess and reads/writes this file directly.
+
+    The loader requires the DB file to exist (per spec §7). Yielding a path
+    to a pre-bootstrapped SQLite file matches the production setup: the
+    user runs `parse_textree.py` (or `make etl`) once, then runs the
+    loaders against the same file. Tests mirror that contract by
+    pre-creating the schema.
+    """
+    db_path = tmp_path / "taxa.db"
+    conn = sqlite3.connect(db_path)
+    conn.executescript(BASE_SCHEMA)
+    conn.commit()
+    conn.close()
+    yield db_path
 
 
 @pytest.fixture
@@ -60,13 +83,10 @@ def write_csv(tmp_path):
             ["11", "10", "family", "Characidae", ""],
         ])
     """
-    def _write(rows, name="freshwater.csv", with_header=False):
+    def _write(rows, name="freshwater.csv"):
         path = tmp_path / name
         with path.open("w", encoding="utf-8", newline="") as fh:
             w = csv.writer(fh)
-            if with_header:
-                w.writerow(["freshwater_id", "freshwater_parent_id", "rank",
-                            "scientific_name", "authorship"])
             for r in rows:
                 w.writerow(r)
         return path
