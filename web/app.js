@@ -15,6 +15,8 @@
  *     specific species.
  */
 
+import { SEARCH_ENGINES } from "./search_urls.js";
+
 const API = ""; // same-origin (served by FastAPI)
 const PAGE_SIZE = 5; // children per tier group before "Load all"
 
@@ -40,6 +42,10 @@ const state = {
   detail: null,
   detailOpen: true,
   detailLoading: false,
+  // activeTab[taxonId] = tab key. The Búsquedas tab is the default on a
+  // fresh selection; explicit tab clicks persist so reopening the same
+  // taxon remembers which tab was active.
+  activeTab: {},
 };
 
 // ------------------------------------------------------------------
@@ -70,7 +76,15 @@ async function loadChildren(id) {
     // which is independent of CoL's parent_id. This lets Biota → Animalia
     // → Mollusca → ... drill through the marine tree even though those
     // CoL rows have parent_id pointing at Eukaryota, not Biota.
-    const src = state.treeSource === "worms" ? "&source=worms" : "";
+    // In Freshwater view the tree walks the freshwater overlay
+    // (freshwater_parent_id); the freshwater rows are isolated, so the
+    // CoL/WoRMS branches return empty for a freshwater taxon and vice
+    // versa. Without `source=freshwater` here, clicking the freshwater
+    // root fetches its CoL children (zero matches) and the tree looks
+    // empty.
+    let src = "";
+    if (state.treeSource === "worms") src = "&source=worms";
+    else if (state.treeSource === "freshwater") src = "&source=freshwater";
     let children = await api(`/api/taxon/${id}/children?limit=200${src}`);
     if (state.extantOnly) children = children.filter((t) => !t.is_extinct);
     node.children = children;
@@ -94,11 +108,12 @@ async function toggleExpand(id) {
   }
   await loadChildren(id);
   state.expanded.add(id);
-  // In WoRMS view, auto-unroll every tier of this node so the user sees
-  // the full marine subtree on a single click — Biota → Animalia → phylum
-  // → class → ... → species without hitting "Load N more" at every level.
-  // CoL view keeps the PAGE_SIZE=5 default to stay snappy.
-  if (state.treeSource === "worms") {
+  // In WoRMS view (and Freshwater view), auto-unroll every tier of this
+  // node so the user sees the full subtree on a single click — Biota →
+  // Animalia → phylum → class → ... → species without hitting "Load N
+  // more" at every level. CoL view keeps the PAGE_SIZE=5 default to stay
+  // snappy.
+  if (state.treeSource === "worms" || state.treeSource === "freshwater") {
     const kids = state.cache.get(id)?.children;
     if (kids && kids.length > 0) {
       for (const k of kids) state.showAll.add(`${id}::${k.rank}`);
@@ -423,6 +438,26 @@ function renderNodeRow(taxon, opts = {}) {
           speciesCountBadge(taxon.species_count),
         )
       : null,
+    // Per-row search icon — click selects the taxon and forces the
+    // Búsquedas tab. Hidden when scientific_name is empty (no useful
+    // search query possible). Position: end of metaBlock, right of the
+    // species count. Visual treatment (16px, hover-only color shift)
+    // matches design.md §4.4 — keeps the visual weight low so 16K-row
+    // trees don't get noisy.
+    taxon.scientific_name
+      ? el(
+          "button",
+          {
+            class:
+              "search-icon-btn material-symbols-outlined text-[16px] text-on-surface-variant hover:text-primary transition-colors",
+            "data-action": "open-searches",
+            "data-taxon-id": String(taxon.id),
+            title: `Search ${taxon.scientific_name} online`,
+            "aria-label": `Open search panel for ${taxon.scientific_name}`,
+          },
+          "search",
+        )
+      : null,
   );
 
   return el(
@@ -445,6 +480,7 @@ function renderNodeRow(taxon, opts = {}) {
 }
 
 const RANK_ORDER = [
+  "collection",
   "domain",
   "kingdom",
   "subkingdom",
@@ -561,12 +597,17 @@ function renderNode(taxon, depth) {
 }
 
 // Decide whether a taxon passes the tree-source filter.
-//   col   — only CoL taxa (coldp_id IS NOT NULL)
-//   worms — only WoRMS taxa (worms_id IS NOT NULL); covers both
-//           CoL+WoRMS matches and WoRMS-only marine taxa
+//   col        — only CoL taxa (coldp_id IS NOT NULL)
+//   worms      — only WoRMS taxa (worms_id IS NOT NULL); covers both
+//                CoL+WoRMS matches and WoRMS-only marine taxa
+//   freshwater — only freshwater taxa (freshwater_id IS NOT NULL). The
+//                freshwater rows are isolated, so CoL-only and WoRMS-only
+//                rows get filtered out — otherwise the freshwater view
+//                would render all 6 domain roots mixed in.
 function matchesTreeSource(taxon) {
   if (state.treeSource === "col") return !!taxon.coldp_id;
   if (state.treeSource === "worms") return !!taxon.worms_id;
+  if (state.treeSource === "freshwater") return !!taxon.freshwater_id;
   return true;
 }
 
@@ -601,7 +642,20 @@ function renderBreadcrumb() {
     nav.replaceChildren();
     return;
   }
-  // Walk up parent_id chain to build the path of the focused node.
+  // Walk up the source-aware parent chain. The three views use three
+  // independent hierarchies (parent_id, worms_parent_id, freshwater_parent_id)
+  // — walking parent_id for a freshwater taxon would return NULL on the
+  // first step (CSV rows have parent_id IS NULL) and the breadcrumb would
+  // render only the focused taxon with no ancestors. Same risk for WoRMS:
+  // a CoL-matched WoRMS taxon's parent_id points at the CoL backbone, not
+  // at the WoRMS chain.
+  const src = state.treeSource;
+  const parentIdOf = (t) =>
+    src === "worms"
+      ? t.worms_parent_id
+      : src === "freshwater"
+        ? t.freshwater_parent_id
+        : t.parent_id;
   const pathSegments = [];
   let currentId = state.focused;
   let safety = 30; // hard cap to avoid infinite loops on data corruption
@@ -613,7 +667,7 @@ function renderBreadcrumb() {
       name: node.taxon.scientific_name,
       rank: node.taxon.rank,
     });
-    currentId = node.taxon.parent_id;
+    currentId = parentIdOf(node.taxon);
   }
   if (pathSegments.length === 0) {
     nav.replaceChildren();
@@ -669,16 +723,33 @@ function renderBreadcrumb() {
 async function loadDetail(id) {
   state.detailLoading = true;
   try {
-    const [vern, syn, dist] = await Promise.all([
+    // The searches endpoint returns 422 when scientific_name is empty;
+    // mirror that guard client-side so we never trigger an avoidable
+    // error response.
+    const taxon = state.cache.get(id)?.taxon ?? (await loadTaxon(id));
+    const [vern, syn, dist, searches] = await Promise.all([
       api(`/api/taxon/${id}/vernaculars?limit=200`),
       api(`/api/taxon/${id}/synonyms?limit=200`),
       api(`/api/taxon/${id}/distribution?limit=200`),
+      taxon.scientific_name
+        ? api(`/api/taxon/${id}/searches`)
+        : Promise.resolve([]),
     ]);
     if (state.selected !== id) return; // user navigated away
-    state.detail = { vernaculars: vern, synonyms: syn, distribution: dist };
+    state.detail = {
+      vernaculars: vern,
+      synonyms: syn,
+      distribution: dist,
+      searches,
+    };
   } catch (e) {
     console.error("detail load failed", e);
-    state.detail = { vernaculars: [], synonyms: [], distribution: [] };
+    state.detail = {
+      vernaculars: [],
+      synonyms: [],
+      distribution: [],
+      searches: [],
+    };
   } finally {
     state.detailLoading = false;
     render();
@@ -700,6 +771,46 @@ function buildDetailSection(icon, title, count, items) {
   );
 }
 
+// Render the Búsquedas tab: a grid of 14 search-engine buttons, each
+// opening in a new tab. The URLs come pre-composed from the server
+// (urllib.parse.quote_plus); the icon glyph + label come from the local
+// SEARCH_ENGINES table as a fallback (offline / 5xx case). The server
+// response is the source of truth for the URL itself.
+//
+// Layout: 14 button-like cards in a CSS grid (auto-fill, 120px min).
+// Each card has the engine icon on top and the label underneath so the
+// user can scan all 14 at a glance. No arrow suffix — the icon
+// communicates "open in new tab" via the standard browser link
+// behaviour (target="_blank" on the <a>).
+function renderSearchesTab(searches) {
+  if (!searches || searches.length === 0) {
+    return el(
+      "div",
+      {
+        class: "text-body-sm text-on-surface-variant px-2 py-4 text-center",
+      },
+      "No search links available for this taxon.",
+    );
+  }
+  const items = searches.map((s) => {
+    const engine = SEARCH_ENGINES.find((e) => e.key === s.engine);
+    const icon = engine ? engine.icon : "search";
+    return el(
+      "a",
+      {
+        href: s.url,
+        target: "_blank",
+        rel: "noopener",
+        class: "search-engine-btn",
+        title: `Open ${s.label} search for this taxon in a new tab`,
+      },
+      el("span", { class: "material-symbols-outlined" }, icon),
+      el("span", null, s.label),
+    );
+  });
+  return el("div", { class: "search-engines-grid" }, ...items);
+}
+
 function renderDetailPanel() {
   const panel = document.getElementById("detail-panel");
   if (!state.detailOpen || !state.selected || !state.detail) {
@@ -711,10 +822,11 @@ function renderDetailPanel() {
   if (!taxon) return;
   const d = state.detail;
   const extinctCls = taxon.is_extinct ? "line-through opacity-70" : "";
+  const hasSearches = d.searches.length > 0;
   const hasVern = d.vernaculars.length > 0;
   const hasSyn = d.synonyms.length > 0;
   const hasDist = d.distribution.length > 0;
-  const hasAny = hasVern || hasSyn || hasDist;
+  const hasAny = hasSearches || hasVern || hasSyn || hasDist;
   if (!hasAny && !state.detailLoading) {
     panel.classList.add("hidden");
     panel.replaceChildren();
@@ -844,6 +956,78 @@ function renderDetailPanel() {
     );
   }
 
+  // ----- Tab strip ----------------------------------------------------
+  // Tabs in this order: Búsquedas first, then Vernáculares, Sinónimos,
+  // Distribución. Each non-Búsquedas tab is conditional on its data
+  // being non-empty (matches today's "hide empty sections" behaviour).
+  // Búsquedas is always shown when the panel renders so the per-row
+  // search icon always has a target.
+  const tabs = [];
+  tabs.push({ key: "busquedas", label: "Búsquedas", icon: "travel_explore" });
+  if (hasVern)
+    tabs.push({ key: "vernaculars", label: "Vernáculares", icon: "translate" });
+  if (hasSyn)
+    tabs.push({ key: "synonyms", label: "Sinónimos", icon: "history" });
+  if (hasDist)
+    tabs.push({ key: "distribution", label: "Distribución", icon: "public" });
+
+  // Decide the active tab. Per-taxon memory wins; otherwise default to
+  // Búsquedas (the new spec'd default) and fall back to the first
+  // available tab when Búsquedas isn't visible (e.g., empty name).
+  const taxonId = state.selected;
+  const remembered = state.activeTab[taxonId];
+  const activeKey = tabs.some((t) => t.key === remembered)
+    ? remembered
+    : tabs[0].key;
+  // Belt-and-braces: if for some reason tabs[0] is missing (empty
+  // tabs array — can't happen given Búsquedas is always pushed, but
+  // keep the guard), hide the panel.
+  if (!activeKey) {
+    panel.classList.add("hidden");
+    panel.replaceChildren();
+    return;
+  }
+  state.activeTab[taxonId] = activeKey;
+
+  // Tab strip — horizontal flex row of buttons. Click handler lives in
+  // the global delegation block; here we just stamp data-tab on each
+  // button. The active tab's button gets .active for the colored
+  // underline + primary text color.
+  const tabStrip = el(
+    "div",
+    { class: "detail-tabs" },
+    ...tabs.map((t) =>
+      el(
+        "button",
+        {
+          type: "button",
+          class: `detail-tab ${t.key === activeKey ? "active" : ""}`.trim(),
+          "data-tab": t.key,
+          "aria-pressed": t.key === activeKey ? "true" : "false",
+          role: "tab",
+        },
+        el("span", { class: "material-symbols-outlined text-[16px]" }, t.icon),
+        t.label,
+      ),
+    ),
+  );
+  card.appendChild(tabStrip);
+
+  // ----- Tab content --------------------------------------------------
+  // Each section is wrapped in a div with data-tab-content="<key>".
+  // Non-active sections are hidden via inline display:none — switching
+  // tabs is O(1) (just toggles a class on the strip and a style on the
+  // sections), no re-fetch.
+  const sections = [];
+  sections.push({
+    key: "busquedas",
+    node: el(
+      "div",
+      { class: "detail-section", "data-tab-content": "busquedas" },
+      renderSearchesTab(d.searches),
+    ),
+  });
+
   if (hasVern) {
     const items = d.vernaculars.map((v) => {
       const item = el("div", { class: "detail-item" });
@@ -854,13 +1038,18 @@ function renderDetailPanel() {
       item.appendChild(el("span", null, v.name));
       return item;
     });
-    card.appendChild(
-      buildDetailSection(
+    sections.push({
+      key: "vernaculars",
+      node: buildDetailSection(
         "translate",
         "Vernacular names",
         d.vernaculars.length,
         items,
       ),
+    });
+    sections[sections.length - 1].node.setAttribute(
+      "data-tab-content",
+      "vernaculars",
     );
   }
 
@@ -876,8 +1065,13 @@ function renderDetailPanel() {
         item.appendChild(el("span", { class: "authorship" }, s.authorship));
       return item;
     });
-    card.appendChild(
-      buildDetailSection("history", "Synonyms", d.synonyms.length, items),
+    sections.push({
+      key: "synonyms",
+      node: buildDetailSection("history", "Synonyms", d.synonyms.length, items),
+    });
+    sections[sections.length - 1].node.setAttribute(
+      "data-tab-content",
+      "synonyms",
     );
   }
 
@@ -891,14 +1085,25 @@ function renderDetailPanel() {
         el("span", null, x.area),
       );
     });
-    card.appendChild(
-      buildDetailSection(
+    sections.push({
+      key: "distribution",
+      node: buildDetailSection(
         "public",
         "Distribution",
         d.distribution.length,
         items,
       ),
+    });
+    sections[sections.length - 1].node.setAttribute(
+      "data-tab-content",
+      "distribution",
     );
+  }
+  for (const s of sections) {
+    if (s.key !== activeKey) {
+      s.node.setAttribute("style", "display: none;");
+    }
+    card.appendChild(s.node);
   }
 
   panel.classList.remove("hidden");
@@ -1010,6 +1215,20 @@ async function runSearch(q) {
 // Event delegation
 // ------------------------------------------------------------------
 document.addEventListener("click", (e) => {
+  // Tab strip — checked BEFORE the data-action branch because tab
+  // buttons carry data-tab but no data-action. Switching the active tab
+  // is O(1): just persist the choice in state.activeTab and re-render
+  // the detail panel (which hides non-active sections via inline style).
+  const tabBtn = e.target.closest("[data-tab]");
+  if (tabBtn) {
+    const tabKey = tabBtn.dataset.tab;
+    const taxonId = state.selected;
+    if (taxonId != null) {
+      state.activeTab[taxonId] = tabKey;
+      render();
+    }
+    return;
+  }
   const action = e.target.closest("[data-action]")?.dataset.action;
   if (!action) {
     if (
@@ -1035,6 +1254,20 @@ document.addEventListener("click", (e) => {
     state.focused = id;
     // Species are leaves: just select, no expansion.
     selectTaxon(id);
+  } else if (action === "open-searches") {
+    // Per-row search icon — selects the taxon and forces the Búsquedas
+    // tab to be active. The icon's data-taxon-id carries the id; the
+    // detail panel's tab state is set BEFORE selectTaxon so the
+    // subsequent render() sees the right default.
+    const id = parseInt(
+      e.target.closest("[data-taxon-id]").dataset.taxonId,
+      10,
+    );
+    if (Number.isFinite(id)) {
+      state.activeTab[id] = "busquedas";
+      selectTaxon(id);
+    }
+    return;
   } else if (action === "select-from-search") {
     const id = parseInt(
       e.target.closest("[data-taxon-id]").dataset.taxonId,
@@ -1114,8 +1347,14 @@ async function expandAncestorsOf(id) {
   // Walk the hierarchy that matches the current view. CoL uses
   // `parent_id` (the global backbone); WoRMS uses `worms_parent_id`
   // (Biota → kingdom → phylum → ... → species), independent of CoL.
+  // Freshwater uses `freshwater_parent_id`, isolated from both.
   const useWorms = state.treeSource === "worms";
-  let parentId = useWorms ? taxon.taxon.worms_parent_id : taxon.taxon.parent_id;
+  const useFreshwater = state.treeSource === "freshwater";
+  let parentId = useWorms
+    ? taxon.taxon.worms_parent_id
+    : useFreshwater
+      ? taxon.taxon.freshwater_parent_id
+      : taxon.taxon.parent_id;
   while (parentId) {
     if (!state.expanded.has(parentId)) {
       await loadChildren(parentId);
@@ -1127,7 +1366,7 @@ async function expandAncestorsOf(id) {
       // more" expands deeper tiers on demand. That keeps the DOM small
       // and avoids opening every kingdom/phylum/order/family/genus in the
       // chain just to reach a single deep target.
-      if (state.treeSource === "worms") {
+      if (state.treeSource === "worms" || state.treeSource === "freshwater") {
         const kids = state.cache.get(parentId)?.children;
         if (kids && kids.length > 0) {
           for (const k of kids) state.showAll.add(`${parentId}::${k.rank}`);
@@ -1137,7 +1376,9 @@ async function expandAncestorsOf(id) {
     const parent = state.cache.get(parentId);
     parentId = useWorms
       ? parent?.taxon.worms_parent_id
-      : parent?.taxon.parent_id;
+      : useFreshwater
+        ? parent?.taxon.freshwater_parent_id
+        : parent?.taxon.parent_id;
   }
 }
 
@@ -1209,6 +1450,10 @@ document.addEventListener("click", (e) => {
   }
   state.expanded.clear();
   state.showAll.clear();
+  // Reset per-taxon tab memory so the new view's detail panel starts
+  // on Búsquedas (the spec'd default). Switching from freshwater to CoL
+  // shouldn't carry over a Búsquedas tab from a freshwater-selected taxon.
+  state.activeTab = {};
   document
     .querySelectorAll("#tree-source-toggle [data-tree-source]")
     .forEach((b) => {
@@ -1242,30 +1487,30 @@ async function boot() {
       .previousElementSibling.classList.add("bg-red-500");
   }
 
-// Load the 4 domains as roots.
-      const roots = await api("/api/domains");
-      for (const r of roots) {
-        state.cache.set(r.id, { taxon: r, children: null });
-      }
-      state.roots = roots;
+  // Load the 4 domains as roots.
+  const roots = await api("/api/domains");
+  for (const r of roots) {
+    state.cache.set(r.id, { taxon: r, children: null });
+  }
+  state.roots = roots;
 
-      // If freshwater is loaded, append a "Freshwater" toggle button. The
-      // event delegation set up at module-load handles its click.
-      if (roots.some((r) => r.freshwater_id != null)) {
-        const toggle = document.getElementById("tree-source-toggle");
-        if (toggle && !toggle.querySelector('[data-tree-source="freshwater"]')) {
-          const freshBtn = el(
-            "button",
-            {
-              type: "button",
-              "data-tree-source": "freshwater",
-              class: "tree-source-btn",
-            },
-            "Freshwater",
-          );
-          toggle.appendChild(freshBtn);
-        }
-      }
+  // If freshwater is loaded, append a "Freshwater" toggle button. The
+  // event delegation set up at module-load handles its click.
+  if (roots.some((r) => r.freshwater_id != null)) {
+    const toggle = document.getElementById("tree-source-toggle");
+    if (toggle && !toggle.querySelector('[data-tree-source="freshwater"]')) {
+      const freshBtn = el(
+        "button",
+        {
+          type: "button",
+          "data-tree-source": "freshwater",
+          class: "tree-source-btn",
+        },
+        "Freshwater",
+      );
+      toggle.appendChild(freshBtn);
+    }
+  }
 
   // Pre-expand Eukaryota (most populous) for a useful initial view.
   const euk = roots.find((r) => r.scientific_name === "Eukaryota");
