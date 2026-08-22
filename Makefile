@@ -92,7 +92,7 @@ api:
 
 test:
 	@if [ ! -d .venv ]; then echo "missing .venv \u2014 run: make venv"; exit 1; fi
-	@.venv/bin/python -m pytest tests/ -v
+	@.venv/bin/python -m pytest tests/ etl/tests/ -v
 
 # Live smoke test against a running server (requires `make api` in another
 # terminal). Use this when you want to confirm a populated taxa.db responds
