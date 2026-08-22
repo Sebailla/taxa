@@ -41,6 +41,8 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from etl.migrations import apply_pending_migrations
+
 DB_PATH_DEFAULT = "data/db/taxa.db"
 
 # Mirrors RANK_ORDER in api/server.py + RANK_ORDER in web/app.js.
@@ -122,9 +124,13 @@ def load_freshwater(csv_path: Path, db_path: Path) -> int:
     cur.execute("PRAGMA journal_mode = WAL")
     cur.execute("PRAGMA synchronous = NORMAL")
 
-    # Migration: apply schema_v4.sql if the freshwater columns are missing.
+    # Migration: apply pending schema migrations (idempotent — the runner
+    # checks PRAGMA user_version and skips versions already applied). The
+    # coldp_id column must exist before v2 can run, so this assumes the
+    # coldp loader has already populated coldp_id (i.e. the user ran
+    # `make coldp` before `make freshwater`).
     schema_dir = Path(__file__).resolve().parent
-    _apply_schema_v4_if_needed(cur, schema_dir)
+    apply_pending_migrations(con, schema_dir)
 
     # Wipe prior freshwater rows. CoL rows (freshwater_id IS NULL) and WoRMS
     # rows (worms_id IS NOT NULL, freshwater_id IS NULL) are untouched.
