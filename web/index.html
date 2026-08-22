@@ -368,6 +368,64 @@
         }
       }
 
+      /* Detail panel tab strip — horizontal flex of tab buttons, one per
+             available data section. Búsquedas is the default; Vernáculares,
+             Sinónimos, Distribución are conditional on data presence.
+             Active tab gets a primary-color underline + primary text color
+             (matches the existing .tree-source-btn.active treatment so the
+             segmented-control language is consistent across the app). */
+      .detail-tabs {
+        display: flex;
+        gap: 0;
+        border-bottom: 1px solid var(--surface-container);
+        padding: 0 16px;
+        margin: 0 -16px 16px;
+      }
+      .detail-tab {
+        padding: 10px 14px;
+        font-family: "Raleway", sans-serif;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        color: var(--on-surface-variant);
+        background: transparent;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        transition:
+          color 120ms,
+          border-color 120ms;
+      }
+      .detail-tab:hover {
+        color: var(--on-surface);
+      }
+      .detail-tab.active {
+        color: var(--primary);
+        border-bottom-color: var(--primary);
+      }
+
+      /* Per-row search icon button — sits at the end of metaBlock, hidden
+             when scientific_name is empty (the JS conditional handles that).
+             Hover shifts the bg to surface-container-low and the icon color
+             to primary (Tailwind class handles the color shift). */
+      .search-icon-btn {
+        margin-left: 8px;
+        padding: 2px;
+        border-radius: 4px;
+        background: transparent;
+        border: 0;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .search-icon-btn:hover {
+        background: var(--surface-container-low);
+      }
+
       /* scroll-margin-top reserves the space taken by the sticky header,
              breadcrumb, and detail card so scrollIntoView({block: "center"})
              centers the taxon row in the *visible tree area below the card*,
