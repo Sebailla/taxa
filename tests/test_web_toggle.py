@@ -67,12 +67,15 @@ def api_server():
     """Spawn a fresh uvicorn on PORT for the duration of the module.
 
     Skips if the port is already in use (another test instance, the dev
-    API, etc.) or if uvicorn fails to come up in 10s.
+    API, etc.) or if uvicorn fails to come up in 10s. Uses sys.executable
+    so the fixture works in any environment that has uvicorn installed
+    (local .venv, system pip, CI image, etc.) — the previous hardcoded
+    .venv/bin/python3 path broke CI which installs packages globally.
     """
     if not _port_free(PORT):
         pytest.skip(f"port {PORT} is in use; cannot start test API server")
     proc = subprocess.Popen(
-        [".venv/bin/python3", "-m", "uvicorn", "api.server:app",
+        [sys.executable, "-m", "uvicorn", "api.server:app",
          "--host", "127.0.0.1", "--port", str(PORT), "--log-level", "warning"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -109,11 +112,19 @@ def _check_playwright_available():
 )
 def test_freshwater_toggle_renders_and_switches(api_server):
     """Open the page, assert the toggle has CoL/WoRMS/Freshwater, click
-    Freshwater, assert the freshwater root appears in the tree."""
+    Freshwater, assert the freshwater root appears in the tree.
+
+    Skips if the chromium binary is not installed (CI doesn't ship it
+    by default; local devs run `playwright install chromium` once).
+    """
     from playwright.sync_api import expect, sync_playwright  # type: ignore
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
+        try:
+            browser = pw.chromium.launch(headless=True)
+        except Exception as exc:  # FileNotFoundError on missing binary, plus
+                                   # the broad playwright errors.
+            pytest.skip(f"chromium binary not available: {exc!r}")
         try:
             page = browser.new_page()
             page.goto(api_server + "/", wait_until="domcontentloaded", timeout=10_000)
