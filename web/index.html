@@ -684,6 +684,42 @@
       </div>
     </header>
 
+    <!--
+      Schema-version banner. Hidden by default; web/banner.js removes
+      the `hidden` class when the DB's PRAGMA user_version is older than
+      the API's CURRENT_SCHEMA_VERSION (see /api/health response).
+      Pushed below the fixed header so it sits between header and main;
+      when hidden it collapses to zero height and the layout is unaffected.
+    -->
+    <div
+      id="version-banner"
+      class="hidden bg-amber-50 border-b-2 border-amber-400 text-amber-900 px-4 py-2.5 flex items-center gap-3 text-body-sm"
+      role="status"
+      aria-live="polite"
+    >
+      <span class="material-symbols-outlined text-[20px]"
+        >database_warning</span
+      >
+      <div class="flex-1 min-w-0">
+        <strong>DB schema outdated.</strong>
+        Current version
+        <code
+          id="version-banner-actual"
+          class="font-mono-data px-1 bg-amber-100 rounded"
+          >?</code
+        >, expected
+        <code
+          id="version-banner-expected"
+          class="font-mono-data px-1 bg-amber-100 rounded"
+          >?</code
+        >. Run
+        <code class="font-mono-data px-1 bg-amber-100 rounded"
+          >make etl &amp;&amp; make coldp</code
+        >
+        to upgrade.
+      </div>
+    </div>
+
     <main class="w-full pt-16 h-screen overflow-y-auto bg-[#f8fafc]">
       <div class="flex flex-col w-full text-on-surface">
         <div

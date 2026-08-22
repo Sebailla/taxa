@@ -19,6 +19,7 @@ Run:
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from pathlib import Path
 from typing import Optional
@@ -29,8 +30,15 @@ from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+# pyright: ignore — pyright can't resolve `etl.migrations` against this
+# project's package layout. The import resolves fine at runtime (verified
+# by all 14 etl tests); this is a static-checker false positive.
+from etl.migrations import CURRENT_SCHEMA_VERSION, get_applied_version  # pyright: ignore
+
 DB_PATH = Path(__file__).parent.parent / "data" / "db" / "taxa.db"
 WEB_DIR = Path(__file__).parent.parent / "web"
+
+_logger = logging.getLogger(__name__)
 
 
 def db() -> sqlite3.Connection:
@@ -45,9 +53,15 @@ def db() -> sqlite3.Connection:
 app = FastAPI(title="Taxa Tree API", version="0.2.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    # Local-only API — restrict CORS to localhost / 127.0.0.1 on any port.
+    # Same-origin requests (the typical case: frontend served by this app)
+    # bypass CORS entirely; this only matters when someone runs the
+    # frontend from a different port (e.g. Vite dev server on :5173)
+    # during local development. No remote origins are allowed.
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=False,
 )
 
 
@@ -180,6 +194,16 @@ def _vernaculars_for(conn: sqlite3.Connection, taxon_id: int) -> list[Vernacular
 
 @app.get("/api/health")
 def health():
+    """Liveness + DB stats + schema version.
+
+    The schema version fields (db_schema_version / expected_schema_version)
+    are how the frontend decides whether to show a "DB outdated" banner.
+    A mismatch is logged as a warning but does NOT fail the request — the
+    API still serves data (some columns may be missing on older DBs but
+    the existing endpoints all guard against that). The recovery is
+    `make etl && make coldp && make worms && make freshwater` (or any
+    subset that bumps PRAGMA user_version past the expected value).
+    """
     with db() as conn:
         n = conn.execute("SELECT COUNT(*) FROM taxon").fetchone()[0]
         n_vern = conn.execute("SELECT COUNT(*) FROM vernacular").fetchone()[0]
@@ -188,8 +212,24 @@ def health():
             n_dist = conn.execute("SELECT COUNT(*) FROM distribution").fetchone()[0]
         except sqlite3.OperationalError:
             n_dist = 0
-    return {"status": "ok", "taxa": n, "vernaculars": n_vern,
-            "extinct": n_extinct, "distribution": n_dist, "db": str(DB_PATH)}
+        db_version = get_applied_version(conn)
+    if db_version < CURRENT_SCHEMA_VERSION:
+        _logger.warning(
+            "DB schema version %d is older than expected %d; "
+            "run `make etl && make coldp` to upgrade",
+            db_version, CURRENT_SCHEMA_VERSION,
+        )
+    return {
+        "status": "ok",
+        "taxa": n,
+        "vernaculars": n_vern,
+        "extinct": n_extinct,
+        "distribution": n_dist,
+        "db": str(DB_PATH),
+        "db_schema_version": db_version,
+        "expected_schema_version": CURRENT_SCHEMA_VERSION,
+        "schema_outdated": db_version < CURRENT_SCHEMA_VERSION,
+    }
 @app.get("/api/domains", response_model=list[Taxon])
 def get_domains():
     """Top-level roots for the tree. Returns:
