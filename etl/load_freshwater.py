@@ -265,25 +265,40 @@ def load_freshwater(csv_path: Path, db_path: Path) -> int:
 
     cur.execute("COMMIT")
 
-    # Post-load: roll up species_count on the synthetic root via recursive
-    # CTE. Walk all descendants under the synthetic root and count rows
-    # whose rank is species or subspecies.
+    # Post-load: roll up species_count on EVERY freshwater node, not just
+    # the synthetic root. Each node's species_count = count of
+    # species/subspecies rows in its subtree.
+    #
+    # The naive "UPDATE … SET species_count = (correlated recursive
+    # CTE subquery)" doesn't work in SQLite — the inner reference to
+    # the outer table's id is ambiguous in the CTE's base case (it's
+    # also a self-reference). We split into two steps:
+    #   1. Build a (node_id, descendant_count) map via a single
+    #      recursive CTE that doesn't reference the outer table.
+    #   2. UPDATE the rows with that map.
     cur.execute(
         """
-        UPDATE taxon SET species_count = (
-            WITH RECURSIVE descendants(id) AS (
-                SELECT id FROM taxon WHERE freshwater_parent_id = :root_db_id
-                UNION ALL
-                SELECT t.id FROM taxon t JOIN descendants d
-                    ON t.freshwater_parent_id = d.id
-            )
-            SELECT COUNT(*) FROM descendants d
-            JOIN taxon t ON t.id = d.id
-            WHERE t.rank IN ('species', 'subspecies')
+        WITH RECURSIVE descendants(node_id, descendant_id) AS (
+            -- Each freshwater node contributes itself as a descendant.
+            SELECT id, id FROM taxon WHERE freshwater_id IS NOT NULL
+            UNION ALL
+            -- For each (node, descendant), find the descendant's
+            -- children within the freshwater tree.
+            SELECT d.node_id, c.id
+            FROM descendants d
+            JOIN taxon c ON c.freshwater_parent_id = d.descendant_id
+            WHERE c.freshwater_id IS NOT NULL
         )
-        WHERE id = :root_db_id
+        UPDATE taxon
+        SET species_count = (
+            SELECT COUNT(*)
+            FROM descendants d
+            JOIN taxon sub ON sub.id = d.descendant_id
+            WHERE d.node_id = taxon.id
+              AND sub.rank IN ('species', 'subspecies')
+        )
+        WHERE freshwater_id IS NOT NULL
         """,
-        {"root_db_id": root_db_id},
     )
 
     con.close()

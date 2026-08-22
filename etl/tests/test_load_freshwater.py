@@ -320,8 +320,9 @@ def test_load_freshwater_adds_columns_on_fresh_db(db_conn, write_csv, tmp_path):
 
 
 def test_load_freshwater_rolls_up_species_count(bootstrapped_db, write_csv):
-    """AC-7: After loading, the synthetic root's species_count equals the
-    total number of CSV rows whose rank is species or subspecies."""
+    """AC-7 + R-8: After loading, every freshwater node's species_count
+    equals the count of species/subspecies rows in its subtree (not just
+    the synthetic root's count)."""
     csv_path = write_csv([
         ["1", "", "collection", "Freshwater Fishes", ""],
         ["10", "1", "order", "Characiformes", ""],
@@ -344,14 +345,27 @@ def test_load_freshwater_rolls_up_species_count(bootstrapped_db, write_csv):
     )
     fresh = sqlite3.connect(db_path)
     fresh.row_factory = sqlite3.Row
-    root = fresh.execute(
-        "SELECT species_count FROM taxon WHERE freshwater_id = 1"
-    ).fetchone()
-    assert root is not None, "synthetic root not found"
-    # 4 species/subspecies total: mexicanus, fasciatus, mexicanus subsp.,
-    # plecostomus. (The earlier draft had 5; this fixture has 4.)
-    expected = 4
-    assert root["species_count"] == expected, (
-        f"species_count on root: expected {expected}, got {root['species_count']}"
-    )
+    # Each (scientific_name -> expected count) pair covers the entire
+    # fixture: root sees the grand total; each intermediate node sees
+    # only the species/subspecies in its own subtree.
+    expected_counts = {
+        "Freshwater Fishes": 4,    # root: 3 under Characiformes + 1 under Siluriformes
+        "Characiformes":     3,    # mexicanus, fasciatus, mexicanus subsp.
+        "Siluriformes":      1,    # plecostomus
+        "Characidae":         3,    # same 3 as under Characiformes
+        "Loricariidae":       1,    # same 1 as under Siluriformes
+        "Astyanax":           3,    # 2 species + 1 subspecies
+        "Hypostomus":         1,    # 1 species
+    }
+    rows = fresh.execute(
+        "SELECT scientific_name, rank, species_count "
+        "FROM taxon WHERE freshwater_id IS NOT NULL "
+        "ORDER BY rank, scientific_name"
+    ).fetchall()
+    seen = {r["scientific_name"]: r["species_count"] for r in rows}
+    for name, expected in expected_counts.items():
+        assert name in seen, f"missing taxon {name!r} in freshwater rows"
+        assert seen[name] == expected, (
+            f"species_count on {name!r}: expected {expected}, got {seen[name]}"
+        )
     fresh.close()
