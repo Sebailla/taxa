@@ -68,7 +68,7 @@ def test_openapi_schema_is_valid_json():
     )
 
 
-def test_search_engine_contract_byte_identical():
+def test_search_engine_contract():
     """AC-21: api/server.py::_SEARCH_ENGINES and web/search_urls.js::SEARCH_ENGINES
     must agree on `key`, `label`, and `with_authorship` in the same order.
 
@@ -105,6 +105,7 @@ def test_search_engine_contract_byte_identical():
     js_entries = re.findall(
         r'\{\s*key:\s*"([^"]+)",\s*label:\s*"([^"]+)",.*?with_authorship:\s*(true|false)',
         js_src,
+        re.DOTALL,  # entries span multiple lines (template strings have \n)
     )
 
     assert len(py_entries) == len(js_entries), (

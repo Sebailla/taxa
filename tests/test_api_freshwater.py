@@ -370,7 +370,7 @@ def test_searches_urls_are_well_formed(db_and_client):
         )
 
 
-def test_searches_with_authorship(db_and_client):
+def test_searches_authorship_on_bhl_and_scholar_only(db_and_client):
     """AC-17: For 'Astyanax mexicanus (De Filippi, 1853)':
     - bhl.url contains the authorship substring (De+Filippi or De%20Filippi)
     - scholar.url contains the authorship substring
@@ -433,7 +433,7 @@ def test_searches_url_encoding(db_and_client):
     )
 
 
-def test_searches_404_for_unknown_taxon(db_and_client):
+def test_searches_404_on_unknown_id(db_and_client):
         """AC-19: GET /api/taxon/999999999/searches returns 404 with a 'detail'
         field that names the missing id (consistent shape with the rest of the
         API: detail mentions the taxon id)."""
