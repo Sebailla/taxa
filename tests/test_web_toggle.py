@@ -504,3 +504,64 @@ def test_breadcrumb_walks_freshwater_chain(api_server):
             ).to_be_visible(timeout=5_000)
         finally:
             browser.close()
+
+
+DB_PATH = Path(__file__).resolve().parent.parent / "data" / "db" / "taxa.db"
+
+
+@pytest.mark.skipif(
+    _check_playwright_available() is None,
+    reason="playwright not installed (pip install playwright)",
+)
+def test_version_banner_shows_on_outdated_db(api_server):
+    """When the DB's PRAGMA user_version is older than the API's
+    CURRENT_SCHEMA_VERSION, the frontend must surface a persistent
+    banner with the version numbers. This pins the contract between
+    api.server's /api/health response and web/banner.js's render.
+
+    Test mechanism: temporarily lower PRAGMA user_version to 2 via a
+    separate read-write connection. The API opens each request with
+    mode=ro, but SQLite WAL propagates the writer's commit to the next
+    read. We restore the original value in a finally block so other
+    tests are unaffected.
+    """
+    import sqlite3
+    from playwright.sync_api import expect, sync_playwright  # type: ignore
+
+    base = api_server["base_url"]
+
+    # Save current version, lower it, run the test, restore.
+    rw = sqlite3.connect(DB_PATH)
+    original_version = rw.execute("PRAGMA user_version").fetchone()[0]
+    rw.execute("PRAGMA user_version = 2")
+    rw.commit()
+    rw.close()
+    try:
+        with sync_playwright() as pw:
+            try:
+                browser = pw.chromium.launch(headless=True)
+            except Exception as exc:
+                pytest.skip(f"chromium binary not available: {exc!r}")
+            try:
+                page = browser.new_page()
+                page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
+                # Banner element exists in the DOM (just hidden by default).
+                # When user_version (2) < expected (4), boot() removes the
+                # `hidden` class and writes the numbers into the spans.
+                banner = page.locator("#version-banner")
+                expect(banner).to_be_visible(timeout=5_000)
+                expect(
+                    page.locator("#version-banner-actual")
+                ).to_have_text("2", timeout=2_000)
+                expect(
+                    page.locator("#version-banner-expected")
+                ).to_have_text("4", timeout=2_000)
+            finally:
+                browser.close()
+    finally:
+        # Restore the original PRAGMA user_version so subsequent test runs
+        # (and the next time someone invokes `make api`) see the real value.
+        rw = sqlite3.connect(DB_PATH)
+        rw.execute(f"PRAGMA user_version = {original_version}")
+        rw.commit()
+        rw.close()
