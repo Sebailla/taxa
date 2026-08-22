@@ -143,7 +143,7 @@ etl/parse_textree.py             etl/load_coldp.py
 ## Data source
 
 Catalogue of Life, Base release 2026-07-14, dataset 315777.
-DOI: https://doi.org/10.48580/d37j
+DOI: <https://doi.org/10.48580/d37j>
 License: CC BY 4.0.
 
 ## Development
