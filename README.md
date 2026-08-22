@@ -171,8 +171,6 @@ etl/parse_textree.py             etl/load_coldp.py
   name (and the reverse, "what are all the names this species has had?").
   Useful for literature searches. ~45 MB.
 - **Distribution**: `Distribution.tsv` (122 MB) — geographic range per species.
-- **Detail panel** in the frontend: when you click a species, show its
-  vernaculars, synonyms, distribution in a side panel.
 - **Incremental sync**: CoL releases monthly. `make etl && make coldp` re-runs
   everything in ~10 min. For an automatic workflow, ChecklistBank has a
   job-based incremental mode.
@@ -180,7 +178,7 @@ etl/parse_textree.py             etl/load_coldp.py
 ## Data source
 
 Catalogue of Life, Base release 2026-07-14, dataset 315777.
-DOI: https://doi.org/10.48580/d37j
+DOI: <https://doi.org/10.48580/d37j>
 License: CC BY 4.0.
 
 ## Freshwater source
