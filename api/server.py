@@ -9,8 +9,9 @@ GET  /api/domains                                   → top-level domains
 GET  /api/taxon/{id}                                → single taxon + breadcrumb
 GET  /api/taxon/{id}/children                       → direct children (paginated)
 GET  /api/taxon/{id}/vernaculars                    → common names for this taxon
+GET  /api/taxon/{id}/searches                       → 14 server-composed search URLs
 GET  /api/search?q=                                 → search across scientific name,
-                                                       authorship AND vernacular
+                                                           authorship AND vernacular
 
 Run:
     uvicorn api.server:app --reload --port 8765
@@ -101,12 +102,27 @@ class Taxon(BaseModel):
     species_count: Optional[int]
     coldp_id: Optional[str]
     worms_id: Optional[int] = None
+    freshwater_id: Optional[int] = None
+    freshwater_parent_id: Optional[int] = None
     is_extinct: bool
     vernaculars: list[Vernacular] = []
 
 
+class SearchLink(BaseModel):
+    """A single pre-composed search-engine link for a taxon.
+
+    The URL is server-composed (urllib.parse.quote_plus) so the frontend
+    never has to build search queries itself. The 14 entries are produced
+    by `_build_search` from the `_SEARCH_ENGINES` module-level constant.
+    """
+    engine: str   # one of the 14 keys (e.g. "google", "wikipedia")
+    label: str    # display text (e.g. "Google", "Wikipedia")
+    url: str      # pre-computed, fully URL-encoded
+
+
 RANK_ORDER = """
     CASE rank
+        WHEN 'collection' THEN -1   -- synthetic root (reserved for "Freshwater Fishes"); sorts above domain
         WHEN 'domain' THEN 0
         WHEN 'kingdom' THEN 1
         WHEN 'phylum' THEN 2
@@ -140,6 +156,8 @@ def _row_to_taxon(row: sqlite3.Row, vernaculars: list[Vernacular] | None = None)
         species_count=row["species_count"],
         coldp_id=row["coldp_id"],
         worms_id=row["worms_id"],
+        freshwater_id=row["freshwater_id"],
+        freshwater_parent_id=row["freshwater_parent_id"],
         is_extinct=bool(row["is_extinct"]),
         vernaculars=vernaculars or [],
     )
@@ -172,13 +190,15 @@ def health():
             n_dist = 0
     return {"status": "ok", "taxa": n, "vernaculars": n_vern,
             "extinct": n_extinct, "distribution": n_dist, "db": str(DB_PATH)}
-
-
 @app.get("/api/domains", response_model=list[Taxon])
 def get_domains():
     """Top-level roots for the tree. Returns:
     - The 4 CoL domains (Archaea, Bacteria, Eukaryota, Viruses)
     - Biota (the WoRMS superdomain, only with worms_id=1)
+    - Freshwater Fishes (the synthetic freshwater root, only when the
+      freshwater loader has run; identified by freshwater_id=1 AND
+      freshwater_parent_id IS NULL so it doesn't drag in CSV rows that
+      also have parent_id=NULL).
 
     Other taxa with parent_id IS NULL (WoRMS-only orphans) are reachable
     only through the toggle's WoRMS view — they were re-parented under
@@ -186,10 +206,12 @@ def get_domains():
     with db() as conn:
         rows = conn.execute(
             "SELECT * FROM taxon WHERE parent_id IS NULL "
-            "AND (coldp_id IS NOT NULL OR worms_id = 1) "
+            "AND (coldp_id IS NOT NULL OR worms_id = 1 "
+            "     OR (freshwater_id IS NOT NULL AND freshwater_parent_id IS NULL)) "
             "ORDER BY scientific_name"
         ).fetchall()
     return [_row_to_taxon(r) for r in rows]
+
 
 
 @app.get("/api/taxon/{taxon_id}", response_model=Taxon)
@@ -288,7 +310,7 @@ def get_vernaculars(
 def get_children(
     taxon_id: int,
     include_synonyms: bool = Query(default=False),
-    source: str = Query(default="col", pattern="^(col|worms)$"),
+    source: str = Query(default="col", pattern="^(col|worms|freshwater)$"),
     limit: int = Query(default=200, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
 ):
@@ -296,9 +318,14 @@ def get_children(
     backbone). Pass `source=worms` to walk the WoRMS hierarchy via
     `worms_parent_id` so the WoRMS view can drill from Biota down through
     the marine tree (Animalia → Mollusca → ...) using WoRMS's own
-    hierarchy, independent of the CoL backbone."""
+    hierarchy, independent of the CoL backbone. Pass `source=freshwater`
+    to walk the freshwater overlay (freshwater_parent_id); the freshwater
+    rows are isolated, so the CoL/WoRMS branches return empty for a
+    freshwater taxon and vice versa."""
     if source == "worms":
         where = "worms_parent_id = ? AND worms_id IS NOT NULL"
+    elif source == "freshwater":
+        where = "freshwater_parent_id = ? AND freshwater_id IS NOT NULL"
     else:
         where = "parent_id = ?"
         if not include_synonyms:
@@ -311,6 +338,91 @@ def get_children(
             (*params, limit, offset),
         ).fetchall()
     return [_row_to_taxon(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Search-engine URL composition
+#
+# The server is the source of truth for the 14 pre-composed search URLs
+# returned by /api/taxon/{id}/searches. The frontend has a parallel table
+# in web/search_urls.js; tests/test_smoke.py::test_search_engine_contract
+# (AC-21) enforces byte-identical key/label/with_authorship between the
+# two. DO NOT REFORMAT this constant without updating the contract test.
+#
+# Each entry is a dict:
+#   key              — stable id (e.g. "google"); used as SearchLink.engine
+#   label            — display text (e.g. "Google"); used as SearchLink.label
+#   template         — URL with {name} placeholder, used when authorship is
+#                      not appended (most engines)
+#   template_with_auth — URL with {name} and {auth} placeholders, used when
+#                       the engine should append authorship (bhl, scholar).
+#                       None for engines that don't take authorship.
+#   with_authorship  — boolean; True iff the engine appends authorship
+#   icon             — material-symbols-outlined glyph (UI rendering)
+# ---------------------------------------------------------------------------
+_SEARCH_ENGINES = [
+    {"key": "google",       "label": "Google",        "template": "https://www.google.com/search?q={name}",                                                                          "template_with_auth": None,                                                     "with_authorship": False, "icon": "search"},
+    {"key": "imagen",       "label": "Imágenes",      "template": "https://www.google.com/search?q={name}&tbm=isch",                                                               "template_with_auth": None,                                                     "with_authorship": False, "icon": "image"},
+    {"key": "documentos",   "label": "Documentos",    "template": "https://www.google.com/search?q={name}+%28filetype%3Adoc+OR+filetype%3Adocx+OR+filetype%3Atxt%29",           "template_with_auth": None,                                                     "with_authorship": False, "icon": "description"},
+    {"key": "pdf",          "label": "PDF",           "template": "https://www.google.com/search?q={name}+filetype%3Apdf",                                                        "template_with_auth": None,                                                     "with_authorship": False, "icon": "picture_as_pdf"},
+    {"key": "wikipedia",    "label": "Wikipedia",     "template": "https://en.wikipedia.org/wiki/Special:Search?search={name}",                                                  "template_with_auth": None,                                                     "with_authorship": False, "icon": "menu_book"},
+    {"key": "bhl",          "label": "BHL",           "template": "https://www.biodiversitylibrary.org/search?searchTerm={name}",                                                "template_with_auth": "https://www.biodiversitylibrary.org/search?searchTerm={name}+{auth}", "with_authorship": True,  "icon": "library_books"},
+    {"key": "researchgate", "label": "ResearchGate",  "template": "https://www.researchgate.net/search/publication?q={name}",                                                    "template_with_auth": None,                                                     "with_authorship": False, "icon": "science"},
+    {"key": "plos",         "label": "PLOS",          "template": "https://journals.plos.org/plosone/search?query={name}",                                                       "template_with_auth": None,                                                     "with_authorship": False, "icon": "article"},
+    {"key": "academia",     "label": "Academia.edu",  "template": "https://www.academia.edu/search?q={name}",                                                                    "template_with_auth": None,                                                     "with_authorship": False, "icon": "school"},
+    {"key": "scielo",       "label": "Scielo",        "template": "https://search.scielo.org/?q={name}",                                                                         "template_with_auth": None,                                                     "with_authorship": False, "icon": "travel_explore"},
+    {"key": "scholar",      "label": "Scholar",       "template": "https://scholar.google.com/scholar?q={name}",                                                                 "template_with_auth": "https://scholar.google.com/scholar?q={name}+{auth}",       "with_authorship": True,  "icon": "school"},
+    {"key": "youtube",      "label": "YouTube",       "template": "https://www.youtube.com/results?search_query={name}",                                                         "template_with_auth": None,                                                     "with_authorship": False, "icon": "play_circle"},
+    {"key": "zootaxa",      "label": "Zootaxa",       "template": "https://www.biotaxa.org/Zootaxa/search?query={name}",                                                         "template_with_auth": None,                                                     "with_authorship": False, "icon": "bug_report"},
+    {"key": "scribd",       "label": "Scribd",        "template": "https://www.scribd.com/search?query={name}",                                                                  "template_with_auth": None,                                                     "with_authorship": False, "icon": "auto_stories"},
+]
+
+
+def _build_search(scientific_name: str, authorship: Optional[str]) -> list[SearchLink]:
+    """Compose the 14 SearchLink entries for a single taxon.
+
+    URLs are pre-formatted via urllib.parse.quote_plus (the server is the
+    single source of truth for query encoding). The frontend never builds
+    URLs from a template.
+    """
+    from urllib.parse import quote_plus
+    name_q = quote_plus(scientific_name or "")
+    auth_q = quote_plus(authorship) if authorship else ""
+    out: list[SearchLink] = []
+    for e in _SEARCH_ENGINES:
+        tmpl_with_auth = e.get("template_with_auth")
+        if e["with_authorship"] and auth_q and tmpl_with_auth:
+            url = tmpl_with_auth.replace("{name}", name_q).replace("{auth}", auth_q)
+        else:
+            # Name-only template. Defensive: the template might still
+            # contain a stray `{auth}` placeholder (it shouldn't), in
+            # which case we drop it so the URL doesn't end with a
+            # dangling `+` or `{auth}`.
+            url = e["template"].replace("{name}", name_q).replace("{auth}", "")
+        out.append(SearchLink(engine=e["key"], label=e["label"], url=url))
+    return out
+
+
+@app.get("/api/taxon/{taxon_id}/searches", response_model=list[SearchLink])
+def get_searches(taxon_id: int):
+    """14 pre-composed search-engine URLs for the taxon.
+
+    Server is the source of truth for the URLs (urllib.parse.quote_plus);
+    the frontend trusts the `url` field in each SearchLink and uses
+    web/search_urls.js only for icon/label rendering when the response is
+    unavailable (offline / 5xx fallback).
+    """
+    with db() as conn:
+        row = conn.execute(
+            "SELECT scientific_name, authorship FROM taxon WHERE id = ?",
+            (taxon_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"taxon {taxon_id} not found",
+            )
+    return _build_search(row["scientific_name"], row["authorship"])
 
 
 class SearchHit(BaseModel):
