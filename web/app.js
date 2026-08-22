@@ -375,13 +375,15 @@ function renderNodeRow(taxon, opts = {}) {
       : null,
   );
 
-  // Source badges — symmetrical across views:
-  //   * CoL view: show "CoL" badge for CoL-only taxa (worms_id NULL) so the
-  //     user can see which CoL backbone entries don't have a WoRMS match.
-  //     CoL+WoRMS taxa stay unbadged (they appear identically in WoRMS view
-  //     with the WoRMS badge there).
-  //   * WoRMS view: show "WoRMS" badge — filled for WoRMS-only, outline for
-  //     CoL+WoRMS matches (see legacy comment below).
+  // Source badges — mutually exclusive across the two views.
+  //   * CoL view (treeSource === 'col') AND taxon is CoL-only (coldp_id set,
+  //     worms_id NULL): render a discrete "CoL" outline badge so the user
+  //     can see at a glance which CoL backbone entries lack a WoRMS match.
+  //   * WoRMS view (treeSource !== 'col') AND taxon has worms_id: render a
+  //     "WoRMS" badge — filled accent for WoRMS-only taxa, outline accent
+  //     for CoL+WoRMS matches. Links to marinespecies.org in a new tab.
+  //   * All other cases (CoL+WoRMS in CoL view, or no source data at all):
+  //     no badge — keeps the row visually clean.
   let wormsBadge = null;
   let colBadge = null;
   if (state.treeSource === "col" && taxon.coldp_id && !taxon.worms_id) {

@@ -155,6 +155,7 @@ License: CC BY 4.0.
 ```bash
 .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/playwright install chromium   # for scripts/screenshot.py
+.venv/bin/python scripts/verify_chromium.py   # pin chromium binary SHA256
 ```
 
 ### Run tests

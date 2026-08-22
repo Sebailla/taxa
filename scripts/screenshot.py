@@ -15,10 +15,13 @@ Requires:
     - The FastAPI server running at http://127.0.0.1:8765
 """
 from __future__ import annotations
+import json
 import sys
 import time
+import urllib.parse
+import urllib.request
 from pathlib import Path
-from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
+from playwright.sync_api import expect, sync_playwright  # type: ignore[import-not-found]
 
 BASE_URL = "http://127.0.0.1:8765"
 OUT_DIR = Path(__file__).resolve().parent.parent / "screenshots"
@@ -45,8 +48,64 @@ def shot(page, name: str, captured: list[str], full: bool = True) -> Path:
     return out
 
 
+def resolve_ids() -> tuple[int | None, int | None]:
+    """Look up the Biota superdomain and Diaphorina citri species ids via
+    the API rather than hardcoding them. Returns (biota_id, diaphorina_id);
+    either may be None if the lookup fails (the caller falls back to a
+    loud [error] message).
+
+    This makes the script robust to DB rebuilds that re-assign ids.
+    """
+    biota_id: int | None = None
+    diaphorina_id: int | None = None
+    try:
+        with urllib.request.urlopen(f"{BASE_URL}/api/domains", timeout=10) as r:
+            for d in json.loads(r.read()):
+                if d["scientific_name"] == "Biota" and d.get("worms_id") == 1:
+                    biota_id = d["id"]
+                    break
+    except Exception as e:
+        print(f"  [warn] could not resolve Biota id via /api/domains: {e}")
+    try:
+        with urllib.request.urlopen(
+            f"{BASE_URL}/api/search?q={urllib.parse.quote('Diaphorina citri')}",
+            timeout=10,
+        ) as r:
+            hits = json.loads(r.read())
+            # Prefer the accepted-name hit (status='accepted') over synonyms.
+            # The search endpoint ranks synonyms first when the query matches
+            # the scientific name verbatim, so we can't just take hits[0].
+            accepted_id: int | None = None
+            for h in hits:
+                taxon = h.get("taxon") or {}
+                if (
+                    taxon.get("scientific_name") == "Diaphorina citri"
+                    and taxon.get("rank") == "species"
+                    and taxon.get("status") == "accepted"
+                ):
+                    accepted_id = taxon["id"]
+                    break
+            if accepted_id is None:
+                # Fallback: first species hit with the right name, even if
+                # it's a synonym. The detail panel will still render the
+                # selected taxon correctly.
+                for h in hits:
+                    taxon = h.get("taxon") or {}
+                    if (
+                        taxon.get("scientific_name") == "Diaphorina citri"
+                        and taxon.get("rank") == "species"
+                    ):
+                        accepted_id = taxon["id"]
+                        break
+            diaphorina_id = accepted_id
+    except Exception as e:
+        print(f"  [warn] could not resolve Diaphorina citri id via /api/search: {e}")
+    return biota_id, diaphorina_id
+
+
 def main() -> int:
     captured: list[str] = []
+    biota_id, diaphorina_id = resolve_ids()
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         ctx = browser.new_context(viewport={"width": 1440, "height": 900})
@@ -61,61 +120,92 @@ def main() -> int:
         shot(page, "01-col-view-default", captured)
 
         print("[2/4] Toggle to WoRMS view")
-        page.click('#tree-source-toggle [data-tree-source="worms"]')
-        page.wait_for_timeout(800)  # let the tree re-render
+        # Wait for the toggle's aria-pressed to flip to 'true' as the
+        # source of truth that the view switch completed (replaces a
+        # 800ms magic wait that was the most likely source of CI flake).
+        worms_toggle = page.locator('#tree-source-toggle [data-tree-source="worms"]')
+        worms_toggle.click()
+        expect(worms_toggle).to_have_attribute("aria-pressed", "true", timeout=5000)
         shot(page, "02-worms-view", captured)
 
         print("[3/4] Expand Biota → Animalia in WoRMS view")
         # Find the Biota root and click its chevron to expand.
-        # The id 5413596 is specific to one DB build; if a fresh rebuild
-        # assigned different ids this row won't be present. Skip with a loud
-        # [error] message instead of silently producing 3 of 4 screenshots.
-        biota = page.locator('[data-taxon-id="5413596"]').first
-        if biota.count():
-            biota.click()
-            page.wait_for_timeout(1200)
-            shot(page, "03-worms-biota-expanded", captured)
-        else:
+        # The id is resolved via the API in resolve_ids() above (Biota
+        # superdomain, worms_id=1). If the lookup failed, biota_id is
+        # None and we skip with a loud [error] message.
+        if biota_id is None:
             print(
-                "  [error] data-taxon-id='5413596' (Biota superdomain) not found — "
-                "skipping screenshot 03. The hardcoded id comes from one specific "
-                "DB build; on a fresh rebuild run, update the id in this script "
-                "or query the API for the current Biota row."
+                "  [error] could not resolve Biota id via /api/domains — "
+                "skipping screenshot 03. Check the API is reachable."
             )
+        else:
+            biota = page.locator(f'[data-taxon-id="{biota_id}"]').first
+            if biota.count():
+                # Count BEFORE the click so the +N threshold measures the
+                # children that the click actually adds. Threshold-based so
+                # it works regardless of which other roots happen to be
+                # expanded at this point.
+                before_count = page.locator("#tree-view [data-taxon-id]").count()
+                biota.click()
+                # Wait for the tree to grow by at least 8 rows (Biota's
+                # WoRMS kingdoms: Animalia, Archaea, Bacteria, Chromista,
+                # Fungi, Plantae, Protozoa, Viruses).
+                expect(page.locator("#tree-view [data-taxon-id]")).to_have_count(
+                    before_count + 8, timeout=5000
+                )
+                shot(page, "03-worms-biota-expanded", captured)
+            else:
+                print(
+                    f"  [error] data-taxon-id='{biota_id}' (Biota superdomain) not in "
+                    "DOM after toggle — skipping screenshot 03."
+                )
 
         print("[4/4] Toggle back to CoL + navigate to a CoL-only taxon via hash")
         # Reload with hash to trigger boot's hash-based navigation path, which
         # calls selectTaxon() → loadDetail() → renders the detail panel with
         # the new "CoL" header badge for CoL-only taxa.
-        # id=1578074 is Diaphorina citri (CoL-only species with 176 vernaculars
-        # + 107 distribution rows) — exercises the full detail panel render.
-        # Cache-buster query param forces a full reload — same-origin hash
-        # navigation alone doesn't fire a new boot() pass.
-        try:
-            page.goto(
-                f"{BASE_URL}/?nc={int(time.time())}#1578074",
-                wait_until="networkidle",
-                timeout=15000,
+        # The id is resolved via the API (Diaphorina citri, rank=species).
+        # If the lookup failed, diaphorina_id is None and we skip with a
+        # loud [error] message.
+        if diaphorina_id is None:
+            print(
+                "  [error] could not resolve Diaphorina citri id via /api/search — "
+                "skipping screenshot 04. Check the API is reachable."
             )
-        except Exception as e:
-            print(f"  [warn] navigation to detail taxon failed: {e}")
-            shot(page, "04-col-view-diaphorina-detail", captured)
-            browser.close()
         else:
-            # Give boot() time to expand ancestors + load detail (5-deep path).
-            page.wait_for_timeout(5000)
-            # Diagnostic: dump panel state + selected/detail values.
-            panel_class = page.locator("#detail-panel").get_attribute("class")
-            panel_html_len = page.evaluate(
-                "document.getElementById('detail-panel').innerHTML.length"
-            )
-            # Probe app state via a known DOM element that depends on focused/selected.
-            breadcrumb_text = page.locator("#breadcrumb").inner_text()
-            url_hash = page.evaluate("location.hash")
-            print(f"  detail-panel class='{panel_class}', innerHTML length={panel_html_len}")
-            print(f"  breadcrumb='{breadcrumb_text.strip()[:80]}'  hash='{url_hash}'")
-            shot(page, "04-col-view-diaphorina-detail", captured)
-            browser.close()
+            # Cache-buster query param forces a full reload — same-origin hash
+            # navigation alone doesn't fire a new boot() pass.
+            try:
+                page.goto(
+                    f"{BASE_URL}/?nc={int(time.time())}#{diaphorina_id}",
+                    wait_until="networkidle",
+                    timeout=15000,
+                )
+            except Exception as e:
+                print(f"  [warn] navigation to detail taxon failed: {e}")
+                shot(page, "04-col-view-diaphorina-detail", captured)
+                browser.close()
+            else:
+                # Wait for boot() to expand the 9-level ancestor chain AND
+                # loadDetail() to populate the panel. The .detail-card class
+                # is only added once renderDetailPanel() has actual content
+                # (not the loading stub), so it's a true end-of-render signal
+                # — no magic 5s wait needed.
+                page.wait_for_selector(
+                    "#detail-panel .detail-card", timeout=15000
+                )
+                # Diagnostic: dump panel state + selected/detail values.
+                panel_class = page.locator("#detail-panel").get_attribute("class")
+                panel_html_len = page.evaluate(
+                    "document.getElementById('detail-panel').innerHTML.length"
+                )
+                # Probe app state via a known DOM element that depends on focused/selected.
+                breadcrumb_text = page.locator("#breadcrumb").inner_text()
+                url_hash = page.evaluate("location.hash")
+                print(f"  detail-panel class='{panel_class}', innerHTML length={panel_html_len}")
+                print(f"  breadcrumb='{breadcrumb_text.strip()[:80]}'  hash='{url_hash}'")
+                shot(page, "04-col-view-diaphorina-detail", captured)
+                browser.close()
 
     # Final check: every screenshot the README documents must have been captured.
     # Fail with non-zero exit if any are missing so CI / reviewers see the gap
