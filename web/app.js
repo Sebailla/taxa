@@ -137,15 +137,6 @@ function closeDetail() {
 // ------------------------------------------------------------------
 // Rendering
 // ------------------------------------------------------------------
-function escape(s) {
-  return String(s ?? "").replace(
-    /[&<>"']/g,
-    (c) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-        c
-      ],
-  );
-}
 
 // Build a DOM element from a spec. Every string child flows through
 // textContent (XSS-safe), every attribute goes through setAttribute.
@@ -1198,35 +1189,35 @@ document.getElementById("collapse-all").addEventListener("click", () => {
   collapseAll();
 });
 
-// Tree-source toggle (CoL / WoRMS). Switching views invalidates the
-// children cache — CoL children and WoRMS children live in different
-// hierarchies and must be re-fetched with the right `source=` param.
-// Also clears expand/showAll so the tree rebuilds from the new root
-// (Biota for WoRMS, the four CoL domains otherwise) instead of carrying
-// over the previous view's expansion state.
-document
-  .querySelectorAll("#tree-source-toggle [data-tree-source]")
-  .forEach((btn) => {
-    btn.addEventListener("click", () => {
-      if (state.treeSource === btn.dataset.treeSource) return;
-      state.treeSource = btn.dataset.treeSource;
-      // Drop cached children — they were loaded with the previous
-      // source and are stale for the new one.
-      for (const node of state.cache.values()) {
-        node.children = null;
-      }
-      state.expanded.clear();
-      state.showAll.clear();
-      document
-        .querySelectorAll("#tree-source-toggle [data-tree-source]")
-        .forEach((b) => {
-          const active = b.dataset.treeSource === state.treeSource;
-          b.classList.toggle("active", active);
-          b.setAttribute("aria-pressed", active ? "true" : "false");
-        });
-      renderTree();
+// Tree-source toggle (CoL / WoRMS / Freshwater). Event delegation so
+// dynamically appended buttons (the Freshwater toggle, appended at boot()
+// when freshwater is loaded) work without re-binding. Switching views
+// invalidates the children cache — CoL, WoRMS, and Freshwater children
+// live in different hierarchies and must be re-fetched with the right
+// `source=` param. Also clears expand/showAll so the tree rebuilds from
+// the new root instead of carrying over the previous view's expansion.
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("#tree-source-toggle [data-tree-source]");
+  if (!btn) return;
+  const source = btn.dataset.treeSource;
+  if (state.treeSource === source) return;
+  state.treeSource = source;
+  // Drop cached children — they were loaded with the previous source and
+  // are stale for the new one.
+  for (const node of state.cache.values()) {
+    node.children = null;
+  }
+  state.expanded.clear();
+  state.showAll.clear();
+  document
+    .querySelectorAll("#tree-source-toggle [data-tree-source]")
+    .forEach((b) => {
+      const active = b.dataset.treeSource === state.treeSource;
+      b.classList.toggle("active", active);
+      b.setAttribute("aria-pressed", active ? "true" : "false");
     });
-  });
+  renderTree();
+});
 
 // Extant toggle removed from the header. The filter is still active by
 // default (state.extantOnly = true) and can be re-enabled by re-adding the
@@ -1251,12 +1242,30 @@ async function boot() {
       .previousElementSibling.classList.add("bg-red-500");
   }
 
-  // Load the 4 domains as roots.
-  const roots = await api("/api/domains");
-  for (const r of roots) {
-    state.cache.set(r.id, { taxon: r, children: null });
-  }
-  state.roots = roots;
+// Load the 4 domains as roots.
+      const roots = await api("/api/domains");
+      for (const r of roots) {
+        state.cache.set(r.id, { taxon: r, children: null });
+      }
+      state.roots = roots;
+
+      // If freshwater is loaded, append a "Freshwater" toggle button. The
+      // event delegation set up at module-load handles its click.
+      if (roots.some((r) => r.freshwater_id != null)) {
+        const toggle = document.getElementById("tree-source-toggle");
+        if (toggle && !toggle.querySelector('[data-tree-source="freshwater"]')) {
+          const freshBtn = el(
+            "button",
+            {
+              type: "button",
+              "data-tree-source": "freshwater",
+              class: "tree-source-btn",
+            },
+            "Freshwater",
+          );
+          toggle.appendChild(freshBtn);
+        }
+      }
 
   // Pre-expand Eukaryota (most populous) for a useful initial view.
   const euk = roots.find((r) => r.scientific_name === "Eukaryota");
