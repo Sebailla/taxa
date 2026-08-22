@@ -46,7 +46,10 @@ make etl
 # 3. Download ColDP + load vernaculars/coldp_id (~5 min, needs ~2 GB free)
 make coldp
 
-# 4. Run the API + frontend
+# 4. (Optional) Load the freshwater CSV
+make freshwater
+
+# 5. Run the API + frontend
 make api
 # → http://127.0.0.1:8765
 ```
@@ -70,6 +73,37 @@ Open `http://127.0.0.1:8765/` after `make api`. Single-page app:
 State is in `web/app.js`; design tokens in `web/index.html`'s Tailwind config
 (match the Stitch mockup). No build step.
 
+## Búsquedas tab
+
+Every taxon in any of the three trees (CoL, WoRMS, Freshwater) at every
+rank (collection → species) shows a small `search` icon at the end of its
+name. Clicking the icon selects the taxon and opens the **Búsquedas** tab
+in the detail panel — a list of 14 pre-built deep links to external
+search engines:
+
+| Engine | URL pattern | Authorship included |
+| --- | --- | --- |
+| Google | `google.com/search?q={name}` | — |
+| Imágenes | `google.com/search?q={name}&tbm=isch` | — |
+| Documentos | `google.com/search?q={name}+(filetype:doc OR filetype:docx OR filetype:txt)` | — |
+| PDF | `google.com/search?q={name}+filetype:pdf` | — |
+| Wikipedia | `en.wikipedia.org/wiki/Special:Search?search={name}` | — |
+| BHL | `biodiversitylibrary.org/search?searchTerm={name}+{auth}` | ✓ |
+| ResearchGate | `researchgate.net/search/publication?q={name}` | — |
+| PLOS | `journals.plos.org/plosone/search?query={name}` | — |
+| Academia.edu | `academia.edu/search?q={name}` | — |
+| Scielo | `search.scielo.org/?q={name}` | — |
+| Scholar | `scholar.google.com/scholar?q={name}+{auth}` | ✓ |
+| YouTube | `youtube.com/results?search_query={name}` | — |
+| Zootaxa | `biotaxa.org/Zootaxa/search?query={name}` | — |
+| Scribd | `scribd.com/search?query={name}` | — |
+
+Engines marked ✓ append the taxon's authorship when present (useful for
+naming homonyms). The single source of truth for the engine list lives at
+`web/search_urls.js`; the API mirrors it in `api/server.py`'s
+`_SEARCH_ENGINES` constant. `tests/test_smoke.py::test_search_engine_contract_byte_identical`
+enforces byte-identical key/label/with_authorship between the two files.
+
 ## API
 
 | Endpoint | Returns |
@@ -79,6 +113,7 @@ State is in `web/app.js`; design tokens in `web/index.html`'s Tailwind config
 | `GET /api/taxon/{id}` | Full taxon record + breadcrumb + vernaculars |
 | `GET /api/taxon/{id}/children?include_synonyms=&limit=&offset=` | Direct children, sorted by rank |
 | `GET /api/taxon/{id}/vernaculars?language=` | Common names (deduped) |
+| `GET /api/taxon/{id}/searches` | 14 pre-built search-engine URLs for the taxon |
 | `GET /api/search?q=&limit=&include_vernacular=` | FTS5 over scientific + authorship + vernaculars |
 
 Visit `http://127.0.0.1:8765/docs` for the live Swagger UI.
@@ -147,6 +182,39 @@ etl/parse_textree.py             etl/load_coldp.py
 Catalogue of Life, Base release 2026-07-14, dataset 315777.
 DOI: https://doi.org/10.48580/d37j
 License: CC BY 4.0.
+
+## Freshwater source
+
+A third taxonomic source loaded from a manual CSV export of the user's
+Freshwater Fishes Google Sheet. **Isolated** like CoL and WoRMS — its own
+synthetic `collection`-ranked root ("Freshwater Fishes"), its own parent
+chain (freshwater_id / freshwater_parent_id), and no cross-links with
+CoL or WoRMS. ~16K rows.
+
+### Quick start
+
+```bash
+# 1. Export your Google Sheet to CSV (File → Download → CSV) and drop
+#    it at data/raw/freshwater.csv.
+mkdir -p data/raw
+cp ~/Downloads/Freshwater\ Fish.csv data/raw/freshwater.csv
+
+# 2. Load it (idempotent; re-running clears freshwater_id and re-inserts)
+make freshwater
+
+# 3. Restart the API to pick up the new roots
+make api
+```
+
+### Counts (post-load)
+
+- ~16K rows
+- ~5K species
+- ~1.5K genera
+- ~250 families
+
+The Freshwater toggle button appears in the header (between WoRMS and
+"All") only after the loader has run.
 
 ## Development
 
