@@ -411,6 +411,10 @@ def get_searches(taxon_id: int):
     the frontend trusts the `url` field in each SearchLink and uses
     web/search_urls.js only for icon/label rendering when the response is
     unavailable (offline / 5xx fallback).
+
+    Returns 422 when the taxon has no `scientific_name` — the composed
+    URLs would all be empty queries (e.g. `?q=`), which is useless to
+    the user; the server surfaces the bad data instead. AC-18.
     """
     with db() as conn:
         row = conn.execute(
@@ -421,6 +425,14 @@ def get_searches(taxon_id: int):
             raise HTTPException(
                 status_code=404,
                 detail=f"taxon {taxon_id} not found",
+            )
+        if not row["scientific_name"]:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"taxon {taxon_id} has no scientific_name; "
+                    "cannot compose search URLs"
+                ),
             )
     return _build_search(row["scientific_name"], row["authorship"])
 
