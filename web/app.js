@@ -111,10 +111,7 @@ async function toggleExpand(id) {
   // Animalia → phylum → class → ... → species without hitting "Load N
   // more" at every level. CoL view keeps the PAGE_SIZE=5 default to stay
   // snappy.
-  if (
-    state.treeSource === "worms" ||
-    state.treeSource === "freshwater"
-  ) {
+  if (state.treeSource === "worms" || state.treeSource === "freshwater") {
     const kids = state.cache.get(id)?.children;
     if (kids && kids.length > 0) {
       for (const k of kids) state.showAll.add(`${id}::${k.rank}`);
@@ -153,15 +150,6 @@ function closeDetail() {
 // ------------------------------------------------------------------
 // Rendering
 // ------------------------------------------------------------------
-function escape(s) {
-  return String(s ?? "").replace(
-    /[&<>"']/g,
-    (c) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-        c
-      ],
-  );
-}
 
 // Build a DOM element from a spec. Every string child flows through
 // textContent (XSS-safe), every attribute goes through setAttribute.
@@ -721,8 +709,7 @@ async function loadDetail(id) {
     // The searches endpoint returns 422 when scientific_name is empty;
     // mirror that guard client-side so we never trigger an avoidable
     // error response.
-    const taxon =
-      state.cache.get(id)?.taxon ?? (await loadTaxon(id));
+    const taxon = state.cache.get(id)?.taxon ?? (await loadTaxon(id));
     const [vern, syn, dist, searches] = await Promise.all([
       api(`/api/taxon/${id}/vernaculars?limit=200`),
       api(`/api/taxon/${id}/synonyms?limit=200`),
@@ -777,8 +764,7 @@ function renderSearchesTab(searches) {
     return el(
       "div",
       {
-        class:
-          "text-body-sm text-on-surface-variant px-2 py-4 text-center",
+        class: "text-body-sm text-on-surface-variant px-2 py-4 text-center",
       },
       "No search links available for this taxon.",
     );
@@ -798,8 +784,7 @@ function renderSearchesTab(searches) {
       el(
         "span",
         {
-          class:
-            "material-symbols-outlined text-[16px] text-primary shrink-0",
+          class: "material-symbols-outlined text-[16px] text-primary shrink-0",
         },
         icon,
       ),
@@ -807,18 +792,13 @@ function renderSearchesTab(searches) {
       el(
         "span",
         {
-          class:
-            "material-symbols-outlined text-[14px] text-outline shrink-0",
+          class: "material-symbols-outlined text-[14px] text-outline shrink-0",
         },
         "arrow_forward",
       ),
     );
   });
-  return el(
-    "div",
-    { class: "flex flex-col gap-1" },
-    ...items,
-  );
+  return el("div", { class: "flex flex-col gap-1" }, ...items);
 }
 
 function renderDetailPanel() {
@@ -851,16 +831,19 @@ function renderDetailPanel() {
   // search icon always has a target.
   const tabs = [];
   tabs.push({ key: "busquedas", label: "Búsquedas", icon: "travel_explore" });
-  if (hasVern)   tabs.push({ key: "vernaculars", label: "Vernáculares", icon: "translate" });
-  if (hasSyn)    tabs.push({ key: "synonyms",    label: "Sinónimos",    icon: "history" });
-  if (hasDist)   tabs.push({ key: "distribution", label: "Distribución", icon: "public" });
+  if (hasVern)
+    tabs.push({ key: "vernaculars", label: "Vernáculares", icon: "translate" });
+  if (hasSyn)
+    tabs.push({ key: "synonyms", label: "Sinónimos", icon: "history" });
+  if (hasDist)
+    tabs.push({ key: "distribution", label: "Distribución", icon: "public" });
 
   // Decide the active tab. Per-taxon memory wins; otherwise default to
   // Búsquedas (the new spec'd default) and fall back to the first
   // available tab when Búsquedas isn't visible (e.g., empty name).
   const taxonId = state.selected;
   const remembered = state.activeTab[taxonId];
-  let activeKey = tabs.some((t) => t.key === remembered)
+  const activeKey = tabs.some((t) => t.key === remembered)
     ? remembered
     : tabs[0].key;
   // Belt-and-braces: if for some reason tabs[0] is missing (empty
@@ -996,8 +979,7 @@ function renderDetailPanel() {
         "button",
         {
           type: "button",
-          class:
-            `detail-tab ${t.key === activeKey ? "active" : ""}`.trim(),
+          class: `detail-tab ${t.key === activeKey ? "active" : ""}`.trim(),
           "data-tab": t.key,
           "aria-pressed": t.key === activeKey ? "true" : "false",
           role: "tab",
@@ -1360,8 +1342,8 @@ async function expandAncestorsOf(id) {
     src === "worms"
       ? taxon.taxon.worms_parent_id
       : src === "freshwater"
-? taxon.taxon.freshwater_parent_id
-: taxon.taxon.parent_id;
+        ? taxon.taxon.freshwater_parent_id
+        : taxon.taxon.parent_id;
   while (parentId) {
     if (!state.expanded.has(parentId)) {
       await loadChildren(parentId);
@@ -1373,25 +1355,22 @@ async function expandAncestorsOf(id) {
       // clicking "Load N more" expands deeper tiers on demand. That keeps
       // the DOM small and avoids opening every kingdom/phylum/order/
       // family/genus in the chain just to reach a single deep target.
-      if (
-        state.treeSource === "worms" ||
-        state.treeSource === "freshwater"
-      ) {
+      if (state.treeSource === "worms" || state.treeSource === "freshwater") {
         const kids = state.cache.get(parentId)?.children;
         if (kids && kids.length > 0) {
           for (const k of kids) state.showAll.add(`${parentId}::${k.rank}`);
         }
       }
     }
-        const parent = state.cache.get(parentId);
-        parentId =
-          src === "worms"
-            ? parent?.taxon.worms_parent_id
-            : src === "freshwater"
-              ? parent?.taxon.freshwater_parent_id
-              : parent?.taxon.parent_id;
-      }
-    }
+    const parent = state.cache.get(parentId);
+    parentId =
+      src === "worms"
+        ? parent?.taxon.worms_parent_id
+        : src === "freshwater"
+          ? parent?.taxon.freshwater_parent_id
+          : parent?.taxon.parent_id;
+  }
+}
 
 // Search input
 document.getElementById("search-input").addEventListener("input", (e) => {
@@ -1476,81 +1455,81 @@ document.addEventListener("click", (e) => {
   renderTree();
 });
 
-    // Extant toggle removed from the header. The filter is still active by
-    // default (state.extantOnly = true) and can be re-enabled by re-adding the
-    // toggle — just uncomment the block below.
+// Extant toggle removed from the header. The filter is still active by
+// default (state.extantOnly = true) and can be re-enabled by re-adding the
+// toggle — just uncomment the block below.
 
-    // ------------------------------------------------------------------
-    // Boot
-    // ------------------------------------------------------------------
-    async function boot() {
-      // Health check (best-effort; doesn't block render).
-      try {
-        const h = await api("/api/health");
-        document.getElementById("footer-status").textContent =
-          `System Online · ${h.taxa.toLocaleString()} taxa · ${h.vernaculars.toLocaleString()} vernaculars`;
-      } catch {
-        document.getElementById("footer-status").textContent = "API unreachable";
-        document
-          .getElementById("footer-status")
-          .previousElementSibling.classList.remove("bg-green-500");
-        document
-          .getElementById("footer-status")
-          .previousElementSibling.classList.add("bg-red-500");
-      }
+// ------------------------------------------------------------------
+// Boot
+// ------------------------------------------------------------------
+async function boot() {
+  // Health check (best-effort; doesn't block render).
+  try {
+    const h = await api("/api/health");
+    document.getElementById("footer-status").textContent =
+      `System Online · ${h.taxa.toLocaleString()} taxa · ${h.vernaculars.toLocaleString()} vernaculars`;
+  } catch {
+    document.getElementById("footer-status").textContent = "API unreachable";
+    document
+      .getElementById("footer-status")
+      .previousElementSibling.classList.remove("bg-green-500");
+    document
+      .getElementById("footer-status")
+      .previousElementSibling.classList.add("bg-red-500");
+  }
 
-      // Load the 4 domains as roots.
-      const roots = await api("/api/domains");
-      for (const r of roots) {
-        state.cache.set(r.id, { taxon: r, children: null });
-      }
-      state.roots = roots;
+  // Load the 4 domains as roots.
+  const roots = await api("/api/domains");
+  for (const r of roots) {
+    state.cache.set(r.id, { taxon: r, children: null });
+  }
+  state.roots = roots;
 
-      // Conditionally append the Freshwater toggle button — only when at
-      // least one root with freshwater_id set was returned by /api/domains
-      // (per spec §5.1). Hidden by default: if the freshwater loader has
-      // never run, the button is not in the DOM. The click handler is
-      // delegated (see above), so dynamically appended buttons Just Work.
-      const hasFreshwater = roots.some((r) => r.freshwater_id != null);
-      if (hasFreshwater) {
-        const toggle = document.getElementById("tree-source-toggle");
-        if (toggle) {
-          toggle.appendChild(
-            el(
-              "button",
-              {
-                type: "button",
-                "data-tree-source": "freshwater",
-                class: "tree-source-btn",
-                "aria-pressed": "false",
-              },
-              "Freshwater",
-            ),
-          );
-        }
-      }
-
-      // Pre-expand Eukaryota (most populous) for a useful initial view.
-      const euk = roots.find((r) => r.scientific_name === "Eukaryota");
-      if (euk) {
-        await loadChildren(euk.id);
-        state.expanded.add(euk.id);
-      }
-
-      // If the URL has a hash, select that species and focus its path.
-      const hashId = parseInt(location.hash.replace("#", ""), 10);
-      if (hashId && Number.isFinite(hashId)) {
-        await expandAncestorsOf(hashId);
-        state.focused = hashId;
-        selectTaxon(hashId, { updateUrl: "replace" });
-      } else {
-        // Initial focus: Eukaryota (so the breadcrumb shows "home > Eukaryota"
-        // from the start, not empty).
-        state.focused = euk ? euk.id : null;
-      }
-
-      render();
+  // Conditionally append the Freshwater toggle button — only when at
+  // least one root with freshwater_id set was returned by /api/domains
+  // (per spec §5.1). Hidden by default: if the freshwater loader has
+  // never run, the button is not in the DOM. The click handler is
+  // delegated (see above), so dynamically appended buttons Just Work.
+  const hasFreshwater = roots.some((r) => r.freshwater_id != null);
+  if (hasFreshwater) {
+    const toggle = document.getElementById("tree-source-toggle");
+    if (toggle) {
+      toggle.appendChild(
+        el(
+          "button",
+          {
+            type: "button",
+            "data-tree-source": "freshwater",
+            class: "tree-source-btn",
+            "aria-pressed": "false",
+          },
+          "Freshwater",
+        ),
+      );
     }
+  }
 
-    render();
-    boot();
+  // Pre-expand Eukaryota (most populous) for a useful initial view.
+  const euk = roots.find((r) => r.scientific_name === "Eukaryota");
+  if (euk) {
+    await loadChildren(euk.id);
+    state.expanded.add(euk.id);
+  }
+
+  // If the URL has a hash, select that species and focus its path.
+  const hashId = parseInt(location.hash.replace("#", ""), 10);
+  if (hashId && Number.isFinite(hashId)) {
+    await expandAncestorsOf(hashId);
+    state.focused = hashId;
+    selectTaxon(hashId, { updateUrl: "replace" });
+  } else {
+    // Initial focus: Eukaryota (so the breadcrumb shows "home > Eukaryota"
+    // from the start, not empty).
+    state.focused = euk ? euk.id : null;
+  }
+
+  render();
+}
+
+render();
+boot();
