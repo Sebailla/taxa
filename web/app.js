@@ -804,11 +804,7 @@ function renderSearchesTab(searches) {
         class: "search-engine-btn",
         title: `Open ${s.label} search for this taxon in a new tab`,
       },
-      el(
-        "span",
-        { class: "material-symbols-outlined" },
-        icon,
-      ),
+      el("span", { class: "material-symbols-outlined" }, icon),
       el("span", null, s.label),
     );
   });
