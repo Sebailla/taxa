@@ -447,23 +447,23 @@ def test_searches_404_for_unknown_taxon(db_and_client):
 
 
 def test_searches_422_on_empty_scientific_name(db_and_client):
-        """AC-18: GET /api/taxon/{nameless_id}/searches for a taxon with
-        scientific_name == "" returns HTTP 422. The search URLs would all
-        be empty queries (e.g. ?q=), which is useless to the user; the
-        server surfaces the bad data instead of returning a 200 with
-        nonsensical links. SQLite's NOT NULL constraint permits empty
-        strings, so this case is reachable in practice (e.g. a stub row
-        or a future loader that accepts anonymous taxa)."""
-        conn, client = db_and_client
-        nameless_id = _insert(
-            conn,
-            scientific_name="",
-            rank="species",
-            coldp_id="col-nameless",
-        )
-        resp = client.get(f"/api/taxon/{nameless_id}/searches")
-        assert resp.status_code == 422, resp.text
-        body = resp.json()
-        assert "scientific_name" in body.get("detail", "").lower(), (
-            f"detail should explain why 422: {body}"
-        )
+    """AC-18: GET /api/taxon/{nameless_id}/searches for a taxon with
+    scientific_name == "" returns HTTP 422. The search URLs would all
+    be empty queries (e.g. ?q=), which is useless to the user; the
+    server surfaces the bad data instead of returning a 200 with
+    nonsensical links. SQLite's NOT NULL constraint permits empty
+    strings, so this case is reachable in practice (e.g. a stub row
+    or a future loader that accepts anonymous taxa)."""
+    conn, client = db_and_client
+    nameless_id = _insert(
+    conn,
+    scientific_name="",
+    rank="species",
+    coldp_id="col-nameless",
+    )
+    resp = client.get(f"/api/taxon/{nameless_id}/searches")
+    assert resp.status_code == 422, resp.text
+    body = resp.json()
+    assert "scientific_name" in body.get("detail", "").lower(), (
+    f"detail should explain why 422: {body}"
+    )
