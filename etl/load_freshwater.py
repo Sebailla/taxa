@@ -3,10 +3,9 @@ Load the freshwater CSV into taxa.db as an isolated overlay.
 
 Pipeline:
   1. Open taxa.db (WAL mode).
-  2. Defensive check: verify the freshwater_id / freshwater_parent_id
-     columns already exist. The schema migration is shipped in
-     `etl/schema_v4.sql` (commit 3) and applied by the operator before
-     running this loader on a fresh DB.
+  2. Idempotent migration: PRAGMA table_info(taxon) -> apply schema_v4.sql
+     if the freshwater columns are missing. Mirrors load_worms.py's
+     pattern for the worms_id column.
   3. Wipe any prior freshwater rows (`DELETE FROM taxon WHERE freshwater_id
      IS NOT NULL`); CoL and WoRMS rows are untouched.
   4. Insert the synthetic root ("Freshwater Fishes", rank="collection",
@@ -21,9 +20,8 @@ Usage:
     python3 etl/load_freshwater.py <freshwater.csv> <taxa.db>
 
 Idempotent: re-running clears all freshwater rows and re-inserts from
-scratch. Schema migration is the operator's responsibility (apply
-`etl/schema_v4.sql` before running this loader on a DB that doesn't
-already have the overlay columns).
+scratch. Also idempotent on schema: re-running on a DB that already has
+the freshwater_id / freshwater_parent_id columns is a no-op.
 
 CSV format:
     freshwater_id,freshwater_parent_id,rank,scientific_name,authorship
@@ -93,30 +91,27 @@ def _is_header_row(row: list[str]) -> bool:
     return rank not in KNOWN_RANKS
 
 
-def _require_freshwater_columns(cur: sqlite3.Cursor) -> None:
-    """Defensive check: the freshwater overlay columns must already exist.
+def _apply_schema_v4_if_needed(cur: sqlite3.Cursor, schema_dir: Path) -> None:
+    """Idempotent migration: apply schema_v4.sql if the freshwater columns
+    are missing on `taxon`.
 
-    The migration is shipped in `etl/schema_v4.sql` (commit 3) and applied
-    by the operator before running this loader. This guard exists so a
-    missing column surfaces as a clear error instead of an obscure
-    sqlite3.OperationalError at the first DELETE.
+    Mirrors load_worms.py's PRAGMA-detected ALTER pattern. The
+    CREATE INDEX statements inside schema_v4.sql are themselves
+    idempotent (CREATE INDEX IF NOT EXISTS), so re-running them is safe;
+    the ALTER TABLE statements are not, hence the PRAGMA gate.
     """
     cols = {row[1] for row in cur.execute("PRAGMA table_info(taxon)")}
-    if "freshwater_id" not in cols or "freshwater_parent_id" not in cols:
-        missing = [
-            c for c in ("freshwater_id", "freshwater_parent_id") if c not in cols
-        ]
-        raise sqlite3.OperationalError(
-            f"taxon table is missing required columns: {missing}. "
-            f"Apply etl/schema_v4.sql before running this loader."
-        )
+    if "freshwater_id" in cols and "freshwater_parent_id" in cols:
+        return  # already migrated
+    schema_path = schema_dir / "schema_v4.sql"
+    cur.executescript(schema_path.read_text(encoding="utf-8"))
 
 
 def load_freshwater(csv_path: Path, db_path: Path) -> int:
     """Load `csv_path` into `db_path`. Returns 0 on success, 1 on failure.
 
-    Idempotent on data (wipe-and-reload). The freshwater overlay columns
-    must already exist on the `taxon` table; see `etl/schema_v4.sql`.
+    Idempotent on both data (wipe-and-reload) and schema (PRAGMA check +
+    conditional schema_v4.sql apply).
     """
     if not csv_path.exists():
         print(f"CSV not found: {csv_path}", file=sys.stderr)
@@ -127,9 +122,9 @@ def load_freshwater(csv_path: Path, db_path: Path) -> int:
     cur.execute("PRAGMA journal_mode = WAL")
     cur.execute("PRAGMA synchronous = NORMAL")
 
-    # Defensive check: the overlay columns must already exist (applied via
-    # etl/schema_v4.sql before this loader runs).
-    _require_freshwater_columns(cur)
+    # Migration: apply schema_v4.sql if the freshwater columns are missing.
+    schema_dir = Path(__file__).resolve().parent
+    _apply_schema_v4_if_needed(cur, schema_dir)
 
     # Wipe prior freshwater rows. CoL rows (freshwater_id IS NULL) and WoRMS
     # rows (worms_id IS NOT NULL, freshwater_id IS NULL) are untouched.
