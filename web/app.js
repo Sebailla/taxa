@@ -113,10 +113,7 @@ async function toggleExpand(id) {
   // Animalia → phylum → class → ... → species without hitting "Load N
   // more" at every level. CoL view keeps the PAGE_SIZE=5 default to stay
   // snappy.
-  if (
-    state.treeSource === "worms" ||
-    state.treeSource === "freshwater"
-  ) {
+  if (state.treeSource === "worms" || state.treeSource === "freshwater") {
     const kids = state.cache.get(id)?.children;
     if (kids && kids.length > 0) {
       for (const k of kids) state.showAll.add(`${id}::${k.rank}`);
@@ -774,11 +771,17 @@ function buildDetailSection(icon, title, count, items) {
   );
 }
 
-// Render the Búsquedas tab: a vertical list of 14 search-engine links,
-// each opening in a new tab. The URLs come pre-composed from the server
+// Render the Búsquedas tab: a grid of 14 search-engine buttons, each
+// opening in a new tab. The URLs come pre-composed from the server
 // (urllib.parse.quote_plus); the icon glyph + label come from the local
 // SEARCH_ENGINES table as a fallback (offline / 5xx case). The server
 // response is the source of truth for the URL itself.
+//
+// Layout: 14 button-like cards in a CSS grid (auto-fill, 120px min).
+// Each card has the engine icon on top and the label underneath so the
+// user can scan all 14 at a glance. No arrow suffix — the icon
+// communicates "open in new tab" via the standard browser link
+// behaviour (target="_blank" on the <a>).
 function renderSearchesTab(searches) {
   if (!searches || searches.length === 0) {
     return el(
@@ -798,27 +801,18 @@ function renderSearchesTab(searches) {
         href: s.url,
         target: "_blank",
         rel: "noopener",
-        class:
-          "detail-item hover:bg-surface-container-low text-on-surface no-underline",
+        class: "search-engine-btn",
+        title: `Open ${s.label} search for this taxon in a new tab`,
       },
       el(
         "span",
-        {
-          class: "material-symbols-outlined text-[16px] text-primary shrink-0",
-        },
+        { class: "material-symbols-outlined" },
         icon,
       ),
-      el("span", { class: "flex-1" }, s.label),
-      el(
-        "span",
-        {
-          class: "material-symbols-outlined text-[14px] text-outline shrink-0",
-        },
-        "arrow_forward",
-      ),
+      el("span", null, s.label),
     );
   });
-  return el("div", { class: "flex flex-col gap-1" }, ...items);
+  return el("div", { class: "search-engines-grid" }, ...items);
 }
 
 function renderDetailPanel() {
@@ -963,7 +957,7 @@ function renderDetailPanel() {
         },
         "Loading details…",
       ),
-      );
+    );
   }
 
   // ----- Tab strip ----------------------------------------------------
@@ -1264,21 +1258,21 @@ document.addEventListener("click", (e) => {
     state.focused = id;
     // Species are leaves: just select, no expansion.
     selectTaxon(id);
-    } else if (action === "open-searches") {
-      // Per-row search icon — selects the taxon and forces the Búsquedas
-      // tab to be active. The icon's data-taxon-id carries the id; the
-      // detail panel's tab state is set BEFORE selectTaxon so the
-      // subsequent render() sees the right default.
-      const id = parseInt(
-        e.target.closest("[data-taxon-id]").dataset.taxonId,
-        10,
-      );
-      if (Number.isFinite(id)) {
-        state.activeTab[id] = "busquedas";
-        selectTaxon(id);
-      }
-      return;
-    } else if (action === "select-from-search") {
+  } else if (action === "open-searches") {
+    // Per-row search icon — selects the taxon and forces the Búsquedas
+    // tab to be active. The icon's data-taxon-id carries the id; the
+    // detail panel's tab state is set BEFORE selectTaxon so the
+    // subsequent render() sees the right default.
+    const id = parseInt(
+      e.target.closest("[data-taxon-id]").dataset.taxonId,
+      10,
+    );
+    if (Number.isFinite(id)) {
+      state.activeTab[id] = "busquedas";
+      selectTaxon(id);
+    }
+    return;
+  } else if (action === "select-from-search") {
     const id = parseInt(
       e.target.closest("[data-taxon-id]").dataset.taxonId,
       10,
@@ -1376,19 +1370,19 @@ async function expandAncestorsOf(id) {
       // more" expands deeper tiers on demand. That keeps the DOM small
       // and avoids opening every kingdom/phylum/order/family/genus in the
       // chain just to reach a single deep target.
-        if (state.treeSource === "worms" || state.treeSource === "freshwater") {
-            const kids = state.cache.get(parentId)?.children;
-            if (kids && kids.length > 0) {
-              for (const k of kids) state.showAll.add(`${parentId}::${k.rank}`);
-            }
-          }
+      if (state.treeSource === "worms" || state.treeSource === "freshwater") {
+        const kids = state.cache.get(parentId)?.children;
+        if (kids && kids.length > 0) {
+          for (const k of kids) state.showAll.add(`${parentId}::${k.rank}`);
         }
-        const parent = state.cache.get(parentId);
-        parentId = useWorms
-          ? parent?.taxon.worms_parent_id
-          : useFreshwater
-            ? parent?.taxon.freshwater_parent_id
-            : parent?.taxon.parent_id;
+      }
+    }
+    const parent = state.cache.get(parentId);
+    parentId = useWorms
+      ? parent?.taxon.worms_parent_id
+      : useFreshwater
+        ? parent?.taxon.freshwater_parent_id
+        : parent?.taxon.parent_id;
   }
 }
 
