@@ -641,16 +641,6 @@ def materialize_research_folder(taxon_id: int):
             else:
                 folders_existed += 1
 
-            # Add .gitkeep to empty folders. Preserves user content: if the
-            # folder has anything other than .gitkeep, we leave it alone.
-            has_user_content = any(
-                child.name != ".gitkeep" for child in d.iterdir()
-            )
-            if not has_user_content:
-                keep = d / ".gitkeep"
-                if not keep.exists():
-                    keep.touch()
-
     return {
         "ok": True,
         "absolute_path": str(target.resolve()),
