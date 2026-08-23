@@ -20,7 +20,10 @@ Run:
 from __future__ import annotations
 
 import logging
+import os
+import re
 import sqlite3
+import unicodedata
 from pathlib import Path
 from typing import Optional
 
@@ -37,6 +40,11 @@ from etl.migrations import CURRENT_SCHEMA_VERSION, get_applied_version  # pyrigh
 
 DB_PATH = Path(__file__).parent.parent / "data" / "db" / "taxa.db"
 WEB_DIR = Path(__file__).parent.parent / "web"
+# Where the materialize endpoint creates folder structures. Configurable via
+# env var so tests can monkeypatch to a tmp dir without touching the real
+# research folder. Resolved to absolute so the response's `absolute_path`
+# field is stable regardless of cwd.
+RESEARCH_DIR = Path(os.getenv("TAXA_RESEARCH_DIR", "./Research")).resolve()
 
 _logger = logging.getLogger(__name__)
 
@@ -441,6 +449,216 @@ def _build_search(scientific_name: str, authorship: Optional[str]) -> list[Searc
             url = e["template"].replace("{name}", name_q).replace("{auth}", "")
         out.append(SearchLink(engine=e["key"], label=e["label"], url=url))
     return out
+
+
+# --- Materialize endpoint helpers ---------------------------------------------
+#
+# The materialize endpoint creates a root→taxon folder structure under
+# RESEARCH_DIR. Each ancestor's `scientific_name` becomes a folder name; the
+# taxon's own name becomes the leaf folder. The path column on the taxon table
+# is a materialized `/A/B/C` string that already includes the taxon's own
+# name; when it's NULL (mostly synonyms without a resolved lineage) we walk
+# `parent_id` up to the root as a fallback. Folder names are sanitized so they
+# are safe across filesystems (no `/`, control chars, leading dots, etc.) and
+# a non-empty segment is always produced (fallback `id-{taxon_id}` when the
+# scientific_name sanitizes to empty).
+
+_FS_FORBIDDEN = re.compile(r'[\\/:*?"<>|\r\n\t]')
+_RUN_UNDERSCORE = re.compile(r"_+")
+_MAX_PARENT_DEPTH = 50
+
+
+def _sanitize_segment(name: str, fallback_id: int) -> str:
+    """Return a filesystem-safe folder name for a taxon.
+
+    - Drops control chars (Unicode category starts with "C") but keeps spaces.
+    - Replaces FS-forbidden chars (`/ \\ : * ? " < > |` and whitespace control
+      chars) with `_`.
+    - Collapses runs of `_` to a single `_`.
+    - Trims leading/trailing dots, underscores, and whitespace.
+    - Truncates to 200 chars (matches common FS limits with margin).
+    - Falls back to `id-{fallback_id}` when the result is empty so every
+      taxon produces a non-empty segment — essential for the path math.
+    """
+    if not name:
+        return f"id-{fallback_id}"
+    cleaned = "".join(
+        ch for ch in name
+        if ch == " " or unicodedata.category(ch)[0] != "C"
+    )
+    cleaned = _FS_FORBIDDEN.sub("_", cleaned)
+    cleaned = _RUN_UNDERSCORE.sub("_", cleaned).strip("._ \t")
+    cleaned = cleaned[:200]
+    return cleaned or f"id-{fallback_id}"
+
+
+def _walk_parents(
+    conn: sqlite3.Connection, start_id: int
+) -> list[tuple[int, str]]:
+    """Walk the parent_id chain from start_id up to the root.
+
+    Returns a list of (taxon_id, scientific_name) tuples in root→start order.
+    Raises 500 on cycles or chains deeper than `_MAX_PARENT_DEPTH`. The id is
+    preserved per ancestor so each segment's fallback uses its own taxon_id,
+    not the request's id.
+    """
+    visited: set[int] = set()
+    chain: list[tuple[int, str]] = []
+    current_id: Optional[int] = start_id
+    depth = 0
+    while current_id is not None:
+        if current_id in visited:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"parent_id cycle detected at taxon {current_id}; "
+                    "refusing to walk indefinitely"
+                ),
+            )
+        if depth >= _MAX_PARENT_DEPTH:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"parent_id chain too deep (>{_MAX_PARENT_DEPTH} hops); "
+                    "aborting to avoid runaway recursion"
+                ),
+            )
+        visited.add(current_id)
+        row = conn.execute(
+            "SELECT parent_id, scientific_name FROM taxon WHERE id = ?",
+            (current_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"taxon {current_id} not found during parent walk",
+            )
+        chain.append((current_id, row["scientific_name"]))
+        current_id = row["parent_id"]
+        depth += 1
+    chain.reverse()
+    return chain
+
+
+@app.post("/api/taxon/{taxon_id}/materialize")
+def materialize_research_folder(taxon_id: int):
+    """Create the root→taxon folder structure under RESEARCH_DIR.
+
+    For each ancestor + the taxon itself:
+    - Folder name = sanitized `scientific_name`.
+    - `mkdir(parents=True, exist_ok=True)` is idempotent.
+    - A `.gitkeep` file is created in any folder that's empty after creation
+      so git tracks the structure even when the user hasn't added content.
+
+    Idempotent: re-calling the endpoint on the same taxon reports the existing
+    folders instead of failing. Returns 409 if any path component collides
+    with an existing non-directory file (so the user gets a clear error
+    instead of a cryptic `FileExistsError` from mkdir).
+    """
+    with db() as conn:
+        row = conn.execute(
+            "SELECT scientific_name, path FROM taxon WHERE id = ?",
+            (taxon_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"taxon {taxon_id} not found",
+            )
+        sci_name = row["scientific_name"]
+        path = row["path"]
+
+        # Build (taxon_id, scientific_name) list in root→taxon order.
+        # When path is set, it's server-trusted (loaded from ETL with the
+        # correct names baked in), so we use the requested taxon_id for every
+        # segment — fallbacks won't fire because server-trusted names are
+        # clean. When path is NULL, walk parents and keep each ancestor's id.
+        if path:
+            segments_with_ids: list[tuple[int, str]] = [
+                (taxon_id, seg) for seg in path.split("/") if seg
+            ]
+        else:
+            segments_with_ids = _walk_parents(conn, taxon_id)
+
+        # Consecutive dedup by ORIGINAL scientific_name (before sanitize).
+        # This collapses chains where several ancestors share the same name
+        # (e.g. three taxa all named "///" all sanitize to empty and need to
+        # fall back to the same `id-{taxon_id}` — the test AC-4d expects
+        # `id-{a}`, the first ancestor's id, not three different ids). The
+        # dedup keeps the first tuple of each name run so the fallback uses
+        # that ancestor's id.
+        deduped_with_ids: list[tuple[int, str]] = []
+        for tid, name in segments_with_ids:
+            if not deduped_with_ids or deduped_with_ids[-1][1] != name:
+                deduped_with_ids.append((tid, name))
+
+        sanitized: list[str] = [
+            _sanitize_segment(name, tid) for tid, name in deduped_with_ids
+        ]
+
+        if not sanitized:
+            raise HTTPException(
+                status_code=500,
+                detail="sanitized path is empty; cannot create folder structure",
+            )
+
+        # Create folders and add .gitkeep in a single pass. We pre-check
+        # existence so we can distinguish "created by this call" from
+        # "pre-existed", and bail out with 409 if any component is an
+        # existing non-directory file (a regular mkdir(exist_ok=True) would
+        # raise FileExistsError there; we surface it as a clean HTTP error).
+        target = RESEARCH_DIR.joinpath(*sanitized)
+        folders_created = 0
+        folders_existed = 0
+        for i in range(1, len(sanitized) + 1):
+            d = RESEARCH_DIR.joinpath(*sanitized[:i])
+
+            if d.exists() and not d.is_dir():
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"path conflict at {d}: not a directory",
+                )
+            is_new = not d.exists()
+
+            try:
+                d.mkdir(parents=True, exist_ok=True)
+            except FileExistsError:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"path conflict at {target}: an existing non-directory "
+                        "file blocks folder creation"
+                    ),
+                )
+            except OSError as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"failed to create {d}: {e}",
+                )
+
+            if is_new:
+                folders_created += 1
+            else:
+                folders_existed += 1
+
+            # Add .gitkeep to empty folders. Preserves user content: if the
+            # folder has anything other than .gitkeep, we leave it alone.
+            has_user_content = any(
+                child.name != ".gitkeep" for child in d.iterdir()
+            )
+            if not has_user_content:
+                keep = d / ".gitkeep"
+                if not keep.exists():
+                    keep.touch()
+
+    return {
+        "ok": True,
+        "absolute_path": str(target.resolve()),
+        "relative_path": "/".join(sanitized),
+        "folders_created": folders_created,
+        "folders_existed": folders_existed,
+        "segments": sanitized,
+    }
 
 
 @app.get("/api/taxon/{taxon_id}/searches", response_model=list[SearchLink])
