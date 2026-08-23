@@ -1,14 +1,16 @@
 """
 Tests for the materialize endpoint — POST /api/taxon/{id}/materialize.
-
+    
 The endpoint materializes the root→taxon lineage as a folder structure
-under TAXA_RESEARCH_DIR (configurable; default ./Research). Each folder
-gets a .gitkeep file when empty. Idempotent: re-calls don't fail.
-
+under TAXA_RESEARCH_DIR (configurable; default ./Research). The endpoint
+creates folders only — no files are added inside them, so the user can
+drop their own content (notes, references) without anything pre-existing
+to clean up. Idempotent: re-calls don't fail.
+    
 Pattern: in-memory SQLite (cache=shared) so each test starts from a clean
 slate. The base dir is monkey-patched to a tmp_path so the test never
 touches the real ./Research.
-
+    
 Run:
     pytest tests/test_api_materialize.py -v
 """
@@ -146,7 +148,7 @@ def test_404_on_unknown_taxon(db_client_and_base):
 
 def test_materialize_with_path_creates_full_tree(db_client_and_base):
     """AC-2: For a taxon whose `path` is set, the endpoint materializes the
-    full root→taxon tree under base_dir. Each folder has .gitkeep."""
+    full root→taxon tree under base_dir. Folders only — no files added."""
     conn, client, base = db_client_and_base
     # Build: Eukaryota → Animalia → Chordata (Chordata has the full path).
     euk = _insert(conn, scientific_name="Eukaryota", rank="domain",
@@ -163,11 +165,14 @@ def test_materialize_with_path_creates_full_tree(db_client_and_base):
     assert body["folders_created"] == 3
     assert body["folders_existed"] == 0
     assert body["relative_path"] == "Eukaryota/Animalia/Chordata"
-    # All three folders + .gitkeep files exist on disk.
+    # All three folders exist. Intermediate folders have child folders
+    # (expected — that's the lineage). The leaf must be empty. And no
+    # folder should contain files (the endpoint never writes files).
     for d in ("Eukaryota", "Eukaryota/Animalia",
               "Eukaryota/Animalia/Chordata"):
         assert (base / d).is_dir(), f"missing folder: {d}"
-        assert (base / d / ".gitkeep").exists(), f"missing .gitkeep: {d}"
+        files = [c for c in (base / d).iterdir() if c.is_file()]
+        assert files == [], f"unexpected files in {d}: {files}"
     # The absolute path resolves to base_dir + relative_path.
     assert body["absolute_path"] == str((base / "Eukaryota" / "Animalia"
                                          / "Chordata").resolve())
@@ -194,7 +199,9 @@ def test_materialize_with_null_path_walks_parents(db_client_and_base):
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["segments"] == ["Eukaryota", "Animalia", "Chordata"]
-    assert (base / "Eukaryota" / "Animalia" / "Chordata" / ".gitkeep").exists()
+    leaf = base / "Eukaryota" / "Animalia" / "Chordata"
+    assert leaf.is_dir()
+    assert list(leaf.iterdir()) == []
 
 
 def test_materialize_null_path_appends_taxon_name(db_client_and_base):
@@ -210,7 +217,9 @@ def test_materialize_null_path_appends_taxon_name(db_client_and_base):
     assert resp.status_code == 200, resp.text
     # The walk gives [Eukaryota]; we append "Chordata" so the leaf is the taxon.
     assert resp.json()["segments"] == ["Eukaryota", "Chordata"]
-    assert (base / "Eukaryota" / "Chordata" / ".gitkeep").exists()
+    leaf = base / "Eukaryota" / "Chordata"
+    assert leaf.is_dir()
+    assert list(leaf.iterdir()) == []
 
 
 # ---------------------------------------------------------------------------
@@ -234,8 +243,9 @@ def test_sanitize_forbidden_chars(db_client_and_base):
     # in the result; no path collision because path is trusted).
     body = resp.json()
     assert "/" not in body["segments"][-1]
-    # A single folder got created at the leaf.
-    assert (base / "A_B_C_D_E_F_G_H_I_J" / ".gitkeep").exists()
+    # A single folder got created at the leaf, empty.
+    assert (base / "A_B_C_D_E_F_G_H_I_J").is_dir()
+    assert list((base / "A_B_C_D_E_F_G_H_I_J").iterdir()) == []
 
 
 def test_sanitize_control_chars_and_newlines(db_client_and_base):
@@ -259,8 +269,10 @@ def test_sanitize_control_chars_and_newlines(db_client_and_base):
     assert "\t" not in seg
     assert "\x00" not in seg
     assert not seg.startswith(".") and not seg.endswith("."), seg
-    # The folder exists.
-    assert (base / "Eukaryota" / seg / ".gitkeep").exists()
+    # The folder exists and is empty.
+    leaf = base / "Eukaryota" / seg
+    assert leaf.is_dir()
+    assert list(leaf.iterdir()) == []
 
 
 def test_sanitize_empty_falls_back_to_id(db_client_and_base):
@@ -276,7 +288,9 @@ def test_sanitize_empty_falls_back_to_id(db_client_and_base):
     assert resp.status_code == 200, resp.text
     seg = resp.json()["segments"][-1]
     assert seg == f"id-{bad}"
-    assert (base / "Eukaryota" / f"id-{bad}" / ".gitkeep").exists()
+    leaf = base / "Eukaryota" / f"id-{bad}"
+    assert leaf.is_dir()
+    assert list(leaf.iterdir()) == []
 
 
 def test_sanitize_dedupes_consecutive_segments(db_client_and_base):
@@ -296,8 +310,10 @@ def test_sanitize_dedupes_consecutive_segments(db_client_and_base):
     segs = resp.json()["segments"]
     # All three fall back to id-{taxon_id}; consecutive dedup keeps the first.
     assert segs == [f"id-{a}"]
-    # Only one folder was created.
-    assert (base / f"id-{a}" / ".gitkeep").exists()
+    # Only one folder was created, and it's empty.
+    leaf = base / f"id-{a}"
+    assert leaf.is_dir()
+    assert list(leaf.iterdir()) == []
 
 
 # ---------------------------------------------------------------------------
@@ -324,16 +340,19 @@ def test_idempotent_repeat_calls(db_client_and_base):
     assert r2.status_code == 200, r2.text
     assert r2.json()["folders_created"] == 0
     assert r2.json()["folders_existed"] == 3
-    # .gitkeep still exists; not duplicated (touch is idempotent).
+    # Folders still have no files after the second call (intermediate
+    # folders have child folders; leaf is empty).
     for d in ("Eukaryota", "Eukaryota/Animalia",
               "Eukaryota/Animalia/Chordata"):
-        assert (base / d / ".gitkeep").exists()
+        assert (base / d).is_dir()
+        files = [c for c in (base / d).iterdir() if c.is_file()]
+        assert files == [], f"unexpected files in {d}: {files}"
 
 
 def test_does_not_overwrite_existing_files_in_folder(db_client_and_base):
-    """AC-5b: If a folder under the path already contains a non-.gitkeep
-    file, the endpoint must NOT delete or overwrite it. The .gitkeep is
-    only added when the folder is empty."""
+    """AC-5b: If a folder under the path already contains a file, the
+    endpoint must NOT delete or overwrite it. The endpoint never writes
+    files into the created folders, so user content is always preserved."""
     conn, client, base = db_client_and_base
     euk = _insert(conn, scientific_name="Eukaryota", rank="domain",
                   path="/Eukaryota")
@@ -345,10 +364,11 @@ def test_does_not_overwrite_existing_files_in_folder(db_client_and_base):
     (leaf_dir / "notes.txt").write_text("user data, must survive")
     resp = client.post(f"/api/taxon/{leaf}/materialize")
     assert resp.status_code == 200, resp.text
-    # The user file is intact.
+    # The user file is intact and is the only thing in the folder.
     assert (leaf_dir / "notes.txt").read_text() == "user data, must survive"
-    # .gitkeep was NOT added (folder wasn't empty).
-    assert not (leaf_dir / ".gitkeep").exists()
+    assert list(leaf_dir.iterdir()) == [leaf_dir / "notes.txt"]
+    # The endpoint added nothing else — no .gitkeep, no extra files.
+    assert len(list(leaf_dir.iterdir())) == 1
 
 
 # ---------------------------------------------------------------------------
