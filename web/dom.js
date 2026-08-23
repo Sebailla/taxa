@@ -96,4 +96,40 @@ function waitForDetailReady(id) {
   });
 }
 
-export { el, scrollTaxonBelowCard, waitForDetailReady };
+// Tiny toast for action feedback (e.g. "Carpetas creadas en ./Research",
+// "Error: 404 not found"). Auto-dismisses after 4s by default. Calls in
+// quick succession replace the previous toast instead of stacking — useful
+// for click→click→click cycles where the user doesn't need to see every
+// intermediate message.
+let _toastNode = null;
+let _toastTimer = null;
+function showToast(message, opts = {}) {
+  if (_toastNode) {
+    _toastNode.remove();
+    _toastNode = null;
+  }
+  if (_toastTimer) {
+    clearTimeout(_toastTimer);
+    _toastTimer = null;
+  }
+  const node = el(
+    "div",
+    {
+      class: `toast${opts.error ? " toast-error" : ""}`,
+      role: opts.error ? "alert" : "status",
+      "aria-live": opts.error ? "assertive" : "polite",
+    },
+    message,
+  );
+  document.body.append(node);
+  _toastNode = node;
+  _toastTimer = setTimeout(() => {
+    if (_toastNode === node) {
+      node.remove();
+      _toastNode = null;
+    }
+    _toastTimer = null;
+  }, opts.duration ?? 4000);
+}
+
+export { el, scrollTaxonBelowCard, waitForDetailReady, showToast };

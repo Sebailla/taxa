@@ -171,6 +171,25 @@ function renderNodeRow(taxon, opts = {}) {
           "search",
         )
       : null,
+    // Per-row materialize icon — asks the server to create the
+    // root→taxon folder structure under ./Research. Same hide condition
+    // as the search icon (no name → no useful work to show), sits
+    // immediately to the right of it. Materialize is POST + idempotent;
+    // the toast at the bottom reports created vs pre-existing folders.
+    taxon.scientific_name
+      ? el(
+          "button",
+          {
+            class:
+              "materialize-btn material-symbols-outlined text-[16px] text-on-surface-variant hover:text-primary transition-colors",
+            "data-action": "materialize-folder",
+            "data-taxon-id": String(taxon.id),
+            title: `Materialize folder structure for ${taxon.scientific_name} in ./Research`,
+            "aria-label": `Materialize folder structure for ${taxon.scientific_name}`,
+          },
+          "create_new_folder",
+        )
+      : null,
   );
 
   return el(

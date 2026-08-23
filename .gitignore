@@ -31,3 +31,9 @@ data/*.log
 .vscode/
 .idea/
 .DS_Store
+
+# User-generated research folder structure — created on demand by clicking
+# the materialize icon in the web UI (POST /api/taxon/{id}/materialize).
+# The folder contents (notes, references) are managed by the user and
+# should not be committed.
+Research/
