@@ -50,4 +50,29 @@ async function loadChildren(id) {
   return node.children;
 }
 
-export { api, loadTaxon, loadChildren };
+// POST /api/taxon/{id}/materialize — asks the server to create the
+// root→taxon folder structure under RESEARCH_DIR (default ./Research). The
+// endpoint is idempotent and returns how many folders it created vs found.
+// We use POST (not GET) because the call has side effects on the server's
+// filesystem. Errors are surfaced as a thrown Error so the caller (nav.js)
+// can show them in a toast.
+async function materializeResearch(taxonId) {
+  const r = await fetch(API + `/api/taxon/${taxonId}/materialize`, {
+    method: "POST",
+  });
+  if (!r.ok) {
+    let detail = "";
+    try {
+      const body = await r.json();
+      detail = body.detail || "";
+    } catch {
+      // body wasn't JSON — fall back to statusText.
+    }
+    throw new Error(
+      `materialize ${taxonId} failed: ${r.status}${detail ? " " + detail : ""}`,
+    );
+  }
+  return r.json();
+}
+
+export { api, loadTaxon, loadChildren, materializeResearch };

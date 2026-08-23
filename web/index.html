@@ -424,9 +424,9 @@
       }
 
       /* Per-row search icon button — sits at the end of metaBlock, hidden
-                 when scientific_name is empty (the JS conditional handles that).
-                 Hover shifts the bg to surface-container-low and the icon color
-                 to primary (Tailwind class handles the color shift). */
+                     when scientific_name is empty (the JS conditional handles that).
+                     Hover shifts the bg to surface-container-low and the icon color
+                     to primary (Tailwind class handles the color shift). */
       .search-icon-btn {
         margin-left: 8px;
         padding: 2px;
@@ -440,6 +440,69 @@
       }
       .search-icon-btn:hover {
         background: var(--surface-container-low);
+      }
+
+      /* Per-row materialize folder icon — same visual language as the
+                     search icon (sits immediately to its right). Asks the server
+                     to create the root→taxon folder structure under ./Research.
+                     Disabled state (during the in-flight request) dims the icon
+                     and cursor so users know not to click again. */
+      .materialize-btn {
+        margin-left: 4px;
+        padding: 2px;
+        border-radius: 4px;
+        background: transparent;
+        border: 0;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .materialize-btn:hover:not(:disabled) {
+        background: var(--surface-container-low);
+      }
+      .materialize-btn:disabled {
+        opacity: 0.5;
+        cursor: wait;
+      }
+
+      /* Bottom-center toast for transient action feedback (folder
+                     materialize success / error). Slides in from below; auto-
+                     dismisses after 4s. Uses the project's surface-container
+                     tokens so it inherits theming. The toast helper in
+                     web/dom.js auto-replaces any in-flight toast on the next
+                     call, so repeated clicks don't queue up. */
+      .toast {
+        position: fixed;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 12px 20px;
+        border-radius: 8px;
+        background: var(--surface-container-high);
+        color: var(--on-surface);
+        box-shadow:
+          0 4px 12px rgba(0, 0, 0, 0.15),
+          0 1px 3px rgba(0, 0, 0, 0.1);
+        font-size: 14px;
+        line-height: 1.4;
+        max-width: min(560px, 80vw);
+        z-index: 1000;
+        animation: toast-slide-in 0.18s ease-out;
+      }
+      .toast-error {
+        background: var(--error-container);
+        color: var(--on-error-container);
+      }
+      @keyframes toast-slide-in {
+        from {
+          opacity: 0;
+          transform: translate(-50%, 8px);
+        }
+        to {
+          opacity: 1;
+          transform: translate(-50%, 0);
+        }
       }
 
       /* Búsquedas tab content — 14 search-engine links rendered as a
