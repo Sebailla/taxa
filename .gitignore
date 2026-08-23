@@ -19,7 +19,8 @@ env/
 .mypy_cache/
 .ruff_cache/
 
-# Data — large local snapshots
+# Data — large local snapshots (DB rebuilt via `make etl && make coldp`)
+data/
 data/raw/
 data/db/*.db
 data/db/*.db-shm
