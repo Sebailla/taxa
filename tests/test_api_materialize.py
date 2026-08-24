@@ -436,3 +436,225 @@ def test_500_on_parent_id_chain_too_deep(db_client_and_base):
     assert resp.status_code == 500, resp.text
     assert "deep" in resp.json()["detail"].lower() or "cycle" \
         in resp.json()["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+# AC-8 — GET /api/taxon/{id}/materialize-preview
+#
+# New endpoint that reports what POST /materialize WOULD do, without
+# side effects. The frontend uses it to render the line-by-line preview
+# inside the materialize modal BEFORE the user confirms. The tests below
+# cover the contract: structure, counts, the all_exist flag, NULL-path
+# fallback, and sanitization visibility.
+# ---------------------------------------------------------------------------
+
+
+def test_preview_404_on_unknown_taxon(db_client_and_base):
+    """AC-8a: GET on a non-existent id returns 404 with a clear detail
+    message, mirroring the POST endpoint's behavior."""
+    _conn, client, _base = db_client_and_base
+    resp = client.get("/api/taxon/999999/materialize-preview")
+    assert resp.status_code == 404, resp.text
+    assert "999999" in resp.json()["detail"]
+
+
+def test_preview_returns_full_structure_on_fresh_taxon(db_client_and_base):
+    """AC-8b: On a fresh taxon (no folders on disk yet), every segment
+    reports exists=False / is_new=True, new_count equals the segment
+    count, existing_count is 0, and all_exist=False. The response also
+    carries the scientific_name, the absolute and relative paths, and
+    the resolved research_dir (for the modal's "Carpeta raíz" line)."""
+    conn, client, base = db_client_and_base
+    euk = _insert(conn, scientific_name="Eukaryota", rank="domain",
+                  path="/Eukaryota")
+    chordata = _insert(conn, scientific_name="Chordata", rank="phylum",
+                       parent_id=euk,
+                       path="/Eukaryota/Chordata")
+    resp = client.get(f"/api/taxon/{chordata}/materialize-preview")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["taxon_id"] == chordata
+    assert body["scientific_name"] == "Chordata"
+    assert body["relative_path"] == "Eukaryota/Chordata"
+    assert body["absolute_path"] == str((base / "Eukaryota" / "Chordata").resolve())
+    assert body["research_dir"] == str(base.resolve())
+    # Every segment is "new" because nothing exists on disk yet.
+    assert body["new_count"] == 2
+    assert body["existing_count"] == 0
+    assert body["all_exist"] is False
+    assert body["segments"] == [
+        {"name": "Eukaryota", "exists": False, "is_dir": False, "is_new": True},
+        {"name": "Chordata", "exists": False, "is_dir": False, "is_new": True},
+    ]
+
+
+def test_preview_all_exist_after_post(db_client_and_base):
+    """AC-8c: After a successful POST, a follow-up GET on the same taxon
+    reports every segment as exists=True / is_new=False, with all_exist
+    True. This is the modal's "info-only" mode (no [Crear] button)."""
+    conn, client, base = db_client_and_base
+    euk = _insert(conn, scientific_name="Eukaryota", rank="domain",
+                  path="/Eukaryota")
+    chordata = _insert(conn, scientific_name="Chordata", rank="phylum",
+                       parent_id=euk,
+                       path="/Eukaryota/Chordata")
+    # First create the folders.
+    create_resp = client.post(f"/api/taxon/{chordata}/materialize")
+    assert create_resp.status_code == 200
+    # Then preview: should report all_exist.
+    preview = client.get(f"/api/taxon/{chordata}/materialize-preview")
+    assert preview.status_code == 200
+    body = preview.json()
+    assert body["all_exist"] is True
+    assert body["new_count"] == 0
+    assert body["existing_count"] == 2
+    for seg in body["segments"]:
+        assert seg["exists"] is True
+        assert seg["is_dir"] is True
+        assert seg["is_new"] is False
+
+
+def test_preview_mixed_state_with_partial_disk(db_client_and_base):
+    """AC-8d: When some ancestors are pre-existing on disk (e.g. from a
+    previous materialize call) but the leaf is missing, the preview
+    reports the mixed state segment-by-segment. The user can see
+    exactly which folders will be new vs pre-existing."""
+    conn, client, base = db_client_and_base
+    euk = _insert(conn, scientific_name="Eukaryota", rank="domain",
+                  path="/Eukaryota")
+    chordata = _insert(conn, scientific_name="Chordata", rank="phylum",
+                       parent_id=euk,
+                       path="/Eukaryota/Chordata")
+    # Pre-create only the first segment, mimicking a previous partial
+    # materialize or a user-created folder.
+    (base / "Eukaryota").mkdir(parents=True)
+    preview = client.get(f"/api/taxon/{chordata}/materialize-preview")
+    assert preview.status_code == 200
+    body = preview.json()
+    assert body["all_exist"] is False
+    assert body["new_count"] == 1
+    assert body["existing_count"] == 1
+    assert body["segments"][0] == {
+        "name": "Eukaryota", "exists": True, "is_dir": True, "is_new": False,
+    }
+    assert body["segments"][1] == {
+        "name": "Chordata", "exists": False, "is_dir": False, "is_new": True,
+    }
+
+
+def test_preview_null_path_walks_parents(db_client_and_base):
+    """AC-8e: When the taxon's `path` is NULL, the preview walks parent_id
+    to build the segment list — same fallback as the POST endpoint. The
+    preview response includes the taxon's own scientific_name as the
+    last segment so the leaf folder matches the taxon."""
+    conn, client, _base = db_client_and_base
+    euk = _insert(conn, scientific_name="Eukaryota", rank="domain",
+                  path="/Eukaryota")
+    chordata = _insert(conn, scientific_name="Chordata", rank="phylum",
+                       parent_id=euk, path=None)
+    preview = client.get(f"/api/taxon/{chordata}/materialize-preview")
+    assert preview.status_code == 200
+    body = preview.json()
+    assert body["relative_path"] == "Eukaryota/Chordata"
+    assert [s["name"] for s in body["segments"]] == ["Eukaryota", "Chordata"]
+
+
+def test_preview_sanitizes_names_for_display(db_client_and_base):
+    """AC-8f: The preview shows the SANITIZED segment names (with
+    underscores in place of forbidden chars), not the raw scientific_name.
+    The modal needs the sanitized form so what the user sees matches what
+    will be created on disk."""
+    conn, client, base = db_client_and_base
+    taxon_id = _insert(
+        conn,
+        scientific_name="A/B\\C:D*E?F\"G<H>I|J",
+        rank="species",
+        path="/A_B_C_D_E_F_G_H_I_J",  # path is server-trusted → already clean
+    )
+    preview = client.get(f"/api/taxon/{taxon_id}/materialize-preview")
+    assert preview.status_code == 200
+    body = preview.json()
+    # The leaf segment is the sanitized form (single segment, no slashes).
+    leaf_seg = body["segments"][-1]
+    assert "/" not in leaf_seg["name"]
+    assert leaf_seg["name"] == "A_B_C_D_E_F_G_H_I_J"
+
+
+# ---------------------------------------------------------------------------
+# AC-9 — /api/taxon/{id}/children returns research_path_exists per child
+#
+# The frontend needs to know, per visible child, whether its root→taxon
+# folder already exists on disk — without firing a per-child preview
+# request. The endpoint computes the flag in the same connection scope
+# so the cost is one extra Path.exists() per child (cheap).
+# ---------------------------------------------------------------------------
+
+
+def test_children_flag_false_when_research_dir_is_empty(db_client_and_base):
+    """AC-9a: On a fresh /Research directory, every child reports
+    research_path_exists=False regardless of its rank or path. The flag
+    is only populated by the children endpoint; the single-taxon
+    endpoint is out of scope for this test."""
+    conn, client, _base = db_client_and_base
+    euk = _insert(conn, scientific_name="Eukaryota", rank="domain",
+                  path="/Eukaryota")
+    _insert(conn, scientific_name="Animalia", rank="kingdom",
+            parent_id=euk, path="/Eukaryota/Animalia")
+    _insert(conn, scientific_name="Plantae", rank="kingdom",
+            parent_id=euk, path="/Eukaryota/Plantae")
+    resp = client.get(f"/api/taxon/{euk}/children")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body) == 2
+    for child in body:
+        assert child["research_path_exists"] is False
+
+
+def test_children_flag_true_when_path_exists_on_disk(db_client_and_base):
+    """AC-9b: After a POST that materializes a child's path, the
+    subsequent /children response reports research_path_exists=True
+    for that child. The other children (whose path was NOT created)
+    still report False. This is the round-trip the frontend relies on
+    to paint the per-row icon in the right state."""
+    conn, client, base = db_client_and_base
+    euk = _insert(conn, scientific_name="Eukaryota", rank="domain",
+                  path="/Eukaryota")
+    ani = _insert(conn, scientific_name="Animalia", rank="kingdom",
+                  parent_id=euk, path="/Eukaryota/Animalia")
+    _insert(conn, scientific_name="Plantae", rank="kingdom",
+            parent_id=euk, path="/Eukaryota/Plantae")
+    # Materialize only Animalia's path.
+    create = client.post(f"/api/taxon/{ani}/materialize")
+    assert create.status_code == 200
+    # Now /children should mark Animalia as exists and Plantae as not.
+    resp = client.get(f"/api/taxon/{euk}/children")
+    assert resp.status_code == 200
+    body = resp.json()
+    by_name = {c["scientific_name"]: c for c in body}
+    assert by_name["Animalia"]["research_path_exists"] is True
+    assert by_name["Plantae"]["research_path_exists"] is False
+
+
+def test_children_flag_with_prepopulated_research_dir(db_client_and_base):
+    """AC-9c: When the research dir is pre-populated (e.g. the user
+    created some folders manually before loading the tree), the
+    children endpoint reflects the on-disk reality without needing
+    a materialize call. This is the cold-start path: a fresh page
+    load on an existing /Research should show the correct icons
+    immediately, no interaction required."""
+    conn, client, base = db_client_and_base
+    euk = _insert(conn, scientific_name="Eukaryota", rank="domain",
+                  path="/Eukaryota")
+    _insert(conn, scientific_name="Animalia", rank="kingdom",
+            parent_id=euk, path="/Eukaryota/Animalia")
+    _insert(conn, scientific_name="Plantae", rank="kingdom",
+            parent_id=euk, path="/Eukaryota/Plantae")
+    # Pre-create only Plantae's folder on disk (no POST).
+    (base / "Eukaryota" / "Plantae").mkdir(parents=True)
+    resp = client.get(f"/api/taxon/{euk}/children")
+    assert resp.status_code == 200
+    body = resp.json()
+    by_name = {c["scientific_name"]: c for c in body}
+    assert by_name["Animalia"]["research_path_exists"] is False
+    assert by_name["Plantae"]["research_path_exists"] is True
