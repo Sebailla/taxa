@@ -207,38 +207,30 @@ function renderNodeRow(taxon, opts = {}) {
           "search",
         )
       : null,
-    // Per-row materialize icon — now an INDICATOR, not a creator.
-    // Click opens a preview modal; the icon's color communicates the
-    // current state at a glance:
-    //   - default (gray): the path has not been materialized on disk
-    //     yet (or we don't know — the backend only sets the flag on
-    //     /api/taxon/{id}/children responses, and the in-session
-    //     `state.materialized` set fills in anything the user just
-    //     confirmed).
-    //   - green: the path is already on disk, so the modal will open
-    //     in "all exist" mode (no Crear button, just Cerrar + info).
+    // Per-row materialize indicator — only rendered when the
+    // taxon's root→taxon folder is on disk. Pure status marker:
+    // saturated green for "yes, it's there", nothing at all for
+    // "not yet". Creation happens in the detail panel's "Carpeta"
+    // tab (opened from the lupa or from this icon), not from the
+    // row itself.
+    //
     // The backend's per-child `research_path_exists` flag is the
-    // source of truth; the in-memory set picks up anything the user
-    // materialized this session without a fresh children round trip.
+    // source of truth; the in-memory `state.materialized` set fills
+    // in anything the user just confirmed in this session
+    // (propagated to visible descendants by propagateMaterialized).
+    // Clicking opens the detail panel on the Carpeta tab — the same
+    // modal the lupa opens, just on a different tab.
+    (taxon.research_path_exists || state.materialized.has(taxon.id)) &&
     taxon.scientific_name
       ? el(
           "button",
           {
-            class: `materialize-btn material-symbols-outlined text-[16px] transition-colors ${
-              taxon.research_path_exists || state.materialized.has(taxon.id)
-                ? "materialize-btn-exists text-primary"
-                : "text-on-surface-variant hover:text-primary"
-            }`,
-            "data-action": "materialize-folder",
+            class:
+              "materialize-btn material-symbols-outlined text-[16px] transition-colors text-green-700 hover:text-green-800",
+            "data-action": "open-carpeta-tab",
             "data-taxon-id": String(taxon.id),
-            title:
-              taxon.research_path_exists || state.materialized.has(taxon.id)
-                ? `Path materializado en ./Research/${taxon.scientific_name}`
-                : `Materializar carpeta para ${taxon.scientific_name} en ./Research`,
-            "aria-label":
-              taxon.research_path_exists || state.materialized.has(taxon.id)
-                ? `Path ya materializado para ${taxon.scientific_name}`
-                : `Materializar carpeta para ${taxon.scientific_name}`,
+            title: `Carpeta creada en ./Research/${taxon.scientific_name} — click para ver detalles`,
+            "aria-label": `Carpeta ya materializada para ${taxon.scientific_name}`,
           },
           "create_new_folder",
         )

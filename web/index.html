@@ -442,21 +442,15 @@
         background: var(--surface-container-low);
       }
 
-      /* Per-row materialize indicator — same visual language as the
-                     search icon (sits immediately to its right). It is no
-                     longer a creator: clicking it opens a preview modal
-                     that asks the user to confirm before the server
-                     touches the filesystem. The icon's color tells the
-                     user the current state at a glance:
-                       - default (text-on-surface-variant): the path has
-                         not been materialized on disk yet.
-                       - materialize-btn-exists (primary): the path IS
-                         already on disk; the modal will open in "all
-                         exist" mode with just a [Cerrar] button.
-                     The `disabled` state is kept for any future in-flight
-                     scenario (currently the modal's button handles that,
-                     not the row icon — but the rule is harmless to
-                     keep). */
+      /* Per-row materialize indicator — pure status marker, only
+                     rendered when the taxon's root→taxon folder is on
+                     disk. Saturated green via Tailwind's text-green-700
+                     (in tree.js) so it stands out at a glance against
+                     the rest of the row. Hover bumps to green-800.
+                     Clicking always opens the detail panel on the
+                     Carpeta tab (which is the same modal the lupa
+                     opens), so there's no disabled state to worry
+                     about on the row icon itself. */
       .materialize-btn {
         margin-left: 4px;
         padding: 2px;
@@ -468,116 +462,26 @@
         align-items: center;
         justify-content: center;
       }
-      .materialize-btn:hover:not(:disabled) {
-        background: var(--surface-container-low);
-      }
-      .materialize-btn:disabled {
-        opacity: 0.5;
-        cursor: wait;
-      }
-      .materialize-btn-exists:hover {
+      .materialize-btn:hover {
         background: var(--surface-container-low);
       }
 
-      /* Materialize preview modal — opened by the per-row folder icon.
-                     Backdrop dims + freezes the page; the centered card
-                     shows the line-by-line preview, the count summary,
-                     and the action buttons. Built imperatively in
-                     web/dom.js::openMaterializeModal; styles live here
-                     alongside the other component styles. */
-      .materialize-modal-backdrop {
-        position: fixed;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.45);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 1100;
-        opacity: 0;
-        transition: opacity 0.16s ease-out;
-      }
-      .materialize-modal-backdrop.materialize-modal-open {
-        opacity: 1;
-      }
-      .materialize-modal {
-        background: var(--surface);
-        color: var(--on-surface);
-        border-radius: 12px;
-        box-shadow:
-          0 16px 48px rgba(0, 0, 0, 0.25),
-          0 2px 6px rgba(0, 0, 0, 0.12);
-        width: min(520px, 92vw);
-        max-height: 86vh;
+      /* Carpeta tab content — lives inside the detail panel's
+                     "Carpeta" tab. Reuses the line-by-line preview UI
+                     that the previous standalone modal had, but
+                     without the backdrop / card chrome (the detail
+                     panel is the card now). The content wrapper is
+                     .materialize-tab-content so the tab gets a
+                     consistent vertical rhythm inside the
+                     detail-section grid. */
+      .materialize-tab-content {
         display: flex;
         flex-direction: column;
-        overflow: hidden;
-        font-family: "Raleway", sans-serif;
-        transform: translateY(8px) scale(0.98);
-        transition: transform 0.16s ease-out;
-      }
-      .materialize-modal-backdrop.materialize-modal-open .materialize-modal {
-        transform: translateY(0) scale(1);
-      }
-      .materialize-modal-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 16px 20px 8px 20px;
         gap: 12px;
+        padding: 4px 0;
       }
-      .materialize-modal-title {
-        font-size: 18px;
-        font-weight: 700;
-        line-height: 1.2;
-      }
-      .materialize-modal-close {
-        background: transparent;
-        border: 0;
-        padding: 4px;
-        border-radius: 50%;
-        cursor: pointer;
-        color: var(--on-surface-variant);
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        line-height: 1;
-      }
-      .materialize-modal-close:hover:not(:disabled) {
-        background: var(--surface-container-low);
-        color: var(--on-surface);
-      }
-      .materialize-modal-close:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-      }
-      .materialize-modal-taxon {
-        display: flex;
-        align-items: baseline;
-        gap: 8px;
-        padding: 0 20px 12px 20px;
-        font-size: 14px;
-        border-bottom: 1px solid var(--outline-variant);
-      }
-      .materialize-modal-taxon-label {
-        color: var(--on-surface-variant);
-        font-weight: 600;
-        text-transform: uppercase;
-        font-size: 11px;
-        letter-spacing: 0.06em;
-      }
-      .materialize-modal-taxon-name {
-        font-style: italic;
-        font-weight: 600;
-        color: var(--primary);
-        overflow-wrap: anywhere;
-      }
-      .materialize-modal-body {
-        padding: 16px 20px;
-        overflow-y: auto;
-        flex: 1 1 auto;
-      }
-      .materialize-modal-loading,
-      .materialize-modal-error {
+      .materialize-tab-loading,
+      .materialize-tab-error {
         display: flex;
         align-items: center;
         gap: 10px;
@@ -585,7 +489,7 @@
         color: var(--on-surface-variant);
         font-size: 14px;
       }
-      .materialize-modal-error {
+      .materialize-tab-error {
         color: var(--on-error-container);
       }
       .materialize-modal-section-title {
@@ -630,8 +534,8 @@
         flex-shrink: 0;
       }
       .materialize-modal-marker-exists {
-        background: color-mix(in srgb, var(--primary) 14%, transparent);
-        color: var(--primary);
+        background: color-mix(in srgb, #15803d 18%, transparent);
+        color: #15803d;
       }
       .materialize-modal-marker-new {
         background: color-mix(in srgb, var(--tertiary, var(--primary)) 14%, transparent);
@@ -643,7 +547,6 @@
         line-height: 1.35;
       }
       .materialize-modal-counts {
-        margin-top: 12px;
         font-size: 13px;
         color: var(--on-surface-variant);
       }
@@ -651,22 +554,17 @@
         display: flex;
         align-items: center;
         gap: 10px;
-        margin-top: 12px;
         padding: 10px 12px;
         border-radius: 8px;
-        background: color-mix(in srgb, var(--primary) 12%, transparent);
-        color: var(--primary);
+        background: color-mix(in srgb, #15803d 12%, transparent);
+        color: #15803d;
         font-size: 14px;
         font-weight: 600;
       }
-      .materialize-modal-footer {
+      .materialize-modal-actions {
         display: flex;
-        align-items: center;
         justify-content: flex-end;
-        gap: 8px;
-        padding: 12px 20px 16px 20px;
-        border-top: 1px solid var(--outline-variant);
-        background: var(--surface-container-lowest);
+        margin-top: 4px;
       }
       .materialize-modal-btn {
         font-family: "Raleway", sans-serif;
@@ -684,19 +582,11 @@
         cursor: not-allowed;
       }
       .materialize-modal-btn-primary {
-        background: var(--primary);
-        color: var(--on-primary);
+        background: #15803d;
+        color: white;
       }
       .materialize-modal-btn-primary:hover:not(:disabled) {
-        background: color-mix(in srgb, var(--primary) 88%, black);
-      }
-      .materialize-modal-btn-secondary {
-        background: transparent;
-        color: var(--on-surface);
-        border-color: var(--outline-variant);
-      }
-      .materialize-modal-btn-secondary:hover:not(:disabled) {
-        background: var(--surface-container-low);
+        background: color-mix(in srgb, #15803d 88%, black);
       }
       @keyframes materialize-spin {
         from { transform: rotate(0deg); }
