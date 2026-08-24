@@ -75,4 +75,28 @@ async function materializeResearch(taxonId) {
   return r.json();
 }
 
-export { api, loadTaxon, loadChildren, materializeResearch };
+// GET /api/taxon/{id}/materialize-preview — reports what the corresponding
+// POST WOULD do, without side effects. The frontend uses it to render the
+// line-by-line preview inside the materialize modal BEFORE the user
+// confirms; the server side does not touch the filesystem. We use GET
+// (not POST) because the call is purely informational. Errors are
+// surfaced as a thrown Error so the caller (dom.js::openMaterializeModal)
+// can show them in the modal.
+async function previewMaterialize(taxonId) {
+  const r = await fetch(API + `/api/taxon/${taxonId}/materialize-preview`);
+  if (!r.ok) {
+    let detail = "";
+    try {
+      const body = await r.json();
+      detail = body.detail || "";
+    } catch {
+      // body wasn't JSON — fall back to statusText.
+    }
+    throw new Error(
+      `materialize-preview ${taxonId} failed: ${r.status}${detail ? " " + detail : ""}`,
+    );
+  }
+  return r.json();
+}
+
+export { api, loadTaxon, loadChildren, materializeResearch, previewMaterialize };

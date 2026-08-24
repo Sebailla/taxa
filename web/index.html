@@ -442,11 +442,21 @@
         background: var(--surface-container-low);
       }
 
-      /* Per-row materialize folder icon — same visual language as the
-                     search icon (sits immediately to its right). Asks the server
-                     to create the root→taxon folder structure under ./Research.
-                     Disabled state (during the in-flight request) dims the icon
-                     and cursor so users know not to click again. */
+      /* Per-row materialize indicator — same visual language as the
+                     search icon (sits immediately to its right). It is no
+                     longer a creator: clicking it opens a preview modal
+                     that asks the user to confirm before the server
+                     touches the filesystem. The icon's color tells the
+                     user the current state at a glance:
+                       - default (text-on-surface-variant): the path has
+                         not been materialized on disk yet.
+                       - materialize-btn-exists (primary): the path IS
+                         already on disk; the modal will open in "all
+                         exist" mode with just a [Cerrar] button.
+                     The `disabled` state is kept for any future in-flight
+                     scenario (currently the modal's button handles that,
+                     not the row icon — but the rule is harmless to
+                     keep). */
       .materialize-btn {
         margin-left: 4px;
         padding: 2px;
@@ -464,6 +474,236 @@
       .materialize-btn:disabled {
         opacity: 0.5;
         cursor: wait;
+      }
+      .materialize-btn-exists:hover {
+        background: var(--surface-container-low);
+      }
+
+      /* Materialize preview modal — opened by the per-row folder icon.
+                     Backdrop dims + freezes the page; the centered card
+                     shows the line-by-line preview, the count summary,
+                     and the action buttons. Built imperatively in
+                     web/dom.js::openMaterializeModal; styles live here
+                     alongside the other component styles. */
+      .materialize-modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1100;
+        opacity: 0;
+        transition: opacity 0.16s ease-out;
+      }
+      .materialize-modal-backdrop.materialize-modal-open {
+        opacity: 1;
+      }
+      .materialize-modal {
+        background: var(--surface);
+        color: var(--on-surface);
+        border-radius: 12px;
+        box-shadow:
+          0 16px 48px rgba(0, 0, 0, 0.25),
+          0 2px 6px rgba(0, 0, 0, 0.12);
+        width: min(520px, 92vw);
+        max-height: 86vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        font-family: "Raleway", sans-serif;
+        transform: translateY(8px) scale(0.98);
+        transition: transform 0.16s ease-out;
+      }
+      .materialize-modal-backdrop.materialize-modal-open .materialize-modal {
+        transform: translateY(0) scale(1);
+      }
+      .materialize-modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 20px 8px 20px;
+        gap: 12px;
+      }
+      .materialize-modal-title {
+        font-size: 18px;
+        font-weight: 700;
+        line-height: 1.2;
+      }
+      .materialize-modal-close {
+        background: transparent;
+        border: 0;
+        padding: 4px;
+        border-radius: 50%;
+        cursor: pointer;
+        color: var(--on-surface-variant);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+      }
+      .materialize-modal-close:hover:not(:disabled) {
+        background: var(--surface-container-low);
+        color: var(--on-surface);
+      }
+      .materialize-modal-close:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .materialize-modal-taxon {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        padding: 0 20px 12px 20px;
+        font-size: 14px;
+        border-bottom: 1px solid var(--outline-variant);
+      }
+      .materialize-modal-taxon-label {
+        color: var(--on-surface-variant);
+        font-weight: 600;
+        text-transform: uppercase;
+        font-size: 11px;
+        letter-spacing: 0.06em;
+      }
+      .materialize-modal-taxon-name {
+        font-style: italic;
+        font-weight: 600;
+        color: var(--primary);
+        overflow-wrap: anywhere;
+      }
+      .materialize-modal-body {
+        padding: 16px 20px;
+        overflow-y: auto;
+        flex: 1 1 auto;
+      }
+      .materialize-modal-loading,
+      .materialize-modal-error {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 16px 12px;
+        color: var(--on-surface-variant);
+        font-size: 14px;
+      }
+      .materialize-modal-error {
+        color: var(--on-error-container);
+      }
+      .materialize-modal-section-title {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--on-surface-variant);
+        margin-bottom: 8px;
+      }
+      .materialize-modal-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        border: 1px solid var(--outline-variant);
+        border-radius: 8px;
+        background: var(--surface-container-lowest);
+        max-height: 240px;
+        overflow-y: auto;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 12px;
+      }
+      .materialize-modal-list-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 10px;
+        border-bottom: 1px solid var(--outline-variant);
+      }
+      .materialize-modal-list-item:last-child {
+        border-bottom: 0;
+      }
+      .materialize-modal-marker {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        font-weight: 700;
+        font-size: 12px;
+        flex-shrink: 0;
+      }
+      .materialize-modal-marker-exists {
+        background: color-mix(in srgb, var(--primary) 14%, transparent);
+        color: var(--primary);
+      }
+      .materialize-modal-marker-new {
+        background: color-mix(in srgb, var(--tertiary, var(--primary)) 14%, transparent);
+        color: var(--on-surface);
+      }
+      .materialize-modal-segment-path {
+        color: var(--on-surface);
+        overflow-wrap: anywhere;
+        line-height: 1.35;
+      }
+      .materialize-modal-counts {
+        margin-top: 12px;
+        font-size: 13px;
+        color: var(--on-surface-variant);
+      }
+      .materialize-modal-info-banner {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 12px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--primary) 12%, transparent);
+        color: var(--primary);
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .materialize-modal-footer {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 12px 20px 16px 20px;
+        border-top: 1px solid var(--outline-variant);
+        background: var(--surface-container-lowest);
+      }
+      .materialize-modal-btn {
+        font-family: "Raleway", sans-serif;
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 1;
+        padding: 10px 16px;
+        border-radius: 8px;
+        border: 1px solid transparent;
+        cursor: pointer;
+        transition: background 0.12s ease-out, color 0.12s ease-out;
+      }
+      .materialize-modal-btn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      .materialize-modal-btn-primary {
+        background: var(--primary);
+        color: var(--on-primary);
+      }
+      .materialize-modal-btn-primary:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--primary) 88%, black);
+      }
+      .materialize-modal-btn-secondary {
+        background: transparent;
+        color: var(--on-surface);
+        border-color: var(--outline-variant);
+      }
+      .materialize-modal-btn-secondary:hover:not(:disabled) {
+        background: var(--surface-container-low);
+      }
+      @keyframes materialize-spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+      .animate-spin {
+        animation: materialize-spin 0.8s linear infinite;
       }
 
       /* Bottom-center toast for transient action feedback (folder

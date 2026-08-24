@@ -10,11 +10,11 @@
 // ES module live bindings handle both cycles correctly.
 
 import { state } from "./state.js";
-import { loadChildren, loadTaxon, materializeResearch } from "./api.js";
+import { loadChildren, loadTaxon } from "./api.js";
 import { loadDetail } from "./detail.js";
-import { renderTree } from "./tree.js";
+import { renderTree, propagateMaterialized } from "./tree.js";
 import { closeSearch } from "./search.js";
-import { showToast } from "./dom.js";
+import { openMaterializeModal, showToast } from "./dom.js";
 
 // ------------------------------------------------------------------
 // Actions
@@ -198,32 +198,38 @@ document.addEventListener("click", async (e) => {
     }
     return;
   } else if (action === "materialize-folder") {
-    // Per-row folder icon — asks the server to create the root→taxon
-    // folder structure under ./Research. Idempotent on the server, so a
-    // second click reports "all folders already existed". We swallow the
-    // click here (no selectTaxon) so it doesn't steal focus from the
-    // tree row the user is working on.
+    // Per-row folder icon — now an INDICATOR + OPENER, not a creator.
+    // Click opens a preview modal where the user can confirm or cancel.
+    // On confirm we:
+    //   1. mark the root taxon id in state.materialized,
+    //   2. propagate to its visible descendants (their paths are
+    //      subfolders of the just-created chain), and
+    //   3. re-render the tree so the icon color flips to green for
+    //      the whole sub-tree.
+    // Non-visible descendants will be marked correctly on their next
+    // loadChildren round trip via the backend's research_path_exists
+    // flag, so propagation is best-effort + self-healing.
     const id = parseInt(
       e.target.closest("[data-taxon-id]").dataset.taxonId,
       10,
     );
     if (!Number.isFinite(id)) return;
-    // Disable the button briefly so double-clicks don't fire two
-    // requests against the server (the second would still succeed but
-    // is wasted work).
-    const btn = e.target.closest("[data-action=materialize-folder]");
-    if (btn) btn.disabled = true;
-    try {
-      const res = await materializeResearch(id);
-      const path = res.relative_path || res.absolute_path;
+    const taxonNode = state.cache.get(id);
+    if (!taxonNode) return; // should never happen — the row is in the DOM
+    // Swallow the click here (no selectTaxon) so the row's focus
+    // doesn't change while the modal is open.
+    const result = await openMaterializeModal(taxonNode.taxon);
+    if (result.confirmed) {
+      state.materialized.add(id);
+      propagateMaterialized(id);
+      renderTree();
+      const r = result.response;
       showToast(
-        `Carpetas creadas: ${path} ` +
-          `(${res.folders_created} nuevas, ${res.folders_existed} ya existían)`,
+        `Carpetas materializadas: ${r.relative_path} ` +
+          `(${r.folders_created} nuevas, ${r.folders_existed} ya existían)`,
       );
-    } catch (err) {
-      showToast(`Error al materializar: ${err.message}`, { error: true });
-    } finally {
-      if (btn) btn.disabled = false;
+    } else if (result.error) {
+      showToast(`Error al materializar: ${result.error.message}`, { error: true });
     }
     return;
   } else if (action === "select-from-search") {
