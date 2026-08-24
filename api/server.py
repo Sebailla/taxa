@@ -262,7 +262,15 @@ def get_domains():
 
     Other taxa with parent_id IS NULL (WoRMS-only orphans) are reachable
     only through the toggle's WoRMS view — they were re-parented under
-    Biota in the enrichment step so they don't pollute the root list."""
+    Biota in the enrichment step so they don't pollute the root list.
+
+    Each domain carries `research_path_exists` so the tree's per-row
+    materialize indicator paints correctly for top-level taxa too.
+    Without this, domains like Bacteria whose ./Research/{name} folder
+    exists on disk would not show the green icon (the icon is driven
+    by this flag, and the /children endpoint doesn't run for top-level
+    domains — they're returned by /api/domains, not by any /children
+    call)."""
     with db() as conn:
         rows = conn.execute(
             "SELECT * FROM taxon WHERE parent_id IS NULL "
@@ -270,8 +278,16 @@ def get_domains():
             "     OR (freshwater_id IS NOT NULL AND freshwater_parent_id IS NULL)) "
             "ORDER BY scientific_name"
         ).fetchall()
-    return [_row_to_taxon(r) for r in rows]
-
+        out: list[Taxon] = []
+        for r in rows:
+            segs = _build_segments(conn, r["id"])
+            out.append(
+                _row_to_taxon(
+                    r,
+                    research_path_exists=_research_path_exists(segs),
+                )
+            )
+    return out
 
 
 @app.get("/api/taxon/{taxon_id}", response_model=Taxon)
