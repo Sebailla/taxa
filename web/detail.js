@@ -6,9 +6,15 @@
 // handler lives in nav.js (alongside the other delegated actions).
 
 import { state } from "./state.js";
-import { api, loadTaxon } from "./api.js";
+import {
+  api,
+  loadTaxon,
+  previewMaterialize,
+  materializeResearch,
+} from "./api.js";
 import { rankLabel } from "./format.js";
-import { el } from "./dom.js";
+import { el, showToast } from "./dom.js";
+import { propagateMaterialized } from "./tree.js";
 import { SEARCH_ENGINES } from "./search_urls.js";
 
 async function loadDetail(id) {
@@ -18,13 +24,20 @@ async function loadDetail(id) {
     // mirror that guard client-side so we never trigger an avoidable
     // error response.
     const taxon = state.cache.get(id)?.taxon ?? (await loadTaxon(id));
-    const [vern, syn, dist, searches] = await Promise.all([
+    // The materialize-preview is fetched in parallel with the rest so
+    // the Carpeta tab is ready when the panel renders. A failure here
+    // is non-fatal — the tab shows an inline error and the rest of
+    // the panel still works. Always fetched (no scientific_name
+    // guard) because the preview endpoint handles empty names via
+    // the id-{taxon_id} fallback.
+    const [vern, syn, dist, searches, preview] = await Promise.all([
       api(`/api/taxon/${id}/vernaculars?limit=200`),
       api(`/api/taxon/${id}/synonyms?limit=200`),
       api(`/api/taxon/${id}/distribution?limit=200`),
       taxon.scientific_name
         ? api(`/api/taxon/${id}/searches`)
         : Promise.resolve([]),
+      previewMaterialize(id).catch((e) => ({ error: e.message })),
     ]);
     if (state.selected !== id) return; // user navigated away
     state.detail = {
@@ -32,6 +45,7 @@ async function loadDetail(id) {
       synonyms: syn,
       distribution: dist,
       searches,
+      materializePreview: preview,
     };
   } catch (e) {
     console.error("detail load failed", e);
@@ -100,6 +114,152 @@ function renderSearchesTab(searches) {
     );
   });
   return el("div", { class: "search-engines-grid" }, ...items);
+}
+
+// Render the Carpeta tab content — the line-by-line preview of the
+// root→taxon folder chain under ./Research, plus the count summary,
+// the info banner (when the path is fully materialized), and the
+// [Crear N carpetas] action button (when something new would be
+// created). Reused CSS classes from the previous standalone modal
+// (.materialize-modal-list, .materialize-modal-marker, etc.) so the
+// visual language stays consistent.
+function renderCarpetaTab(taxon) {
+  const preview = state.detail?.materializePreview;
+
+  // Loading state — the preview fetch is in flight alongside the
+  // other detail data; this branch is hit on the first render of
+  // the tab before the Promise.all resolves.
+  if (!preview) {
+    return el(
+      "div",
+      { class: "materialize-tab-loading" },
+      el(
+        "span",
+        { class: "material-symbols-outlined text-[20px] animate-spin" },
+        "progress_activity",
+      ),
+      el("span", null, "Cargando vista previa…"),
+    );
+  }
+
+  // Error state — the preview fetch failed (network, 5xx, etc.).
+  if (preview.error) {
+    return el(
+      "div",
+      { class: "materialize-tab-error" },
+      el(
+        "span",
+        { class: "material-symbols-outlined text-[20px]" },
+        "error",
+      ),
+      el(
+        "span",
+        null,
+        `No se pudo cargar la vista previa: ${preview.error}`,
+      ),
+    );
+  }
+
+  // Line-by-line preview list.
+  const list = el("ul", { class: "materialize-modal-list" });
+  let acc = preview.research_dir;
+  for (const seg of preview.segments) {
+    acc = `${acc}/${seg.name}`;
+    const marker = seg.exists ? "✓" : "+";
+    const markerCls = seg.exists
+      ? "materialize-modal-marker-exists"
+      : "materialize-modal-marker-new";
+    list.append(
+      el(
+        "li",
+        { class: "materialize-modal-list-item" },
+        el(
+          "span",
+          { class: `materialize-modal-marker ${markerCls}` },
+          marker,
+        ),
+        el("span", { class: "materialize-modal-segment-path" }, acc),
+      ),
+    );
+  }
+
+  const counts = el(
+    "div",
+    { class: "materialize-modal-counts" },
+    `${preview.new_count} ${preview.new_count === 1 ? "carpeta nueva" : "carpetas nuevas"} · ${preview.existing_count} ya existían`,
+  );
+
+  const infoBanner = preview.all_exist
+    ? el(
+        "div",
+        { class: "materialize-modal-info-banner" },
+        el(
+          "span",
+          { class: "material-symbols-outlined text-[20px]" },
+          "check_circle",
+        ),
+        el("span", null, "Todo el path ya existe en el disco."),
+      )
+    : null;
+
+  // The create button only shows when there's something new to
+  // create. In the all-exist state, the tab is read-only.
+  let createBtn = null;
+  if (!preview.all_exist) {
+    const label = `Crear ${preview.new_count} ${preview.new_count === 1 ? "carpeta" : "carpetas"}`;
+    const btn = el(
+      "button",
+      {
+        class:
+          "materialize-modal-btn materialize-modal-btn-primary",
+        type: "button",
+      },
+      label,
+    );
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.textContent = "Creando…";
+      try {
+        const response = await materializeResearch(taxon.id);
+        state.materialized.add(taxon.id);
+        propagateMaterialized(taxon.id);
+        const newPreview = await previewMaterialize(taxon.id).catch(
+          (e) => ({ error: e.message }),
+        );
+        if (state.selected === taxon.id && state.detail) {
+          state.detail.materializePreview = newPreview;
+          render();
+        }
+        showToast(
+          `Carpetas materializadas: ${response.relative_path} ` +
+            `(${response.folders_created} nuevas, ${response.folders_existed} ya existían)`,
+        );
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = label;
+        showToast(`Error al materializar: ${err.message}`, { error: true });
+      }
+    });
+    createBtn = btn;
+  }
+
+  return el(
+    "div",
+    { class: "materialize-tab-content" },
+    el(
+      "div",
+      { class: "materialize-modal-preview-wrap" },
+      el(
+        "div",
+        { class: "materialize-modal-section-title" },
+        "Vista previa del path:",
+      ),
+      list,
+    ),
+    counts,
+    infoBanner,
+    createBtn,
+  );
 }
 
 function renderDetailPanel() {
@@ -316,6 +476,36 @@ function renderDetailPanel() {
       "div",
       { class: "detail-section", "data-tab-content": "busquedas" },
       renderSearchesTab(d.searches),
+    ),
+  });
+  sections.push({
+    key: "carpeta",
+    node: el(
+      "div",
+      { class: "detail-section", "data-tab-content": "carpeta" },
+      // Defensive try/catch: a malformed preview should not prevent
+      // the rest of the detail panel from rendering.
+      (() => {
+        try {
+          return renderCarpetaTab(taxon);
+        } catch (e) {
+          console.error("Carpeta tab render failed", e);
+          return el(
+            "div",
+            { class: "materialize-tab-error" },
+            el(
+              "span",
+              { class: "material-symbols-outlined text-[20px]" },
+              "error",
+            ),
+            el(
+              "span",
+              null,
+              `No se pudo renderizar la pestaña Carpeta: ${e.message}`,
+            ),
+          );
+        }
+      })(),
     ),
   });
 

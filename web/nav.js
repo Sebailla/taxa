@@ -12,9 +12,8 @@
 import { state } from "./state.js";
 import { loadChildren, loadTaxon } from "./api.js";
 import { loadDetail } from "./detail.js";
-import { renderTree, propagateMaterialized } from "./tree.js";
+import { renderTree } from "./tree.js";
 import { closeSearch } from "./search.js";
-import { openMaterializeModal, showToast } from "./dom.js";
 
 // ------------------------------------------------------------------
 // Actions
@@ -197,42 +196,19 @@ document.addEventListener("click", async (e) => {
       selectTaxon(id);
     }
     return;
-  } else if (action === "materialize-folder") {
-    // Per-row folder icon — now an INDICATOR + OPENER, not a creator.
-    // Click opens a preview modal where the user can confirm or cancel.
-    // On confirm we:
-    //   1. mark the root taxon id in state.materialized,
-    //   2. propagate to its visible descendants (their paths are
-    //      subfolders of the just-created chain), and
-    //   3. re-render the tree so the icon color flips to green for
-    //      the whole sub-tree.
-    // Non-visible descendants will be marked correctly on their next
-    // loadChildren round trip via the backend's research_path_exists
-    // flag, so propagation is best-effort + self-healing.
+  } else if (action === "open-carpeta-tab") {
+    // Per-row folder icon (only rendered when the taxon's path is
+    // already on disk — see tree.js). Opens the same detail panel
+    // the lupa opens, but on the "Carpeta" tab instead of
+    // "Búsquedas". Mirrors open-searches one-for-one: select the
+    // taxon, force the tab key, render.
     const id = parseInt(
       e.target.closest("[data-taxon-id]").dataset.taxonId,
       10,
     );
     if (!Number.isFinite(id)) return;
-    const taxonNode = state.cache.get(id);
-    if (!taxonNode) return; // should never happen — the row is in the DOM
-    // Swallow the click here (no selectTaxon) so the row's focus
-    // doesn't change while the modal is open.
-    const result = await openMaterializeModal(taxonNode.taxon);
-    if (result.confirmed) {
-      state.materialized.add(id);
-      propagateMaterialized(id);
-      renderTree();
-      const r = result.response;
-      showToast(
-        `Carpetas materializadas: ${r.relative_path} ` +
-          `(${r.folders_created} nuevas, ${r.folders_existed} ya existían)`,
-      );
-    } else if (result.error) {
-      showToast(`Error al materializar: ${result.error.message}`, {
-        error: true,
-      });
-    }
+    state.activeTab[id] = "carpeta";
+    selectTaxon(id);
     return;
   } else if (action === "select-from-search") {
     const id = parseInt(
