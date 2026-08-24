@@ -13,6 +13,42 @@ import {
   RANK_INDEX,
 } from "./format.js";
 import { el } from "./dom.js";
+
+// Propagate the "materialized" state from a confirmed root taxon to its
+// visible descendants. When the user confirms a materialize for taxon X,
+// the backend creates the root→X folder chain; every child / grandchild
+// of X whose path starts with X's path automatically has its folder on
+// disk too (the leaf folder is a subfolder of X's leaf). Marking them
+// in `state.materialized` paints their per-row icon green without a
+// fresh /api/taxon/{id}/children round trip.
+//
+// This is purely a DOM walk over expanded rows. Non-expanded descendants
+// will be marked correctly the next time they're loaded (the backend
+// includes `research_path_exists` per child), so propagation is
+// best-effort + self-healing on the next expand.
+function propagateMaterialized(rootTaxonId) {
+  const rootNode = state.cache.get(rootTaxonId);
+  if (!rootNode) return;
+  const rootPath = rootNode.taxon.path;
+  state.materialized.add(rootTaxonId);
+  if (!rootPath) return; // NULL path → can't compare to descendants; root already marked
+  document.querySelectorAll("[data-taxon-id]").forEach((row) => {
+    const id = parseInt(row.dataset.taxonId, 10);
+    if (!Number.isFinite(id) || id === rootTaxonId) return;
+    const node = state.cache.get(id);
+    if (!node || !node.taxon.path) return;
+    // A descendant's path equals the root's path (shouldn't happen, but
+    // guards against a self-row) OR starts with the root's path followed
+    // by a separator. The separator is required so "Animalia" doesn't
+    // match "AnimaliaX" (no such rank, but the check is cheap insurance).
+    if (
+      node.taxon.path === rootPath ||
+      node.taxon.path.startsWith(rootPath + "/")
+    ) {
+      state.materialized.add(id);
+    }
+  });
+}
 import { toggleExpand, selectTaxon } from "./nav.js";
 
 function renderNodeRow(taxon, opts = {}) {
@@ -171,25 +207,42 @@ function renderNodeRow(taxon, opts = {}) {
           "search",
         )
       : null,
-    // Per-row materialize icon — asks the server to create the
-    // root→taxon folder structure under ./Research. Same hide condition
-    // as the search icon (no name → no useful work to show), sits
-    // immediately to the right of it. Materialize is POST + idempotent;
-    // the toast at the bottom reports created vs pre-existing folders.
-    taxon.scientific_name
-      ? el(
-          "button",
-          {
-            class:
-              "materialize-btn material-symbols-outlined text-[16px] text-on-surface-variant hover:text-primary transition-colors",
-            "data-action": "materialize-folder",
-            "data-taxon-id": String(taxon.id),
-            title: `Materialize folder structure for ${taxon.scientific_name} in ./Research`,
-            "aria-label": `Materialize folder structure for ${taxon.scientific_name}`,
-          },
-          "create_new_folder",
-        )
-      : null,
+        // Per-row materialize icon — now an INDICATOR, not a creator.
+        // Click opens a preview modal; the icon's color communicates the
+        // current state at a glance:
+        //   - default (gray): the path has not been materialized on disk
+        //     yet (or we don't know — the backend only sets the flag on
+        //     /api/taxon/{id}/children responses, and the in-session
+        //     `state.materialized` set fills in anything the user just
+        //     confirmed).
+        //   - green: the path is already on disk, so the modal will open
+        //     in "all exist" mode (no Crear button, just Cerrar + info).
+        // The backend's per-child `research_path_exists` flag is the
+        // source of truth; the in-memory set picks up anything the user
+        // materialized this session without a fresh children round trip.
+        taxon.scientific_name
+          ? el(
+              "button",
+              {
+                class: `materialize-btn material-symbols-outlined text-[16px] transition-colors ${
+                  taxon.research_path_exists || state.materialized.has(taxon.id)
+                    ? "materialize-btn-exists text-primary"
+                    : "text-on-surface-variant hover:text-primary"
+                }`,
+                "data-action": "materialize-folder",
+                "data-taxon-id": String(taxon.id),
+                title:
+                  taxon.research_path_exists || state.materialized.has(taxon.id)
+                    ? `Path materializado en ./Research/${taxon.scientific_name}`
+                    : `Materializar carpeta para ${taxon.scientific_name} en ./Research`,
+                "aria-label":
+                  taxon.research_path_exists || state.materialized.has(taxon.id)
+                    ? `Path ya materializado para ${taxon.scientific_name}`
+                    : `Materializar carpeta para ${taxon.scientific_name}`,
+              },
+              "create_new_folder",
+            )
+          : null,
   );
 
   return el(
@@ -353,4 +406,5 @@ export {
   renderTierHeader,
   groupByRank,
   matchesTreeSource,
+  propagateMaterialized,
 };

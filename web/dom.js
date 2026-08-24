@@ -132,4 +132,263 @@ function showToast(message, opts = {}) {
   }, opts.duration ?? 4000);
 }
 
-export { el, scrollTaxonBelowCard, waitForDetailReady, showToast };
+// Modal for the materialize action. Opens a centered dialog that fetches
+// the GET /api/taxon/{id}/materialize-preview and renders a line-by-line
+// preview of the path with ✓ / + markers. The user can confirm (POST
+// /materialize) or cancel. The promise resolves with:
+//   {confirmed: true, response}  on confirm (response = POST payload)
+//   {confirmed: false}            on cancel/close
+//   {confirmed: false, error}      on POST failure (error = thrown Error)
+// The caller is responsible for merging the response into state and
+// re-rendering the tree.
+//
+// ESC and backdrop click close without firing the POST. Once the POST is
+// in flight, ESC and close are ignored so the user can't double-fire.
+async function openMaterializeModal(taxon) {
+  const { previewMaterialize, materializeResearch } = await import("./api.js");
+  // Lazy import keeps the api module's import graph out of the top-level
+  // dependency cycle (dom.js ↔ api.js ↔ tree.js ↔ dom.js).
+
+  return new Promise((resolve) => {
+    let inFlight = false;
+    let closed = false;
+
+    const close = (result) => {
+      if (closed) return;
+      closed = true;
+      // Detach handlers before removing the node so a stray backdrop click
+      // during teardown can't try to resolve the same promise twice.
+      document.removeEventListener("keydown", onKey);
+      backdrop.remove();
+      resolve(result);
+    };
+
+    const onKey = (e) => {
+      if (e.key === "Escape" && !inFlight) close({ confirmed: false });
+    };
+    document.addEventListener("keydown", onKey);
+
+    // Build the static shell. Body / footer are filled after the preview
+    // fetch lands (loading → preview/error). The close button always
+    // works unless a POST is in flight.
+    const backdrop = el("div", {
+      class: "materialize-modal-backdrop",
+      "data-materialize-modal": "1",
+    });
+    const closeBtn = el(
+      "button",
+      {
+        class: "materialize-modal-close",
+        type: "button",
+        "aria-label": "Cerrar",
+        onClick: () => !inFlight && close({ confirmed: false }),
+      },
+      el("span", { class: "material-symbols-outlined text-[20px]" }, "close"),
+    );
+    const titleEl = el(
+      "div",
+      { class: "materialize-modal-title" },
+      el("span", null, "Materializar carpeta"),
+    );
+    const taxonEl = el(
+      "div",
+      { class: "materialize-modal-taxon" },
+      el("span", { class: "materialize-modal-taxon-label" }, "Taxon:"),
+      el("span", { class: "materialize-modal-taxon-name" }, taxon.scientific_name),
+    );
+    const bodyEl = el("div", { class: "materialize-modal-body" });
+    const footerEl = el("div", { class: "materialize-modal-footer" });
+
+    const modal = el(
+      "div",
+      {
+        class: "materialize-modal",
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-labelledby": "materialize-modal-title",
+      },
+      el(
+        "div",
+        { class: "materialize-modal-header" },
+        titleEl,
+        closeBtn,
+      ),
+      taxonEl,
+      bodyEl,
+      footerEl,
+    );
+    backdrop.append(modal);
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop && !inFlight) close({ confirmed: false });
+    });
+    document.body.append(backdrop);
+    requestAnimationFrame(() => backdrop.classList.add("materialize-modal-open"));
+
+    // Step 1: fetch the preview. Until it lands, the body shows a
+    // "Cargando vista previa…" placeholder and the footer is empty.
+    bodyEl.append(
+      el(
+        "div",
+        { class: "materialize-modal-loading" },
+        el(
+          "span",
+          { class: "material-symbols-outlined text-[20px] animate-spin" },
+          "progress_activity",
+        ),
+        el("span", null, "Cargando vista previa…"),
+      ),
+    );
+    // Async work inside the Promise executor is wrapped in an IIFE so a
+    // thrown error doesn't get swallowed (a `new Promise(async ...)` would
+    // silently drop rejections — the pi-lens `promise-async-executor` rule
+    // blocks that pattern).
+    (async () => {
+      let preview;
+      try {
+        preview = await previewMaterialize(taxon.id);
+      } catch (err) {
+        bodyEl.innerHTML = "";
+        bodyEl.append(
+          el(
+            "div",
+            { class: "materialize-modal-error" },
+            el(
+              "span",
+              { class: "material-symbols-outlined text-[20px]" },
+              "error",
+            ),
+            el("span", null, `No se pudo cargar la vista previa: ${err.message}`),
+          ),
+        );
+        footerEl.append(
+          el(
+            "button",
+            {
+              class: "materialize-modal-btn materialize-modal-btn-secondary",
+              type: "button",
+              onClick: () => close({ confirmed: false }),
+            },
+            "Cerrar",
+          ),
+        );
+        return;
+      }
+      bodyEl.innerHTML = "";
+
+      // Step 2: render the line-by-line preview. Each segment shows the
+      // cumulative path (so the user can scan the tree visually) with a
+      // marker (✓ for existing, + for new) on the right.
+      const listEl = el("ul", { class: "materialize-modal-list" });
+      let acc = preview.research_dir;
+      for (const seg of preview.segments) {
+        acc = `${acc}/${seg.name}`;
+        const marker = seg.exists ? "✓" : "+";
+        const markerCls = seg.exists
+          ? "materialize-modal-marker-exists"
+          : "materialize-modal-marker-new";
+        listEl.append(
+          el(
+            "li",
+            { class: "materialize-modal-list-item" },
+            el("span", { class: `materialize-modal-marker ${markerCls}` }, marker),
+            el("span", { class: "materialize-modal-segment-path" }, acc),
+          ),
+        );
+      }
+      bodyEl.append(
+        el(
+          "div",
+          { class: "materialize-modal-preview-wrap" },
+          el("div", { class: "materialize-modal-section-title" }, "Vista previa del path:"),
+          listEl,
+        ),
+      );
+      bodyEl.append(
+        el(
+          "div",
+          { class: "materialize-modal-counts" },
+          `${preview.new_count} ${preview.new_count === 1 ? "carpeta nueva" : "carpetas nuevas"} · ${preview.existing_count} ya existían`,
+        ),
+      );
+
+      // Step 3: render the footer. Two modes:
+      //  - all_exist: the path is fully materialized, show a green banner
+      //    and a single [Cerrar] button (per product decision: no re-create).
+      //  - mixed: [Cancelar] + [Crear N carpetas].
+      if (preview.all_exist) {
+        bodyEl.append(
+          el(
+            "div",
+            { class: "materialize-modal-info-banner" },
+            el(
+              "span",
+              { class: "material-symbols-outlined text-[20px]" },
+              "check_circle",
+            ),
+            el("span", null, "Todo el path ya existe en el disco."),
+          ),
+        );
+        footerEl.append(
+          el(
+            "button",
+            {
+              class: "materialize-modal-btn materialize-modal-btn-primary",
+              type: "button",
+              onClick: () => close({ confirmed: false }),
+            },
+            "Cerrar",
+          ),
+        );
+        return;
+      }
+      footerEl.append(
+        el(
+          "button",
+          {
+            class: "materialize-modal-btn materialize-modal-btn-secondary",
+            type: "button",
+            onClick: () => close({ confirmed: false }),
+          },
+          "Cancelar",
+        ),
+      );
+      const createLabel = `Crear ${preview.new_count} ${preview.new_count === 1 ? "carpeta" : "carpetas"}`;
+      const createBtn = el(
+        "button",
+        {
+          class: "materialize-modal-btn materialize-modal-btn-primary",
+          type: "button",
+        },
+        createLabel,
+      );
+      createBtn.addEventListener("click", async () => {
+        inFlight = true;
+        createBtn.disabled = true;
+        createBtn.textContent = "Creando…";
+        // Visually freeze the rest of the dialog so the user can't change
+        // their mind mid-flight (and we don't have to gate every other
+        // control separately).
+        closeBtn.disabled = true;
+        const cancelBtn = footerEl.querySelector(
+          ".materialize-modal-btn-secondary",
+        );
+        if (cancelBtn) cancelBtn.disabled = true;
+        try {
+          const response = await materializeResearch(taxon.id);
+          close({ confirmed: true, response });
+        } catch (err) {
+          close({ confirmed: false, error: err });
+        }
+      });
+      footerEl.append(createBtn);
+    })();
+  });
+}
+
+export {
+  el,
+  scrollTaxonBelowCard,
+  waitForDetailReady,
+  showToast,
+  openMaterializeModal,
+};

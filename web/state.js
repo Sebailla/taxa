@@ -28,6 +28,18 @@ const state = {
   // fresh selection; explicit tab clicks persist so reopening the same
   // taxon remembers which tab was active.
   activeTab: {},
+
+  // Materialize indicator. Set of taxon ids whose root→taxon folder
+  // has been confirmed to exist on disk during THIS session. The set
+  // starts empty and grows when the user confirms a materialize modal
+  // (the server response includes the new ids, which the modal
+  // callback merges here). Children of a confirmed taxon are also
+  // marked by the tree's render() so the indicator propagates to the
+  // visible sub-tree without needing a fresh backend call per child.
+  // The set is session-scoped — a full page reload re-derives the
+  // flag from the backend's per-child `research_path_exists` on the
+  // next /api/taxon/{id}/children round trip.
+  materialized: new Set(),
 };
 
 export { API, PAGE_SIZE, state };
