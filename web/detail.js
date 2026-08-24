@@ -415,6 +415,11 @@ function renderDetailPanel() {
   // search icon always has a target.
   const tabs = [];
   tabs.push({ key: "busquedas", label: "Búsquedas", icon: "travel_explore" });
+  // Carpeta is always present (unlike Vernáculares / Sinónimos /
+  // Distribución which are conditional on having data). The tab
+  // shows the materialize preview; in the all_exist state it's a
+  // read-only "path is already on disk" view.
+  tabs.push({ key: "carpeta", label: "Carpeta", icon: "create_new_folder" });
   if (hasVern)
     tabs.push({ key: "vernaculars", label: "Vernáculares", icon: "translate" });
   if (hasSyn)
