@@ -207,42 +207,42 @@ function renderNodeRow(taxon, opts = {}) {
           "search",
         )
       : null,
-        // Per-row materialize icon — now an INDICATOR, not a creator.
-        // Click opens a preview modal; the icon's color communicates the
-        // current state at a glance:
-        //   - default (gray): the path has not been materialized on disk
-        //     yet (or we don't know — the backend only sets the flag on
-        //     /api/taxon/{id}/children responses, and the in-session
-        //     `state.materialized` set fills in anything the user just
-        //     confirmed).
-        //   - green: the path is already on disk, so the modal will open
-        //     in "all exist" mode (no Crear button, just Cerrar + info).
-        // The backend's per-child `research_path_exists` flag is the
-        // source of truth; the in-memory set picks up anything the user
-        // materialized this session without a fresh children round trip.
-        taxon.scientific_name
-          ? el(
-              "button",
-              {
-                class: `materialize-btn material-symbols-outlined text-[16px] transition-colors ${
-                  taxon.research_path_exists || state.materialized.has(taxon.id)
-                    ? "materialize-btn-exists text-primary"
-                    : "text-on-surface-variant hover:text-primary"
-                }`,
-                "data-action": "materialize-folder",
-                "data-taxon-id": String(taxon.id),
-                title:
-                  taxon.research_path_exists || state.materialized.has(taxon.id)
-                    ? `Path materializado en ./Research/${taxon.scientific_name}`
-                    : `Materializar carpeta para ${taxon.scientific_name} en ./Research`,
-                "aria-label":
-                  taxon.research_path_exists || state.materialized.has(taxon.id)
-                    ? `Path ya materializado para ${taxon.scientific_name}`
-                    : `Materializar carpeta para ${taxon.scientific_name}`,
-              },
-              "create_new_folder",
-            )
-          : null,
+    // Per-row materialize icon — now an INDICATOR, not a creator.
+    // Click opens a preview modal; the icon's color communicates the
+    // current state at a glance:
+    //   - default (gray): the path has not been materialized on disk
+    //     yet (or we don't know — the backend only sets the flag on
+    //     /api/taxon/{id}/children responses, and the in-session
+    //     `state.materialized` set fills in anything the user just
+    //     confirmed).
+    //   - green: the path is already on disk, so the modal will open
+    //     in "all exist" mode (no Crear button, just Cerrar + info).
+    // The backend's per-child `research_path_exists` flag is the
+    // source of truth; the in-memory set picks up anything the user
+    // materialized this session without a fresh children round trip.
+    taxon.scientific_name
+      ? el(
+          "button",
+          {
+            class: `materialize-btn material-symbols-outlined text-[16px] transition-colors ${
+              taxon.research_path_exists || state.materialized.has(taxon.id)
+                ? "materialize-btn-exists text-primary"
+                : "text-on-surface-variant hover:text-primary"
+            }`,
+            "data-action": "materialize-folder",
+            "data-taxon-id": String(taxon.id),
+            title:
+              taxon.research_path_exists || state.materialized.has(taxon.id)
+                ? `Path materializado en ./Research/${taxon.scientific_name}`
+                : `Materializar carpeta para ${taxon.scientific_name} en ./Research`,
+            "aria-label":
+              taxon.research_path_exists || state.materialized.has(taxon.id)
+                ? `Path ya materializado para ${taxon.scientific_name}`
+                : `Materializar carpeta para ${taxon.scientific_name}`,
+          },
+          "create_new_folder",
+        )
+      : null,
   );
 
   return el(

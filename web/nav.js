@@ -229,7 +229,9 @@ document.addEventListener("click", async (e) => {
           `(${r.folders_created} nuevas, ${r.folders_existed} ya existían)`,
       );
     } else if (result.error) {
-      showToast(`Error al materializar: ${result.error.message}`, { error: true });
+      showToast(`Error al materializar: ${result.error.message}`, {
+        error: true,
+      });
     }
     return;
   } else if (action === "select-from-search") {

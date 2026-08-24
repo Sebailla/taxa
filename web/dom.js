@@ -194,7 +194,11 @@ async function openMaterializeModal(taxon) {
       "div",
       { class: "materialize-modal-taxon" },
       el("span", { class: "materialize-modal-taxon-label" }, "Taxon:"),
-      el("span", { class: "materialize-modal-taxon-name" }, taxon.scientific_name),
+      el(
+        "span",
+        { class: "materialize-modal-taxon-name" },
+        taxon.scientific_name,
+      ),
     );
     const bodyEl = el("div", { class: "materialize-modal-body" });
     const footerEl = el("div", { class: "materialize-modal-footer" });
@@ -207,12 +211,7 @@ async function openMaterializeModal(taxon) {
         "aria-modal": "true",
         "aria-labelledby": "materialize-modal-title",
       },
-      el(
-        "div",
-        { class: "materialize-modal-header" },
-        titleEl,
-        closeBtn,
-      ),
+      el("div", { class: "materialize-modal-header" }, titleEl, closeBtn),
       taxonEl,
       bodyEl,
       footerEl,
@@ -222,7 +221,9 @@ async function openMaterializeModal(taxon) {
       if (e.target === backdrop && !inFlight) close({ confirmed: false });
     });
     document.body.append(backdrop);
-    requestAnimationFrame(() => backdrop.classList.add("materialize-modal-open"));
+    requestAnimationFrame(() =>
+      backdrop.classList.add("materialize-modal-open"),
+    );
 
     // Step 1: fetch the preview. Until it lands, the body shows a
     // "Cargando vista previa…" placeholder and the footer is empty.
@@ -257,7 +258,11 @@ async function openMaterializeModal(taxon) {
               { class: "material-symbols-outlined text-[20px]" },
               "error",
             ),
-            el("span", null, `No se pudo cargar la vista previa: ${err.message}`),
+            el(
+              "span",
+              null,
+              `No se pudo cargar la vista previa: ${err.message}`,
+            ),
           ),
         );
         footerEl.append(
@@ -290,7 +295,11 @@ async function openMaterializeModal(taxon) {
           el(
             "li",
             { class: "materialize-modal-list-item" },
-            el("span", { class: `materialize-modal-marker ${markerCls}` }, marker),
+            el(
+              "span",
+              { class: `materialize-modal-marker ${markerCls}` },
+              marker,
+            ),
             el("span", { class: "materialize-modal-segment-path" }, acc),
           ),
         );
@@ -299,7 +308,11 @@ async function openMaterializeModal(taxon) {
         el(
           "div",
           { class: "materialize-modal-preview-wrap" },
-          el("div", { class: "materialize-modal-section-title" }, "Vista previa del path:"),
+          el(
+            "div",
+            { class: "materialize-modal-section-title" },
+            "Vista previa del path:",
+          ),
           listEl,
         ),
       );

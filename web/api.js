@@ -99,4 +99,10 @@ async function previewMaterialize(taxonId) {
   return r.json();
 }
 
-export { api, loadTaxon, loadChildren, materializeResearch, previewMaterialize };
+export {
+  api,
+  loadTaxon,
+  loadChildren,
+  materializeResearch,
+  previewMaterialize,
+};
