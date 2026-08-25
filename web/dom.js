@@ -29,11 +29,9 @@ function el(tag, props, ...children) {
   }
   for (const c of children.flat(Infinity)) {
     if (c == null || c === false) continue;
-    if (c instanceof Node) {
-      node.appendChild(c);
-    } else {
-      node.appendChild(document.createTextNode(String(c)));
-    }
+    // `.append()` accepts both Node and string args, so no createTextNode
+    // wrapper needed for the primitive branch.
+    node.append(c instanceof Node ? c : String(c));
   }
   return node;
 }
@@ -132,9 +130,4 @@ function showToast(message, opts = {}) {
   }, opts.duration ?? 4000);
 }
 
-export {
-  el,
-  scrollTaxonBelowCard,
-  waitForDetailReady,
-  showToast,
-};
+export { el, scrollTaxonBelowCard, waitForDetailReady, showToast };

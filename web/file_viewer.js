@@ -22,8 +22,7 @@ import { el } from "./dom.js";
 // library is already on window — handles the case where the user double-
 // clicks a .docx while another .docx is still rendering.
 const CDN_URLS = {
-  mammoth:
-    "https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js",
+  mammoth: "https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js",
   XLSX: "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
   ePub: "https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js",
 };
@@ -48,7 +47,7 @@ function loadScriptOnce(name, src) {
       _scriptPromises[name] = null;
       reject(new Error(`Failed to load ${s.src}`));
     };
-    document.head.appendChild(s);
+    document.head.append(s);
   });
   return _scriptPromises[name];
 }
@@ -118,9 +117,12 @@ function renderHtml(target, file) {
   );
 }
 
-// Plain text — fetch as text, render inside a <pre> with monospace + word
-// wrap so long lines don't horizontal-scroll the whole pane.
-async function renderText(target, file) {
+// Plain text + markdown — both fetch the file as text and render inside
+// a fenced <pre> with monospace + word wrap so long lines don't
+// horizontal-scroll the whole pane. marked.js is not loaded (design.md
+// §4 chose fenced <pre> for the first iteration); a future refinement
+// will swap in marked for renderMd.
+async function renderAsPre(target, file, errorLabel) {
   try {
     const res = await fetch(file.url);
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
@@ -138,37 +140,18 @@ async function renderText(target, file) {
         "div",
         { class: "fex-banner", role: "alert" },
         el("span", { class: "material-symbols-outlined text-[20px]" }, "error"),
-        `Failed to load text: ${e.message}`,
+        `Failed to load ${errorLabel}: ${e.message}`,
       ),
     );
   }
 }
 
-// Markdown rendering — first iteration renders the raw markdown source
-// inside a fenced <pre>. marked.js is not loaded (design.md §4 chose fenced
-// <pre> for the first iteration). A future refinement will swap in marked.
+async function renderText(target, file) {
+  return renderAsPre(target, file, "text");
+}
+
 async function renderMd(target, file) {
-  try {
-    const res = await fetch(file.url);
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    const body = await res.text();
-    target.replaceChildren(
-      el(
-        "pre",
-        { class: "font-mono-data whitespace-pre-wrap break-words p-4" },
-        body,
-      ),
-    );
-  } catch (e) {
-    target.replaceChildren(
-      el(
-        "div",
-        { class: "fex-banner", role: "alert" },
-        el("span", { class: "material-symbols-outlined text-[20px]" }, "error"),
-        `Failed to load markdown: ${e.message}`,
-      ),
-    );
-  }
+  return renderAsPre(target, file, "markdown");
 }
 
 // DOCX rendering — mammoth converts the file to an HTML string. The
@@ -191,7 +174,7 @@ async function renderDocx(target, file) {
     // strips <script> + event handlers from its output; see design.md §8.
     const articleRange = document.createRange();
     articleRange.selectNode(article);
-    article.appendChild(articleRange.createContextualFragment(html));
+    article.append(articleRange.createContextualFragment(html));
     target.replaceChildren(article);
   } catch (e) {
     renderOfflineBanner(target, file);
@@ -212,7 +195,11 @@ async function renderSheet(target, file) {
     const sheetNames = wb.SheetNames || [];
     if (sheetNames.length === 0) {
       target.replaceChildren(
-        el("p", { class: "p-4 text-on-surface-variant" }, "Workbook has no sheets."),
+        el(
+          "p",
+          { class: "p-4 text-on-surface-variant" },
+          "Workbook has no sheets.",
+        ),
       );
       return;
     }
@@ -227,7 +214,7 @@ async function renderSheet(target, file) {
       tableHost.replaceChildren();
       const range = document.createRange();
       range.selectNode(tableHost);
-      tableHost.appendChild(
+      tableHost.append(
         range.createContextualFragment(window.XLSX.utils.sheet_to_html(sheet)),
       );
     };
@@ -240,9 +227,9 @@ async function renderSheet(target, file) {
         class:
           "fex-snippet-btn font-mono-data text-mono-data text-on-surface bg-surface",
       });
-for (const n of sheetNames) {
+      for (const n of sheetNames) {
         const opt = el("option", { value: n }, n);
-        select.appendChild(opt);
+        select.append(opt);
       }
       select.value = sheetNames[0];
       select.addEventListener("change", () => renderSheetHtml(select.value));
@@ -287,7 +274,7 @@ async function renderEpub(target, file) {
       } catch (e) {
         // destroy() can throw if the previous book never finished
         // rendering — swallow so the new book can mount.
-        console.warn("ePub.destroy failed", e);
+        console.error("ePub.destroy failed", e);
       }
       _currentBook = null;
     }
@@ -312,7 +299,11 @@ async function renderEpub(target, file) {
         class: "fex-snippet-btn",
         title: "Previous page",
       },
-      el("span", { class: "material-symbols-outlined text-[16px]" }, "chevron_left"),
+      el(
+        "span",
+        { class: "material-symbols-outlined text-[16px]" },
+        "chevron_left",
+      ),
       "Prev",
     );
     const gotoNext = el(
@@ -323,7 +314,11 @@ async function renderEpub(target, file) {
         title: "Next page",
       },
       "Next",
-      el("span", { class: "material-symbols-outlined text-[16px]" }, "chevron_right"),
+      el(
+        "span",
+        { class: "material-symbols-outlined text-[16px]" },
+        "chevron_right",
+      ),
     );
 
     book.on("relocated", (location) => {

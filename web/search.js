@@ -8,7 +8,7 @@ import { rankLabel } from "./format.js";
 import { el } from "./dom.js";
 
 function renderSearchDropdown() {
-  const drop = document.getElementById("search-results");
+  const drop = document.querySelector("#search-results");
   if (state.searchResults.length === 0) {
     drop.replaceChildren(
       el(
@@ -50,7 +50,7 @@ function renderSearchDropdown() {
       ),
     );
     if (t.authorship) {
-      row.appendChild(
+      row.append(
         el(
           "span",
           {
@@ -60,7 +60,7 @@ function renderSearchDropdown() {
         ),
       );
     }
-    frag.appendChild(row);
+    frag.append(row);
   }
   drop.replaceChildren(frag);
   drop.classList.add("open");
@@ -69,7 +69,7 @@ function renderSearchDropdown() {
 function closeSearch() {
   state.searchResults = [];
   state.searchOpen = false;
-  document.getElementById("search-results").classList.remove("open");
+  document.querySelector("#search-results").classList.remove("open");
 }
 
 async function runSearch(q) {
@@ -92,19 +92,19 @@ async function runSearch(q) {
 // Search input — debounced typing handler + Escape-to-clear + refocus re-run.
 // Wired at module-init because #search-input exists in the static HTML that
 // loads this module via app.js.
-document.getElementById("search-input").addEventListener("input", (e) => {
+document.querySelector("#search-input").addEventListener("input", (e) => {
   clearTimeout(state.searchTimer);
   const q = e.target.value.trim();
   state.searchTimer = setTimeout(() => runSearch(q), 200);
 });
-document.getElementById("search-input").addEventListener("keydown", (e) => {
+document.querySelector("#search-input").addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     e.target.value = "";
     closeSearch();
     e.target.blur();
   }
 });
-document.getElementById("search-input").addEventListener("focus", (e) => {
+document.querySelector("#search-input").addEventListener("focus", (e) => {
   if (e.target.value.trim().length >= 2) runSearch(e.target.value.trim());
 });
 

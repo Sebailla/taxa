@@ -88,13 +88,13 @@ async function expandAncestorsOf(id) {
   // `parent_id` (the global backbone); WoRMS uses `worms_parent_id`
   // (Biota → kingdom → phylum → ... → species), independent of CoL.
   // Freshwater uses `freshwater_parent_id`, isolated from both.
-  const useWorms = state.treeSource === "worms";
-  const useFreshwater = state.treeSource === "freshwater";
-  let parentId = useWorms
-    ? taxon.taxon.worms_parent_id
-    : useFreshwater
-      ? taxon.taxon.freshwater_parent_id
-      : taxon.taxon.parent_id;
+  const pickParentId = (t) => {
+    if (!t) return null;
+    if (state.treeSource === "worms") return t.taxon.worms_parent_id;
+    if (state.treeSource === "freshwater") return t.taxon.freshwater_parent_id;
+    return t.taxon.parent_id;
+  };
+  let parentId = pickParentId(taxon);
   while (parentId) {
     if (!state.expanded.has(parentId)) {
       await loadChildren(parentId);
@@ -114,16 +114,12 @@ async function expandAncestorsOf(id) {
       }
     }
     const parent = state.cache.get(parentId);
-    parentId = useWorms
-      ? parent?.taxon.worms_parent_id
-      : useFreshwater
-        ? parent?.taxon.freshwater_parent_id
-        : parent?.taxon.parent_id;
+    parentId = pickParentId(parent);
   }
 }
 
 function renderCollapseAllButton() {
-  const btn = document.getElementById("collapse-all");
+  const btn = document.querySelector("#collapse-all");
   if (!btn) return;
   const hasExpansion = state.expanded.size > 0 || state.showAll.size > 0;
   btn.disabled = !hasExpansion;
@@ -186,11 +182,15 @@ function buildClassificationShell() {
           "shrink-0 flex items-center gap-1 text-body-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent",
         title: "Collapse all expanded nodes",
       },
-      el("span", { class: "material-symbols-outlined text-[18px]" }, "unfold_less"),
+      el(
+        "span",
+        { class: "material-symbols-outlined text-[18px]" },
+        "unfold_less",
+      ),
       el("span", null, "Collapse all"),
     ),
   );
-  breadcrumbHost.appendChild(breadcrumbInner);
+  breadcrumbHost.append(breadcrumbInner);
   const detailPanel = el("div", {
     id: "detail-panel",
     class: "hidden mb-6",
@@ -201,11 +201,19 @@ function buildClassificationShell() {
   });
   const inner = el(
     "div",
-    { class: "flex flex-col w-full max-w-5xl mx-auto py-8 px-row-padding-x lg:px-0" },
+    {
+      class:
+        "flex flex-col w-full max-w-5xl mx-auto py-8 px-row-padding-x lg:px-0",
+    },
     detailPanel,
     treeView,
   );
-  return el("div", { class: "flex flex-col w-full text-on-surface" }, breadcrumbHost, inner);
+  return el(
+    "div",
+    { class: "flex flex-col w-full text-on-surface" },
+    breadcrumbHost,
+    inner,
+  );
 }
 
 // Mount the file explorer into <main>. Idempotent: if the explorer is
@@ -352,7 +360,7 @@ document.addEventListener("click", async (e) => {
     // low once the real content paints in.
     await waitForDetailReady(id);
     requestAnimationFrame(() => {
-      const el = document.getElementById(`taxon-${id}`);
+      const el = document.querySelector(`#taxon-${id}`);
       if (!el) return;
       // Manual scroll — the sticky detail card sits between the
       // breadcrumb and the tree, so scrollIntoView's "center of
@@ -379,7 +387,7 @@ document.addEventListener("click", async (e) => {
     // area below the sticky card.
     const { scrollTaxonBelowCard } = await import("./dom.js");
     requestAnimationFrame(() => {
-      const el = document.getElementById(`taxon-${id}`);
+      const el = document.querySelector(`#taxon-${id}`);
       if (el) scrollTaxonBelowCard(el);
     });
   } else if (action === "focus-home") {
@@ -395,35 +403,35 @@ document.addEventListener("click", async (e) => {
     e.preventDefault();
     state.focused = null;
     selectTaxon(null);
-} else if (action === "close-detail") {
-        closeDetail();
-      } else if (action === "nav-tab") {
-        // Header navigation (Browser / Classification / Settings). The
-        // data-path attribute on each link carries the tab key.
-        //   - "browser" → mount the explorer (placeholder when no taxon
-        //     is selected; otherwise fetch + render the tree).
-        //   - "classification" / "settings" → clear the explorer (drops
-        //     listeners + aborts in-flight fetches) and restore the
-        //     classification view via the normal render() pipeline.
-        const tab = e.target.closest("[data-action=nav-tab]").dataset.path;
-        if (tab === "browser") {
-          const id = state.selected;
-          if (id != null) {
-            mountFileExplorer(id);
-          } else {
-            // No taxon selected → mount the placeholder only (no API call).
-            mountFileExplorer(null);
-          }
-        } else {
-          // Classification / Settings: drop the explorer if it was mounted.
-          clearFileExplorer();
-        }
-        e.preventDefault();
+  } else if (action === "close-detail") {
+    closeDetail();
+  } else if (action === "nav-tab") {
+    // Header navigation (Browser / Classification / Settings). The
+    // data-path attribute on each link carries the tab key.
+    //   - "browser" → mount the explorer (placeholder when no taxon
+    //     is selected; otherwise fetch + render the tree).
+    //   - "classification" / "settings" → clear the explorer (drops
+    //     listeners + aborts in-flight fetches) and restore the
+    //     classification view via the normal render() pipeline.
+    const tab = e.target.closest("[data-action=nav-tab]").dataset.path;
+    if (tab === "browser") {
+      const id = state.selected;
+      if (id == null) {
+        // No taxon selected → mount the placeholder only (no API call).
+        mountFileExplorer(null);
+      } else {
+        mountFileExplorer(id);
       }
+    } else {
+      // Classification / Settings: drop the explorer if it was mounted.
+      clearFileExplorer();
+    }
+    e.preventDefault();
+  }
 });
 
 // Collapse-all button
-document.getElementById("collapse-all").addEventListener("click", () => {
+document.querySelector("#collapse-all").addEventListener("click", () => {
   collapseAll();
 });
 

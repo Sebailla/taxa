@@ -147,16 +147,8 @@ function renderCarpetaTab(taxon) {
     return el(
       "div",
       { class: "materialize-tab-error" },
-      el(
-        "span",
-        { class: "material-symbols-outlined text-[20px]" },
-        "error",
-      ),
-      el(
-        "span",
-        null,
-        `No se pudo cargar la vista previa: ${preview.error}`,
-      ),
+      el("span", { class: "material-symbols-outlined text-[20px]" }, "error"),
+      el("span", null, `No se pudo cargar la vista previa: ${preview.error}`),
     );
   }
 
@@ -173,11 +165,7 @@ function renderCarpetaTab(taxon) {
       el(
         "li",
         { class: "materialize-modal-list-item" },
-        el(
-          "span",
-          { class: `materialize-modal-marker ${markerCls}` },
-          marker,
-        ),
+        el("span", { class: `materialize-modal-marker ${markerCls}` }, marker),
         el("span", { class: "materialize-modal-segment-path" }, acc),
       ),
     );
@@ -210,8 +198,7 @@ function renderCarpetaTab(taxon) {
     const btn = el(
       "button",
       {
-        class:
-          "materialize-modal-btn materialize-modal-btn-primary",
+        class: "materialize-modal-btn materialize-modal-btn-primary",
         type: "button",
       },
       label,
@@ -223,9 +210,9 @@ function renderCarpetaTab(taxon) {
         const response = await materializeResearch(taxon.id);
         state.materialized.add(taxon.id);
         propagateMaterialized(taxon.id);
-        const newPreview = await previewMaterialize(taxon.id).catch(
-          (e) => ({ error: e.message }),
-        );
+        const newPreview = await previewMaterialize(taxon.id).catch((e) => ({
+          error: e.message,
+        }));
         if (state.selected === taxon.id && state.detail) {
           state.detail.materializePreview = newPreview;
           render();
@@ -263,7 +250,7 @@ function renderCarpetaTab(taxon) {
 }
 
 function renderDetailPanel() {
-  const panel = document.getElementById("detail-panel");
+  const panel = document.querySelector("#detail-panel");
   if (!state.detailOpen || !state.selected || !state.detail) {
     panel.classList.add("hidden");
     panel.replaceChildren();
@@ -308,7 +295,7 @@ function renderDetailPanel() {
     ),
   );
   if (taxon.is_extinct) {
-    badges.appendChild(
+    badges.append(
       el(
         "span",
         {
@@ -323,7 +310,7 @@ function renderDetailPanel() {
   // Mirrors the WoRMS badge symmetry: same outline weight, neutral gray so
   // it doesn't compete with the rank badge.
   if (state.treeSource === "col" && taxon.coldp_id && !taxon.worms_id) {
-    badges.appendChild(
+    badges.append(
       el(
         "span",
         {
@@ -339,7 +326,7 @@ function renderDetailPanel() {
   // only when the taxon has a worms_id. Clickable badge that jumps
   // straight to the WoRMS taxon page.
   else if (taxon.worms_id && state.treeSource !== "col") {
-    badges.appendChild(
+    badges.append(
       el(
         "a",
         {
@@ -366,7 +353,7 @@ function renderDetailPanel() {
     ),
   );
   if (taxon.authorship) {
-    titleBlock.appendChild(
+    titleBlock.append(
       el(
         "p",
         {
@@ -377,7 +364,7 @@ function renderDetailPanel() {
     );
   }
 
-  card.appendChild(
+  card.append(
     el(
       "div",
       { class: "detail-header" },
@@ -396,7 +383,7 @@ function renderDetailPanel() {
   );
 
   if (state.detailLoading && !hasAny) {
-    card.appendChild(
+    card.append(
       el(
         "div",
         {
@@ -467,7 +454,7 @@ function renderDetailPanel() {
       ),
     ),
   );
-  card.appendChild(tabStrip);
+  card.append(tabStrip);
 
   // ----- Tab content --------------------------------------------------
   // Each section is wrapped in a div with data-tab-content="<key>".
@@ -517,11 +504,9 @@ function renderDetailPanel() {
   if (hasVern) {
     const items = d.vernaculars.map((v) => {
       const item = el("div", { class: "detail-item" });
-      if (v.language)
-        item.appendChild(el("span", { class: "lang" }, v.language));
-      if (v.country)
-        item.appendChild(el("span", { class: "country" }, v.country));
-      item.appendChild(el("span", null, v.name));
+      if (v.language) item.append(el("span", { class: "lang" }, v.language));
+      if (v.country) item.append(el("span", { class: "country" }, v.country));
+      item.append(el("span", null, v.name));
       return item;
     });
     sections.push({
@@ -533,10 +518,7 @@ function renderDetailPanel() {
         items,
       ),
     });
-    sections[sections.length - 1].node.setAttribute(
-      "data-tab-content",
-      "vernaculars",
-    );
+    sections.at(-1).node.setAttribute("data-tab-content", "vernaculars");
   }
 
   if (hasSyn) {
@@ -548,17 +530,14 @@ function renderDetailPanel() {
         el("span", null, s.scientific_name),
       );
       if (s.authorship)
-        item.appendChild(el("span", { class: "authorship" }, s.authorship));
+        item.append(el("span", { class: "authorship" }, s.authorship));
       return item;
     });
     sections.push({
       key: "synonyms",
       node: buildDetailSection("history", "Synonyms", d.synonyms.length, items),
     });
-    sections[sections.length - 1].node.setAttribute(
-      "data-tab-content",
-      "synonyms",
-    );
+    sections.at(-1).node.setAttribute("data-tab-content", "synonyms");
   }
 
   if (hasDist) {
@@ -580,16 +559,13 @@ function renderDetailPanel() {
         items,
       ),
     });
-    sections[sections.length - 1].node.setAttribute(
-      "data-tab-content",
-      "distribution",
-    );
+    sections.at(-1).node.setAttribute("data-tab-content", "distribution");
   }
   for (const s of sections) {
     if (s.key !== activeKey) {
       s.node.setAttribute("style", "display: none;");
     }
-    card.appendChild(s.node);
+    card.append(s.node);
   }
 
   panel.classList.remove("hidden");

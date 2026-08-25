@@ -51,7 +51,9 @@ export async function mount(host, rootTaxonId) {
     state.explorer.openFilePath = null;
     state.explorer.openFileFormat = null;
     state.explorer.viewerTab = "Raw";
-    host.replaceChildren(renderPlaceholder("Select a taxon to browse its files."));
+    host.replaceChildren(
+      renderPlaceholder("Select a taxon to browse its files."),
+    );
     return;
   }
 
@@ -63,7 +65,7 @@ export async function mount(host, rootTaxonId) {
       "div",
       { class: "fex-shell" },
       renderTreePaneSkeleton(),
-      renderViewerPaneSkeleton(rootTaxonId),
+      renderViewerPaneSkeleton(),
     ),
   );
 
@@ -72,10 +74,9 @@ export async function mount(host, rootTaxonId) {
   _abortController = new AbortController();
 
   try {
-    const tree = await fetch(
-      `${API}/api/taxon/${rootTaxonId}/files`,
-      { signal: _abortController.signal },
-    );
+    const tree = await fetch(`${API}/api/taxon/${rootTaxonId}/files`, {
+      signal: _abortController.signal,
+    });
     if (!tree.ok) {
       throw new Error(`${tree.status} ${tree.statusText}`);
     }
@@ -87,10 +88,7 @@ export async function mount(host, rootTaxonId) {
     if (e.name === "AbortError") return;
     console.error("file_explorer mount failed", e);
     host.replaceChildren(
-      renderPlaceholder(
-        `Could not load file tree: ${e.message}`,
-        "error",
-      ),
+      renderPlaceholder(`Could not load file tree: ${e.message}`, "error"),
     );
   }
 }
@@ -139,11 +137,7 @@ function renderTreePaneEmpty(rootTaxonId) {
     el(
       "div",
       { class: "fex-empty-state" },
-      el(
-        "span",
-        { class: "fex-empty-state-icon" },
-        "folder_off",
-      ),
+      el("span", { class: "fex-empty-state-icon" }, "folder_off"),
       el(
         "p",
         null,
@@ -170,7 +164,7 @@ function renderTreePaneSkeleton() {
   );
 }
 
-function renderViewerPaneSkeleton(rootTaxonId) {
+function renderViewerPaneSkeleton() {
   return el(
     "div",
     { class: "fex-viewer-pane" },
@@ -241,7 +235,7 @@ function renderFolderRow(node, depth, rootTaxonId) {
   // The user can collapse a folder by single-clicking it (which also
   // selects it via the .selected class).
   for (const child of node.children || []) {
-    childrenContainer.appendChild(renderNodeRow(child, depth + 1, rootTaxonId));
+    childrenContainer.append(renderNodeRow(child, depth + 1, rootTaxonId));
   }
   const row = el(
     "div",
@@ -271,13 +265,15 @@ function renderFolderRow(node, depth, rootTaxonId) {
       row.setAttribute("aria-expanded", isOpen ? "false" : "true");
       childrenContainer.style.display = isOpen ? "none" : "";
       const chevron = row.querySelector("[data-folder-toggle]");
-      chevron.textContent = isOpen ? "keyboard_arrow_right" : "keyboard_arrow_down";
+      chevron.textContent = isOpen
+        ? "keyboard_arrow_right"
+        : "keyboard_arrow_down";
       // Swap icon to folder_open when expanded, folder when collapsed.
       const icon = row.querySelector(".fex-icon");
       icon.textContent = isOpen ? "folder" : "folder_open";
       return;
     }
-    selectFolder(node.path || "", rootTaxonId);
+    selectFolder(node.path || "");
   });
   const wrap = el("div", null, row, childrenContainer);
   return wrap;
@@ -293,7 +289,11 @@ function renderFileRow(node, depth, rootTaxonId) {
       role: "button",
       tabindex: "0",
     },
-    el("span", { class: "fex-icon material-symbols-outlined" }, iconForExt(node.extension)),
+    el(
+      "span",
+      { class: "fex-icon material-symbols-outlined" },
+      iconForExt(node.extension),
+    ),
     el("span", { class: "fex-label" }, node.name),
     node.size == null
       ? null
@@ -301,7 +301,7 @@ function renderFileRow(node, depth, rootTaxonId) {
   );
   row.addEventListener("click", (e) => {
     if (e.detail >= 2) return; // dblclick handles the open
-    selectFile(node, rootTaxonId);
+    selectFile(node);
   });
   row.addEventListener("dblclick", () => {
     openFile(node, rootTaxonId);
@@ -333,7 +333,7 @@ function formatBytes(n) {
 
 // Selection (highlighting only — no network). DOM-only via classList so
 // re-renders aren't triggered on every click.
-function selectFolder(folderPath, rootTaxonId) {
+function selectFolder(folderPath) {
   // Demote any currently-selected folder/file.
   _currentHost
     ?.querySelectorAll(".fex-row.selected")
@@ -344,7 +344,7 @@ function selectFolder(folderPath, rootTaxonId) {
   row?.classList.add("selected");
 }
 
-function selectFile(node, rootTaxonId) {
+function selectFile(node) {
   _currentHost
     ?.querySelectorAll(".fex-row.selected")
     .forEach((n) => n.classList.remove("selected"));
@@ -384,11 +384,7 @@ async function openFile(node, rootTaxonId) {
     el(
       "div",
       { class: "fex-meta-strip" },
-      el(
-        "span",
-        null,
-        `FORMAT=${(node.extension || "").toUpperCase() || "?"}`,
-      ),
+      el("span", null, `FORMAT=${(node.extension || "").toUpperCase() || "?"}`),
       el("span", null, `SIZE=${formatBytes(node.size)}`),
       el("span", null, "ENCODING=UTF-8"),
       el("span", { class: "fex-meta-spacer" }),
@@ -400,7 +396,11 @@ async function openFile(node, rootTaxonId) {
           title: "Open in new tab",
           onclick: () => openInNewTab(file.url),
         },
-        el("span", { class: "material-symbols-outlined text-[16px]" }, "open_in_new"),
+        el(
+          "span",
+          { class: "material-symbols-outlined text-[16px]" },
+          "open_in_new",
+        ),
       ),
     ),
     el(
@@ -410,8 +410,7 @@ async function openFile(node, rootTaxonId) {
         "button",
         {
           type: "button",
-          class:
-            state.explorer.viewerTab === "Raw" ? "active" : "",
+          class: state.explorer.viewerTab === "Raw" ? "active" : "",
           "data-viewer-tab": "Raw",
         },
         "Raw",
@@ -420,8 +419,7 @@ async function openFile(node, rootTaxonId) {
         "button",
         {
           type: "button",
-          class:
-            state.explorer.viewerTab === "Table" ? "active" : "",
+          class: state.explorer.viewerTab === "Table" ? "active" : "",
           "data-viewer-tab": "Table",
         },
         "Table",
@@ -430,8 +428,7 @@ async function openFile(node, rootTaxonId) {
         "button",
         {
           type: "button",
-          class:
-            state.explorer.viewerTab === "Tree" ? "active" : "",
+          class: state.explorer.viewerTab === "Tree" ? "active" : "",
           "data-viewer-tab": "Tree",
         },
         "Tree",
@@ -463,7 +460,11 @@ async function openFile(node, rootTaxonId) {
             class: "fex-snippet-btn",
             "data-copy-snippet": "",
           },
-          el("span", { class: "material-symbols-outlined text-[16px]" }, "content_copy"),
+          el(
+            "span",
+            { class: "material-symbols-outlined text-[16px]" },
+            "content_copy",
+          ),
           "Copy snippet",
         ),
       ),
@@ -505,7 +506,7 @@ async function openFile(node, rootTaxonId) {
         );
       }, 1200);
     } catch (e) {
-      console.warn("Clipboard write failed", e);
+      console.error("Clipboard write failed", e);
     }
   });
 
@@ -517,11 +518,7 @@ async function openFile(node, rootTaxonId) {
 
 function updateMetaStrip(strip, { name, extension, size }) {
   strip.replaceChildren(
-    el(
-      "span",
-      null,
-      `FORMAT=${(extension || "").toUpperCase() || "?"}`,
-    ),
+    el("span", null, `FORMAT=${(extension || "").toUpperCase() || "?"}`),
     el("span", null, `SIZE=${formatBytes(size)}`),
     el("span", null, "ENCODING=UTF-8"),
     el("span", { class: "fex-meta-spacer" }),
@@ -535,7 +532,6 @@ function renderViewerPane(rootTaxonId) {
   const data = state.explorer.tree;
   if (!data.exists) {
     return renderViewerEmptyState(
-      rootTaxonId,
       "No files yet — materialize this taxon to create its folder.",
     );
   }
@@ -550,23 +546,18 @@ function renderViewerPane(rootTaxonId) {
     }
   }
   return renderViewerEmptyState(
-    rootTaxonId,
     "Double-click a file in the tree to open it here.",
   );
 }
 
-function renderViewerEmptyState(rootTaxonId, message) {
+function renderViewerEmptyState(message) {
   return el(
     "div",
     { class: "fex-viewer-pane" },
     el(
       "div",
       { class: "fex-empty-state" },
-      el(
-        "span",
-        { class: "fex-empty-state-icon" },
-        "description",
-      ),
+      el("span", { class: "fex-empty-state-icon" }, "description"),
       el("p", null, message),
     ),
   );
@@ -601,11 +592,7 @@ function renderPlaceholder(message, icon = "info") {
 }
 
 function renderTreeHeaderSkeleton() {
-  return el(
-    "div",
-    { class: "fex-tree-header" },
-    el("h2", null, "Explorer"),
-  );
+  return el("div", { class: "fex-tree-header" }, el("h2", null, "Explorer"));
 }
 
 // Find a node in the recursive tree by its relative path. Used to
@@ -626,7 +613,7 @@ function findNode(node, path) {
 // the characters that would break a [data-...="…"] selector. Used when
 // looking up the DOM row for a given file/folder path.
 function cssEscape(s) {
-  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+  if (CSS !== undefined && typeof CSS.escape === "function") {
     return CSS.escape(s);
   }
   return String(s).replace(/(["\\\]])/g, "\\$1");
@@ -642,7 +629,7 @@ function openInNewTab(url) {
   a.href = url;
   a.target = "_blank";
   a.rel = "noopener noreferrer";
-  document.body.appendChild(a);
+  document.body.append(a);
   a.click();
   a.remove();
 }

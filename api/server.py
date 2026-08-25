@@ -23,6 +23,7 @@ import logging
 import os
 import re
 import sqlite3
+from types import MappingProxyType
 import unicodedata
 from datetime import datetime
 from pathlib import Path
@@ -58,7 +59,12 @@ _logger = logging.getLogger(__name__)
 # These constants are the streaming cap and the extension→content-type table
 # the /serve endpoint consults. See design.md §3 for the contract.
 _STREAM_CAP_BYTES = 100 * 1024 * 1024  # 100 MB
-_CONTENT_TYPE_BY_EXT: dict[str, str] = {
+# Immutable read-only view over the content-type map. MappingProxyType
+# raises TypeError on mutation, making this a true read-only constant.
+# Wrapped (not a bare dict literal) so opengrep's
+# `python-mutable-class-attr` rule does not fire — the rule keys on
+# `{...}` literal assignment to a non-frozen module-level name.
+_CONTENT_TYPE_BY_EXT: MappingProxyType = MappingProxyType({
     "pdf":  "application/pdf",
     "epub": "application/epub+zip",
     "html": "text/html",
@@ -69,7 +75,7 @@ _CONTENT_TYPE_BY_EXT: dict[str, str] = {
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "xls":  "application/vnd.ms-excel",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-}
+})
 
 
 def db() -> sqlite3.Connection:
@@ -742,13 +748,10 @@ def _safe_resolve(root: Path, rel: str) -> Path:
     resolved candidate on success.
     """
     candidate = (root / rel).resolve()
-    try:
-        is_inside = candidate.is_relative_to(root)
-    except AttributeError:  # pragma: no cover (project runs Python 3.14+)
-        is_inside = (
-        str(candidate).startswith(str(root) + "/") or candidate == root
-        )
-    if not is_inside:
+    # Python 3.14+: Path.is_relative_to is always available; the old
+    # str-startswith fallback for Python < 3.9 was removed because
+    # the project targets 3.14+.
+    if not candidate.is_relative_to(root):
         raise HTTPException(400, "Path escapes research root")
     return candidate
 

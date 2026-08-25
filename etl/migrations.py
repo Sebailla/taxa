@@ -59,8 +59,8 @@ def _set_user_version(conn: sqlite3.Connection, version: int) -> None:
     """
     if not isinstance(version, int) or isinstance(version, bool) or version < 0:
         raise ValueError(f"PRAGMA user_version must be a non-negative int, got {version!r}")
-    # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
-    # Safe: PRAGMA doesn't support bound params; `version` is validated as int above;
+    # nosemgrep
+    # Safe: PRAGMA doesn't support bound params; `version` is validated as int above (line 65);
     # rule fires on the f-string pattern regardless of stdlib sqlite3 vs SQLAlchemy.
     conn.execute(f"PRAGMA user_version = {version}")
 

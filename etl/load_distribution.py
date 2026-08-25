@@ -116,6 +116,8 @@ def main() -> int:
             ))
             n_staged += 1
             if len(batch) >= BATCH:
+                # nosemgrep: python-sql-injection
+                # Safe: BEGIN/COMMIT are SQLite transaction markers with no params.
                 cur.execute("BEGIN")
                 cur.executemany(
                     "INSERT INTO dist_staging VALUES (?, ?, ?, ?, ?, ?)", batch
@@ -129,6 +131,8 @@ def main() -> int:
                       flush=True)
 
         if batch:
+            # nosemgrep: python-sql-injection
+            # Safe: BEGIN/COMMIT are SQLite transaction markers with no params.
             cur.execute("BEGIN")
             cur.executemany(
                 "INSERT INTO dist_staging VALUES (?, ?, ?, ?, ?, ?)", batch
@@ -166,6 +170,8 @@ def main() -> int:
           flush=True)
 
     cur.execute("DROP TABLE dist_staging")
+    # nosemgrep: python-sql-injection
+    # Safe: ANALYZE has no parameters; runs the SQLite query planner optimizer.
     cur.execute("ANALYZE")
 
     # Final stats.

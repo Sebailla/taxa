@@ -1,0 +1,25 @@
+# .gitleaks.toml — gitleaks configuration for the taxa project.
+#
+# Pi-lens's gitleaks runner ignores `.gitleaksignore` when run with --no-git
+# (which it does, to scan ALL files regardless of .gitignore). The toml config's
+# `allowlist.paths` is always respected regardless of git-awareness, so we use
+# it for false-positive suppression.
+
+title = "taxa gitleaks config"
+
+[allowlist]
+paths = [
+  '''\.mcp\.json$''',
+  '''data/raw/coldp/extracted/.*\.json$''',
+  '''data/raw/coldp/extracted/.*\.jsonl$''',
+  '''data/raw/coldp/extracted/.*\.tsv$''',
+]
+description = '''
+.mcp.json — local MCP config, gitignored. Contains the Stitch MCP API key
+(user's own Google Cloud API key, not something to rotate).
+
+data/raw/coldp/extracted/* — downloaded CoL reference data, gitignored.
+Academic references, DOIs, Wikipedia URLs, and random IDs that gitleaks
+flags as potential secrets. All false positives on legitimate taxonomic
+reference text from the Catalogue of Life.
+'''
