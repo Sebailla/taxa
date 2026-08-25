@@ -10,14 +10,14 @@
 // single point that toggles its visibility.
 
 export function renderVersionBanner(actual, expected) {
-  const banner = document.getElementById("version-banner");
+  const banner = document.querySelector("#version-banner");
   if (!banner) return;
   if (actual >= expected) {
     banner.classList.add("hidden");
     return;
   }
-  const actualEl = document.getElementById("version-banner-actual");
-  const expectedEl = document.getElementById("version-banner-expected");
+  const actualEl = document.querySelector("#version-banner-actual");
+  const expectedEl = document.querySelector("#version-banner-expected");
   if (actualEl) actualEl.textContent = String(actual);
   if (expectedEl) expectedEl.textContent = String(expected);
   banner.classList.remove("hidden");

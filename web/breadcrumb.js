@@ -4,12 +4,10 @@
 // state.cache only — never triggers a fetch itself.
 
 import { state } from "./state.js";
-import { loadTaxon } from "./api.js";
-import { rankLabel } from "./format.js";
 import { el } from "./dom.js";
 
 function renderBreadcrumb() {
-  const nav = document.getElementById("breadcrumb");
+  const nav = document.querySelector("#breadcrumb");
   if (!state.focused) {
     nav.replaceChildren();
     return;
@@ -22,12 +20,11 @@ function renderBreadcrumb() {
   // a CoL-matched WoRMS taxon's parent_id points at the CoL backbone, not
   // at the WoRMS chain.
   const src = state.treeSource;
-  const parentIdOf = (t) =>
-    src === "worms"
-      ? t.worms_parent_id
-      : src === "freshwater"
-        ? t.freshwater_parent_id
-        : t.parent_id;
+  const parentIdOf = (t) => {
+    if (src === "worms") return t.worms_parent_id;
+    if (src === "freshwater") return t.freshwater_parent_id;
+    return t.parent_id;
+  };
   const pathSegments = [];
   let currentId = state.focused;
   let safety = 30; // hard cap to avoid infinite loops on data corruption
@@ -49,7 +46,7 @@ function renderBreadcrumb() {
   const frag = document.createDocumentFragment();
 
   // Home icon (clickable — clears focus).
-  frag.appendChild(
+  frag.append(
     el(
       "button",
       {
@@ -64,7 +61,7 @@ function renderBreadcrumb() {
   // the current position (rendered as text, not clickable).
   for (let i = 0; i < pathSegments.length; i++) {
     const seg = pathSegments[i];
-    frag.appendChild(
+    frag.append(
       el(
         "span",
         { class: "material-symbols-outlined text-[14px]" },
@@ -72,11 +69,11 @@ function renderBreadcrumb() {
       ),
     );
     if (i === pathSegments.length - 1) {
-      frag.appendChild(
+      frag.append(
         el("span", { class: "text-on-surface font-medium" }, seg.name),
       );
     } else {
-      frag.appendChild(
+      frag.append(
         el(
           "button",
           {

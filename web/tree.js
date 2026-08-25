@@ -3,13 +3,11 @@
 // are the two predicates feeding the recursion.
 
 import { state, PAGE_SIZE } from "./state.js";
-import { loadChildren } from "./api.js";
 import {
   rankLabel,
   rankPlural,
   statusDot,
   speciesCountBadge,
-  RANK_ORDER,
   RANK_INDEX,
 } from "./format.js";
 import { el } from "./dom.js";
@@ -49,7 +47,6 @@ function propagateMaterialized(rootTaxonId) {
     }
   });
 }
-import { toggleExpand, selectTaxon } from "./nav.js";
 
 function renderNodeRow(taxon, opts = {}) {
   const {
@@ -69,36 +66,12 @@ function renderNodeRow(taxon, opts = {}) {
   // rounded-r-lg keeps the right corners soft but leaves the left edge
   // (where the marker border lives) perfectly square — the border has
   // nowhere to curve into.
-  const cls = isSelected
-    ? "bg-primary/5 border-l-[3px] border-primary rounded-r-lg cursor-pointer"
-    : isFocused
-      ? "bg-surface-container-low border-l-[3px] border-outline rounded-r-lg cursor-pointer"
-      : "hover:bg-surface-container-low transition-colors rounded-r-lg cursor-pointer";
-  const rankCls = isSelected
-    ? "text-primary bg-primary/10"
-    : isFocused
-      ? "text-primary bg-primary/5"
-      : "text-on-surface-variant bg-surface-container-highest";
-  const nameCls = isSelected
-    ? "font-h1 text-h1 text-primary font-bold"
-    : isFocused
-      ? "font-h1 text-h1 text-primary"
-      : depth === 0
-        ? "font-h1 text-h1 text-on-surface"
-        : "font-body-lg text-body-lg text-on-surface";
+  const cls = rowClassFor(isSelected, isFocused);
+  const rankCls = rankClassFor(isSelected, isFocused);
+  const nameCls = nameClassFor(isSelected, isFocused, depth);
   // For species, render a small marker (•) instead of the chevron so the row
   // doesn't look like it has children to expand.
-  const chevron = hasChildren
-    ? el(
-        "span",
-        { class: "material-symbols-outlined text-[20px]" },
-        isExpanded ? "arrow_drop_down" : "chevron_right",
-      )
-    : el(
-        "span",
-        { class: "text-on-surface-variant text-[18px] select-none" },
-        "•",
-      );
+  const chevron = chevronFor(hasChildren, isExpanded);
   const arrowColor =
     isSelected || isFocused ? "text-primary" : "text-on-surface-variant";
   const extinctCls = taxon.is_extinct ? "line-through opacity-70" : "";
@@ -221,7 +194,7 @@ function renderNodeRow(taxon, opts = {}) {
     // Clicking opens the detail panel on the Carpeta tab — the same
     // modal the lupa opens, just on a different tab.
     (taxon.research_path_exists || state.materialized.has(taxon.id)) &&
-    taxon.scientific_name
+      taxon.scientific_name
       ? el(
           "button",
           {
@@ -315,7 +288,7 @@ function renderNode(taxon, depth) {
   const isFocused = state.focused === taxon.id;
   const isLeaf = taxon.rank === "species" || taxon.rank === "subspecies";
   const frag = document.createDocumentFragment();
-  frag.appendChild(
+  frag.append(
     renderNodeRow(taxon, { depth, isExpanded, isSelected, isFocused }),
   );
   if (isExpanded && !isLeaf) {
@@ -338,12 +311,10 @@ function renderNode(taxon, depth) {
         const more = filteredGroup.count - visible.length;
         if (filteredGroup.count > 1) {
           // Tier header sits at depth+1 — same indent as its children.
-          frag.appendChild(
-            renderTierHeader(taxon, filteredGroup, more, depth + 1),
-          );
+          frag.append(renderTierHeader(taxon, filteredGroup, more, depth + 1));
         }
         for (const child of visible) {
-          frag.appendChild(renderNode(child, depth + 1));
+          frag.append(renderNode(child, depth + 1));
         }
       }
     }
@@ -360,14 +331,14 @@ function renderNode(taxon, depth) {
 //                rows get filtered out — otherwise the freshwater view
 //                would render all 6 domain roots mixed in.
 function matchesTreeSource(taxon) {
-  if (state.treeSource === "col") return !!taxon.coldp_id;
-  if (state.treeSource === "worms") return !!taxon.worms_id;
-  if (state.treeSource === "freshwater") return !!taxon.freshwater_id;
+  if (state.treeSource === "col") return Boolean(taxon.coldp_id);
+  if (state.treeSource === "worms") return Boolean(taxon.worms_id);
+  if (state.treeSource === "freshwater") return Boolean(taxon.freshwater_id);
   return true;
 }
 
 function renderTree() {
-  const view = document.getElementById("tree-view");
+  const view = document.querySelector("#tree-view");
   if (state.roots.length === 0) {
     view.replaceChildren(
       el(
@@ -386,9 +357,51 @@ function renderTree() {
   for (const root of state.roots) {
     const cached = state.cache.get(root.id);
     if (cached && !matchesTreeSource(cached.taxon)) continue;
-    wrapper.appendChild(renderNode(root, 0));
+    wrapper.append(renderNode(root, 0));
   }
   view.replaceChildren(wrapper);
+}
+
+// Row class helpers — extracted from renderNodeRow so the nested-ternary
+// logic (selected vs focused vs default; depth tier for the name class)
+// stays readable. Each helper returns the Tailwind class string for one
+// visual dimension; renderNodeRow concatenates them with template literals.
+function rowClassFor(isSelected, isFocused) {
+  if (isSelected) {
+    return "bg-primary/5 border-l-[3px] border-primary rounded-r-lg cursor-pointer";
+  }
+  if (isFocused) {
+    return "bg-surface-container-low border-l-[3px] border-outline rounded-r-lg cursor-pointer";
+  }
+  return "hover:bg-surface-container-low transition-colors rounded-r-lg cursor-pointer";
+}
+
+function rankClassFor(isSelected, isFocused) {
+  if (isSelected) return "text-primary bg-primary/10";
+  if (isFocused) return "text-primary bg-primary/5";
+  return "text-on-surface-variant bg-surface-container-highest";
+}
+
+function nameClassFor(isSelected, isFocused, depth) {
+  if (isSelected) return "font-h1 text-h1 text-primary font-bold";
+  if (isFocused) return "font-h1 text-h1 text-primary";
+  if (depth === 0) return "font-h1 text-h1 text-on-surface";
+  return "font-body-lg text-body-lg text-on-surface";
+}
+
+// Chevron row icon: species/subspecies (no children) gets a small • marker,
+// higher ranks get the material-symbol chevron pointing down when expanded
+// and right when collapsed. Extracted to flatten a nested ternary.
+function chevronFor(hasChildren, isExpanded) {
+  if (!hasChildren) {
+    return el(
+      "span",
+      { class: "text-on-surface-variant text-[18px] select-none" },
+      "•",
+    );
+  }
+  const glyph = isExpanded ? "arrow_drop_down" : "chevron_right";
+  return el("span", { class: "material-symbols-outlined text-[20px]" }, glyph);
 }
 
 export {

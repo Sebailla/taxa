@@ -37,7 +37,7 @@
  */
 
 import { state } from "./state.js";
-import { api, loadChildren } from "./api.js";
+import { api } from "./api.js";
 import { renderTree } from "./tree.js";
 import { renderBreadcrumb } from "./breadcrumb.js";
 import { renderDetailPanel, loadDetail } from "./detail.js";
@@ -64,19 +64,19 @@ async function boot() {
  // Health check (best-effort; doesn't block render).
  try {
   const h = await api("/api/health");
-  document.getElementById("footer-status").textContent =
+  document.querySelector("#footer-status").textContent =
    `System Online · ${h.taxa.toLocaleString()} taxa · ${h.vernaculars.toLocaleString()} vernaculars`;
   // Version-mismatch banner: shown when the DB's PRAGMA user_version
   // is older than the API's CURRENT_SCHEMA_VERSION. Hidden when they
   // match. The /api/health response carries both values.
   renderVersionBanner(h.db_schema_version, h.expected_schema_version);
  } catch {
-  document.getElementById("footer-status").textContent = "API unreachable";
+  document.querySelector("#footer-status").textContent = "API unreachable";
   document
-   .getElementById("footer-status")
+   .querySelector("#footer-status")
    .previousElementSibling.classList.remove("bg-green-500");
   document
-   .getElementById("footer-status")
+   .querySelector("#footer-status")
    .previousElementSibling.classList.add("bg-red-500");
  }
 
@@ -90,7 +90,7 @@ async function boot() {
  // If freshwater is loaded, append a "Freshwater" toggle button. The
  // event delegation set up in nav.js handles its click.
  if (roots.some((r) => r.freshwater_id != null)) {
-  const toggle = document.getElementById("tree-source-toggle");
+  const toggle = document.querySelector("#tree-source-toggle");
   if (toggle && !toggle.querySelector('[data-tree-source="freshwater"]')) {
    const freshBtn = el(
     "button",
@@ -101,7 +101,7 @@ async function boot() {
     },
     "Freshwater",
    );
-   toggle.appendChild(freshBtn);
+   toggle.append(freshBtn);
   }
  }
 

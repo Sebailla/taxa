@@ -53,12 +53,18 @@ def main() -> int:
     # These ALTER TABLEs are kept for legacy DBs that predate the v2
     # schema versioning; new DBs are created with coldp_id + is_extinct
     # already in schema.sql (the v1 base).
+    # nosemgrep: python-sql-injection
+    # Safe: PRAGMA table_info takes no parameters; `taxon` is a literal identifier.
     cur.execute("PRAGMA table_info(taxon)")
     cols = {row[1] for row in cur.fetchall()}
     if "coldp_id" not in cols:
+        # nosemgrep: python-sql-injection
+        # Safe: DDL ALTER with no parameters; column name and type are constants.
         cur.execute("ALTER TABLE taxon ADD COLUMN coldp_id TEXT")
         print("  migrated: added taxon.coldp_id")
     if "is_extinct" not in cols:
+        # nosemgrep: python-sql-injection
+        # Safe: DDL ALTER with no parameters; column name and type are constants.
         cur.execute("ALTER TABLE taxon ADD COLUMN is_extinct INTEGER NOT NULL DEFAULT 0")
         print("  migrated: added taxon.is_extinct")
 
@@ -104,6 +110,8 @@ def main() -> int:
         WHERE type='index' AND name='idx_taxon_name_rank_for_coldp'
     """)
     if not cur.fetchone():
+        # nosemgrep: python-sql-injection
+        # Safe: DDL CREATE INDEX with no parameters; column/table names are constants.
         cur.execute("""
             CREATE INDEX idx_taxon_name_rank_for_coldp
             ON taxon(scientific_name, rank) WHERE coldp_id IS NULL
@@ -142,6 +150,8 @@ def main() -> int:
                 batch_extinct.append((coldp_id,))
                 n_extinct += 1
             if len(batch) >= BATCH:
+                # nosemgrep: python-sql-injection
+                # Safe: BEGIN is a SQLite transaction marker with no params.
                 cur.execute("BEGIN")
                 cur.executemany(
                     "INSERT OR IGNORE INTO coldp_map VALUES (?, ?, ?, ?)", batch
@@ -149,6 +159,8 @@ def main() -> int:
                 cur.execute("COMMIT")
                 batch.clear()
             if len(batch_extinct) >= BATCH:
+                # nosemgrep: python-sql-injection
+                # Safe: BEGIN/COMMIT are transaction markers with no params.
                 cur.execute("BEGIN")
                 cur.executemany(
                     "INSERT OR IGNORE INTO coldp_extinct VALUES (?)", batch_extinct
