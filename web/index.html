@@ -691,10 +691,309 @@
              centers the taxon row in the *visible tree area below the card*,
              not the entire viewport. 64 (header) + 80 (breadcrumb) +
              ~280 (card, worst case) ≈ 420 — slightly conservative. */
-      [id^="taxon-"] {
-        scroll-margin-top: 420px;
-      }
-    </style>
+[id^="taxon-"] {
+            scroll-margin-top: 420px;
+          }
+
+          /* ----------------------------------------------------------------
+             File Explorer (Browser tab) chrome.
+             See design.md §5 (Styling decisions) — the meta strip + tab
+             strip + snippet frame are decorative chrome that lives in
+             <head> as plain CSS so the inline el() builders in
+             file_viewer.js can stamp a class instead of repeating 5+
+             Tailwind utilities per element.
+             ---------------------------------------------------------------- */
+
+          /* Meta strip — FORMAT | SIZE | ENCODING row above the right
+             pane. JetBrains Mono per the existing mono-data token. */
+          .fex-meta-strip {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 16px;
+            font-family: "JetBrains Mono", monospace;
+            font-size: 12px;
+            color: var(--on-surface-variant);
+            border-bottom: 1px solid var(--outline-variant);
+            background: var(--surface-container-lowest);
+          }
+          .fex-meta-strip > .fex-meta-spacer {
+            flex: 1;
+          }
+
+          /* Tab strip — Raw / Table / Tree segmented control. Active
+             tab gets the surface-container-lowest + shadow-sm treatment
+             called out in the spec. */
+          .fex-tab-strip {
+            display: inline-flex;
+            gap: 0;
+            padding: 4px;
+            border: 1px solid var(--outline-variant);
+            border-radius: 8px;
+            background: var(--surface-container-low);
+          }
+          .fex-tab-strip button {
+            padding: 4px 12px;
+            border: 0;
+            background: transparent;
+            font: 600 13px "Raleway", sans-serif;
+            color: var(--on-surface-variant);
+            border-radius: 6px;
+            cursor: pointer;
+          }
+          .fex-tab-strip button.active {
+            background: var(--surface-container-lowest);
+            color: var(--on-surface);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+          }
+
+          /* Snippet frame — macOS-style window chrome (3 dots) around
+             the rendered pre. The dots are inline <span>s painted by
+             file_viewer.js. The frame itself is a flex column with a
+             fixed title row + scrollable content area. */
+          .fex-snippet-frame {
+            display: flex;
+            flex-direction: column;
+            background: var(--surface);
+            border: 1px solid var(--outline-variant);
+            border-radius: 12px;
+            overflow: hidden;
+            min-height: 360px;
+          }
+          .fex-snippet-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--outline-variant);
+            background: var(--surface-container-low);
+            font-family: "JetBrains Mono", monospace;
+            font-size: 12px;
+            color: var(--on-surface-variant);
+          }
+          .fex-snippet-dots {
+            display: inline-flex;
+            gap: 6px;
+          }
+          .fex-snippet-dots span {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+          }
+          .fex-snippet-dots .dot-r {
+            background: #ff5f57;
+          }
+          .fex-snippet-dots .dot-y {
+            background: #febc2e;
+          }
+          .fex-snippet-dots .dot-g {
+            background: #28c840;
+          }
+          .fex-snippet-body {
+            flex: 1;
+            overflow: auto;
+            padding: 16px;
+            font-family: "JetBrains Mono", monospace;
+            font-size: 13px;
+            line-height: 1.55;
+            color: var(--on-surface);
+            white-space: pre-wrap;
+            word-break: break-word;
+          }
+          .fex-snippet-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            padding: 8px 12px;
+            border-top: 1px solid var(--outline-variant);
+            background: var(--surface-container-lowest);
+          }
+          .fex-snippet-btn {
+            font-family: "Raleway", sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--on-surface);
+            background: var(--surface);
+            border: 1px solid var(--outline-variant);
+            border-radius: 6px;
+            padding: 4px 10px;
+            cursor: pointer;
+          }
+          .fex-snippet-btn:hover {
+            background: var(--surface-container-low);
+          }
+          .fex-snippet-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+          }
+
+          /* Two-pane layout — left tree (w-72 = 18rem = 288px), right
+             viewer (flex 1). Matches the Stitch reference in design.md
+             §4. The flex container is also responsible for vertical
+             scrolling so the inner panes don't get clipped on short
+             viewports. */
+          .fex-shell {
+            display: flex;
+            gap: 0;
+            width: 100%;
+            min-height: calc(100vh - 96px);
+          }
+          .fex-tree-pane {
+            width: 18rem;
+            flex-shrink: 0;
+            border-right: 1px solid var(--outline-variant);
+            background: var(--surface);
+            padding: 12px 8px;
+            overflow-y: auto;
+            max-height: calc(100vh - 96px);
+          }
+          .fex-viewer-pane {
+            flex: 1;
+            min-width: 0;
+            padding: 16px 24px;
+            background: var(--surface-container-lowest);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-height: calc(100vh - 96px);
+            overflow-y: auto;
+          }
+          .fex-tree-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 4px 8px 8px;
+          }
+          .fex-tree-header h2 {
+            font-family: "Raleway", sans-serif;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--on-surface-variant);
+          }
+
+          /* Tree row anatomy — chevron + icon + guide line + label.
+             Selection states mirror the existing tree.js pattern but
+             use the rounded-r-md + bg-primary-fixed for files and
+             bg-primary/5 + border-l-2 + folder_open for folders
+             (design.md §5). */
+          .fex-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px 4px 4px;
+            border-radius: 4px;
+            font-family: "Raleway", sans-serif;
+            font-size: 13px;
+            color: var(--on-surface);
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+          }
+          .fex-row:hover {
+            background: var(--surface-container-low);
+          }
+          .fex-row .fex-chevron {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 16px;
+            height: 16px;
+            font-family: "Material Symbols Outlined";
+            font-size: 16px;
+            color: var(--on-surface-variant);
+            cursor: pointer;
+            border: 0;
+            background: transparent;
+            padding: 0;
+          }
+          .fex-row .fex-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-family: "Material Symbols Outlined";
+            font-size: 16px;
+            color: var(--on-surface-variant);
+          }
+          .fex-row.file.selected {
+            background: var(--primary);
+            color: #ffffff;
+            border-radius: 0 6px 6px 0;
+          }
+          .fex-row.file.selected .fex-icon,
+          .fex-row.file.selected .fex-meta {
+            color: #ffffff;
+          }
+          .fex-row.file.selected .fex-label {
+            color: #ffffff;
+          }
+          .fex-row.folder.selected {
+            background: color-mix(in srgb, var(--primary) 5%, transparent);
+            border-left: 2px solid var(--primary);
+            border-radius: 0;
+          }
+          .fex-row .fex-label {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+          .fex-row .fex-meta {
+            font-family: "JetBrains Mono", monospace;
+            font-size: 11px;
+            color: var(--on-surface-variant);
+          }
+          /* Vertical guide line for indented rows — a 1px left border
+             with 20% opacity matches the spec's "outline-variant/20"
+             treatment. Rendered via box-shadow so we don't need a
+             pseudo-element on each row. */
+          .fex-children {
+            margin-left: 14px;
+            padding-left: 8px;
+            border-left: 1px solid color-mix(in srgb, var(--outline-variant) 60%, transparent);
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+          }
+          /* CDN-failure banner — amber, flat, inline inside the right
+             pane when loadScriptOnce rejects. Matches the spec's
+             "Viewer offline — raw download unavailable" requirement. */
+          .fex-banner {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            background: color-mix(in srgb, #b45309 12%, transparent);
+            border: 1px solid color-mix(in srgb, #b45309 30%, transparent);
+            color: #b45309;
+            font-size: 13px;
+            font-weight: 600;
+          }
+          /* Empty-state block — used both for "no taxon" and for
+             "taxon not materialized" placeholders inside the right
+             pane. Centered text on a flat surface. */
+          .fex-empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 48px 24px;
+            color: var(--on-surface-variant);
+            text-align: center;
+            font-size: 14px;
+            line-height: 1.5;
+          }
+          .fex-empty-state .fex-empty-state-icon {
+            font-family: "Material Symbols Outlined";
+            font-size: 32px;
+            color: var(--outline);
+          }
+        </style>
     <script src="https://cdn.tailwindcss.com"></script>
     <script id="tailwind-config">
       // Design tokens — flat, modern, vibrant. Inspired by the Ant
@@ -846,9 +1145,11 @@
             </button>
           </div>
         </div>
-        <nav class="flex items-center gap-6">
+<nav class="flex items-center gap-6">
           <a
             id="nav-browser"
+            data-action="nav-tab"
+            data-path="browser"
             aria-current="page"
             class="transition-colors text-primary font-bold"
             href="#"
@@ -856,12 +1157,16 @@
           >
           <a
             id="nav-classification"
+            data-action="nav-tab"
+            data-path="classification"
             class="text-body-sm text-on-surface-variant hover:text-on-surface transition-colors font-medium"
             href="#"
             >Classification</a
           >
           <a
             id="nav-settings"
+            data-action="nav-tab"
+            data-path="settings"
             class="text-body-sm text-on-surface-variant hover:text-on-surface transition-colors font-medium"
             href="#"
             >Settings</a
@@ -978,6 +1283,38 @@
       </div>
     </footer>
 
-    <script type="module" src="app.js"></script>
-  </body>
-</html>
+<script type="module" src="app.js"></script>
+
+        <!--
+          File-explorer CDN pins — DO NOT UNPIN WITHOUT SMOKE TESTING.
+          The three libraries below are loaded lazily by web/file_viewer.js
+          (loadScriptOnce) only when a file of the matching format is opened,
+          so users who never open a .docx / .xlsx / .epub never pay the
+          ~600 KB download cost. Reproducibility note: each URL below is a
+          pinned major.minor.patch version, not a "latest" tag — bumping
+          requires a manual browser smoke (see PR 2 apply-progress.md).
+          See design.md §4 (Frontend design — CDN library loading strategy)
+          and design.md §8 (Risks — CDN pinning reproducibility).
+        -->
+        <!-- mammoth.js @1.8.0 — DOCX → HTML conversion. Loaded on demand by
+             renderDocx in web/file_viewer.js. Pinned URL: do not unpin. -->
+        <script
+          defer
+          src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"
+        ></script>
+        <!-- SheetJS (xlsx) @0.18.5 — XLS / XLSX parser + table HTML emitter.
+             Loaded on demand by renderSheet in web/file_viewer.js. Pinned
+             URL: do not unpin. The Community edition is served under the
+             Apache 2.0 license; the Pro edition is a different URL. -->
+        <script
+          defer
+          src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
+        ></script>
+        <!-- epubjs @0.3.93 — EPUB renderer. Loaded on demand by renderEpub
+             in web/file_viewer.js. Pinned URL: do not unpin. -->
+        <script
+          defer
+          src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"
+        ></script>
+      </body>
+    </html>

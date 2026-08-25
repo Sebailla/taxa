@@ -40,6 +40,42 @@ const state = {
   // flag from the backend's per-child `research_path_exists` on the
   // next /api/taxon/{id}/children round trip.
   materialized: new Set(),
+
+  // File explorer (Browser tab). Owns the recursive tree fetched via
+  // GET /api/taxon/{id}/files plus the currently-opened file + format
+  // + viewer-tab state. Selection state (which file/folder row is
+  // highlighted in the left tree) lives in DOM-only via data-file-path
+  // / data-folder-path attributes — keeping re-renders cheap.
+  //
+  //   rootTaxonId    number | null   — taxon the tree is rooted at
+  //   tree           object | null   — full response from GET /files
+  //   openFilePath   string | null   — relative path inside the tree
+  //   openFileFormat string | null   — extension of the open file (e.g. "pdf")
+  //   viewerTab      "Raw" | "Table" | "Tree" — active right-pane tab
+  //
+  // Cleared by clearFileExplorer() in nav.js when the user leaves the
+  // Browser tab, and reset to its initial shape by file_explorer.js
+  // mount(null). See design.md §4 for the full shape rationale.
+  explorer: {
+    rootTaxonId: null,
+    tree: null,
+    openFilePath: null,
+    openFileFormat: null,
+    viewerTab: "Raw",
+  },
 };
+
+// Exported so other modules (specifically nav.js's clearFileExplorer)
+// can reset state.explorer to its initial shape without duplicating
+// the literal. Keep in sync with the `explorer` field above.
+export function initialExplorerShape() {
+  return {
+    rootTaxonId: null,
+    tree: null,
+    openFilePath: null,
+    openFileFormat: null,
+    viewerTab: "Raw",
+  };
+}
 
 export { API, PAGE_SIZE, state };
