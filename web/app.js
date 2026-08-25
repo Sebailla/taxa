@@ -105,24 +105,16 @@ async function boot() {
   }
  }
 
- // Pre-expand Eukaryota (most populous) for a useful initial view.
- const euk = roots.find((r) => r.scientific_name === "Eukaryota");
- if (euk) {
-  await loadChildren(euk.id);
-  state.expanded.add(euk.id);
- }
-
  // If the URL has a hash, select that species and focus its path.
  const hashId = parseInt(location.hash.replace("#", ""), 10);
  if (hashId && Number.isFinite(hashId)) {
   await expandAncestorsOf(hashId);
   state.focused = hashId;
   selectTaxon(hashId, { updateUrl: "replace" });
- } else {
-  // Initial focus: Eukaryota (so the breadcrumb shows "home > Eukaryota"
-  // from the start, not empty).
-  state.focused = euk ? euk.id : null;
  }
+ // Otherwise: no pre-expansion, no initial focus. The tree shows the
+ // 6 root domains collapsed with nothing highlighted; the breadcrumb
+ // is empty. The user picks a starting node by clicking.
 
  render();
 }

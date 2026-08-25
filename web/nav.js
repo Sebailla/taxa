@@ -311,6 +311,14 @@ document.addEventListener("click", (e) => {
   // on Búsquedas (the spec'd default). Switching from freshwater to CoL
   // shouldn't carry over a Búsquedas tab from a freshwater-selected taxon.
   state.activeTab = {};
+  // Clear focus + selection so the new view starts from a blank slate,
+  // not with the previous view's node still highlighted in the breadcrumb
+  // or detail panel. The focused taxon from the previous view may not
+  // even be visible under the new source's filter.
+  state.focused = null;
+  state.selected = null;
+  state.detail = null;
+  state.detailOpen = false;
   document
     .querySelectorAll("#tree-source-toggle [data-tree-source]")
     .forEach((b) => {
