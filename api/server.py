@@ -24,12 +24,13 @@ import os
 import re
 import sqlite3
 import unicodedata
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -47,6 +48,28 @@ WEB_DIR = Path(__file__).parent.parent / "web"
 RESEARCH_DIR = Path(os.getenv("TAXA_RESEARCH_DIR", "./Research")).resolve()
 
 _logger = logging.getLogger(__name__)
+
+
+# --- File-explorer endpoint constants ----------------------------------------
+#
+# PR 1 of the file-explorer change adds two endpoints:
+#   GET /api/taxon/{id}/files         — recursive tree JSON
+#   GET /api/taxon/{id}/files/serve   — streaming file with safety checks
+# These constants are the streaming cap and the extension→content-type table
+# the /serve endpoint consults. See design.md §3 for the contract.
+_STREAM_CAP_BYTES = 100 * 1024 * 1024  # 100 MB
+_CONTENT_TYPE_BY_EXT: dict[str, str] = {
+    "pdf":  "application/pdf",
+    "epub": "application/epub+zip",
+    "html": "text/html",
+    "htm":  "text/html",
+    "md":   "text/markdown",
+    "txt":  "text/plain",
+    "doc":  "application/msword",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xls":  "application/vnd.ms-excel",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
 
 
 def db() -> sqlite3.Connection:
@@ -652,6 +675,84 @@ def _research_path_exists(sanitized: list[str]) -> bool:
     return target.exists() and target.is_dir()
 
 
+def _walk_tree(path: Path, rel: str, depth: int = 0):
+    """Recursively walk `path` for the tree JSON.
+
+    `rel` is `path`'s position relative to the research root (empty
+    string for the root itself). Skips symlinks (the serve endpoint
+    rejects symlink-escapes; surfacing them in the tree would let users
+    click paths the API refuses). Skips dotfiles (`*.DS_Store`,
+    `.gitkeep`, Thumbs.db) — clutter, not user content. Caps recursion
+    at `_MAX_PARENT_DEPTH` so a pathologically deep tree cannot blow
+    the stack. Returns None when the subtree is truncated past the
+    depth cap so callers can omit it.
+
+    Each file child carries `{name, path, type, extension, size, modified}`.
+    Each folder child carries `{name, path, type, children}`. Folders
+    sort before files; both sort case-insensitive by name.
+    """
+    if depth >= _MAX_PARENT_DEPTH:
+        return None
+    entries: list[dict] = []
+    # Sort: folders first, then files; both case-insensitive. Symlinks
+    # sort as their target type via is_dir() (which follows symlinks),
+    # but we skip them in the loop body so the sort order is moot for
+    # them.
+    for entry in sorted(
+        path.iterdir(),
+        key=lambda e: (0 if e.is_dir() else 1, e.name.lower()),
+    ):
+        if entry.name.startswith("."):
+            continue
+        if entry.is_symlink():
+            continue
+        child_rel = entry.name if not rel else f"{rel}/{entry.name}"
+        if entry.is_dir():
+            subtree = _walk_tree(entry, child_rel, depth + 1)
+            if subtree is not None:
+                entries.append({
+                    "name": entry.name,
+                    "path": child_rel,
+                    "type": "folder",
+                    "children": subtree["children"],
+                })
+        elif entry.is_file():
+            st = entry.stat()
+            entries.append({
+                "name": entry.name,
+                "path": child_rel,
+                "type": "file",
+                "extension": entry.suffix.lower().lstrip("."),
+                "size": st.st_size,
+                "modified": datetime.fromtimestamp(
+                    st.st_mtime
+                ).isoformat(timespec="seconds"),
+            })
+    return {"name": path.name, "path": rel, "type": "folder", "children": entries}
+
+
+def _safe_resolve(root: Path, rel: str) -> Path:
+    """Resolve a relative path inside `root` and assert it stays inside.
+
+    Rejects `..` traversal, absolute paths (the leading slash overrides
+    the relative join in `Path.__truediv__`), and symlink escapes
+    (`Path.resolve()` follows symlinks, then `is_relative_to` checks
+    the resolved target against the root). Raises HTTPException(400)
+    with the spec's exact detail message on any escape; returns the
+    resolved candidate on success.
+    """
+    candidate = (root / rel).resolve()
+    try:
+        is_inside = candidate.is_relative_to(root)
+    except AttributeError:  # pragma: no cover (project runs Python 3.14+)
+        is_inside = (
+        str(candidate).startswith(str(root) + "/") or candidate == root
+        )
+    if not is_inside:
+        raise HTTPException(400, "Path escapes research root")
+    return candidate
+
+
 @app.get("/api/taxon/{taxon_id}/materialize-preview")
 def materialize_research_folder_preview(taxon_id: int):
     """Preview the path that POST /materialize WOULD create, without side effects.
@@ -1015,6 +1116,137 @@ def search(
         # Apply limit AFTER tier concatenation — a tier-1 hit at position 25
         # must still appear.
         return combined[:limit]
+
+
+# ---------------------------------------------------------------------------
+# File-explorer endpoints (PR 1)
+#
+# GET /api/taxon/{taxon_id}/files         — recursive tree JSON
+# GET /api/taxon/{taxon_id}/files/serve   — streaming file with safety
+#
+# Both endpoints reuse _build_segments() + _sanitize_segment() so the
+# on-disk layout is identical to what POST /materialize produces. No new
+# on-disk convention, no path duplication. The frontend (PR 2) mounts the
+# Browser tab and renders the tree + viewer against these endpoints.
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/taxon/{taxon_id}/files")
+def list_files(taxon_id: int):
+    """Recursive tree JSON for the taxon's research folder.
+
+    Returns 200 with `exists: true` + the full tree when the folder
+    exists on disk. Returns 200 with `exists: false` + `root: null`
+    when the taxon exists but the folder is not materialized yet —
+    the frontend renders the empty-state message from this state
+    (distinct from the 404 'taxon not found' path). Returns 404 only
+    when the taxon itself is missing from the DB.
+    """
+    with db() as conn:
+        row = conn.execute(
+            "SELECT scientific_name FROM taxon WHERE id = ?",
+            (taxon_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"taxon {taxon_id} not found",
+            )
+        sci_name = row["scientific_name"]
+        sanitized = _build_segments(conn, taxon_id)  # mirrors 404 contract
+    target = RESEARCH_DIR.joinpath(*sanitized)
+    rel_target = "/".join(sanitized)
+    abs_target = str(target.resolve())
+    if not target.is_dir():
+        # Taxon is real but the research folder hasn't been materialized
+        # yet — empty-state in the frontend, NOT a 404.
+        return {
+            "exists": False,
+            "taxon_id": taxon_id,
+            "taxon_name": sci_name,
+            "taxon_path": rel_target,
+            "filesystem_path": abs_target,
+            "subpath": None,
+            "root": None,
+        }
+    root_node = _walk_tree(target, "", depth=0)
+    return {
+        "exists": True,
+        "taxon_id": taxon_id,
+        "taxon_name": sci_name,
+        "taxon_path": rel_target,
+        "filesystem_path": abs_target,
+        "subpath": None,
+        "root": root_node,
+    }
+
+
+@app.get("/api/taxon/{taxon_id}/files/serve")
+def serve_file(
+    taxon_id: int,
+    path: str = Query(min_length=1, max_length=4096),
+):
+    """Stream a single file from the taxon's research folder.
+
+    Safety layers, in order:
+      1. `path` is constrained to 1..4096 chars (Query validation) so
+         accidental empty paths return 422 and very-long paths can't
+         reach the filesystem call.
+      2. `_safe_resolve()` rejects `..` traversal, absolute paths, and
+         symlink escapes — Path.resolve() normalizes all three, then
+         the strict is_relative_to() check catches them. Returns 400
+         with `detail: "Path escapes research root"`.
+      3. The research folder itself must exist on disk — if it hasn't
+         been materialized yet, returns 404 with `detail: "Research
+         folder not materialized"` (distinct from 'File not found' so
+         the frontend can render the empty-state vs the placeholder).
+      4. The candidate must be a regular file (`is_file()`) — folders,
+         devices, and broken symlinks return 404 with
+         `detail: "File not found"`.
+      5. Files larger than `_STREAM_CAP_BYTES` (100 MB) return 413 with
+         a detail naming the cap and the actual size. Enforced BEFORE
+         the file is opened — `stat().st_size` is the only read.
+
+    Response:
+      - Body: file bytes, streamed (FileResponse uses chunked transfer).
+      - Content-Type matched by extension via `_CONTENT_TYPE_BY_EXT`
+        (10 supported formats) or `application/octet-stream` fallback.
+      - Content-Disposition: inline; filename="<basename>" so embedded
+        viewers (<iframe>, <embed>) consume the response without
+        triggering a download dialog.
+    """
+    with db() as conn:
+        sanitized = _build_segments(conn, taxon_id)  # 404 on unknown
+    root = RESEARCH_DIR.joinpath(*sanitized).resolve()
+    if not root.is_dir():
+        raise HTTPException(
+            status_code=404,
+            detail="Research folder not materialized",
+        )
+    candidate = _safe_resolve(root, path)
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    size = candidate.stat().st_size
+    if size > _STREAM_CAP_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"File exceeds streaming cap ({_STREAM_CAP_BYTES} bytes), "
+                f"actual {size} bytes"
+            ),
+        )
+    ext = candidate.suffix.lower().lstrip(".")
+    content_type = _CONTENT_TYPE_BY_EXT.get(ext, "application/octet-stream")
+    # Starlette 0.41 builds Content-Disposition from `filename` +
+    # `content_disposition_type`. Setting the type to "inline" makes
+    # <iframe>/<embed> viewers consume the response without a download
+    # dialog. The emitted header is `inline; filename="<basename>"`.
+    return FileResponse(
+        path=str(candidate),
+        media_type=content_type,
+        filename=candidate.name,
+        content_disposition_type="inline",
+    )
 
 
 # Mount the web/ directory for static assets (app.js, etc.).
