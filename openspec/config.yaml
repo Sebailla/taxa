@@ -1,0 +1,50 @@
+project: taxa
+description: Local Catalogue of Life + WoRMS marine overlay powering a research web
+
+# Strict TDD: test-first for every implementation task. Sub-agents MUST
+# write failing tests before writing implementation code, then iterate
+# RED → GREEN → TRIANGULATE → REFACTOR.
+strict_tdd: true
+
+# Testing capabilities. Sub-agents use these to pick the right tool
+# for verification at each phase. Verified against the live `.venv`
+# on 2026-08-24.
+testing:
+  runner: pytest
+  primary_command: .venv/bin/python3 -m pytest tests/ etl/tests/ -v
+  fast_command: .venv/bin/python3 -m pytest tests/ etl/tests/ -q
+  smoke_command: .venv/bin/python3 -m pytest etl/tests/ tests/ -x --tb=short -q
+  fixtures:
+    - tests/conftest.py # in-memory SQLite bootstrapping
+    - etl/tests/conftest.py # bootstrapped_db + write_csv fixtures
+  backend_smoke:
+    - make smoke # hits live API on http://127.0.0.1:8765
+  coverage:
+    available: false # not configured; out of scope for this change
+  layers:
+    - api endpoints: tests/test_api_*.py (FastAPI TestClient)
+    - etl loaders: etl/tests/test_load_*.py
+    - migrations: etl/tests/test_migrations.py
+  current_baseline: 63 passed, 8 skipped (no frontend tests yet)
+
+# Linter / type checker / formatter
+lint:
+  python: ruff # not yet installed; pi-lens autofix handles most style
+  types: pyright # pyrightconfig.json exists
+  fmt: black # not yet installed
+  js: node --check (ES modules, no build)
+
+# Conventions enforced by the orchestrator
+conventions:
+  commits: conventional
+  forbid_ai_attribution: true # no "Co-Authored-By: ..."
+  branch_regex: "^(feat|fix|chore|docs|style|refactor|perf|test|build|ci|revert)/[a-z0-9._-]+$"
+  pr_body_language: es # Spanish (matches repo convention since PR #21)
+
+# Delivery
+delivery:
+  strategy: ask-on-risk
+  chain_strategy: unset # set when sdd-tasks triggers auto-chain or chained split
+
+# Active change under preparation
+active_change: file-explorer
