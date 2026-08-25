@@ -5,10 +5,10 @@
 // when the user leaves the Browser tab.
 //
 // Public API:
-//   mount(host, rootTaxonId) — mount the explorer into `host`.
-//     rootTaxonId=null renders the placeholder (no API calls).
-//     rootTaxonId=<number> fires GET /api/taxon/{id}/files and paints
-//     the recursive tree.
+//   mount(host, rootTaxonId) — mount the explorer into `host`. The
+//     `rootTaxonId` is kept around for state.explorer / context, but
+//     the Browser tab itself always fetches the global Research tree
+//     via GET /api/files — it does NOT depend on the selected taxon.
 //   clear() — drop listeners + abort in-flight fetches, reset the right
 //     viewer to a fresh empty placeholder. Called by nav.js when the
 //     user switches to Classification / Settings.
@@ -32,10 +32,13 @@ let _currentRootTaxonId = null;
 // inside the research root; the serve endpoint takes it as a `path`
 // query param. URL-encode the relative path so paths with spaces or
 // unicode (taxon names can include accents) round-trip cleanly.
-function serveUrl(rootTaxonId, relativePath) {
-  return `${API}/api/taxon/${rootTaxonId}/files/serve?path=${encodeURIComponent(
-    relativePath,
-  )}`;
+//
+// The Browser tab always shows the global Research directory
+// (see GET /api/files below), so the URL is anchored at
+// /api/files/serve — the per-taxon endpoint stays in the API for
+// callers that still need a taxon's materialised subtree.
+function serveUrl(relativePath) {
+  return `${API}/api/files/serve?path=${encodeURIComponent(relativePath)}`;
 }
 
 // ---- Main entry points ----------------------------------------------
@@ -44,21 +47,18 @@ export async function mount(host, rootTaxonId) {
   _currentHost = host;
   _currentRootTaxonId = rootTaxonId;
 
-  // Placeholder when no taxon is selected — no API call, no listeners.
-  if (rootTaxonId === null || rootTaxonId === undefined) {
-    state.explorer.rootTaxonId = null;
-    state.explorer.tree = null;
-    state.explorer.openFilePath = null;
-    state.explorer.openFileFormat = null;
-    state.explorer.viewerTab = "Raw";
-    host.replaceChildren(
-      renderPlaceholder("Select a taxon to browse its files."),
-    );
-    return;
-  }
-
-  state.explorer.rootTaxonId = rootTaxonId;
+  // The Browser tab is rooted at the global Research directory and
+  // does NOT depend on the selected taxon — the user can browse every
+  // folder under Research regardless of where they are in the
+  // taxonomic tree. `rootTaxonId` is kept on state.explorer for
+  // future "highlight this taxon's folder" affordances, but the tree
+  // itself is always fetched from /api/files below. Loading skeletons
+  // are shown up-front so the UI never blocks on the fetch.
+  state.explorer.rootTaxonId = rootTaxonId ?? null;
   state.explorer.tree = null;
+  state.explorer.openFilePath = null;
+  state.explorer.openFileFormat = null;
+  state.explorer.viewerTab = "Raw";
 
   host.replaceChildren(
     el(
@@ -74,7 +74,7 @@ export async function mount(host, rootTaxonId) {
   _abortController = new AbortController();
 
   try {
-    const tree = await fetch(`${API}/api/taxon/${rootTaxonId}/files`, {
+    const tree = await fetch(`${API}/api/files`, {
       signal: _abortController.signal,
     });
     if (!tree.ok) {
@@ -83,7 +83,7 @@ export async function mount(host, rootTaxonId) {
     const data = await tree.json();
     if (_currentRootTaxonId !== rootTaxonId) return; // user navigated
     state.explorer.tree = data;
-    rerender(rootTaxonId);
+    rerender();
   } catch (e) {
     if (e.name === "AbortError") return;
     console.error("file_explorer mount failed", e);
@@ -109,7 +109,7 @@ export function clear() {
 
 // ---- Re-render helpers ----------------------------------------------
 
-function rerender(rootTaxonId) {
+function rerender() {
   if (!_currentHost) return;
   const data = state.explorer.tree;
   if (!data) {
@@ -120,20 +120,20 @@ function rerender(rootTaxonId) {
   }
 
   const treePane = data.exists
-    ? renderTreePane(data.root, rootTaxonId)
-    : renderTreePaneEmpty(rootTaxonId);
-  const viewerPane = renderViewerPane(rootTaxonId);
+    ? renderTreePane(data.root)
+    : renderTreePaneEmpty();
+  const viewerPane = renderViewerPane();
 
   _currentHost.replaceChildren(
     el("div", { class: "fex-shell" }, treePane, viewerPane),
   );
 }
 
-function renderTreePaneEmpty(rootTaxonId) {
+function renderTreePaneEmpty() {
   return el(
     "div",
     { class: "fex-tree-pane" },
-    renderTreeHeader(rootTaxonId),
+    renderTreeHeader(),
     el(
       "div",
       { class: "fex-empty-state" },
@@ -141,7 +141,7 @@ function renderTreePaneEmpty(rootTaxonId) {
       el(
         "p",
         null,
-        "No files yet — materialize this taxon to create its folder.",
+        "No research folders yet — materialize a taxon to populate the tree.",
       ),
     ),
   );
@@ -183,30 +183,32 @@ function renderViewerPaneSkeleton() {
 
 // ---- Tree pane ------------------------------------------------------
 
-function renderTreePane(rootNode, rootTaxonId) {
+function renderTreePane(rootNode) {
   const tree = el(
     "div",
     { class: "fex-tree-pane" },
-    renderTreeHeader(rootTaxonId),
-    renderNodeRow(rootNode, 0, rootTaxonId),
+    renderTreeHeader(),
+    renderNodeRow(rootNode, 0),
   );
   return tree;
 }
 
-function renderTreeHeader(rootTaxonId) {
-  const data = state.explorer.tree;
-  const taxonName = data?.taxon_name || `Taxon ${rootTaxonId}`;
+function renderTreeHeader() {
+  // The Browser tab is now rooted at RESEARCH_DIR regardless of the
+  // selected taxon, so the header shows the directory itself instead
+  // of a taxon name. The reload button keeps the same icon + tooltip
+  // shape the rest of the toolbar uses.
   return el(
     "div",
     { class: "fex-tree-header" },
-    el("h2", null, "Explorer"),
+    el("h2", null, "Research"),
     el(
       "button",
       {
         type: "button",
         class: "fex-snippet-btn",
-        title: `Reload ${taxonName}`,
-        "aria-label": `Reload file tree for ${taxonName}`,
+        title: "Reload research tree",
+        "aria-label": "Reload research tree",
       },
       el("span", { class: "material-symbols-outlined text-[16px]" }, "refresh"),
     ),
@@ -217,15 +219,15 @@ function renderTreeHeader(rootTaxonId) {
 // children container; files use a description icon + the basename.
 // Selection lives in DOM (data-file-path / data-folder-path) so single-
 // click highlighting is a classList toggle, not a re-render.
-function renderNodeRow(node, depth, rootTaxonId) {
+function renderNodeRow(node, depth) {
   if (!node) return document.createDocumentFragment();
   if (node.type === "folder") {
-    return renderFolderRow(node, depth, rootTaxonId);
+    return renderFolderRow(node, depth);
   }
-  return renderFileRow(node, depth, rootTaxonId);
+  return renderFileRow(node, depth);
 }
 
-function renderFolderRow(node, depth, rootTaxonId) {
+function renderFolderRow(node, depth) {
   const childrenContainer = el("div", {
     class: "fex-children",
     "data-folder-children-of": node.path || "",
@@ -235,7 +237,7 @@ function renderFolderRow(node, depth, rootTaxonId) {
   // The user can collapse a folder by single-clicking it (which also
   // selects it via the .selected class).
   for (const child of node.children || []) {
-    childrenContainer.append(renderNodeRow(child, depth + 1, rootTaxonId));
+    childrenContainer.append(renderNodeRow(child, depth + 1));
   }
   const row = el(
     "div",
@@ -279,7 +281,7 @@ function renderFolderRow(node, depth, rootTaxonId) {
   return wrap;
 }
 
-function renderFileRow(node, depth, rootTaxonId) {
+function renderFileRow(node, depth) {
   const row = el(
     "div",
     {
@@ -304,7 +306,7 @@ function renderFileRow(node, depth, rootTaxonId) {
     selectFile(node);
   });
   row.addEventListener("dblclick", () => {
-    openFile(node, rootTaxonId);
+    openFile(node);
   });
   return row;
 }
@@ -368,14 +370,14 @@ function selectFile(node) {
 // state.explorer.openFilePath + openFileFormat, then calls the matching
 // file_viewer.js renderer. The right viewer is rebuilt with a fresh
 // snippet frame + meta strip around the rendered content.
-async function openFile(node, rootTaxonId) {
+async function openFile(node) {
   state.explorer.openFilePath = node.path;
   state.explorer.openFileFormat = node.extension;
   if (!_currentHost) return;
   const viewerPane = _currentHost.querySelector(".fex-viewer-pane");
   if (!viewerPane) return;
   const file = {
-    url: serveUrl(rootTaxonId, node.path),
+    url: serveUrl(node.path),
     name: node.name,
     extension: node.extension,
     size: node.size,
@@ -528,11 +530,11 @@ function updateMetaStrip(strip, { name, extension, size }) {
 
 // ---- Viewer pane (no file opened yet) -------------------------------
 
-function renderViewerPane(rootTaxonId) {
+function renderViewerPane() {
   const data = state.explorer.tree;
   if (!data.exists) {
     return renderViewerEmptyState(
-      "No files yet — materialize this taxon to create its folder.",
+      "No research folders yet — materialize a taxon to populate the tree.",
     );
   }
   if (state.explorer.openFilePath && state.explorer.openFileFormat) {
@@ -541,7 +543,7 @@ function renderViewerPane(rootTaxonId) {
     const node = findNode(data.root, state.explorer.openFilePath);
     if (node) {
       // Defer to the next tick so the host is in the DOM.
-      setTimeout(() => openFile(node, rootTaxonId), 0);
+      setTimeout(() => openFile(node), 0);
       return el("div", { class: "fex-viewer-pane" });
     }
   }

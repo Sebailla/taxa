@@ -1252,6 +1252,85 @@ def serve_file(
     )
 
 
+# ---------------------------------------------------------------------------
+# Global file-explorer endpoints
+#
+# GET /api/files         — recursive tree JSON for the WHOLE research root
+# GET /api/files/serve   — streaming file with the same safety checks as
+#                           /api/taxon/{id}/files/serve, but anchored at
+#                           RESEARCH_DIR instead of a taxon's folder.
+#
+# These let the Browser tab show the entire Research directory regardless
+# of which taxon is selected. The taxon-scoped endpoints above stay in
+# place for callers (tests, future per-taxon features) that still want
+# a taxon's materialised subtree.
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/files")
+def list_research_root():
+    """Recursive tree JSON for the entire Research directory.
+
+    Returns 200 with `exists: true` + the full tree when RESEARCH_DIR is
+    a directory on disk. Returns 200 with `exists: false` when it is
+    missing or not a directory — the frontend renders the empty-state
+    from this state. Same node shape as the taxon-scoped endpoint
+    (folder → {name, path, type, children}; file → {name, path, type,
+    extension, size, modified}), so the Browser tab renders both
+    responses with the same `_walk_tree` consumer.
+    """
+    if not RESEARCH_DIR.is_dir():
+        return {
+"exists": False,
+"filesystem_path": str(RESEARCH_DIR),
+"root": None,
+        }
+    root_node = _walk_tree(RESEARCH_DIR, "", depth=0)
+    return {
+        "exists": True,
+        "filesystem_path": str(RESEARCH_DIR.resolve()),
+        "root": root_node,
+    }
+
+
+@app.get("/api/files/serve")
+def serve_research_file(path: str = Query(min_length=1, max_length=4096)):
+    """Stream a single file from RESEARCH_DIR.
+
+    Mirrors the safety contract of /api/taxon/{taxon_id}/files/serve —
+    `..` / absolute / symlink-escape paths return 400, oversized files
+    return 413, missing files return 404, otherwise the file bytes are
+    streamed inline with the matching Content-Type. The research root
+    must exist as a directory; missing root returns 404.
+    """
+    if not RESEARCH_DIR.is_dir():
+        raise HTTPException(
+status_code=404,
+detail="Research root not found",
+        )
+    root = RESEARCH_DIR.resolve()
+    candidate = _safe_resolve(root, path)
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    size = candidate.stat().st_size
+    if size > _STREAM_CAP_BYTES:
+        raise HTTPException(
+status_code=413,
+detail=(
+f"File exceeds streaming cap ({_STREAM_CAP_BYTES} bytes), "
+f"actual {size} bytes"
+),
+        )
+    ext = candidate.suffix.lower().lstrip(".")
+    content_type = _CONTENT_TYPE_BY_EXT.get(ext, "application/octet-stream")
+    return FileResponse(
+        path=str(candidate),
+        media_type=content_type,
+        filename=candidate.name,
+        content_disposition_type="inline",
+    )
+
+
 # Mount the web/ directory for static assets (app.js, etc.).
 # This is intentionally at the END of the file so /api/* routes take
 # precedence over static file serving.
