@@ -9,11 +9,12 @@
 // selectTaxon inside its el() event handlers (never at module-init).
 // ES module live bindings handle both cycles correctly.
 
-import { state } from "./state.js";
+import { state, initialExplorerShape } from "./state.js";
 import { loadChildren, loadTaxon } from "./api.js";
 import { loadDetail } from "./detail.js";
 import { renderTree } from "./tree.js";
 import { closeSearch } from "./search.js";
+import { el } from "./dom.js";
 
 // ------------------------------------------------------------------
 // Actions
@@ -128,6 +129,123 @@ function renderCollapseAllButton() {
   btn.disabled = !hasExpansion;
   btn.classList.toggle("opacity-40", !hasExpansion);
   btn.classList.toggle("cursor-not-allowed", !hasExpansion);
+}
+
+// ------------------------------------------------------------------
+// Header navigation tabs (Browser / Classification / Settings)
+// ------------------------------------------------------------------
+// The header carries three nav links (Browser / Classification / Settings),
+// each stamped with `data-path="<tab>"`. Clicking Browser mounts the file
+// explorer (if a taxon is selected) or the placeholder (if state.selected
+// is null). Clicking Classification or Settings clears the explorer and
+// restores the classification view. The Explorer module is imported lazily
+// inside the function body so nav.js can boot before file_explorer.js is
+// resolved — and so the same nav.js stays usable even if the explorer
+// fails to load (the classification path is untouched).
+
+// Highlight a single header tab (Browser / Classification / Settings) by
+// toggling the same primary-color + bold treatment the index.html ships
+// with. Shared by mountFileExplorer / clearFileExplorer so the active
+// styling stays consistent.
+function setActiveHeaderTab(activePath) {
+  document.querySelectorAll("[data-path]").forEach((a) => {
+    const isActive = a.dataset.path === activePath;
+    a.classList.toggle("text-primary", isActive);
+    a.classList.toggle("font-bold", isActive);
+    a.classList.toggle("text-on-surface-variant", !isActive);
+    a.classList.toggle("font-medium", !isActive);
+    a.setAttribute("aria-current", isActive ? "page" : "false");
+  });
+}
+
+// Build the empty classification-view shell inside <main>'s flex column.
+// Two children — the sticky breadcrumb host and the inner column hosting
+// the detail panel + tree view. Static markup, no user-controlled data,
+// so el() from dom.js (which already powers every other renderer) is
+// the safe choice and avoids the innerHTML XSS lint rule.
+function buildClassificationShell() {
+  const breadcrumbHost = el("div", {
+    id: "breadcrumb-host",
+    class:
+      "sticky top-0 z-40 w-full px-margin-page py-6 border-b border-outline-variant/20 bg-surface/95 backdrop-blur-md",
+  });
+  const breadcrumbInner = el(
+    "div",
+    { class: "flex items-center justify-between gap-gutter" },
+    el("nav", {
+      id: "breadcrumb",
+      class:
+        "flex items-center gap-2 text-body-sm font-body-sm text-on-surface-variant min-w-0 overflow-x-auto",
+    }),
+    el(
+      "button",
+      {
+        id: "collapse-all",
+        type: "button",
+        class:
+          "shrink-0 flex items-center gap-1 text-body-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent",
+        title: "Collapse all expanded nodes",
+      },
+      el("span", { class: "material-symbols-outlined text-[18px]" }, "unfold_less"),
+      el("span", null, "Collapse all"),
+    ),
+  );
+  breadcrumbHost.appendChild(breadcrumbInner);
+  const detailPanel = el("div", {
+    id: "detail-panel",
+    class: "hidden mb-6",
+  });
+  const treeView = el("div", {
+    id: "tree-view",
+    class: "flex flex-col gap-1 w-full relative",
+  });
+  const inner = el(
+    "div",
+    { class: "flex flex-col w-full max-w-5xl mx-auto py-8 px-row-padding-x lg:px-0" },
+    detailPanel,
+    treeView,
+  );
+  return el("div", { class: "flex flex-col w-full text-on-surface" }, breadcrumbHost, inner);
+}
+
+// Mount the file explorer into <main>. Idempotent: if the explorer is
+// already mounted for the same taxon, the call is a no-op (no re-fetch).
+// Pass rootTaxonId=null to render the placeholder ("Select a taxon to
+// browse its files.") instead of the explorer's tree+viewer shell.
+async function mountFileExplorer(rootTaxonId) {
+  setActiveHeaderTab("browser");
+  const main = document.querySelector("main > div");
+  if (!main) return;
+  // Lazy import — keeps the top-level cycle simple (file_explorer.js
+  // also imports render() from app.js; mirroring the same lazy pattern
+  // nav.js uses for dom.js avoids module-init ordering bugs).
+  const fileExplorer = await import("./file_explorer.js");
+  await fileExplorer.mount(main, rootTaxonId);
+}
+
+// Drop the explorer state and listeners. Called when the user leaves the
+// Browser tab (Classification or Settings) so any in-flight fetches are
+// aborted and the right viewer is reset to a fresh empty placeholder.
+// The classification view is re-rendered via the normal render() pipeline.
+async function clearFileExplorer() {
+  // Drop the explorer module's listeners + in-flight fetches first so no
+  // stale render fires after we reset state.explorer.
+  try {
+    const fileExplorer = await import("./file_explorer.js");
+    fileExplorer.clear();
+  } catch (e) {
+    console.error("file_explorer.clear() failed", e);
+  }
+  // Reset state.explorer to its initial shape via the exported helper so
+  // nav.js doesn't have to duplicate the literal from state.js.
+  Object.assign(state.explorer, initialExplorerShape());
+  setActiveHeaderTab("classification");
+  // Restore the classification-view shell so render() can re-populate it.
+  const main = document.querySelector("main > div");
+  if (main) {
+    main.replaceChildren(buildClassificationShell());
+  }
+  render();
 }
 
 // ------------------------------------------------------------------
@@ -277,9 +395,31 @@ document.addEventListener("click", async (e) => {
     e.preventDefault();
     state.focused = null;
     selectTaxon(null);
-  } else if (action === "close-detail") {
-    closeDetail();
-  }
+} else if (action === "close-detail") {
+        closeDetail();
+      } else if (action === "nav-tab") {
+        // Header navigation (Browser / Classification / Settings). The
+        // data-path attribute on each link carries the tab key.
+        //   - "browser" → mount the explorer (placeholder when no taxon
+        //     is selected; otherwise fetch + render the tree).
+        //   - "classification" / "settings" → clear the explorer (drops
+        //     listeners + aborts in-flight fetches) and restore the
+        //     classification view via the normal render() pipeline.
+        const tab = e.target.closest("[data-action=nav-tab]").dataset.path;
+        if (tab === "browser") {
+          const id = state.selected;
+          if (id != null) {
+            mountFileExplorer(id);
+          } else {
+            // No taxon selected → mount the placeholder only (no API call).
+            mountFileExplorer(null);
+          }
+        } else {
+          // Classification / Settings: drop the explorer if it was mounted.
+          clearFileExplorer();
+        }
+        e.preventDefault();
+      }
 });
 
 // Collapse-all button
@@ -340,6 +480,8 @@ export {
   collapseAll,
   expandAncestorsOf,
   renderCollapseAllButton,
+  mountFileExplorer,
+  clearFileExplorer,
 };
 
 // `render()` is imported via a circular reference from app.js. It's only
