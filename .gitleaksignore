@@ -1,0 +1,17 @@
+# .gitleaksignore — patterns to exclude from secret scanning.
+#
+# These files are either gitignored, downloaded data, or false-positive
+# triggers from the Catalogue of Life (CoL) raw reference dumps (academic
+# references, DOIs, and Wikipedia URLs that happen to look like keys).
+#
+# .mcp.json — local MCP config containing the Stitch MCP API key (user's
+# own Google Cloud API key for the Stitch MCP server). Already gitignored
+# and never committed; the key is the user's, not something to rotate.
+#
+# data/raw/coldp/extracted/* — downloaded CoL reference data (academic
+# references, DOIs, Wikipedia URLs with query params, random IDs). The
+# strings gitleaks flags are legitimate taxonomic reference text, not
+# credentials.
+
+.mcp.json
+data/raw/coldp/extracted/

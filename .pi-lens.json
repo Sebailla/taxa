@@ -1,0 +1,6 @@
+{
+  "_comment": "Project-level pi-lens config. Global-only settings (e.g. opengrep.enabled) must be set in ~/.pi-lens/config.json, NOT here. The 'gitleaks' key was previously here but is NOT a valid pi-lens setting — gitleaks is controlled via its own .gitleaksignore / .gitleaks.toml files in the project root, or via the gitleaks binary directly.",
+  "rules": {
+    "comment": "Pi-lens project rules. These are project-scoped settings that supplement (not replace) the global config."
+  }
+}
