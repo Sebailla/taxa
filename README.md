@@ -51,6 +51,14 @@ make api
 # → http://127.0.0.1:8765
 ```
 
+`make api` auto-runs `make css` once on first boot (builds the
+Tailwind CSS bundle into `web/dist/tailwind.css`). For frontend
+iteration, run the Tailwind CLI watcher directly:
+
+```bash
+npm run watch:css   # rebuild web/dist/tailwind.css on save
+```
+
 ## Frontend
 
 Open `http://127.0.0.1:8765/` after `make api`. Single-page app:
