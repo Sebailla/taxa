@@ -126,7 +126,7 @@ $(WORMS_ZIP):
 	@mkdir -p $(WORMS_DIR)
 	@if [ ! -f $(WORMS_TSV) ]; then echo "Downloading WoRMS ColDP (26 MB compressed)..."; curl -sSL -o $(WORMS_ZIP) "$(WORMS_URL)"; unzip -o -q $(WORMS_ZIP) -d $(WORMS_DIR); else echo "WoRMS ColDP already extracted at $(WORMS_DIR)"; fi
 
-api:
+api: css
 	.venv/bin/python3 -m uvicorn api.server:app --host 127.0.0.1 --port 8765
 
 test:
