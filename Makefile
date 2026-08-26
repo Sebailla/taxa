@@ -87,27 +87,6 @@ FRESHWATER_CSV := data/raw/freshwater.csv
 freshwater:
 	@if [ ! -f $(FRESHWATER_CSV) ]; then echo "Missing $(FRESHWATER_CSV). Export your Freshwater Fishes Google Sheet to CSV and place it at this path."; exit 1; fi
 	.venv/bin/python3 scripts/transform_freshwater.py $(FRESHWATER_CSV)
-	.venv/bin/python3 -m etl.load_freshwater /tmp/freshwater.flat.csv
-
-# Freshwater fish (cladification from the user's Google Sheet) — ISOLATED tree
-# with its own synthetic root, separate from CoL and WoRMS. Manual workflow:
-# the user exports the Sheet to CSV and drops it at data/raw/freshwater.csv.
-#
-# The spreadsheet has no explicit parent IDs nor a rank column — rank is
-# inferred from which taxonomic columns are populated and the parent chain
-# is reconstructed by scripts/transform_freshwater.py. The loader reads the
-# flat (freshwater_id, freshwater_parent_id, rank, name, authorship) format
-# produced by that step.
-#
-# Usage:
-#   make freshwater                       # load the CSV into taxa.db
-#   make load-all                         # col + worms + freshwater
-#
-# Each is idempotent. Re-running freshwater clears freshwater_id and re-loads.
-FRESHWATER_CSV := data/raw/freshwater.csv
-freshwater:
-	@if [ ! -f $(FRESHWATER_CSV) ]; then echo "Missing $(FRESHWATER_CSV). Export your Freshwater Fishes Google Sheet to CSV and place it at this path."; exit 1; fi
-	.venv/bin/python3 scripts/transform_freshwater.py $(FRESHWATER_CSV)
 	.venv/bin/python3 etl/load_freshwater.py /tmp/freshwater.flat.csv
 
 col: etl coldp
