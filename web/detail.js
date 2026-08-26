@@ -76,45 +76,101 @@ function buildDetailSection(icon, title, count, items) {
   );
 }
 
-// Render the Búsquedas tab: a grid of 14 search-engine buttons, each
-// opening in a new tab. The URLs come pre-composed from the server
-// (urllib.parse.quote_plus); the icon glyph + label come from the local
-// SEARCH_ENGINES table as a fallback (offline / 5xx case). The server
-// response is the source of truth for the URL itself.
-//
-// Layout: 14 button-like cards in a CSS grid (auto-fill, 120px min).
-// Each card has the engine icon on top and the label underneath so the
-// user can scan all 14 at a glance. No arrow suffix — the icon
-// communicates "open in new tab" via the standard browser link
-// behaviour (target="_blank" on the <a>).
-function renderSearchesTab(searches) {
-  if (!searches || searches.length === 0) {
-    return el(
-      "div",
-      {
-        class: "text-body-sm text-on-surface-variant px-2 py-4 text-center",
-      },
-      "No search links available for this taxon.",
-    );
-  }
-  const items = searches.map((s) => {
-    const engine = SEARCH_ENGINES.find((e) => e.key === s.engine);
-    const icon = engine ? engine.icon : "search";
-    return el(
-      "a",
-      {
-        href: s.url,
-        target: "_blank",
-        rel: "noopener",
-        class: "search-engine-btn",
-        title: `Open ${s.label} search for this taxon in a new tab`,
-      },
-      el("span", { class: "material-symbols-outlined" }, icon),
-      el("span", null, s.label),
-    );
-  });
-  return el("div", { class: "search-engines-grid" }, ...items);
-}
+    // Render the Búsquedas tab: a single horizontal strip of 14 search-engine
+    // buttons plus an inline iframe viewer below that loads the selected
+    // engine's results in place — no new tab. The strip stays in one row
+    // (overflow-x: auto on narrow viewports) and the iframe below is the
+    // single source of truth for the current results.
+    //
+    // Many search engines set X-Frame-Options / CSP frame-ancestors and
+    // refuse to render inside an iframe (Google, Scholar, Bing, etc.). The
+    // viewer header always exposes an "Abrir en nueva pestaña ↗" link so
+    // the user has a working escape hatch when the iframe is blank; we
+    // intentionally do NOT try to detect the block — it's silently
+    // enforced by the browser and not worth the complexity.
+    //
+    // URLs come pre-composed from the server (urllib.parse.quote_plus);
+    // the icon glyph + label come from the local SEARCH_ENGINES table as
+    // a fallback (offline / 5xx case). The server response is the source
+    // of truth for the URL itself.
+    function renderSearchesTab(searches) {
+      if (!searches || searches.length === 0) {
+        return el(
+          "div",
+          {
+            class: "text-body-sm text-on-surface-variant px-2 py-4 text-center",
+          },
+          "No search links available for this taxon.",
+        );
+      }
+
+      const strip = el("div", { class: "search-engines-strip" });
+      const header = el("div", {
+        class: "search-engine-viewer-header",
+      });
+      const iframe = el("iframe", {
+        class: "search-engine-viewer-frame",
+        // sandbox strips top-level navigation + popups; the engine still
+        // runs scripts and forms inside the frame, just can't escape.
+        sandbox: "allow-scripts allow-forms allow-popups allow-same-origin",
+        referrerpolicy: "no-referrer",
+        title: "Search engine results",
+      });
+      const viewer = el("div", { class: "search-engine-viewer" }, header, iframe);
+
+      const buttons = searches.map((s, i) => {
+        const engine = SEARCH_ENGINES.find((e) => e.key === s.engine);
+        const icon = engine ? engine.icon : "search";
+        const btn = el(
+          "button",
+          {
+            type: "button",
+            class: "search-engine-btn",
+            "data-engine": s.engine,
+            title: `${s.label} — abrir dentro del panel`,
+          },
+          el("span", { class: "material-symbols-outlined" }, icon),
+          el("span", { class: "search-engine-btn-label" }, s.label),
+        );
+        btn.addEventListener("click", () => activate(s, btn));
+        strip.append(btn);
+        return btn;
+      });
+
+      function activate(s, btn) {
+        for (const b of buttons) {
+          b.classList.toggle("active", b === btn);
+          b.setAttribute("aria-pressed", b === btn ? "true" : "false");
+        }
+        header.replaceChildren(
+          el("span", { class: "search-engine-viewer-title" }, s.label),
+          el(
+            "a",
+            {
+              href: s.url,
+              target: "_blank",
+              rel: "noopener noreferrer",
+              class: "search-engine-viewer-extlink",
+              title: `Abrir ${s.label} en una pestaña nueva`,
+            },
+            el(
+              "span",
+              { class: "material-symbols-outlined text-[16px]" },
+              "open_in_new",
+            ),
+            el("span", null, "Abrir en nueva pestaña"),
+          ),
+        );
+        // Re-set src (not just reassign) so the iframe actually reloads
+        // even when the user clicks the same button twice.
+        iframe.src = s.url;
+      }
+
+      // Open the first engine by default so the viewer is never empty.
+      activate(searches[0], buttons[0]);
+
+      return el("div", { class: "search-engines-tab" }, strip, viewer);
+    }
 
 // Render the Carpeta tab content — the line-by-line preview of the
 // root→taxon folder chain under ./Research, plus the count summary,
