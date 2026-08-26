@@ -78,6 +78,15 @@ function renderNodeRow(taxon, opts = {}) {
     isSelected || isFocused ? "text-primary" : "text-on-surface-variant";
   const extinctCls = taxon.is_extinct ? "line-through opacity-70" : "";
 
+  // titleBlock now collapses three visual elements (rank badge + name +
+  // authorship) into two. Rank badge stays inline as a quick tier cue;
+  // the scientific-name span owns the row's identity. Authorship moves
+  // into the span's `title` attribute so it surfaces on hover only —
+  // the row no longer needs to render a separate low-opacity span next
+  // to the name. See P1 #2 in the Impeccable critique for the rationale.
+  const nameTitle = taxon.authorship
+    ? `${taxon.scientific_name} ${taxon.authorship}`
+    : null;
   const titleBlock = el(
     "div",
     { class: "flex items-center gap-3 flex-1 min-w-0" },
@@ -92,126 +101,195 @@ function renderNodeRow(taxon, opts = {}) {
       "span",
       {
         class: `${nameCls} truncate ${extinctCls} ${scientificNameClass(taxon.rank)}`,
+        title: nameTitle,
+        "aria-label": nameTitle || undefined,
       },
       taxon.scientific_name,
     ),
-    taxon.authorship
-      ? el(
+  );
+
+  // Source affordances — previously two inline pills ("WoRMS" / "CoL")
+  // next to the species count. Now both collapse into a single small
+  // info icon whose hover tooltip carries the same descriptive text
+  // the pills used. The click-through WoRMS URL survives as a kebab
+  // menu item (when worms_id is present), so the path to marinespecies
+  // is preserved without taking up row real-estate.
+  //
+  //   * CoL view AND taxon is CoL-only (coldp_id set, worms_id NULL):
+  //     small info glyph — tooltip: "CoL-only — ColDP ID N (no WoRMS
+  //     match)."
+  //   * WoRMS view AND taxon has worms_id: tooltip describes whether
+  //     the taxon is WoRMS-only or CoL+WoRMS. The kebab menu adds a
+  //     "View on WoRMS" item (an <a target="_blank">) that opens the
+  //     same marinespecies.org URL the old badge linked to.
+  //   * Every other case (CoL+WoRMS in CoL view, no source data at
+  //     all): no icon at all — keeps the row visually clean.
+  let sourceTooltipText = null;
+  let sourceWormsUrl = null;
+  if (state.treeSource === "col" && taxon.coldp_id && !taxon.worms_id) {
+    sourceTooltipText = `CoL-only — ColDP ID ${taxon.coldp_id} (no WoRMS match).`;
+  } else if (taxon.worms_id && state.treeSource !== "col") {
+    const isWormsOnly = !taxon.coldp_id;
+    sourceWormsUrl = `https://www.marinespecies.org/aphia.php?p=taxdetails&id=${taxon.worms_id}`;
+    sourceTooltipText = isWormsOnly
+      ? `WoRMS-only — AphiaID ${taxon.worms_id} (no CoL match). Open in WoRMS.`
+      : `WoRMS cross-link — AphiaID ${taxon.worms_id}. Open in WoRMS.`;
+  }
+  const sourceInfo = sourceTooltipText
+    ? el(
+        "span",
+        {
+          class:
+            "material-symbols-outlined text-[14px] text-on-surface-variant hover:text-primary transition-colors cursor-help",
+          title: sourceTooltipText,
+          role: "img",
+          "aria-label": sourceTooltipText,
+        },
+        "info",
+      )
+    : null;
+
+  // Kebab dropdown — collapses the per-row search (lupa) and folder
+  // (create_new_folder) actions into a single `more_vert` button that
+  // opens on click. Items inside the menu reuse the same `data-action`
+  // / `data-taxon-id` attributes the row used to expose inline, so
+  // nav.js keeps working unchanged. The kebab trigger is hover-gated
+  // via CSS (`.tree-row:hover .kebab-trigger { opacity: 1 }` in
+  // index.html) so the visual weight stays low for full-tree scrolls.
+  //
+  // Items, in render order:
+  //   1. "Search online"   — data-action="open-searches" — always when
+  //      scientific_name is non-empty (today's lupa).
+  //   2. "Open folder"     — data-action="open-folder-tab" — only when
+  //      the root→taxon folder exists on disk (today's materialize
+  //      icon).
+  //   3. "View on WoRMS"   — <a target="_blank"> — only when
+  //      sourceWormsUrl is set. Carries the same marinespecies URL as
+  //      the legacy inline pill; rendering as a menu item keeps the
+  //      row clean without losing the click-through.
+  const taxonIdStr = String(taxon.id);
+  const hasFolder = Boolean(
+    taxon.research_path_exists || state.materialized.has(taxon.id),
+  );
+  const kebabItems = [];
+  if (taxon.scientific_name) {
+    kebabItems.push(
+      el(
+        "button",
+        {
+          class: "kebab-item",
+          "data-action": "open-searches",
+          "data-taxon-id": taxonIdStr,
+          role: "menuitem",
+          type: "button",
+        },
+        el(
           "span",
           {
             class:
-              "font-body-sm text-body-sm text-on-surface-variant ml-2 opacity-70 truncate",
+              "material-symbols-outlined text-[16px] text-on-surface-variant",
           },
-          taxon.authorship,
-        )
-      : null,
-  );
-
-  // Source badges — mutually exclusive across the two views.
-  //   * CoL view (treeSource === 'col') AND taxon is CoL-only (coldp_id set,
-  //     worms_id NULL): render a discrete "CoL" outline badge so the user
-  //     can see at a glance which CoL backbone entries lack a WoRMS match.
-  //   * WoRMS view (treeSource !== 'col') AND taxon has worms_id: render a
-  //     "WoRMS" badge — filled accent for WoRMS-only taxa, outline accent
-  //     for CoL+WoRMS matches. Links to marinespecies.org in a new tab.
-  //   * All other cases (CoL+WoRMS in CoL view, or no source data at all):
-  //     no badge — keeps the row visually clean.
-  let wormsBadge = null;
-  let colBadge = null;
-  if (state.treeSource === "col" && taxon.coldp_id && !taxon.worms_id) {
-    colBadge = el(
-      "span",
-      {
-        class:
-          "text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-on-surface-variant/10 text-on-surface-variant no-underline cursor-default",
-        title: `CoL-only — ColDP ID ${taxon.coldp_id} (no WoRMS match).`,
-      },
-      "CoL",
-    );
-  } else if (taxon.worms_id && state.treeSource !== "col") {
-    const isWormsOnly = !taxon.coldp_id;
-    wormsBadge = el(
-      "a",
-      {
-        href: `https://www.marinespecies.org/aphia.php?p=taxdetails&id=${taxon.worms_id}`,
-        target: "_blank",
-        rel: "noopener noreferrer",
-        class: isWormsOnly
-          ? "text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded text-white no-underline"
-          : "text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-accent/10 text-accent hover:bg-accent/20 transition-colors no-underline",
-        style: isWormsOnly ? "background-color: #176587;" : null,
-        title: isWormsOnly
-          ? `WoRMS-only — AphiaID ${taxon.worms_id} (no CoL match). Open in WoRMS.`
-          : `WoRMS cross-link — AphiaID ${taxon.worms_id}. Open in WoRMS.`,
-      },
-      "WoRMS",
+          "search",
+        ),
+        el("span", { class: "kebab-item-label" }, "Search online"),
+      ),
     );
   }
+  if (hasFolder && taxon.scientific_name) {
+    kebabItems.push(
+      el(
+        "button",
+        {
+          class: "kebab-item",
+          "data-action": "open-folder-tab",
+          "data-taxon-id": taxonIdStr,
+          role: "menuitem",
+          type: "button",
+        },
+        el(
+          "span",
+          {
+            class:
+              "material-symbols-outlined text-[16px] text-on-surface-variant",
+          },
+          "folder_open",
+        ),
+        el("span", { class: "kebab-item-label" }, "Open folder"),
+      ),
+    );
+  }
+  if (sourceWormsUrl) {
+    kebabItems.push(
+      el(
+        "a",
+        {
+          class: "kebab-item",
+          href: sourceWormsUrl,
+          target: "_blank",
+          rel: "noopener noreferrer",
+          role: "menuitem",
+        },
+        el(
+          "span",
+          {
+            class:
+              "material-symbols-outlined text-[16px] text-on-surface-variant",
+          },
+          "open_in_new",
+        ),
+        el("span", { class: "kebab-item-label" }, "View on WoRMS"),
+      ),
+    );
+  }
+  const kebab =
+    kebabItems.length > 0
+      ? el(
+          "div",
+          { class: "kebab", "data-kebab-for": taxonIdStr },
+          el(
+            "button",
+            {
+              class:
+                "kebab-trigger material-symbols-outlined text-[16px] text-on-surface-variant hover:text-primary transition-colors",
+              "data-action": "toggle-kebab",
+              "data-taxon-id": taxonIdStr,
+              type: "button",
+              "aria-label": `More actions for ${taxon.scientific_name || taxonIdStr}`,
+              "aria-haspopup": "menu",
+              "aria-expanded": "false",
+              title: "More actions",
+            },
+            "more_vert",
+          ),
+          el(
+            "div",
+            { class: "kebab-menu", role: "menu" },
+            ...kebabItems,
+          ),
+        )
+      : null;
 
   const metaBlock = el(
     "div",
     { class: "flex items-center gap-2 shrink-0" },
-    wormsBadge,
-    colBadge,
+    sourceInfo,
     statusDot(taxon.status),
+    // Species count stays inline — it's the primary "this taxon has
+    // data" signal. Hovering reveals the full binomial + count in the
+    // tooltip so users who want context can still get it without
+    // opening the detail panel.
     taxon.species_count
       ? el(
           "span",
           {
             class:
               "font-mono-data text-mono-data text-on-surface-variant bg-surface-container px-2 py-1 rounded",
+            title: `${speciesCountBadge(taxon.species_count)} under ${taxon.scientific_name}`,
           },
           speciesCountBadge(taxon.species_count),
         )
       : null,
-    // Per-row search icon — click selects the taxon and forces the
-    // Search tab. Hidden when scientific_name is empty (no useful
-    // search query possible). Position: end of metaBlock, right of the
-    // species count. Visual treatment (16px, hover-only color shift)
-    // matches design.md §4.4 — keeps the visual weight low so 16K-row
-    // trees don't get noisy.
-    taxon.scientific_name
-      ? el(
-          "button",
-          {
-            class:
-              "search-icon-btn material-symbols-outlined text-[16px] text-on-surface-variant hover:text-primary transition-colors",
-            "data-action": "open-searches",
-            "data-taxon-id": String(taxon.id),
-            title: `Search ${taxon.scientific_name} online`,
-            "aria-label": `Open search panel for ${taxon.scientific_name}`,
-          },
-          "search",
-        )
-      : null,
-    // Per-row materialize indicator — only rendered when the
-    // taxon's root→taxon folder is on disk. Pure status marker:
-    // saturated green for "yes, it's there", nothing at all for
-    // "not yet". Creation happens in the detail panel's "Folder"
-    // tab (opened from the lupa or from this icon), not from the
-    // row itself.
-    //
-    // The backend's per-child `research_path_exists` flag is the
-    // source of truth; the in-memory `state.materialized` set fills
-    // in anything the user just confirmed in this session
-    // (propagated to visible descendants by propagateMaterialized).
-    // Clicking opens the detail panel on the Folder tab — the same
-    // modal the lupa opens, just on a different tab.
-    (taxon.research_path_exists || state.materialized.has(taxon.id)) &&
-      taxon.scientific_name
-      ? el(
-          "button",
-          {
-            class:
-              "materialize-btn material-symbols-outlined text-[16px] transition-colors text-green-700 hover:text-green-800",
-            "data-action": "open-folder-tab",
-            "data-taxon-id": String(taxon.id),
-            title: `Folder created at ./Research/${taxon.scientific_name} — click for details`,
-            "aria-label": `Folder already materialized for ${taxon.scientific_name}`,
-          },
-          "create_new_folder",
-        )
-      : null,
+    kebab,
   );
 
   // Realm tint — the Classification tree mirrors the Browser folder

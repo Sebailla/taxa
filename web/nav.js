@@ -286,6 +286,63 @@ async function clearFileExplorer() {
 }
 
 // ------------------------------------------------------------------
+// Kebab menu helpers (P1 #2)
+// ------------------------------------------------------------------
+// The per-row search (lupa) and folder (create_new_folder) actions
+// used to render inline as two separate buttons. They now live
+// inside a `.kebab-menu` that opens from a single `more_vert`
+// trigger per row. The trigger carries `data-action="toggle-kebab"`;
+// the items inside the menu keep the legacy `data-action` values
+// (`open-searches` / `open-folder-tab`) so the existing dispatch
+// table matches them without new branches.
+//
+// Helpers live at module scope (not inside the click handler) so a
+// future ESC-key listener can reuse `closeAllKebabMenus()` without
+// duplicating the DOM walk.
+function closeAllKebabMenus() {
+  document.querySelectorAll(".kebab-menu.open").forEach((menu) => {
+    menu.classList.remove("open");
+    const trigger = menu.parentElement.querySelector(
+      "[data-action=toggle-kebab]",
+    );
+    if (trigger) trigger.setAttribute("aria-expanded", "false");
+  });
+}
+function toggleKebabMenu(trigger) {
+  const menu = trigger.parentElement.querySelector(".kebab-menu");
+  if (!menu) return;
+  const opening = !menu.classList.contains("open");
+  // Toggle the target menu and update a11y state in lockstep —
+  // aria-expanded="true" matches .open so screen readers and the
+  // visual state never disagree.
+  menu.classList.toggle("open", opening);
+  trigger.setAttribute("aria-expanded", String(opening));
+  // When opening, also close every other open menu (one kebab at a
+  // time — multiple open menus would fight each other for the click-
+  // outside-close logic).
+  if (opening) closeAllKebabMenusOtherThan(menu);
+}
+function closeAllKebabMenusOtherThan(skipMenu) {
+  document.querySelectorAll(".kebab-menu.open").forEach((menu) => {
+    if (menu === skipMenu) return;
+    menu.classList.remove("open");
+    const trigger = menu.parentElement.querySelector(
+      "[data-action=toggle-kebab]",
+    );
+    if (trigger) trigger.setAttribute("aria-expanded", "false");
+  });
+}
+
+// ESC closes any open kebab menu. Cheap UX win; matches the behavior
+// every other menu in the app already follows (search dropdown, etc.).
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (document.querySelector(".kebab-menu.open")) {
+    closeAllKebabMenus();
+  }
+});
+
+// ------------------------------------------------------------------
 // Main click delegation
 // ------------------------------------------------------------------
 // Every interactive element in the page carries a data-action attribute
@@ -298,6 +355,34 @@ async function clearFileExplorer() {
 // pulling them into this module's top-level deps. Both helpers are only
 // used inside the "select-from-search" branch.
 document.addEventListener("click", async (e) => {
+  // ---- Kebab menu plumbing (P1 #2) -------------------------------
+  // The per-row search (lupa) and folder (create_new_folder) actions
+  // used to render inline as two separate buttons. They now live
+  // inside a `.kebab-menu` that opens from a single `more_vert`
+  // trigger. The trigger carries `data-action="toggle-kebab"`; the
+  // menu items reuse `data-action="open-searches"` / `"open-folder-tab"`
+  // so the dispatch table below keeps matching them without new
+  // branches.
+  //
+  // Close order matters: closing happens BEFORE the toggle-kebab
+  // branch so a click on trigger B (while A is open) closes A first
+  // and then opens B. Otherwise A would stay open while B opens too.
+  if (!e.target.closest(".kebab-menu.open")) {
+    closeAllKebabMenus();
+  }
+  const kebabTrigger = e.target.closest('[data-action="toggle-kebab"]');
+  if (kebabTrigger) {
+    toggleKebabMenu(kebabTrigger);
+    // Stop here — don't let the click also bubble to the row's
+    // toggle-expand / select action. The kebab trigger is a sibling
+    // of the menu inside the row wrapper, so closest("[data-action]")
+    // from the trigger would already resolve to "toggle-kebab" and
+    // skip the row's action, but returning early documents the
+    // intent and avoids accidental regressions if the DOM nesting
+    // changes later.
+    return;
+  }
+
   // Tab strip — checked BEFORE the data-action branch because tab
   // buttons carry data-tab but no data-action. Switching the active tab
   // is O(1): just persist the choice in state.activeTab and re-render

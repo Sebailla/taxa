@@ -157,14 +157,23 @@ def test_overview_renders_for_top_level_taxon_without_data(api_server):
                 base + "/", wait_until="domcontentloaded", timeout=10_000
             )
             # Archaea is rank=domain (not a species), so its row toggles
-            # expansion rather than selecting. The per-row search icon
-            # (data-action="open-searches") is the way to open the
-            # detail panel for a non-species row.
-            row = page.locator(
-                f'[data-taxon-id="{archaea["id"]}"][data-action="open-searches"]'
-            )
-            expect(row).to_be_visible(timeout=5_000)
-            row.click()
+            # expansion rather than selecting. P1 #2 collapsed the
+            # per-row lupa into a kebab dropdown, so to open the
+            # detail panel for a non-species row we drive the kebab
+            # menu's "Search online" item. The kebab trigger has
+            # `opacity: 0` by default but a non-zero bounding box —
+            # Playwright treats it as clickable, so no hover step
+            # is needed (real users will see it appear on row hover).
+            kebab = page.locator(
+                f'[data-taxon-id="{archaea["id"]}"] [data-action="toggle-kebab"]'
+            ).first
+            expect(kebab).to_be_visible(timeout=5_000)
+            kebab.click()
+            search_item = page.locator(
+                f'[data-taxon-id="{archaea["id"]}"] [data-action="open-searches"]'
+            ).first
+            expect(search_item).to_be_visible(timeout=5_000)
+            search_item.click()
             panel = page.locator("#detail-panel")
             expect(panel).to_be_visible(timeout=5_000)
             # Overview tab must render in the tab strip.
