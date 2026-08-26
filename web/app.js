@@ -45,6 +45,8 @@ import {
  renderCollapseAllButton,
  selectTaxon,
  expandAncestorsOf,
+ mountFileExplorer,
+ clearFileExplorer,
 } from "./nav.js";
 import { el } from "./dom.js";
 import { renderVersionBanner } from "./banner.js";
@@ -122,24 +124,89 @@ async function boot() {
   }
  }
 
- // If the URL has a hash, select that species and focus its path.
- const hashId = parseInt(location.hash.replace("#", ""), 10);
- if (hashId && Number.isFinite(hashId)) {
-  await expandAncestorsOf(hashId);
-  state.focused = hashId;
-  selectTaxon(hashId, { updateUrl: "replace" });
- }
+ // Route the initial view from the URL hash. Two cases:
+ //   - #help     → reload landed on the Help view (URL pushed by
+ //                 mountHelpView; set the flag + highlight the Help
+ //                 tab inline without pushing history again, since
+ //                 the URL already encodes the view).
+ //   - #<taxon>  → deep link to a species; select it and expand its
+ //                 ancestors (replacing the current history entry's
+ //                 state so the back/forward stack stays clean).
  // Otherwise: no pre-expansion, no initial focus. The tree shows the
  // 6 root domains collapsed with nothing highlighted; the breadcrumb
  // is empty. The user picks a starting node by clicking.
+ if (location.hash === "#help") {
+  state.helpOpen = true;
+  // Highlight the Help tab inline (mirror setActiveHeaderTab("help")
+  // from nav.js without exporting it). The Help button's bg-primary
+  // styling is permanent; only aria-current flips.
+  document.querySelectorAll("[data-path]").forEach((a) => {
+   const isActive = a.dataset.path === "help";
+   a.setAttribute("aria-current", isActive ? "page" : "false");
+  });
+ } else {
+  const hashId = parseInt(location.hash.replace("#", ""), 10);
+  if (hashId && Number.isFinite(hashId)) {
+   await expandAncestorsOf(hashId);
+   state.focused = hashId;
+   selectTaxon(hashId, { updateUrl: "replace" });
+  }
+ }
 
  render();
 }
 
-// Browser back/forward: restore the selected species from the URL hash.
+// Browser back/forward: restore the right view from the popped
+// history entry. The pushed states (set by selectTaxon,
+// mountHelpView, and the nav-tab handler) carry a discriminator:
+//   - { view: "help" }            → mount Help
+//   - { view: "browser" }         → mount the file explorer
+//   - { view: "classification" }  → clear the explorer, restore the
+//                                   classification shell
+//   - { id: <taxonId> }           → legacy deep-link routing
+//                                   (selectTaxon pushes this shape)
+//   - null                        → initial page-load entry
+//
+// When transitioning out of help mode we MUST rebuild the
+// classification shell — render() with state.helpOpen=false paints
+// into the existing shell, but the help view replaced <main>'s
+// children, so the shell has to be re-created first. clearFileExplorer
+// does exactly that (it's idempotent when the explorer isn't mounted),
+// and it's awaited so the legacy taxon-id branch below runs against
+// a freshly-rebuilt shell.
+//
 // Lives in app.js because it's a window-level handler wired once at
 // module load and doesn't fit any other module's responsibility.
-window.addEventListener("popstate", () => {
+window.addEventListener("popstate", async (e) => {
+ const view = e.state?.view;
+ if (view === "help") {
+  if (!state.helpOpen) state.helpOpen = true;
+  render();
+  return;
+ }
+ if (view === "browser") {
+  if (state.helpOpen) state.helpOpen = false;
+  // Fire-and-forget — mountFileExplorer is async (lazy import +
+  // async fetch). By the time it renders, state.helpOpen is already
+  // false so any subsequent global render() won't overwrite the
+  // explorer with the help view.
+  mountFileExplorer(state.selected);
+  return;
+ }
+ if (view === "classification") {
+  if (state.helpOpen) state.helpOpen = false;
+  // clearFileExplorer also rebuilds the classification shell and
+  // calls render() at the end (no-op if the explorer wasn't mounted).
+  clearFileExplorer();
+  return;
+ }
+ // Legacy taxon-id routing. If we're leaving help mode, rebuild the
+ // shell first so the render() below paints into a real host instead
+ // of the orphaned help view's leftover DOM.
+ if (state.helpOpen) {
+  state.helpOpen = false;
+  await clearFileExplorer();
+ }
  const hash = location.hash.replace(/^#/, "").trim();
  const id = parseInt(hash, 10);
  if (hash === "" && state.selected !== null) {
@@ -152,6 +219,10 @@ window.addEventListener("popstate", () => {
   state.selected = id;
   state.detailOpen = true;
   loadDetail(id);
+  render();
+ } else {
+  // Same id (or no id and no selection) — still render so the
+  // newly-rebuilt classification shell paints the current tree.
   render();
  }
 });
