@@ -124,9 +124,115 @@ function rerender() {
     : renderTreePaneEmpty();
   const viewerPane = renderViewerPane();
 
+      // Restore the user-resized tree width (if any) BEFORE attaching
+      // the splitter so the very first paint reflects the saved width.
+      // Also clear max-width so the saved width isn't capped by the CSS
+      // `max-width: min(60%, 50rem)` rule — once the user has dragged,
+      // we honor their explicit choice.
+      const savedWidth = readSavedTreeWidth();
+      if (savedWidth) {
+        treePane.style.width = savedWidth;
+        treePane.style.maxWidth = "none";
+      }
+
   _currentHost.replaceChildren(
-    el("div", { class: "fex-shell" }, treePane, viewerPane),
+    el("div", { class: "fex-shell" }, treePane, renderSplitter(), viewerPane),
   );
+}
+
+// Splitter drag handle between the tree pane and the viewer pane.
+// Lets the user resize the columns: mousedown + mousemove updates
+// the tree pane width in real time, mouseup persists it. A double
+// click on the handle clears the override so the tree falls back to
+// its CSS `width: max-content` (auto-fit) mode.
+//
+// Width is persisted in localStorage under `taxa.fex.treeWidth` so
+// the chosen split survives reloads. localStorage can throw in
+// private browsing / disabled-storage contexts; the read/write
+// helpers swallow those errors so the splitter still works in those
+// modes — the only thing lost is persistence.
+const TREE_WIDTH_STORAGE_KEY = "taxa.fex.treeWidth";
+
+function readSavedTreeWidth() {
+  try {
+    return localStorage.getItem(TREE_WIDTH_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeSavedTreeWidth(width) {
+  try {
+    localStorage.setItem(TREE_WIDTH_STORAGE_KEY, width);
+  } catch {
+    /* swallow — see note above */
+  }
+}
+
+function clearSavedTreeWidth() {
+  try {
+    localStorage.removeItem(TREE_WIDTH_STORAGE_KEY);
+  } catch {
+    /* swallow */
+  }
+}
+
+function renderSplitter() {
+  const splitter = el("div", {
+    class: "fex-splitter",
+    role: "separator",
+    "aria-orientation": "vertical",
+    title: "Drag to resize · double-click to reset",
+  });
+  splitter.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    const shell = splitter.parentElement;
+    const treePane = shell?.querySelector(".fex-tree-pane");
+    if (!treePane || !shell) return;
+    const startX = e.clientX;
+    const startWidth = treePane.getBoundingClientRect().width;
+    const shellWidth = shell.getBoundingClientRect().width;
+    // Lower bound keeps the tree usable (chevron + icon + a couple
+    // of characters). Upper bound leaves the viewer at least 20rem
+    // wide so the meta strip + tab strip still fit on one line.
+    const MIN_WIDTH = 12 * 16; // 12rem
+    const MAX_WIDTH = shellWidth - 20 * 16; // 20rem for the viewer
+    splitter.classList.add("dragging");
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    const onMove = (ev) => {
+      const next = startWidth + (ev.clientX - startX);
+      const clamped = Math.max(MIN_WIDTH, Math.min(next, MAX_WIDTH));
+      treePane.style.width = `${clamped}px`;
+      // The CSS rule `max-width: min(60%, 50rem)` would otherwise cap
+      // the inline width at 50rem; clearing max-width lets the user
+      // pick any size within [MIN_WIDTH, MAX_WIDTH]. Cleared again on
+      // dblclick (reset) below.
+      treePane.style.maxWidth = "none";
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      splitter.classList.remove("dragging");
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      writeSavedTreeWidth(treePane.style.width);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+  splitter.addEventListener("dblclick", () => {
+    const shell = splitter.parentElement;
+    const treePane = shell?.querySelector(".fex-tree-pane");
+    if (!treePane) return;
+    // Clear the inline width + max-width overrides so the CSS rules
+    // (`width: max-content` with `max-width: min(60%, 50rem)`) take
+    // over again — i.e. auto-fit with a sensible cap.
+    treePane.style.width = "";
+    treePane.style.maxWidth = "";
+    clearSavedTreeWidth();
+  });
+  return splitter;
 }
 
 function renderTreePaneEmpty() {

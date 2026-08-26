@@ -903,6 +903,28 @@
         max-height: calc(100vh - 96px);
         overflow-y: auto;
       }
+      /* Splitter — drag handle between tree pane and viewer pane.
+           4px visible bar; the ::after extends the hit area to
+           ~10px so the cursor still picks it up when the user
+           aims slightly off. Background stays transparent at rest
+           and tints to the primary color on hover / active drag so
+           the affordance is discoverable but unobtrusive. */
+      .fex-splitter {
+        width: 4px;
+        background: transparent;
+        cursor: col-resize;
+        flex-shrink: 0;
+        position: relative;
+      }
+      .fex-splitter::after {
+        content: "";
+        position: absolute;
+        inset: 0 -3px;
+      }
+      .fex-splitter:hover,
+      .fex-splitter.dragging {
+        background: var(--primary);
+      }
       .fex-tree-header {
         display: flex;
         align-items: center;
