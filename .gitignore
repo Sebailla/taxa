@@ -37,3 +37,10 @@ data/*.log
 # The folder contents (notes, references) are managed by the user and
 # should not be committed.
 Research/
+
+# Node + Tailwind build — install with `npm install`, rebuild with
+# `npm run build:css` (or `make css`). The compiled CSS in web/dist/ is
+# deterministic from the source + tailwind.config.js, so it's not
+# committed; CI and fresh clones regenerate it on demand.
+node_modules/
+web/dist/
