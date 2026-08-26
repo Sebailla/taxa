@@ -309,7 +309,7 @@ document.addEventListener("click", async (e) => {
     // Species are leaves: just select, no expansion.
     selectTaxon(id);
   } else if (action === "open-searches") {
-    // Per-row search icon — selects the taxon and forces the Búsquedas
+    // Per-row search icon — selects the taxon and forces the Search
     // tab to be active. The icon's data-taxon-id carries the id; the
     // detail panel's tab state is set BEFORE selectTaxon so the
     // subsequent render() sees the right default.
@@ -318,22 +318,22 @@ document.addEventListener("click", async (e) => {
       10,
     );
     if (Number.isFinite(id)) {
-      state.activeTab[id] = "busquedas";
+      state.activeTab[id] = "searches";
       selectTaxon(id);
     }
     return;
-  } else if (action === "open-carpeta-tab") {
+  } else if (action === "open-folder-tab") {
     // Per-row folder icon (only rendered when the taxon's path is
     // already on disk — see tree.js). Opens the same detail panel
-    // the lupa opens, but on the "Carpeta" tab instead of
-    // "Búsquedas". Mirrors open-searches one-for-one: select the
+    // the lupa opens, but on the "Folder" tab instead of
+    // "Search". Mirrors open-searches one-for-one: select the
     // taxon, force the tab key, render.
     const id = parseInt(
       e.target.closest("[data-taxon-id]").dataset.taxonId,
       10,
     );
     if (!Number.isFinite(id)) return;
-    state.activeTab[id] = "carpeta";
+    state.activeTab[id] = "folder";
     selectTaxon(id);
     return;
   } else if (action === "select-from-search") {
@@ -456,8 +456,8 @@ document.addEventListener("click", (e) => {
   state.expanded.clear();
   state.showAll.clear();
   // Reset per-taxon tab memory so the new view's detail panel starts
-  // on Búsquedas (the spec'd default). Switching from freshwater to CoL
-  // shouldn't carry over a Búsquedas tab from a freshwater-selected taxon.
+  // on Search (the spec'd default). Switching from freshwater to CoL
+  // shouldn't carry over a Search tab from a freshwater-selected taxon.
   state.activeTab = {};
   // Clear focus + selection so the new view starts from a blank slate,
   // not with the previous view's node still highlighted in the breadcrumb

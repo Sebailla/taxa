@@ -273,14 +273,14 @@ def test_freshwater_view_expands_to_families(api_server):
     _check_playwright_available() is None,
     reason="playwright not installed (pip install playwright)",
 )
-def test_busquedas_tab_renders_with_14_links(api_server):
-    """Click a taxon and assert the detail panel shows a Búsquedas tab
+def test_search_tab_renders_with_14_links(api_server):
+    """Click a taxon and assert the detail panel shows a Search tab
     with 14 search-engine links.
 
     Regression of c948663: the tab strip + renderSearchesTab() + the
     per-row search icon were silently removed by PR #8 (28c0c40) along
     with the dead escape() function. Without this fix, no taxon has
-    a Búsquedas tab and the detail panel only shows vernaculars/synonyms/
+    a Search tab and the detail panel only shows vernaculars/synonyms/
     distribution. Affects CoL, WoRMS, and Freshwater views alike.
     """
     from playwright.sync_api import expect, sync_playwright  # type: ignore
@@ -303,7 +303,7 @@ def test_busquedas_tab_renders_with_14_links(api_server):
             # clicking the row toggles expansion rather than selecting.
             # To open the detail panel for a non-species row, click its
             # per-row search icon button (data-action="open-searches"),
-            # which selects the taxon AND forces the Búsquedas tab.
+            # which selects the taxon AND forces the Search tab.
             row = page.locator(
                 f'[data-taxon-id="{fresh_id}"][data-action="open-searches"]'
             )
@@ -311,16 +311,16 @@ def test_busquedas_tab_renders_with_14_links(api_server):
             row.click()
             panel = page.locator("#detail-panel")
             expect(panel).to_be_visible(timeout=5_000)
-            # Búsquedas tab must exist in the panel.
-            busquedas_tab = panel.locator('[data-tab="busquedas"]')
-            expect(busquedas_tab).to_be_visible(timeout=5_000)
+            # Search tab must exist in the panel.
+            search_tab = panel.locator('[data-tab="searches"]')
+            expect(search_tab).to_be_visible(timeout=5_000)
             # Click it so the tab content (the 14 search-engine links)
             # becomes visible.
-            busquedas_tab.click()
+            search_tab.click()
             # The 14 search-engine links render as anchors inside the
-            # Búsquedas tab content. We use the data-tab-content wrapper
+            # Search tab content. We use the data-tab-content wrapper
             # to scope the query to this tab.
-            tab_content = panel.locator('[data-tab-content="busquedas"]')
+            tab_content = panel.locator('[data-tab-content="searches"]')
             links = tab_content.locator("a[href]")
             expect(links.first).to_be_visible(timeout=5_000)
             # All 14 search-engine links should render — the server
@@ -337,7 +337,7 @@ def test_busquedas_tab_renders_with_14_links(api_server):
 )
 def test_search_engines_rendered_as_button_grid(api_server):
     """The 14 search-engine links render as a grid of buttons inside the
-    Búsquedas tab — not a vertical list of arrow-suffixed rows.
+    Search tab — not a vertical list of arrow-suffixed rows.
 
     The redesign keeps the icon + label visible at a glance and lets the
     user scan all 14 engines without scrolling a long list. Each button
@@ -365,10 +365,10 @@ def test_search_engines_rendered_as_button_grid(api_server):
             expect(row).to_be_visible(timeout=5_000)
             row.click()
             panel = page.locator("#detail-panel")
-            busquedas_tab = panel.locator('[data-tab="busquedas"]')
-            expect(busquedas_tab).to_be_visible(timeout=5_000)
-            busquedas_tab.click()
-            tab_content = panel.locator('[data-tab-content="busquedas"]')
+            search_tab = panel.locator('[data-tab="searches"]')
+            expect(search_tab).to_be_visible(timeout=5_000)
+            search_tab.click()
+            tab_content = panel.locator('[data-tab-content="searches"]')
             # The container is a CSS grid.
             grid = tab_content.locator(".search-engines-grid")
             expect(grid).to_be_visible(timeout=5_000)

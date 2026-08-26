@@ -24,7 +24,7 @@ const state = {
   detail: null,
   detailOpen: true,
   detailLoading: false,
-  // activeTab[taxonId] = tab key. The Búsquedas tab is the default on a
+  // activeTab[taxonId] = tab key. The Search tab is the default on a
   // fresh selection; explicit tab clicks persist so reopening the same
   // taxon remembers which tab was active.
   activeTab: {},

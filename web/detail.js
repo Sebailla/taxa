@@ -1,6 +1,6 @@
 // Detail panel: loads vernaculars/synonyms/distribution/searches from the
-// API, renders the card with its 4 tabs (Búsquedas / Vernáculares /
-// Sinónimos / Distribución), and persists per-taxon tab memory so
+// API, renders the card with its 4 tabs (Search / Vernaculars /
+// Synonyms / Distribution), and persists per-taxon tab memory so
 // reopening the same taxon remembers which tab was active. The detail
 // panel is the single place that calls loadDetail — the [data-tab] click
 // handler lives in nav.js (alongside the other delegated actions).
@@ -25,7 +25,7 @@ async function loadDetail(id) {
     // error response.
     const taxon = state.cache.get(id)?.taxon ?? (await loadTaxon(id));
     // The materialize-preview is fetched in parallel with the rest so
-    // the Carpeta tab is ready when the panel renders. A failure here
+    // the Folder tab is ready when the panel renders. A failure here
     // is non-fatal — the tab shows an inline error and the rest of
     // the panel still works. Always fetched (no scientific_name
     // guard) because the preview endpoint handles empty names via
@@ -76,7 +76,7 @@ function buildDetailSection(icon, title, count, items) {
   );
 }
 
-// Render the Búsquedas tab: a grid of 14 search-engine buttons, each
+// Render the Search tab: a grid of 14 search-engine buttons, each
 // opening in a new tab. The URLs come pre-composed from the server
 // (urllib.parse.quote_plus); the icon glyph + label come from the local
 // SEARCH_ENGINES table as a fallback (offline / 5xx case). The server
@@ -116,14 +116,14 @@ function renderSearchesTab(searches) {
   return el("div", { class: "search-engines-grid" }, ...items);
 }
 
-// Render the Carpeta tab content — the line-by-line preview of the
+// Render the Folder tab content — the line-by-line preview of the
 // root→taxon folder chain under ./Research, plus the count summary,
 // the info banner (when the path is fully materialized), and the
-// [Crear N carpetas] action button (when something new would be
+// [Create N folders] action button (when something new would be
 // created). Reused CSS classes from the previous standalone modal
 // (.materialize-modal-list, .materialize-modal-marker, etc.) so the
 // visual language stays consistent.
-function renderCarpetaTab(taxon) {
+function renderFolderTab(taxon) {
   const preview = state.detail?.materializePreview;
 
   // Loading state — the preview fetch is in flight alongside the
@@ -138,7 +138,7 @@ function renderCarpetaTab(taxon) {
         { class: "material-symbols-outlined text-[20px] animate-spin" },
         "progress_activity",
       ),
-      el("span", null, "Cargando vista previa…"),
+      el("span", null, "Loading preview…"),
     );
   }
 
@@ -148,7 +148,7 @@ function renderCarpetaTab(taxon) {
       "div",
       { class: "materialize-tab-error" },
       el("span", { class: "material-symbols-outlined text-[20px]" }, "error"),
-      el("span", null, `No se pudo cargar la vista previa: ${preview.error}`),
+      el("span", null, `Could not load the preview: ${preview.error}`),
     );
   }
 
@@ -174,7 +174,7 @@ function renderCarpetaTab(taxon) {
   const counts = el(
     "div",
     { class: "materialize-modal-counts" },
-    `${preview.new_count} ${preview.new_count === 1 ? "carpeta nueva" : "carpetas nuevas"} · ${preview.existing_count} ya existían`,
+    `${preview.new_count} ${preview.new_count === 1 ? "new folder" : "new folders"} · ${preview.existing_count} already existed`,
   );
 
   const infoBanner = preview.all_exist
@@ -186,7 +186,7 @@ function renderCarpetaTab(taxon) {
           { class: "material-symbols-outlined text-[20px]" },
           "check_circle",
         ),
-        el("span", null, "Todo el path ya existe en el disco."),
+        el("span", null, "Path already exists on disk."),
       )
     : null;
 
@@ -194,7 +194,7 @@ function renderCarpetaTab(taxon) {
   // create. In the all-exist state, the tab is read-only.
   let createBtn = null;
   if (!preview.all_exist) {
-    const label = `Crear ${preview.new_count} ${preview.new_count === 1 ? "carpeta" : "carpetas"}`;
+    const label = `Create ${preview.new_count} ${preview.new_count === 1 ? "folder" : "folders"}`;
     const btn = el(
       "button",
       {
@@ -205,7 +205,7 @@ function renderCarpetaTab(taxon) {
     );
     btn.addEventListener("click", async () => {
       btn.disabled = true;
-      btn.textContent = "Creando…";
+      btn.textContent = "Creating…";
       try {
         const response = await materializeResearch(taxon.id);
         state.materialized.add(taxon.id);
@@ -218,13 +218,13 @@ function renderCarpetaTab(taxon) {
           render();
         }
         showToast(
-          `Carpetas materializadas: ${response.relative_path} ` +
-            `(${response.folders_created} nuevas, ${response.folders_existed} ya existían)`,
+          `Folders materialized: ${response.relative_path} ` +
+            `(${response.folders_created} new, ${response.folders_existed} already existed)`,
         );
       } catch (err) {
         btn.disabled = false;
         btn.textContent = label;
-        showToast(`Error al materializar: ${err.message}`, { error: true });
+        showToast(`Error materializing: ${err.message}`, { error: true });
       }
     });
     createBtn = btn;
@@ -239,7 +239,7 @@ function renderCarpetaTab(taxon) {
       el(
         "div",
         { class: "materialize-modal-section-title" },
-        "Vista previa del path:",
+        "Path preview:",
       ),
       list,
     ),
@@ -395,35 +395,35 @@ function renderDetailPanel() {
   }
 
   // ----- Tab strip ----------------------------------------------------
-  // Tabs in this order: Búsquedas first, then Vernáculares, Sinónimos,
-  // Distribución. Each non-Búsquedas tab is conditional on its data
+  // Tabs in this order: Search first, then Vernaculars, Synonyms,
+  // Distribution. Each non-Search tab is conditional on its data
   // being non-empty (matches today's "hide empty sections" behaviour).
-  // Búsquedas is always shown when the panel renders so the per-row
+  // Search is always shown when the panel renders so the per-row
   // search icon always has a target.
   const tabs = [];
-  tabs.push({ key: "busquedas", label: "Búsquedas", icon: "travel_explore" });
-  // Carpeta is always present (unlike Vernáculares / Sinónimos /
-  // Distribución which are conditional on having data). The tab
+  tabs.push({ key: "searches", label: "Search", icon: "travel_explore" });
+  // Folder is always present (unlike Vernaculars / Synonyms /
+  // Distribution which are conditional on having data). The tab
   // shows the materialize preview; in the all_exist state it's a
   // read-only "path is already on disk" view.
-  tabs.push({ key: "carpeta", label: "Carpeta", icon: "create_new_folder" });
+  tabs.push({ key: "folder", label: "Folder", icon: "create_new_folder" });
   if (hasVern)
-    tabs.push({ key: "vernaculars", label: "Vernáculares", icon: "translate" });
+    tabs.push({ key: "vernaculars", label: "Vernaculars", icon: "translate" });
   if (hasSyn)
-    tabs.push({ key: "synonyms", label: "Sinónimos", icon: "history" });
+    tabs.push({ key: "synonyms", label: "Synonyms", icon: "history" });
   if (hasDist)
-    tabs.push({ key: "distribution", label: "Distribución", icon: "public" });
+    tabs.push({ key: "distribution", label: "Distribution", icon: "public" });
 
   // Decide the active tab. Per-taxon memory wins; otherwise default to
-  // Búsquedas (the new spec'd default) and fall back to the first
-  // available tab when Búsquedas isn't visible (e.g., empty name).
+  // Search (the new spec'd default) and fall back to the first
+  // available tab when Search isn't visible (e.g., empty name).
   const taxonId = state.selected;
   const remembered = state.activeTab[taxonId];
   const activeKey = tabs.some((t) => t.key === remembered)
     ? remembered
     : tabs[0].key;
   // Belt-and-braces: if for some reason tabs[0] is missing (empty
-  // tabs array — can't happen given Búsquedas is always pushed, but
+  // tabs array — can't happen given Search is always pushed, but
   // keep the guard), hide the panel.
   if (!activeKey) {
     panel.classList.add("hidden");
@@ -463,25 +463,25 @@ function renderDetailPanel() {
   // sections), no re-fetch.
   const sections = [];
   sections.push({
-    key: "busquedas",
+    key: "searches",
     node: el(
       "div",
-      { class: "detail-section", "data-tab-content": "busquedas" },
+      { class: "detail-section", "data-tab-content": "searches" },
       renderSearchesTab(d.searches),
     ),
   });
   sections.push({
-    key: "carpeta",
+    key: "folder",
     node: el(
       "div",
-      { class: "detail-section", "data-tab-content": "carpeta" },
+      { class: "detail-section", "data-tab-content": "folder" },
       // Defensive try/catch: a malformed preview should not prevent
       // the rest of the detail panel from rendering.
       (() => {
         try {
-          return renderCarpetaTab(taxon);
+          return renderFolderTab(taxon);
         } catch (e) {
-          console.error("Carpeta tab render failed", e);
+          console.error("Folder tab render failed", e);
           return el(
             "div",
             { class: "materialize-tab-error" },
@@ -493,7 +493,7 @@ function renderDetailPanel() {
             el(
               "span",
               null,
-              `No se pudo renderizar la pestaña Carpeta: ${e.message}`,
+              `Could not render the Folder tab: ${e.message}`,
             ),
           );
         }

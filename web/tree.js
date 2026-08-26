@@ -161,7 +161,7 @@ function renderNodeRow(taxon, opts = {}) {
         )
       : null,
     // Per-row search icon — click selects the taxon and forces the
-    // Búsquedas tab. Hidden when scientific_name is empty (no useful
+    // Search tab. Hidden when scientific_name is empty (no useful
     // search query possible). Position: end of metaBlock, right of the
     // species count. Visual treatment (16px, hover-only color shift)
     // matches design.md §4.4 — keeps the visual weight low so 16K-row
@@ -183,7 +183,7 @@ function renderNodeRow(taxon, opts = {}) {
     // Per-row materialize indicator — only rendered when the
     // taxon's root→taxon folder is on disk. Pure status marker:
     // saturated green for "yes, it's there", nothing at all for
-    // "not yet". Creation happens in the detail panel's "Carpeta"
+    // "not yet". Creation happens in the detail panel's "Folder"
     // tab (opened from the lupa or from this icon), not from the
     // row itself.
     //
@@ -191,7 +191,7 @@ function renderNodeRow(taxon, opts = {}) {
     // source of truth; the in-memory `state.materialized` set fills
     // in anything the user just confirmed in this session
     // (propagated to visible descendants by propagateMaterialized).
-    // Clicking opens the detail panel on the Carpeta tab — the same
+    // Clicking opens the detail panel on the Folder tab — the same
     // modal the lupa opens, just on a different tab.
     (taxon.research_path_exists || state.materialized.has(taxon.id)) &&
       taxon.scientific_name
@@ -200,10 +200,10 @@ function renderNodeRow(taxon, opts = {}) {
           {
             class:
               "materialize-btn material-symbols-outlined text-[16px] transition-colors text-green-700 hover:text-green-800",
-            "data-action": "open-carpeta-tab",
+            "data-action": "open-folder-tab",
             "data-taxon-id": String(taxon.id),
-            title: `Carpeta creada en ./Research/${taxon.scientific_name} — click para ver detalles`,
-            "aria-label": `Carpeta ya materializada para ${taxon.scientific_name}`,
+            title: `Folder created at ./Research/${taxon.scientific_name} — click for details`,
+            "aria-label": `Folder already materialized for ${taxon.scientific_name}`,
           },
           "create_new_folder",
         )
