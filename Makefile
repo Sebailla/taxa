@@ -1,5 +1,11 @@
 .PHONY: venv download etl coldp worms col load api clean test smoke
 
+# Pass each recipe to a single shell invocation so multi-line shell
+# constructs (if/then/else/fi, for/done) parse cleanly without `\<newline>`
+# continuations. Requires GNU Make 3.82+ — CI (ubuntu-latest) ships 4.x,
+# local macOS still ships 3.81 where this directive is silently ignored.
+.ONESHELL:
+
 # Base release TextTree: 53 MB compressed, 380 MB uncompressed.
 TEXTREE_URL  := https://api.checklistbank.org/dataset/315777/export.zip?format=TextTree
 TEXTREE_ZIP  := data/raw/textree_base.zip
@@ -23,25 +29,25 @@ venv:
 
 download:
 	@mkdir -p data/raw
-	@if [ ! -f "$(TEXTREE_FILE)" ]; then \  # shellcheck disable=SC1089
-		echo "Downloading TextTree Base from CoL..."; \  # shellcheck disable=SC1089
-		curl -sSL -o "$(TEXTREE_ZIP)" "$(TEXTREE_URL)"; \  # shellcheck disable=SC1089
-		unzip -o -q "$(TEXTREE_ZIP)" -d data/raw/textree_base; \  # shellcheck disable=SC1089
-	else \  # shellcheck disable=SC1089
-		echo "TextTree already downloaded"; \  # shellcheck disable=SC1089
+	@if [ ! -f "$(TEXTREE_FILE)" ]; then
+		echo "Downloading TextTree Base from CoL..."
+		curl -sSL -o "$(TEXTREE_ZIP)" "$(TEXTREE_URL)"
+		unzip -o -q "$(TEXTREE_ZIP)" -d data/raw/textree_base
+	else
+		echo "TextTree already downloaded"
 	fi
 
 etl: download
 	.venv/bin/python3 etl/parse_textree.py $(TEXTREE_FILE) $(DB)
 
 coldp:
-	@if [ ! -d "$(COLDP_DIR)" ]; then \  # shellcheck disable=SC1089
-		echo "Downloading ColDP from CoL (1 GB)..."; \  # shellcheck disable=SC1089
-		mkdir -p data/raw/coldp; \  # shellcheck disable=SC1089
-		curl -sSL -o data/raw/coldp/coldp.zip "$(COLDP_URL)"; \  # shellcheck disable=SC1089
-		unzip -o -q data/raw/coldp/coldp.zip -d "$(COLDP_DIR)"; \  # shellcheck disable=SC1089
-	else \  # shellcheck disable=SC1089
-		echo "ColDP already extracted at $(COLDP_DIR)"; \  # shellcheck disable=SC1089
+	@if [ ! -d "$(COLDP_DIR)" ]; then
+		echo "Downloading ColDP from CoL (1 GB)..."
+		mkdir -p data/raw/coldp
+		curl -sSL -o data/raw/coldp/coldp.zip "$(COLDP_URL)"
+		unzip -o -q data/raw/coldp/coldp.zip -d "$(COLDP_DIR)"
+	else
+		echo "ColDP already extracted at $(COLDP_DIR)"
 	fi
 	.venv/bin/python3 -m etl.load_coldp $(COLDP_DIR) $(DB)
 
@@ -75,9 +81,9 @@ worms: $(WORMS_TSV)
 # Each is idempotent. Re-running freshwater clears freshwater_id and re-loads.
 FRESHWATER_CSV := data/raw/freshwater.csv
 freshwater:
-	@if [ ! -f $(FRESHWATER_CSV) ]; then \  # shellcheck disable=SC1089
-		echo "Missing $(FRESHWATER_CSV). Export your Freshwater Fishes Google Sheet to CSV and place it at this path."; \  # shellcheck disable=SC1089
-		exit 1; \  # shellcheck disable=SC1089
+	@if [ ! -f $(FRESHWATER_CSV) ]; then
+		echo "Missing $(FRESHWATER_CSV). Export your Freshwater Fishes Google Sheet to CSV and place it at this path."
+		exit 1
 	fi
 	.venv/bin/python3 scripts/transform_freshwater.py $(FRESHWATER_CSV)
 	.venv/bin/python3 -m etl.load_freshwater /tmp/freshwater.flat.csv
@@ -99,9 +105,9 @@ freshwater:
 # Each is idempotent. Re-running freshwater clears freshwater_id and re-loads.
 FRESHWATER_CSV := data/raw/freshwater.csv
 freshwater:
-	@if [ ! -f $(FRESHWATER_CSV) ]; then \  # shellcheck disable=SC1089
-		echo "Missing $(FRESHWATER_CSV). Export your Freshwater Fishes Google Sheet to CSV and place it at this path."; \  # shellcheck disable=SC1089
-		exit 1; \  # shellcheck disable=SC1089
+	@if [ ! -f $(FRESHWATER_CSV) ]; then
+		echo "Missing $(FRESHWATER_CSV). Export your Freshwater Fishes Google Sheet to CSV and place it at this path."
+		exit 1
 	fi
 	.venv/bin/python3 scripts/transform_freshwater.py $(FRESHWATER_CSV)
 	.venv/bin/python3 etl/load_freshwater.py /tmp/freshwater.flat.csv
@@ -112,15 +118,15 @@ load-all: col worms freshwater
 
 # Backwards-compatible selector (kept for the make load SOURCE=... flow)
 load:
-	@if [ "$(SOURCE)" = "col" ]; then \  # shellcheck disable=SC1089
-		$(MAKE) col; \  # shellcheck disable=SC1089
-	elif [ "$(SOURCE)" = "worms" ]; then \  # shellcheck disable=SC1089
-		$(MAKE) worms; \  # shellcheck disable=SC1089
-	elif [ "$(SOURCE)" = "freshwater" ]; then \  # shellcheck disable=SC1089
-		$(MAKE) freshwater; \  # shellcheck disable=SC1089
-	else \  # shellcheck disable=SC1089
-		echo "Usage: make load SOURCE=col|worms|freshwater  (or: make col / make worms / make freshwater)"; \  # shellcheck disable=SC1089
-		exit 1; \  # shellcheck disable=SC1089
+	@if [ "$(SOURCE)" = "col" ]; then
+		$(MAKE) col
+	elif [ "$(SOURCE)" = "worms" ]; then
+		$(MAKE) worms
+	elif [ "$(SOURCE)" = "freshwater" ]; then
+		$(MAKE) freshwater
+	else
+		echo "Usage: make load SOURCE=col|worms|freshwater  (or: make col / make worms / make freshwater)"
+		exit 1
 	fi
 
 # Download + extract WoRMS ColDP (idempotent — skips if already there).
@@ -129,12 +135,12 @@ $(WORMS_TSV): $(WORMS_ZIP)
 
 $(WORMS_ZIP):
 	@mkdir -p $(WORMS_DIR)
-	@if [ ! -f $(WORMS_TSV) ]; then \  # shellcheck disable=SC1089
-		echo "Downloading WoRMS ColDP (26 MB compressed)..."; \  # shellcheck disable=SC1089
-		curl -sSL -o $(WORMS_ZIP) "$(WORMS_URL)"; \  # shellcheck disable=SC1089
-		unzip -o -q $(WORMS_ZIP) -d $(WORMS_DIR); \  # shellcheck disable=SC1089
-	else \  # shellcheck disable=SC1089
-		echo "WoRMS ColDP already extracted at $(WORMS_DIR)"; \  # shellcheck disable=SC1089
+	@if [ ! -f $(WORMS_TSV) ]; then
+		echo "Downloading WoRMS ColDP (26 MB compressed)..."
+		curl -sSL -o $(WORMS_ZIP) "$(WORMS_URL)"
+		unzip -o -q $(WORMS_ZIP) -d $(WORMS_DIR)
+	else
+		echo "WoRMS ColDP already extracted at $(WORMS_DIR)"
 	fi
 
 api:
