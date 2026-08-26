@@ -42,6 +42,21 @@
         --surface-container: #f5f5f5;
         --surface-container-high: #eeeeee;
         --surface-container-highest: #e8e8e8;
+
+        /* Realm palette — saturated pastel, used by the Browser tab
+               to tint folder icons + the row background so the user can
+               tell domains / kingdoms apart at a glance. The hue is the
+               primary signal; --realm-X-soft is the same hue at 14%
+               alpha, used as a subtle row background. Animals = violet,
+               Fungi = blue (per design discussion 2026-08-25). */
+        --realm-bacteria: #5ebd9b;
+        --realm-archaea: #e07466;
+        --realm-viruses: #e8c547;
+        --realm-animalia: #a57fcb;
+        --realm-fungi: #5b9bd5;
+        --realm-plantae: #7cb669;
+        --realm-chromista: #e89b4f;
+        --realm-other: #d49ab6;
       }
       ::-webkit-scrollbar {
         display: none;
@@ -653,48 +668,133 @@
                  then wraps. Hover shifts the bg to surface-container-low
                  (same as the other detail-item hovers) so the visual
                  language is consistent. */
-      .search-engines-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-        gap: 8px;
-        padding: 4px 0;
-      }
-      .search-engine-btn {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        padding: 12px 8px;
-        min-height: 72px;
-        border: 1px solid var(--outline-variant);
-        border-radius: 8px;
-        background: var(--surface);
-        color: var(--on-surface);
-        text-decoration: none;
-        font-family: "Raleway", sans-serif;
-        font-size: 12px;
-        font-weight: 600;
-        line-height: 1.3;
-        text-align: center;
-        cursor: pointer;
-        transition:
-          background-color 120ms ease-out,
-          border-color 120ms ease-out,
-          color 120ms ease-out;
-      }
-      .search-engine-btn:hover {
-        background: var(--surface-container-low);
-        border-color: var(--primary);
-        color: var(--primary);
-      }
-      .search-engine-btn .material-symbols-outlined {
-        font-size: 22px;
-        color: var(--primary);
-      }
-      .search-engine-btn:hover .material-symbols-outlined {
-        color: var(--primary);
-      }
+          /* Búsquedas tab layout — single-row strip of 14 engine chips
+                 plus an iframe viewer below. The strip stays in one row
+                 and overflows horizontally on narrow viewports; the
+                 viewer takes the remaining vertical space inside the
+                 detail card. */
+          .search-engines-tab {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            /* The viewer can get tall — let the parent detail card
+                 scroll rather than the strip itself, so the strip stays
+                 visible while the user scrolls through long result pages. */
+          }
+          .search-engines-strip {
+            display: flex;
+            flex-wrap: nowrap;
+            gap: 6px;
+            overflow-x: auto;
+            padding-bottom: 2px;
+            /* Hide scrollbar in WebKit while keeping scroll usable. */
+            scrollbar-width: thin;
+          }
+          .search-engine-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border: 1px solid var(--outline-variant);
+            border-radius: 999px;
+            background: var(--surface);
+            color: var(--on-surface);
+            font-family: "Raleway", sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            line-height: 1.3;
+            white-space: nowrap;
+            cursor: pointer;
+            transition:
+              background-color 120ms ease-out,
+              border-color 120ms ease-out,
+              color 120ms ease-out;
+          }
+          .search-engine-btn:hover {
+            background: var(--surface-container-low);
+            border-color: var(--primary);
+            color: var(--primary);
+          }
+          .search-engine-btn.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: #ffffff;
+          }
+          .search-engine-btn.active .material-symbols-outlined {
+            color: #ffffff;
+          }
+          .search-engine-btn .material-symbols-outlined {
+            font-size: 16px;
+            color: var(--primary);
+          }
+          .search-engine-btn:hover .material-symbols-outlined {
+            color: var(--primary);
+          }
+          .search-engine-btn-label {
+            /* Keep labels from being clipped by the rounded pill — the
+                 strip scrolls horizontally so wrapping is unnecessary. */
+          }
+          /* Viewer — title row + iframe. Fixed height so the detail
+                 card can still scroll independently on short viewports.
+                 Sandbox the iframe (see renderSearchesTab comment) so
+                 third-party scripts cannot navigate the top window. */
+          .search-engine-viewer {
+            display: flex;
+            flex-direction: column;
+            border: 1px solid var(--outline-variant);
+            border-radius: 8px;
+            overflow: hidden;
+            background: var(--surface);
+          }
+          .search-engine-viewer-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 6px 12px;
+            background: var(--surface-container-low);
+            border-bottom: 1px solid var(--outline-variant);
+            font-family: "Raleway", sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--on-surface);
+            min-height: 32px;
+          }
+          .search-engine-viewer-title {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+          .search-engine-viewer-extlink {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 10px;
+            border-radius: 6px;
+            background: transparent;
+            border: 1px solid var(--outline-variant);
+            color: var(--on-surface);
+            text-decoration: none;
+            font-weight: 600;
+            cursor: pointer;
+            transition:
+              background-color 120ms ease-out,
+              border-color 120ms ease-out,
+              color 120ms ease-out;
+          }
+          .search-engine-viewer-extlink:hover {
+            background: var(--surface-container-low);
+            border-color: var(--primary);
+            color: var(--primary);
+          }
+          .search-engine-viewer-frame {
+            flex: 1;
+            width: 100%;
+            min-height: 420px;
+            height: 100%;
+            border: 0;
+            background: var(--surface);
+          }
 
       /* scroll-margin-top reserves the space taken by the sticky header,
              breadcrumb, and detail card so scrollIntoView({block: "center"})
@@ -845,14 +945,31 @@
              §4. The flex container is also responsible for vertical
              scrolling so the inner panes don't get clipped on short
              viewports. */
+      /* Two-pane layout — left tree (18rem min, grows to fit long
+             folder names), right viewer (flex 1). Matches the Stitch
+             reference in design.md §4. The flex container is also
+             responsible for vertical scrolling so the inner panes
+             don't get clipped on short viewports. */
       .fex-shell {
         display: flex;
         gap: 0;
         width: 100%;
         min-height: calc(100vh - 96px);
+        /* If both panes together exceed the available width, allow
+             horizontal scroll at the shell level rather than clipping
+             the tree. overflow-x: auto only kicks in past 100%, so
+             narrow / short-name trees are unaffected. */
+        overflow-x: auto;
       }
       .fex-tree-pane {
-        width: 18rem;
+        /* Width grows with the longest row (padding-left + chevron +
+           icon + label + meta) up to a sensible cap so a single very
+           long folder name cannot eat the whole viewport. The cap
+           picks the smaller of 60% of the shell or 50rem so a wide
+           browser window still leaves the viewer at least 40% wide. */
+        min-width: 18rem;
+        width: max-content;
+        max-width: min(60%, 50rem);
         flex-shrink: 0;
         border-right: 1px solid var(--outline-variant);
         background: var(--surface);
@@ -870,6 +987,28 @@
         gap: 12px;
         max-height: calc(100vh - 96px);
         overflow-y: auto;
+      }
+      /* Splitter — drag handle between tree pane and viewer pane.
+           4px visible bar; the ::after extends the hit area to
+           ~10px so the cursor still picks it up when the user
+           aims slightly off. Background stays transparent at rest
+           and tints to the primary color on hover / active drag so
+           the affordance is discoverable but unobtrusive. */
+      .fex-splitter {
+        width: 4px;
+        background: transparent;
+        cursor: col-resize;
+        flex-shrink: 0;
+        position: relative;
+      }
+      .fex-splitter::after {
+        content: "";
+        position: absolute;
+        inset: 0 -3px;
+      }
+      .fex-splitter:hover,
+      .fex-splitter.dragging {
+        background: var(--primary);
       }
       .fex-tree-header {
         display: flex;
@@ -945,6 +1084,45 @@
         background: color-mix(in srgb, var(--primary) 5%, transparent);
         border-left: 2px solid var(--primary);
         border-radius: 0;
+      }
+      /* Realm tint — the Browser tab stamps data-realm on every folder
+                 row (bacteria / archaea / viruses / animalia / fungi /
+                 plantae / chromista / other) so the user can tell domains
+                 and kingdoms apart at a glance. The hue goes on the icon
+                 AND the label, while the row background stays transparent
+                 so the page surface shows through. The selected-state
+                 rules above win because they appear later in the cascade. */
+      .fex-row.folder[data-realm] .fex-icon,
+      .fex-row.folder[data-realm] .fex-label {
+        color: var(--realm-other);
+      }
+      .fex-row.folder[data-realm="bacteria"] .fex-icon,
+      .fex-row.folder[data-realm="bacteria"] .fex-label {
+        color: var(--realm-bacteria);
+      }
+      .fex-row.folder[data-realm="archaea"] .fex-icon,
+      .fex-row.folder[data-realm="archaea"] .fex-label {
+        color: var(--realm-archaea);
+      }
+      .fex-row.folder[data-realm="viruses"] .fex-icon,
+      .fex-row.folder[data-realm="viruses"] .fex-label {
+        color: var(--realm-viruses);
+      }
+      .fex-row.folder[data-realm="animalia"] .fex-icon,
+      .fex-row.folder[data-realm="animalia"] .fex-label {
+        color: var(--realm-animalia);
+      }
+      .fex-row.folder[data-realm="fungi"] .fex-icon,
+      .fex-row.folder[data-realm="fungi"] .fex-label {
+        color: var(--realm-fungi);
+      }
+      .fex-row.folder[data-realm="plantae"] .fex-icon,
+      .fex-row.folder[data-realm="plantae"] .fex-label {
+        color: var(--realm-plantae);
+      }
+      .fex-row.folder[data-realm="chromista"] .fex-icon,
+      .fex-row.folder[data-realm="chromista"] .fex-label {
+        color: var(--realm-chromista);
       }
       .fex-row .fex-label {
         flex: 1;
