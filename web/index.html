@@ -204,10 +204,10 @@
         color: #ffffff;
       }
 
-/* Rank badge — Raleway, 11px, 600, 1px tracking (H4 from brief) */
+/* Rank badge — Raleway, 13px, 600, 1px tracking (H4 from brief) */
           .rank-badge {
             font-family: "Raleway", sans-serif;
-            font-size: 11px;
+            font-size: 13px;
             line-height: 1.4;
             letter-spacing: 1px;
             font-weight: 600;
@@ -890,7 +890,7 @@
           0 1px 1px rgba(15, 23, 42, 0.03),
           0 2px 6px rgba(15, 23, 42, 0.04);
         transition:
-          transform 180ms cubic-bezier(0.2, 0.7, 0.3, 1.2),
+          transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
           box-shadow 180ms ease-out,
           border-color 180ms ease-out,
           background-color 180ms ease-out,
@@ -916,7 +916,7 @@
       .search-engine-btn .material-symbols-outlined {
         font-size: 22px;
         color: var(--primary);
-        transition: transform 180ms cubic-bezier(0.2, 0.7, 0.3, 1.2);
+        transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
       }
       .search-engine-btn:hover .material-symbols-outlined {
         transform: scale(1.08);
@@ -1411,9 +1411,10 @@
             },
             fontSize: {
               "mono-data": ["12px", { lineHeight: "16px", fontWeight: "400" }],
-              // Body — Raleway 11.9px / 1.6 from the brief.
-              "body-sm": ["11.9px", { lineHeight: "19px", fontWeight: "400" }],
-              "body-md": ["11.9px", { lineHeight: "19px", fontWeight: "400" }],
+              // Body — Raleway 13px / 1.46 (bumped from 11.9px for legibility
+              // on a research tool; the detector flagged tiny-text).
+              "body-sm": ["13px", { lineHeight: "19px", fontWeight: "400" }],
+              "body-md": ["13px", { lineHeight: "19px", fontWeight: "400" }],
               // H3 — Raleway 16px / 1.4 (tier headers, section titles).
               h3: [
                 "16px",
@@ -1424,18 +1425,21 @@
                 "14px",
                 { lineHeight: "20px", letterSpacing: "1px", fontWeight: "600" },
               ],
-              // h1 in the tree — 18px 600 with the negative tracking the
-              // brief uses for hierarchy.
+              // h1 in the tree — 24px 600 with the negative tracking the
+              // brief uses for hierarchy. Bumped from 18px to restore the
+              // h1:body ratio (≈1.85) the detector flagged as flat.
               h1: [
-                "18px",
+                "24px",
                 {
-                  lineHeight: "24px",
+                  lineHeight: "28px",
                   letterSpacing: "-0.01em",
                   fontWeight: "600",
                 },
               ],
+              // rank-label — Raleway 13px 600 1px tracking (RANK badge).
+              // Bumped from 11px so the uppercase label stays legible.
               "rank-label": [
-                "11px",
+                "13px",
                 {
                   lineHeight: "16px",
                   letterSpacing: "0.1em",
