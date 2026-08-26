@@ -626,9 +626,10 @@ function renderDetailPanel() {
       "div",
       { class: "detail-header" },
       titleBlock,
-      el(
+el(
         "button",
         {
+          id: "close-detail",
           class:
             "material-symbols-outlined text-on-surface-variant hover:text-on-surface p-1 rounded",
           "data-action": "close-detail",

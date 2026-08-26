@@ -49,6 +49,7 @@ import {
 import { el } from "./dom.js";
 import { renderVersionBanner } from "./banner.js";
 import { renderHelp } from "./help.js";
+import { bootKeymap } from "./keymap.js";
 
 // Top-level render orchestrator. Called after any state mutation that
 // changes what the page should display. Re-renders every region; the
@@ -72,6 +73,11 @@ export function render() {
 }
 
 async function boot() {
+ // Global keyboard shortcuts (see web/keymap.js). Attached exactly once
+ // at boot — never re-attached on render() so the listener stays a
+ // single source of truth for key events.
+ bootKeymap();
+
  // Health check (best-effort; doesn't block render).
  try {
   const h = await api("/api/health");
