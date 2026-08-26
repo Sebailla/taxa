@@ -146,14 +146,22 @@ function renderCollapseAllButton() {
 // index.html ships with. Shared by mountFileExplorer / clearFileExplorer
 // / mountHelpView so the active
 // styling stays consistent.
+//
+// The Help button is a filled primary-color circle with white text —
+// it has its own visual identity and would become invisible if we
+// toggled text-primary on top of bg-primary (same color). Skip the
+// text/font toggles for it; aria-current still conveys active state
+// to assistive tech, and the user has already navigated to the help
+// page they clicked.
 function setActiveHeaderTab(activePath) {
   document.querySelectorAll("[data-path]").forEach((a) => {
     const isActive = a.dataset.path === activePath;
+    a.setAttribute("aria-current", isActive ? "page" : "false");
+    if (a.id === "nav-help") return;
     a.classList.toggle("text-primary", isActive);
     a.classList.toggle("font-bold", isActive);
     a.classList.toggle("text-on-surface-variant", !isActive);
     a.classList.toggle("font-medium", !isActive);
-    a.setAttribute("aria-current", isActive ? "page" : "false");
   });
 }
 
