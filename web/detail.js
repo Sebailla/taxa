@@ -12,7 +12,7 @@ import {
   previewMaterialize,
   materializeResearch,
 } from "./api.js";
-import { rankLabel } from "./format.js";
+import { rankLabel, scientificNameClass } from "./format.js";
 import { el, showToast } from "./dom.js";
 import { propagateMaterialized } from "./tree.js";
 import { SEARCH_ENGINES } from "./search_urls.js";
@@ -348,7 +348,7 @@ function renderDetailPanel() {
     badges,
     el(
       "h2",
-      { class: `font-display text-display ${extinctCls}` },
+      { class: `font-display text-display ${extinctCls} ${scientificNameClass(taxon.rank)}` },
       taxon.scientific_name,
     ),
   );
@@ -527,7 +527,7 @@ function renderDetailPanel() {
         "div",
         { class: "detail-item" },
         el("span", { class: "lang" }, s.rank),
-        el("span", null, s.scientific_name),
+        el("span", { class: scientificNameClass(s.rank) }, s.scientific_name),
       );
       if (s.authorship)
         item.append(el("span", { class: "authorship" }, s.authorship));

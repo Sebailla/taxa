@@ -204,14 +204,22 @@
         color: #ffffff;
       }
 
-      /* Rank badge — Raleway, 11px, 600, 1px tracking (H4 from brief) */
-      .rank-badge {
-        font-family: "Raleway", sans-serif;
-        font-size: 11px;
-        line-height: 1.4;
-        letter-spacing: 1px;
-        font-weight: 600;
-      }
+/* Rank badge — Raleway, 11px, 600, 1px tracking (H4 from brief) */
+          .rank-badge {
+            font-family: "Raleway", sans-serif;
+            font-size: 11px;
+            line-height: 1.4;
+            letter-spacing: 1px;
+            font-weight: 600;
+          }
+
+          /* Latin binomials — italic by ICZN convention for genus + below;
+             roman for higher ranks (domain, kingdom, phylum, class, order,
+             family, plus sub-ranks and tribe/subtribe). Higher ranks use the
+             .scientific-name--roman modifier; the base .scientific-name
+             rule defaults to italic. */
+          .scientific-name { font-style: italic; }
+          .scientific-name--roman { font-style: normal; }
 
       /* Detail panel — modern card with subtle layered shadow.
              The shadow is multi-layered (close + mid + far) so the card feels

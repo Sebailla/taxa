@@ -11,6 +11,30 @@ function rankLabel(rank) {
   return rank.charAt(0).toUpperCase() + rank.slice(1);
 }
 
+// ICZN convention: genus and below are italic; higher ranks (and any
+// rank we don't recognize) are roman. Sub-ranks follow their parent
+// (subgenus → italic, subfamily → roman, etc.).
+const ITALIC_RANKS = new Set([
+  "genus",
+  "subgenus",
+  "species",
+  "subspecies",
+  "variety",
+  "form",
+]);
+
+function isItalicRank(rank) {
+  return ITALIC_RANKS.has(rank);
+}
+
+// Returns the full class string for a scientific-name element. Defaults
+// to italic via the base .scientific-name rule; the --roman modifier
+// flips it back to roman for higher ranks. Centralizing this avoids
+// repeating the conditional at every render site.
+function scientificNameClass(rank) {
+  return `scientific-name${isItalicRank(rank) ? "" : " scientific-name--roman"}`;
+}
+
 // Latin plurals for the few ranks that don't follow English +s.
 // Most ranks pluralize the same as English; these don't.
 const RANK_PLURAL = {
@@ -94,7 +118,10 @@ export {
   rankPlural,
   statusDot,
   speciesCountBadge,
+  isItalicRank,
+  scientificNameClass,
   RANK_ORDER,
   RANK_PLURAL,
   RANK_INDEX,
+  ITALIC_RANKS,
 };

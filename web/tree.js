@@ -8,6 +8,7 @@ import {
   rankPlural,
   statusDot,
   speciesCountBadge,
+  scientificNameClass,
   RANK_INDEX,
 } from "./format.js";
 import { el } from "./dom.js";
@@ -88,7 +89,7 @@ function renderNodeRow(taxon, opts = {}) {
     ),
     el(
       "span",
-      { class: `${nameCls} truncate ${extinctCls}` },
+      { class: `${nameCls} truncate ${extinctCls} ${scientificNameClass(taxon.rank)}` },
       taxon.scientific_name,
     ),
     taxon.authorship
