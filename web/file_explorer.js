@@ -20,6 +20,7 @@
 
 import { state, API } from "./state.js";
 import { el } from "./dom.js";
+import { realmForFolderPath } from "./format.js";
 import * as fileViewer from "./file_viewer.js";
 
 // Per-mount abort controller. Stored at module scope so clear() can
@@ -124,16 +125,16 @@ function rerender() {
     : renderTreePaneEmpty();
   const viewerPane = renderViewerPane();
 
-      // Restore the user-resized tree width (if any) BEFORE attaching
-      // the splitter so the very first paint reflects the saved width.
-      // Also clear max-width so the saved width isn't capped by the CSS
-      // `max-width: min(60%, 50rem)` rule — once the user has dragged,
-      // we honor their explicit choice.
-      const savedWidth = readSavedTreeWidth();
-      if (savedWidth) {
-        treePane.style.width = savedWidth;
-        treePane.style.maxWidth = "none";
-      }
+  // Restore the user-resized tree width (if any) BEFORE attaching
+  // the splitter so the very first paint reflects the saved width.
+  // Also clear max-width so the saved width isn't capped by the CSS
+  // `max-width: min(60%, 50rem)` rule — once the user has dragged,
+  // we honor their explicit choice.
+  const savedWidth = readSavedTreeWidth();
+  if (savedWidth) {
+    treePane.style.width = savedWidth;
+    treePane.style.maxWidth = "none";
+  }
 
   _currentHost.replaceChildren(
     el("div", { class: "fex-shell" }, treePane, renderSplitter(), viewerPane),
@@ -422,39 +423,6 @@ function renderFileRow(node, depth) {
     openFile(node);
   });
   return row;
-}
-
-// Map a folder's relative path to the realm that should tint it.
-// The research layout is always <domain>/[kingdom]/<...> (see
-// server.py::_build_segments), so segment 0 is the domain and
-// segment 1 is the kingdom when the domain is Eukaryota. The strip
-// on each segment drops the `id-<n>_` prefix that _sanitize_segment
-// prepends when a scientific name sanitized to empty, so a folder
-// like "Eukaryota/id-7_Animalia/..." still matches "animalia".
-// Returns one of: "bacteria" | "archaea" | "viruses" | "animalia"
-// | "fungi" | "plantae" | "chromista" | "protozoa" | "other".
-// "other" covers Eukaryota without a recognized kingdom in segment 1
-// (e.g. "Eukaryota/Diaphoretickes/...") and anything whose first
-// segment is not one of the four known domains.
-function realmForFolderPath(path) {
-  if (!path) return "other";
-  const segments = String(path).split("/").filter(Boolean);
-  if (segments.length === 0) return "other";
-  const stripPrefix = (s) => s.replace(/^id-\d+_/i, "");
-  const domain = stripPrefix(segments[0]).toLowerCase();
-  if (domain === "bacteria") return "bacteria";
-  if (domain === "archaea") return "archaea";
-  if (domain === "viruses") return "viruses";
-  if (domain === "eukaryota" && segments.length >= 2) {
-    const kingdom = stripPrefix(segments[1]).toLowerCase();
-    if (kingdom.includes("animalia")) return "animalia";
-    if (kingdom.includes("fungi")) return "fungi";
-    if (kingdom.includes("plantae")) return "plantae";
-    if (kingdom.includes("chromista")) return "chromista";
-    if (kingdom.includes("protozoa")) return "protozoa";
-    return "other";
-  }
-  return "other";
 }
 
 // Map file extensions to Material Symbols icons. Falls back to a

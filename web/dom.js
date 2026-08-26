@@ -94,7 +94,7 @@ function waitForDetailReady(id) {
   });
 }
 
-// Tiny toast for action feedback (e.g. "Carpetas creadas en ./Research",
+// Tiny toast for action feedback (e.g. "Folders created in ./Research",
 // "Error: 404 not found"). Auto-dismisses after 4s by default. Calls in
 // quick succession replace the previous toast instead of stacking — useful
 // for click→click→click cycles where the user doesn't need to see every

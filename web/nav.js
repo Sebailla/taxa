@@ -128,29 +128,40 @@ function renderCollapseAllButton() {
 }
 
 // ------------------------------------------------------------------
-// Header navigation tabs (Browser / Classification / Settings)
+// Header navigation tabs (Browser / Classification / Settings / Help)
 // ------------------------------------------------------------------
-// The header carries three nav links (Browser / Classification / Settings),
-// each stamped with `data-path="<tab>"`. Clicking Browser mounts the file
-// explorer (if a taxon is selected) or the placeholder (if state.selected
-// is null). Clicking Classification or Settings clears the explorer and
-// restores the classification view. The Explorer module is imported lazily
-// inside the function body so nav.js can boot before file_explorer.js is
-// resolved — and so the same nav.js stays usable even if the explorer
-// fails to load (the classification path is untouched).
+// The header carries four nav links (Browser / Classification / Settings /
+// Help), each stamped with `data-path="<tab>"`. Clicking Browser mounts
+// the file explorer (if a taxon is selected) or the placeholder (if
+// state.selected is null). Clicking Help mounts the About / Help view
+// (web/help.js) into <main>. Clicking Classification or Settings clears
+// the explorer and restores the classification view. The Explorer and
+// Help modules are imported lazily inside the function body so nav.js
+// can boot before they're resolved — and so the same nav.js stays
+// usable even if either fails to load (the classification path is
+// untouched).
 
-// Highlight a single header tab (Browser / Classification / Settings) by
-// toggling the same primary-color + bold treatment the index.html ships
-// with. Shared by mountFileExplorer / clearFileExplorer so the active
+// Highlight a single header tab (Browser / Classification / Settings /
+// Help) by toggling the same primary-color + bold treatment the
+// index.html ships with. Shared by mountFileExplorer / clearFileExplorer
+// / mountHelpView so the active
 // styling stays consistent.
+//
+// The Help button is a filled primary-color circle with white text —
+// it has its own visual identity and would become invisible if we
+// toggled text-primary on top of bg-primary (same color). Skip the
+// text/font toggles for it; aria-current still conveys active state
+// to assistive tech, and the user has already navigated to the help
+// page they clicked.
 function setActiveHeaderTab(activePath) {
   document.querySelectorAll("[data-path]").forEach((a) => {
     const isActive = a.dataset.path === activePath;
+    a.setAttribute("aria-current", isActive ? "page" : "false");
+    if (a.id === "nav-help") return;
     a.classList.toggle("text-primary", isActive);
     a.classList.toggle("font-bold", isActive);
     a.classList.toggle("text-on-surface-variant", !isActive);
     a.classList.toggle("font-medium", !isActive);
-    a.setAttribute("aria-current", isActive ? "page" : "false");
   });
 }
 
@@ -231,6 +242,24 @@ async function mountFileExplorer(rootTaxonId) {
   await fileExplorer.mount(main, rootTaxonId);
 }
 
+// Mount the About / Help view into <main>. Mirrors mountFileExplorer's
+// shape — set the active header tab, drop any mounted Browser state,
+// then drive the render pipeline to paint the help shell.
+//
+// clearFileExplorer() always calls setActiveHeaderTab("classification"),
+// so we override to "help" AFTER it returns and BEFORE the final render()
+// so the `?` button carries the primary-color treatment on the second
+// pass. The two-pass render is intentional: the first render (inside
+// clearFileExplorer) needs a fresh classification shell to land in;
+// the second render (here) sees state.helpOpen=true and stamps help
+// content on top of that shell.
+async function mountHelpView() {
+  await clearFileExplorer();
+  state.helpOpen = true;
+  setActiveHeaderTab("help");
+  render();
+}
+
 // Drop the explorer state and listeners. Called when the user leaves the
 // Browser tab (Classification or Settings) so any in-flight fetches are
 // aborted and the right viewer is reset to a fresh empty placeholder.
@@ -309,7 +338,7 @@ document.addEventListener("click", async (e) => {
     // Species are leaves: just select, no expansion.
     selectTaxon(id);
   } else if (action === "open-searches") {
-    // Per-row search icon — selects the taxon and forces the Búsquedas
+    // Per-row search icon — selects the taxon and forces the Search
     // tab to be active. The icon's data-taxon-id carries the id; the
     // detail panel's tab state is set BEFORE selectTaxon so the
     // subsequent render() sees the right default.
@@ -318,22 +347,22 @@ document.addEventListener("click", async (e) => {
       10,
     );
     if (Number.isFinite(id)) {
-      state.activeTab[id] = "busquedas";
+      state.activeTab[id] = "searches";
       selectTaxon(id);
     }
     return;
-  } else if (action === "open-carpeta-tab") {
+  } else if (action === "open-folder-tab") {
     // Per-row folder icon (only rendered when the taxon's path is
     // already on disk — see tree.js). Opens the same detail panel
-    // the lupa opens, but on the "Carpeta" tab instead of
-    // "Búsquedas". Mirrors open-searches one-for-one: select the
+    // the lupa opens, but on the "Folder" tab instead of
+    // "Search". Mirrors open-searches one-for-one: select the
     // taxon, force the tab key, render.
     const id = parseInt(
       e.target.closest("[data-taxon-id]").dataset.taxonId,
       10,
     );
     if (!Number.isFinite(id)) return;
-    state.activeTab[id] = "carpeta";
+    state.activeTab[id] = "folder";
     selectTaxon(id);
     return;
   } else if (action === "select-from-search") {
@@ -406,10 +435,12 @@ document.addEventListener("click", async (e) => {
   } else if (action === "close-detail") {
     closeDetail();
   } else if (action === "nav-tab") {
-    // Header navigation (Browser / Classification / Settings). The
-    // data-path attribute on each link carries the tab key.
+    // Header navigation (Browser / Classification / Settings / Help).
+    // The data-path attribute on each link carries the tab key.
     //   - "browser" → mount the explorer (placeholder when no taxon
     //     is selected; otherwise fetch + render the tree).
+    //   - "help" → mount the About / Help view (drops any mounted
+    //     explorer first, then paints the help shell).
     //   - "classification" / "settings" → clear the explorer (drops
     //     listeners + aborts in-flight fetches) and restore the
     //     classification view via the normal render() pipeline.
@@ -422,8 +453,13 @@ document.addEventListener("click", async (e) => {
       } else {
         mountFileExplorer(id);
       }
+    } else if (tab === "help") {
+      mountHelpView();
     } else {
-      // Classification / Settings: drop the explorer if it was mounted.
+      // Classification / Settings: drop the explorer if it was mounted,
+      // and ensure the help shell is closed (mountHelpView sets the
+      // flag; the inverse path needs to clear it).
+      state.helpOpen = false;
       clearFileExplorer();
     }
     e.preventDefault();
@@ -456,8 +492,8 @@ document.addEventListener("click", (e) => {
   state.expanded.clear();
   state.showAll.clear();
   // Reset per-taxon tab memory so the new view's detail panel starts
-  // on Búsquedas (the spec'd default). Switching from freshwater to CoL
-  // shouldn't carry over a Búsquedas tab from a freshwater-selected taxon.
+  // on Search (the spec'd default). Switching from freshwater to CoL
+  // shouldn't carry over a Search tab from a freshwater-selected taxon.
   state.activeTab = {};
   // Clear focus + selection so the new view starts from a blank slate,
   // not with the previous view's node still highlighted in the breadcrumb

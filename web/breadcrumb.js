@@ -5,6 +5,7 @@
 
 import { state } from "./state.js";
 import { el } from "./dom.js";
+import { scientificNameClass } from "./format.js";
 
 function renderBreadcrumb() {
   const nav = document.querySelector("#breadcrumb");
@@ -70,14 +71,14 @@ function renderBreadcrumb() {
     );
     if (i === pathSegments.length - 1) {
       frag.append(
-        el("span", { class: "text-on-surface font-medium" }, seg.name),
+        el("span", { class: `text-on-surface font-medium ${scientificNameClass(seg.rank)}` }, seg.name),
       );
     } else {
       frag.append(
         el(
           "button",
           {
-            class: "hover:text-primary transition-colors",
+            class: `hover:text-primary transition-colors ${scientificNameClass(seg.rank)}`,
             "data-action": "focus-segment",
             "data-taxon-id": seg.id,
           },

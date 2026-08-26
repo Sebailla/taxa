@@ -4,7 +4,7 @@
 
 import { state } from "./state.js";
 import { api } from "./api.js";
-import { rankLabel } from "./format.js";
+import { rankLabel, scientificNameClass } from "./format.js";
 import { el } from "./dom.js";
 
 function renderSearchDropdown() {
@@ -44,7 +44,7 @@ function renderSearchDropdown() {
       el(
         "span",
         {
-          class: "font-body-md text-body-md text-on-surface truncate",
+          class: `font-body-md text-body-md text-on-surface truncate ${scientificNameClass(t.rank)}`,
         },
         t.scientific_name,
       ),

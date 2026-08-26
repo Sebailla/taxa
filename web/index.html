@@ -204,14 +204,22 @@
         color: #ffffff;
       }
 
-      /* Rank badge — Raleway, 11px, 600, 1px tracking (H4 from brief) */
-      .rank-badge {
-        font-family: "Raleway", sans-serif;
-        font-size: 11px;
-        line-height: 1.4;
-        letter-spacing: 1px;
-        font-weight: 600;
-      }
+/* Rank badge — Raleway, 11px, 600, 1px tracking (H4 from brief) */
+          .rank-badge {
+            font-family: "Raleway", sans-serif;
+            font-size: 11px;
+            line-height: 1.4;
+            letter-spacing: 1px;
+            font-weight: 600;
+          }
+
+          /* Latin binomials — italic by ICZN convention for genus + below;
+             roman for higher ranks (domain, kingdom, phylum, class, order,
+             family, plus sub-ranks and tribe/subtribe). Higher ranks use the
+             .scientific-name--roman modifier; the base .scientific-name
+             rule defaults to italic. */
+          .scientific-name { font-style: italic; }
+          .scientific-name--roman { font-style: normal; }
 
       /* Detail panel — modern card with subtle layered shadow.
              The shadow is multi-layered (close + mid + far) so the card feels
@@ -392,8 +400,8 @@
       }
 
       /* Detail panel tab strip — horizontal flex of tab buttons, one per
-                 available data section. Búsquedas is the default; Vernáculares,
-                 Sinónimos, Distribución are conditional on data presence.
+                 available data section. Search is the default; Vernaculars,
+                 Synonyms, Distribution are conditional on data presence.
                  Active tab gets a primary-color underline + primary text color
                  (matches the existing .tree-source-btn.active treatment so the
                  segmented-control language is consistent across the app). */
@@ -462,7 +470,7 @@
                      (in tree.js) so it stands out at a glance against
                      the rest of the row. Hover bumps to green-800.
                      Clicking always opens the detail panel on the
-                     Carpeta tab (which is the same modal the lupa
+                     Folder tab (which is the same modal the lupa
                      opens), so there's no disabled state to worry
                      about on the row icon itself. */
       .materialize-btn {
@@ -480,8 +488,8 @@
         background: var(--surface-container-low);
       }
 
-      /* Carpeta tab content — lives inside the detail panel's
-                     "Carpeta" tab. Reuses the line-by-line preview UI
+      /* Folder tab content — lives inside the detail panel's
+                     "Folder" tab. Reuses the line-by-line preview UI
                      that the previous standalone modal had, but
                      without the backdrop / card chrome (the detail
                      panel is the card now). The content wrapper is
@@ -659,7 +667,7 @@
         }
       }
 
-      /* Búsquedas tab content — 14 search-engine cards rendered as
+      /* Search tab content — 14 search-engine cards rendered as
                  a responsive grid. Each card stacks the engine icon on
                  top and the label below, so the user can scan all 14
                  engines at a glance. The grid auto-flows: as many
@@ -1056,10 +1064,49 @@
       .fex-row.folder[data-realm="plantae"] .fex-label {
         color: var(--realm-plantae);
       }
-      .fex-row.folder[data-realm="chromista"] .fex-icon,
-      .fex-row.folder[data-realm="chromista"] .fex-label {
-        color: var(--realm-chromista);
-      }
+          .fex-row.folder[data-realm="chromista"] .fex-icon,
+          .fex-row.folder[data-realm="chromista"] .fex-label {
+            color: var(--realm-chromista);
+          }
+          /* Realm tint for Classification tree rows — mirrors the Browser
+                     .fex-row pattern above. The Classification tree stamps
+                     data-realm on every <div id="taxon-..."> via tree.js;
+                     the hue goes on the .scientific-name span only (not the
+                     rank badge, not the meta block) so the rank tier stays
+                     legible while the Latin name picks up the domain / kingdom
+                     colour. Selected / focused rows override the realm hue
+                     with the primary colour so the active row stays the
+                     clearest signal on the page. Specificity is tied (two
+                     classes + one element) so the override below wins on
+                     source order alone. */
+          .tree-row[data-realm] .scientific-name {
+            color: var(--realm-other);
+          }
+          .tree-row[data-realm="bacteria"] .scientific-name {
+            color: var(--realm-bacteria);
+          }
+          .tree-row[data-realm="archaea"] .scientific-name {
+            color: var(--realm-archaea);
+          }
+          .tree-row[data-realm="viruses"] .scientific-name {
+            color: var(--realm-viruses);
+          }
+          .tree-row[data-realm="animalia"] .scientific-name {
+            color: var(--realm-animalia);
+          }
+          .tree-row[data-realm="fungi"] .scientific-name {
+            color: var(--realm-fungi);
+          }
+          .tree-row[data-realm="plantae"] .scientific-name {
+            color: var(--realm-plantae);
+          }
+          .tree-row[data-realm="chromista"] .scientific-name {
+            color: var(--realm-chromista);
+          }
+          .tree-row.selected .scientific-name,
+          .tree-row.focused .scientific-name {
+            color: var(--primary);
+          }
       .fex-row .fex-label {
         flex: 1;
         min-width: 0;
@@ -1298,13 +1345,16 @@
             href="#"
             >Settings</a
           >
-          <div
-            class="w-8 h-8 rounded-full bg-primary flex items-center justify-center ml-2"
+<a
+            id="nav-help"
+            data-action="nav-tab"
+            data-path="help"
+            class="ml-2 w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center font-semibold text-body-sm hover:opacity-90 transition-opacity"
+            href="#"
+            aria-label="Open About and Help"
+            title="About, data sources, keyboard shortcuts"
+            >?</a
           >
-            <span class="material-symbols-outlined text-on-primary text-[18px]"
-              >person</span
-            >
-          </div>
         </nav>
       </div>
     </header>
