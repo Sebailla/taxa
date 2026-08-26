@@ -258,6 +258,11 @@ async function mountHelpView() {
   state.helpOpen = true;
   setActiveHeaderTab("help");
   render();
+  // Push a tagged history entry so browser Back/Forward cycles through
+  // the Help view instead of skipping over it. The URL becomes .../#help
+  // so reload-on-#help can be detected at boot (see app.js). Flagged as
+  // a follow-up in PR #32's Risks section.
+  history.pushState({ view: "help" }, "", "#help");
 }
 
 // Drop the explorer state and listeners. Called when the user leaves the
@@ -536,6 +541,13 @@ document.addEventListener("click", async (e) => {
     //   - "classification" / "settings" → clear the explorer (drops
     //     listeners + aborts in-flight fetches) and restore the
     //     classification view via the normal render() pipeline.
+    //
+    // Each non-help branch also pushes a tagged history entry so
+    // browser Back/Forward can cycle through the view stack (paired
+    // with mountHelpView's { view: "help" } push). mountHelpView
+    // pushes its own entry internally; the rest push here so the URL
+    // hash drops back to the bare pathname (taxon-id hash is owned
+    // by selectTaxon, not this handler).
     const tab = e.target.closest("[data-action=nav-tab]").dataset.path;
     if (tab === "browser") {
       const id = state.selected;
@@ -545,6 +557,11 @@ document.addEventListener("click", async (e) => {
       } else {
         mountFileExplorer(id);
       }
+      history.pushState(
+        { view: "browser" },
+        "",
+        location.pathname + location.search,
+      );
     } else if (tab === "help") {
       mountHelpView();
     } else {
@@ -553,6 +570,11 @@ document.addEventListener("click", async (e) => {
       // flag; the inverse path needs to clear it).
       state.helpOpen = false;
       clearFileExplorer();
+      history.pushState(
+        { view: "classification" },
+        "",
+        location.pathname + location.search,
+      );
     }
     e.preventDefault();
   }
@@ -618,6 +640,7 @@ export {
   renderCollapseAllButton,
   mountFileExplorer,
   clearFileExplorer,
+  mountHelpView,
 };
 
 // `render()` is imported via a circular reference from app.js. It's only

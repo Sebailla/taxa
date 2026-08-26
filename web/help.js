@@ -116,16 +116,32 @@ export function renderHelp(host) {
         bulletList(dataSourceItems()),
       ),
 
-      // Keyboard map ----------------------------------------------------
-      el(
-        "section",
-        { class: "space-y-3" },
-        sectionHeading("Keyboard map"),
-        paragraph(
-          "No keyboard shortcuts wired yet. This is a future iteration; for now all actions are mouse-driven. The cookie-cutter candidates are /, Esc, ↑/↓ for tab navigation, and Ctrl+K for command palette.",
-          { muted: true },
-        ),
-      ),
+// Keyboard map ----------------------------------------------------
+          el(
+            "section",
+            { class: "space-y-3" },
+            sectionHeading("Keyboard map"),
+            bulletList([
+              el(
+                "span",
+                null,
+                el("strong", null, "/"),
+                " — focus the search input (skipped when already typing in a text field).",
+              ),
+              el(
+                "span",
+                null,
+                el("strong", null, "Esc"),
+                " — close the topmost open surface: help view, detail panel, or kebab menu.",
+              ),
+              el(
+                "span",
+                null,
+                el("strong", null, "↑ / ↓"),
+                " — when the detail panel is open, cycle through the visible tabs.",
+              ),
+            ]),
+          ),
 
       // Attribution -----------------------------------------------------
       el(

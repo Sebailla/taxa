@@ -909,6 +909,37 @@
         outline: 2px solid var(--primary);
         outline-offset: 2px;
       }
+
+      /* Focus visible — applied to all interactive surfaces for WCAG 2.4.7.
+         Use :focus-visible (not :focus) so mouse clicks don't show rings;
+         only keyboard navigation does. Matches the existing #search-input
+         and .search-engine-btn pattern.
+
+         Declared *after* the .kebab-trigger / .kebab-item rules above on
+         purpose: those set `outline: none` at the same specificity, so
+         source order is what re-enables the ring for them.
+
+         No `border-radius` here by design — the outline already follows
+         each element's own radius, and forcing a value would square off
+         #nav-help (rounded-full) and shrink the 8px radius on .tier-header
+         and .load-all while they are focused. */
+      .fex-row:focus-visible,
+      .fex-chevron:focus-visible,
+      .fex-splitter:focus-visible,
+      .tier-header:focus-visible,
+      .search-icon-btn:focus-visible,
+      .materialize-btn:focus-visible,
+      .load-all:focus-visible,
+      .kebab-trigger:focus-visible,
+      .kebab-item:focus-visible,
+      [data-action="nav-tab"]:focus-visible,
+      #nav-help:focus-visible,
+      #collapse-all:focus-visible,
+      button:focus-visible:not(:disabled):not(.search-engine-btn):not([data-tab]):not(.kebab-item):not(.kebab-trigger):not(.materialize-btn):not(.load-all):not(.search-icon-btn) {
+        outline: 2px solid var(--primary);
+        outline-offset: 2px;
+      }
+
       .search-engine-btn:active {
         transform: translateY(0);
         box-shadow: 0 1px 1px rgba(15, 23, 42, 0.04);
