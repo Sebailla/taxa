@@ -259,12 +259,11 @@
           0 1px 2px rgba(15, 23, 42, 0.04),
           0 4px 12px rgba(15, 23, 42, 0.06),
           0 12px 32px rgba(15, 23, 42, 0.04);
-        /* Keep the card from eating the whole viewport — scroll the
-               card's own content when a taxon has lots of vernaculars,
-               synonyms, or distribution entries. Otherwise the sticky
-               panel covers the tree and "center in remaining space"
-               becomes "center in zero space". */
-        max-height: min(560px, calc(100vh - 180px));
+        /* Sizes to content by default; caps at 90vh so a single tab's
+             content can't push the card off-screen on a small
+             viewport. overflow-y:auto kicks in past 90vh. */
+        height: auto;
+        max-height: 90vh;
         overflow-y: auto;
       }
       .detail-header {
@@ -660,141 +659,78 @@
         }
       }
 
-      /* Búsquedas tab content — 14 search-engine links rendered as a
-                 grid of button-like cards. Each card has the engine icon on
-                 top and the label underneath, so the user can scan all 14
-                 engines at a glance without scrolling a long list. The grid
-                 auto-flows: as many 120px-min columns as fit the panel width,
-                 then wraps. Hover shifts the bg to surface-container-low
-                 (same as the other detail-item hovers) so the visual
-                 language is consistent. */
-          /* Búsquedas tab layout — single-row strip of 14 engine chips
-                 plus an iframe viewer below. The strip stays in one row
-                 and overflows horizontally on narrow viewports; the
-                 viewer takes the remaining vertical space inside the
-                 detail card. */
-          .search-engines-tab {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            /* The viewer can get tall — let the parent detail card
-                 scroll rather than the strip itself, so the strip stays
-                 visible while the user scrolls through long result pages. */
-          }
-          .search-engines-strip {
-            display: flex;
-            flex-wrap: nowrap;
-            gap: 6px;
-            overflow-x: auto;
-            padding-bottom: 2px;
-            /* Hide scrollbar in WebKit while keeping scroll usable. */
-            scrollbar-width: thin;
-          }
-          .search-engine-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 12px;
-            border: 1px solid var(--outline-variant);
-            border-radius: 999px;
-            background: var(--surface);
-            color: var(--on-surface);
-            font-family: "Raleway", sans-serif;
-            font-size: 12px;
-            font-weight: 600;
-            line-height: 1.3;
-            white-space: nowrap;
-            cursor: pointer;
-            transition:
-              background-color 120ms ease-out,
-              border-color 120ms ease-out,
-              color 120ms ease-out;
-          }
-          .search-engine-btn:hover {
-            background: var(--surface-container-low);
-            border-color: var(--primary);
-            color: var(--primary);
-          }
-          .search-engine-btn.active {
-            background: var(--primary);
-            border-color: var(--primary);
-            color: #ffffff;
-          }
-          .search-engine-btn.active .material-symbols-outlined {
-            color: #ffffff;
-          }
-          .search-engine-btn .material-symbols-outlined {
-            font-size: 16px;
-            color: var(--primary);
-          }
-          .search-engine-btn:hover .material-symbols-outlined {
-            color: var(--primary);
-          }
-          .search-engine-btn-label {
-            /* Keep labels from being clipped by the rounded pill — the
-                 strip scrolls horizontally so wrapping is unnecessary. */
-          }
-          /* Viewer — title row + iframe. Fixed height so the detail
-                 card can still scroll independently on short viewports.
-                 Sandbox the iframe (see renderSearchesTab comment) so
-                 third-party scripts cannot navigate the top window. */
-          .search-engine-viewer {
-            display: flex;
-            flex-direction: column;
-            border: 1px solid var(--outline-variant);
-            border-radius: 8px;
-            overflow: hidden;
-            background: var(--surface);
-          }
-          .search-engine-viewer-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 8px;
-            padding: 6px 12px;
-            background: var(--surface-container-low);
-            border-bottom: 1px solid var(--outline-variant);
-            font-family: "Raleway", sans-serif;
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--on-surface);
-            min-height: 32px;
-          }
-          .search-engine-viewer-title {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-          }
-          .search-engine-viewer-extlink {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 4px 10px;
-            border-radius: 6px;
-            background: transparent;
-            border: 1px solid var(--outline-variant);
-            color: var(--on-surface);
-            text-decoration: none;
-            font-weight: 600;
-            cursor: pointer;
-            transition:
-              background-color 120ms ease-out,
-              border-color 120ms ease-out,
-              color 120ms ease-out;
-          }
-          .search-engine-viewer-extlink:hover {
-            background: var(--surface-container-low);
-            border-color: var(--primary);
-            color: var(--primary);
-          }
-          .search-engine-viewer-frame {
-            flex: 1;
-            width: 100%;
-            min-height: 420px;
-            height: 100%;
-            border: 0;
-            background: var(--surface);
-          }
+      /* Búsquedas tab content — 14 search-engine cards rendered as
+                 a responsive grid. Each card stacks the engine icon on
+                 top and the label below, so the user can scan all 14
+                 engines at a glance. The grid auto-flows: as many
+                 140px-min columns as fit the panel width, then wraps.
+                 Generous gap + subtle box-shadow give the cards a
+                 slightly lifted feel; hover lifts them further and
+                 tints the border / icon to the primary color. */
+      .search-engines-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 12px;
+        padding: 8px 4px 4px;
+      }
+      .search-engine-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 18px 12px;
+        min-height: 84px;
+        border: 1px solid var(--outline-variant);
+        border-radius: 12px;
+        background: var(--surface);
+        color: var(--on-surface);
+        text-decoration: none;
+        font-family: "Raleway", sans-serif;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.3;
+        text-align: center;
+        cursor: pointer;
+        box-shadow:
+          0 1px 1px rgba(15, 23, 42, 0.03),
+          0 2px 6px rgba(15, 23, 42, 0.04);
+        transition:
+          transform 180ms cubic-bezier(0.2, 0.7, 0.3, 1.2),
+          box-shadow 180ms ease-out,
+          border-color 180ms ease-out,
+          background-color 180ms ease-out,
+          color 180ms ease-out;
+      }
+      .search-engine-btn:hover {
+        transform: translateY(-2px);
+        background: var(--surface-container-low);
+        border-color: var(--primary);
+        color: var(--primary);
+        box-shadow:
+          0 2px 4px rgba(15, 23, 42, 0.04),
+          0 8px 16px rgba(15, 23, 42, 0.08);
+      }
+      .search-engine-btn:focus-visible {
+        outline: 2px solid var(--primary);
+        outline-offset: 2px;
+      }
+      .search-engine-btn:active {
+        transform: translateY(0);
+        box-shadow: 0 1px 1px rgba(15, 23, 42, 0.04);
+      }
+      .search-engine-btn .material-symbols-outlined {
+        font-size: 22px;
+        color: var(--primary);
+        transition: transform 180ms cubic-bezier(0.2, 0.7, 0.3, 1.2);
+      }
+      .search-engine-btn:hover .material-symbols-outlined {
+        transform: scale(1.08);
+      }
+      .search-engine-btn-label {
+        /* Inside the card; nothing special — here for clarity if
+                 the card layout ever needs to target the label only. */
+      }
 
       /* scroll-margin-top reserves the space taken by the sticky header,
              breadcrumb, and detail card so scrollIntoView({block: "center"})
