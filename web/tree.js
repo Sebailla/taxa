@@ -9,6 +9,7 @@ import {
   statusDot,
   speciesCountBadge,
   scientificNameClass,
+  realmForFolderPath,
   RANK_INDEX,
 } from "./format.js";
 import { el } from "./dom.js";
@@ -211,13 +212,21 @@ function renderNodeRow(taxon, opts = {}) {
       : null,
   );
 
+  // Realm tint — the Classification tree mirrors the Browser folder
+  // tint: every row carries data-realm so the CSS in index.html can
+  // color .scientific-name per domain / kingdom. Same path encoding
+  // (taxonomic backbone == Browser folder paths), so the helper from
+  // format.js works for both views. "other" fallback prevents
+  // data-realm="" which CSS attribute selectors won't match.
+  const realm = realmForFolderPath(taxon.path || "");
   return el(
     "div",
     {
       id: `taxon-${taxon.id}`,
-      class: `group flex items-center w-full px-4 py-row-padding-y ${cls} relative`,
+      class: `tree-row group flex items-center w-full px-4 py-row-padding-y ${cls} relative`,
       "data-taxon-id": taxon.id,
       "data-action": action,
+      "data-realm": realm || "other",
       style: `padding-left: ${16 + indentPx}px;`,
     },
     el(
@@ -367,12 +376,18 @@ function renderTree() {
 // logic (selected vs focused vs default; depth tier for the name class)
 // stays readable. Each helper returns the Tailwind class string for one
 // visual dimension; renderNodeRow concatenates them with template literals.
+//
+// `selected` and `focused` are stable class names (NOT Tailwind utilities)
+// so the realm-tint CSS in index.html can override the .scientific-name
+// color when a row is selected or focused — the realm hue would
+// otherwise fight the primary-color treatment that the Tailwind
+// `text-primary` class already applies.
 function rowClassFor(isSelected, isFocused) {
   if (isSelected) {
-    return "bg-primary/5 border-l-[3px] border-primary rounded-r-lg cursor-pointer";
+    return "selected bg-primary/5 border-l-[3px] border-primary rounded-r-lg cursor-pointer";
   }
   if (isFocused) {
-    return "bg-surface-container-low border-l-[3px] border-outline rounded-r-lg cursor-pointer";
+    return "focused bg-surface-container-low border-l-[3px] border-outline rounded-r-lg cursor-pointer";
   }
   return "hover:bg-surface-container-low transition-colors rounded-r-lg cursor-pointer";
 }

@@ -61,6 +61,43 @@ function rankPlural(rank) {
   return RANK_PLURAL[rank] || rankLabel(rank) + "s";
 }
 
+// Map a folder's relative path to the realm that should tint it.
+// The research layout is always <domain>/[kingdom]/<...> (see
+// server.py::_build_segments), so segment 0 is the domain and
+// segment 1 is the kingdom when the domain is Eukaryota. The strip
+// on each segment drops the `id-<n>_` prefix that _sanitize_segment
+// prepends when a scientific name sanitized to empty, so a folder
+// like "Eukaryota/id-7_Animalia/..." still matches "animalia".
+// Returns one of: "bacteria" | "archaea" | "viruses" | "animalia"
+// | "fungi" | "plantae" | "chromista" | "protozoa" | "other".
+// "other" covers Eukaryota without a recognized kingdom in segment 1
+// (e.g. "Eukaryota/Diaphoretickes/...") and anything whose first
+// segment is not one of the four known domains.
+//
+// Lives in format.js (not file_explorer.js) because the Classification
+// tree in tree.js also needs it — both views share the same path-based
+// realm encoding (Browser folder paths == taxonomic backbone paths).
+function realmForFolderPath(path) {
+  if (!path) return "other";
+  const segments = String(path).split("/").filter(Boolean);
+  if (segments.length === 0) return "other";
+  const stripPrefix = (s) => s.replace(/^id-\d+_/i, "");
+  const domain = stripPrefix(segments[0]).toLowerCase();
+  if (domain === "bacteria") return "bacteria";
+  if (domain === "archaea") return "archaea";
+  if (domain === "viruses") return "viruses";
+  if (domain === "eukaryota" && segments.length >= 2) {
+    const kingdom = stripPrefix(segments[1]).toLowerCase();
+    if (kingdom.includes("animalia")) return "animalia";
+    if (kingdom.includes("fungi")) return "fungi";
+    if (kingdom.includes("plantae")) return "plantae";
+    if (kingdom.includes("chromista")) return "chromista";
+    if (kingdom.includes("protozoa")) return "protozoa";
+    return "other";
+  }
+  return "other";
+}
+
 function statusDot(status) {
   if (status === "accepted")
     return el("span", {
@@ -120,6 +157,7 @@ export {
   speciesCountBadge,
   isItalicRank,
   scientificNameClass,
+  realmForFolderPath,
   RANK_ORDER,
   RANK_PLURAL,
   RANK_INDEX,

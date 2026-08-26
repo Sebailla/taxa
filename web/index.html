@@ -1064,10 +1064,49 @@
       .fex-row.folder[data-realm="plantae"] .fex-label {
         color: var(--realm-plantae);
       }
-      .fex-row.folder[data-realm="chromista"] .fex-icon,
-      .fex-row.folder[data-realm="chromista"] .fex-label {
-        color: var(--realm-chromista);
-      }
+          .fex-row.folder[data-realm="chromista"] .fex-icon,
+          .fex-row.folder[data-realm="chromista"] .fex-label {
+            color: var(--realm-chromista);
+          }
+          /* Realm tint for Classification tree rows — mirrors the Browser
+                     .fex-row pattern above. The Classification tree stamps
+                     data-realm on every <div id="taxon-..."> via tree.js;
+                     the hue goes on the .scientific-name span only (not the
+                     rank badge, not the meta block) so the rank tier stays
+                     legible while the Latin name picks up the domain / kingdom
+                     colour. Selected / focused rows override the realm hue
+                     with the primary colour so the active row stays the
+                     clearest signal on the page. Specificity is tied (two
+                     classes + one element) so the override below wins on
+                     source order alone. */
+          .tree-row[data-realm] .scientific-name {
+            color: var(--realm-other);
+          }
+          .tree-row[data-realm="bacteria"] .scientific-name {
+            color: var(--realm-bacteria);
+          }
+          .tree-row[data-realm="archaea"] .scientific-name {
+            color: var(--realm-archaea);
+          }
+          .tree-row[data-realm="viruses"] .scientific-name {
+            color: var(--realm-viruses);
+          }
+          .tree-row[data-realm="animalia"] .scientific-name {
+            color: var(--realm-animalia);
+          }
+          .tree-row[data-realm="fungi"] .scientific-name {
+            color: var(--realm-fungi);
+          }
+          .tree-row[data-realm="plantae"] .scientific-name {
+            color: var(--realm-plantae);
+          }
+          .tree-row[data-realm="chromista"] .scientific-name {
+            color: var(--realm-chromista);
+          }
+          .tree-row.selected .scientific-name,
+          .tree-row.focused .scientific-name {
+            color: var(--primary);
+          }
       .fex-row .fex-label {
         flex: 1;
         min-width: 0;
