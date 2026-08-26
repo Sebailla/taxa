@@ -124,16 +124,16 @@ function rerender() {
     : renderTreePaneEmpty();
   const viewerPane = renderViewerPane();
 
-      // Restore the user-resized tree width (if any) BEFORE attaching
-      // the splitter so the very first paint reflects the saved width.
-      // Also clear max-width so the saved width isn't capped by the CSS
-      // `max-width: min(60%, 50rem)` rule — once the user has dragged,
-      // we honor their explicit choice.
-      const savedWidth = readSavedTreeWidth();
-      if (savedWidth) {
-        treePane.style.width = savedWidth;
-        treePane.style.maxWidth = "none";
-      }
+  // Restore the user-resized tree width (if any) BEFORE attaching
+  // the splitter so the very first paint reflects the saved width.
+  // Also clear max-width so the saved width isn't capped by the CSS
+  // `max-width: min(60%, 50rem)` rule — once the user has dragged,
+  // we honor their explicit choice.
+  const savedWidth = readSavedTreeWidth();
+  if (savedWidth) {
+    treePane.style.width = savedWidth;
+    treePane.style.maxWidth = "none";
+  }
 
   _currentHost.replaceChildren(
     el("div", { class: "fex-shell" }, treePane, renderSplitter(), viewerPane),
