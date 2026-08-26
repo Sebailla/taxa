@@ -79,20 +79,35 @@ function buildDetailSection(icon, title, count, items) {
     // Render the Búsquedas tab: a single horizontal strip of 14 search-engine
     // buttons plus an inline iframe viewer below that loads the selected
     // engine's results in place — no new tab. The strip stays in one row
-    // (overflow-x: auto on narrow viewports) and the iframe below is the
+    // (overflow-x: auto on narrow viewports) and the viewer below is the
     // single source of truth for the current results.
     //
-    // Many search engines set X-Frame-Options / CSP frame-ancestors and
-    // refuse to render inside an iframe (Google, Scholar, Bing, etc.). The
-    // viewer header always exposes an "Abrir en nueva pestaña ↗" link so
-    // the user has a working escape hatch when the iframe is blank; we
-    // intentionally do NOT try to detect the block — it's silently
-    // enforced by the browser and not worth the complexity.
+    // Iframe-blocked engines (Google family, Wikipedia, ResearchGate,
+    // Academia.edu, YouTube/Scribd search URLs) refuse to render via
+    // X-Frame-Options: SAMEORIGIN / DENY or CSP frame-ancestors. For
+    // those we skip the iframe entirely and show a friendly fallback
+    // card with the external link prominently — no broken-error-page
+    // iframe. The block is enforced by the browser, NOT detectable
+    // reliably from JS (the iframe's onload fires either way), so we
+    // curate the list instead of trying to detect.
     //
     // URLs come pre-composed from the server (urllib.parse.quote_plus);
     // the icon glyph + label come from the local SEARCH_ENGINES table as
     // a fallback (offline / 5xx case). The server response is the source
     // of truth for the URL itself.
+    const IFRAME_BLOCKED_ENGINES = new Set([
+      "google",       // web search (X-Frame-Options: SAMEORIGIN)
+      "imagen",       // google images
+      "documentos",   // google file-type search
+      "pdf",          // google pdf search
+      "scholar",      // google scholar
+      "wikipedia",    // anti-clickjacking sameorigin
+      "researchgate", // blocks third-party frames
+      "academia",     // blocks third-party frames
+      "youtube",      // search URL (only /embed/ URLs are allowed)
+      "scribd",       // search URL (only /embeds/ URLs are allowed)
+    ]);
+
     function renderSearchesTab(searches) {
       if (!searches || searches.length === 0) {
         return el(
@@ -116,9 +131,17 @@ function buildDetailSection(icon, title, count, items) {
         referrerpolicy: "no-referrer",
         title: "Search engine results",
       });
-      const viewer = el("div", { class: "search-engine-viewer" }, header, iframe);
+      // Fallback body — stays in the DOM alongside the iframe; only one
+      // is visible at a time (see activate()). Keeping both mounted
+      // avoids the DOM-swap gymnastics of replaceWith and makes
+      // back-and-forth toggling instant.
+      const fallback = el("div", {
+        class: "search-engine-blocked",
+        hidden: true,
+      });
+      const viewer = el("div", { class: "search-engine-viewer" }, header, iframe, fallback);
 
-      const buttons = searches.map((s, i) => {
+      const buttons = searches.map((s) => {
         const engine = SEARCH_ENGINES.find((e) => e.key === s.engine);
         const icon = engine ? engine.icon : "search";
         const btn = el(
@@ -127,7 +150,9 @@ function buildDetailSection(icon, title, count, items) {
             type: "button",
             class: "search-engine-btn",
             "data-engine": s.engine,
-            title: `${s.label} — abrir dentro del panel`,
+            title: IFRAME_BLOCKED_ENGINES.has(s.engine)
+              ? `${s.label} — abrir en nueva pestaña (no permite iframe)`
+              : `${s.label} — abrir dentro del panel`,
           },
           el("span", { class: "material-symbols-outlined" }, icon),
           el("span", { class: "search-engine-btn-label" }, s.label),
@@ -161,9 +186,54 @@ function buildDetailSection(icon, title, count, items) {
             el("span", null, "Abrir en nueva pestaña"),
           ),
         );
-        // Re-set src (not just reassign) so the iframe actually reloads
-        // even when the user clicks the same button twice.
-        iframe.src = s.url;
+        const blocked = IFRAME_BLOCKED_ENGINES.has(s.engine);
+        if (blocked) {
+          fallback.replaceChildren(
+            el(
+              "div",
+              { class: "search-engine-blocked-icon material-symbols-outlined" },
+              "open_in_new",
+            ),
+            el(
+              "div",
+              { class: "search-engine-blocked-body" },
+              el(
+                "div",
+                { class: "search-engine-blocked-title" },
+                `${s.label} no permite incrustar resultados en otra web.`,
+              ),
+              el(
+                "div",
+                { class: "search-engine-blocked-detail" },
+                "Abrí los resultados en una pestaña nueva para verlos completos.",
+              ),
+              el(
+                "a",
+                {
+                  href: s.url,
+                  target: "_blank",
+                  rel: "noopener noreferrer",
+                  class: "search-engine-blocked-cta",
+                  title: `Abrir ${s.label} en una pestaña nueva`,
+                },
+                el(
+                  "span",
+                  { class: "material-symbols-outlined text-[16px]" },
+                  "open_in_new",
+                ),
+                el("span", null, `Abrir ${s.label}`),
+              ),
+            ),
+          );
+          fallback.hidden = false;
+          iframe.hidden = true;
+        } else {
+          // Setting src on an already-mounted iframe forces a reload
+          // even when the same engine is clicked twice.
+          iframe.src = s.url;
+          iframe.hidden = false;
+          fallback.hidden = true;
+        }
       }
 
       // Open the first engine by default so the viewer is never empty.
