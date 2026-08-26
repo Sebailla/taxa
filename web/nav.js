@@ -128,20 +128,23 @@ function renderCollapseAllButton() {
 }
 
 // ------------------------------------------------------------------
-// Header navigation tabs (Browser / Classification / Settings)
+// Header navigation tabs (Browser / Classification / Settings / Help)
 // ------------------------------------------------------------------
-// The header carries three nav links (Browser / Classification / Settings),
-// each stamped with `data-path="<tab>"`. Clicking Browser mounts the file
-// explorer (if a taxon is selected) or the placeholder (if state.selected
-// is null). Clicking Classification or Settings clears the explorer and
-// restores the classification view. The Explorer module is imported lazily
-// inside the function body so nav.js can boot before file_explorer.js is
-// resolved — and so the same nav.js stays usable even if the explorer
-// fails to load (the classification path is untouched).
+// The header carries four nav links (Browser / Classification / Settings /
+// Help), each stamped with `data-path="<tab>"`. Clicking Browser mounts
+// the file explorer (if a taxon is selected) or the placeholder (if
+// state.selected is null). Clicking Help mounts the About / Help view
+// (web/help.js) into <main>. Clicking Classification or Settings clears
+// the explorer and restores the classification view. The Explorer and
+// Help modules are imported lazily inside the function body so nav.js
+// can boot before they're resolved — and so the same nav.js stays
+// usable even if either fails to load (the classification path is
+// untouched).
 
-// Highlight a single header tab (Browser / Classification / Settings) by
-// toggling the same primary-color + bold treatment the index.html ships
-// with. Shared by mountFileExplorer / clearFileExplorer so the active
+// Highlight a single header tab (Browser / Classification / Settings /
+// Help) by toggling the same primary-color + bold treatment the
+// index.html ships with. Shared by mountFileExplorer / clearFileExplorer
+// / mountHelpView so the active
 // styling stays consistent.
 function setActiveHeaderTab(activePath) {
   document.querySelectorAll("[data-path]").forEach((a) => {
@@ -229,6 +232,24 @@ async function mountFileExplorer(rootTaxonId) {
   // nav.js uses for dom.js avoids module-init ordering bugs).
   const fileExplorer = await import("./file_explorer.js");
   await fileExplorer.mount(main, rootTaxonId);
+}
+
+// Mount the About / Help view into <main>. Mirrors mountFileExplorer's
+// shape — set the active header tab, drop any mounted Browser state,
+// then drive the render pipeline to paint the help shell.
+//
+// clearFileExplorer() always calls setActiveHeaderTab("classification"),
+// so we override to "help" AFTER it returns and BEFORE the final render()
+// so the `?` button carries the primary-color treatment on the second
+// pass. The two-pass render is intentional: the first render (inside
+// clearFileExplorer) needs a fresh classification shell to land in;
+// the second render (here) sees state.helpOpen=true and stamps help
+// content on top of that shell.
+async function mountHelpView() {
+  await clearFileExplorer();
+  state.helpOpen = true;
+  setActiveHeaderTab("help");
+  render();
 }
 
 // Drop the explorer state and listeners. Called when the user leaves the
@@ -406,10 +427,12 @@ document.addEventListener("click", async (e) => {
   } else if (action === "close-detail") {
     closeDetail();
   } else if (action === "nav-tab") {
-    // Header navigation (Browser / Classification / Settings). The
-    // data-path attribute on each link carries the tab key.
+    // Header navigation (Browser / Classification / Settings / Help).
+    // The data-path attribute on each link carries the tab key.
     //   - "browser" → mount the explorer (placeholder when no taxon
     //     is selected; otherwise fetch + render the tree).
+    //   - "help" → mount the About / Help view (drops any mounted
+    //     explorer first, then paints the help shell).
     //   - "classification" / "settings" → clear the explorer (drops
     //     listeners + aborts in-flight fetches) and restore the
     //     classification view via the normal render() pipeline.
@@ -422,8 +445,13 @@ document.addEventListener("click", async (e) => {
       } else {
         mountFileExplorer(id);
       }
+    } else if (tab === "help") {
+      mountHelpView();
     } else {
-      // Classification / Settings: drop the explorer if it was mounted.
+      // Classification / Settings: drop the explorer if it was mounted,
+      // and ensure the help shell is closed (mountHelpView sets the
+      // flag; the inverse path needs to clear it).
+      state.helpOpen = false;
       clearFileExplorer();
     }
     e.preventDefault();

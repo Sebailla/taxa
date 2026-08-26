@@ -48,12 +48,23 @@ import {
 } from "./nav.js";
 import { el } from "./dom.js";
 import { renderVersionBanner } from "./banner.js";
+import { renderHelp } from "./help.js";
 
 // Top-level render orchestrator. Called after any state mutation that
 // changes what the page should display. Re-renders every region; the
 // cost is fine for the 5.4M-row dataset because the visible tree is
 // bounded by state.expanded + PAGE_SIZE.
+//
+// When state.helpOpen is true, the About / Help view takes over <main>
+// and the classification renderers (tree / breadcrumb / detail) are
+// skipped — there's nothing to render under help mode, and calling them
+// would re-stamp the classification shell on top of the help view.
 export function render() {
+ if (state.helpOpen) {
+  const main = document.querySelector("main > div");
+  if (main) renderHelp(main);
+  return;
+ }
  renderTree();
  renderBreadcrumb();
  renderCollapseAllButton();

@@ -41,6 +41,14 @@ const state = {
   // next /api/taxon/{id}/children round trip.
   materialized: new Set(),
 
+  // Help/About view flag. True after the user clicks the `?` header tab;
+  // false when they navigate back to Classification / Settings / Browser.
+  // render() checks this first and routes to renderHelp() instead of the
+  // normal tree render pipeline. Reset by the nav-tab handler's
+  // classification / settings branch so re-entering those tabs always
+  // drops the help shell out of <main>.
+  helpOpen: false,
+
   // File explorer (Browser tab). Owns the recursive tree fetched via
   // GET /api/taxon/{id}/files plus the currently-opened file + format
   // + viewer-tab state. Selection state (which file/folder row is
