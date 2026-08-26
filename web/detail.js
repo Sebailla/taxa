@@ -20,7 +20,7 @@ import {
 } from "./format.js";
 import { el, showToast } from "./dom.js";
 import { propagateMaterialized } from "./tree.js";
-import { SEARCH_ENGINES } from "./search_urls.js";
+import { SEARCH_ENGINES, CATEGORIES } from "./search_urls.js";
 
 async function loadDetail(id) {
   state.detailLoading = true;
@@ -303,11 +303,15 @@ function renderOverview(taxon) {
 // SEARCH_ENGINES table as a fallback (offline / 5xx case). The server
 // response is the source of truth for the URL itself.
 //
-// Layout: 14 button-like cards in a CSS grid (auto-fill, 120px min).
-// Each card has the engine icon on top and the label underneath so the
-// user can scan all 14 at a glance. No arrow suffix — the icon
-// communicates "open in new tab" via the standard browser link
-// behaviour (target="_blank" on the <a>).
+// Layout (P1 #3): engines are grouped by category so first-time users
+// can tell which engines target taxonomic literature vs. general web.
+// Categories render as full-width section headers inside the same
+// single CSS grid (.search-engines-grid remains display:grid; the
+// headers use grid-column: 1 / -1 to span every column so each
+// category's buttons flow into the next row). Order: CATEGORIES order
+// drives section order; within a section, engines keep their order
+// from SEARCH_ENGINES. Categories without engines in the response are
+// skipped silently (defensive — the server always returns all 14).
 function renderSearchesTab(searches) {
   if (!searches || searches.length === 0) {
     return el(
@@ -318,23 +322,57 @@ function renderSearchesTab(searches) {
       "No search links available for this taxon.",
     );
   }
-  const items = searches.map((s) => {
-    const engine = SEARCH_ENGINES.find((e) => e.key === s.engine);
-    const icon = engine ? engine.icon : "search";
-    return el(
-      "a",
-      {
-        href: s.url,
-        target: "_blank",
-        rel: "noopener",
-        class: "search-engine-btn",
-        title: `Open ${s.label} search for this taxon in a new tab`,
-      },
-      el("span", { class: "material-symbols-outlined" }, icon),
-      el("span", null, s.label),
-    );
-  });
-  return el("div", { class: "search-engines-grid" }, ...items);
+  // Build a {key: engine} lookup once so the inner loop is O(1).
+  const engineByKey = new Map(SEARCH_ENGINES.map((e) => [e.key, e]));
+  // Index the response by engine key — the server may not return all
+  // 14, and the client never knows which keys map to which response
+  // entries (the server is the source of truth for URLs).
+  const children = [];
+  for (const cat of CATEGORIES) {
+    let emittedHeader = false;
+    for (const e of SEARCH_ENGINES) {
+      if (e.category !== cat.key) continue;
+      const s = searches.find((row) => row.engine === e.key);
+      if (!s) continue;
+      if (!emittedHeader) {
+        children.push(
+          el(
+            "div",
+            {
+              class: "search-category-header",
+              "data-category": cat.key,
+            },
+            el(
+              "span",
+              { class: "material-symbols-outlined" },
+              cat.icon,
+            ),
+            el("span", null, cat.label),
+          ),
+        );
+        emittedHeader = true;
+      }
+      const meta = engineByKey.get(s.engine);
+      const icon = meta ? meta.icon : "search";
+      children.push(
+        el(
+          "a",
+          {
+            href: s.url,
+            target: "_blank",
+            rel: "noopener",
+            class: "search-engine-btn",
+            "data-engine-key": s.engine,
+            "data-category": cat.key,
+            title: `Open ${s.label} search for this taxon in a new tab`,
+          },
+          el("span", { class: "material-symbols-outlined" }, icon),
+          el("span", null, s.label),
+        ),
+      );
+    }
+  }
+  return el("div", { class: "search-engines-grid" }, ...children);
 }
 
 // Render the Folder tab content — the line-by-line preview of the
