@@ -76,108 +76,113 @@ function buildDetailSection(icon, title, count, items) {
   );
 }
 
-    // Render the Búsquedas tab: a single horizontal strip of 14 search-engine
-    // buttons plus an inline iframe viewer below that loads the selected
-    // engine's results in place — no new tab. The strip stays in one row
-    // (overflow-x: auto on narrow viewports) and the viewer below is the
-    // single source of truth for the current results.
-    //
-    // Every engine (Google included) is loaded through the server-side
-    // `/api/search/proxy` endpoint, which fetches the URL with a
-    // headless Chromium instance and returns the post-JS HTML. This
-    // sidesteps `X-Frame-Options: SAMEORIGIN` / `CSP frame-ancestors`
-    // because the iframe now points at same-origin and the upstream's
-    // restrictive headers never reach the browser. Engines that still
-    // show a CAPTCHA wall (Google on first request) get solved inline
-    // because cookies now live on our server-side browser context.
-    //
-    // URLs come pre-composed from the server (urllib.parse.quote_plus);
-    // the icon glyph + label come from the local SEARCH_ENGINES table as
-    // a fallback (offline / 5xx case). The server response is the source
-    // of truth for the URL itself.
-    function renderSearchesTab(searches) {
-      if (!searches || searches.length === 0) {
-        return el(
-          "div",
-          {
-            class: "text-body-sm text-on-surface-variant px-2 py-4 text-center",
-          },
-          "No search links available for this taxon.",
-        );
-      }
+// Render the Búsquedas tab: a single horizontal strip of 14 search-engine
+// buttons plus an inline iframe viewer below that loads the selected
+// engine's results in place — no new tab. The strip stays in one row
+// (overflow-x: auto on narrow viewports) and the viewer below is the
+// single source of truth for the current results.
+//
+// Every engine (Google included) is loaded through the server-side
+// `/api/search/proxy` endpoint, which fetches the URL with a
+// headless Chromium instance and returns the post-JS HTML. This
+// sidesteps `X-Frame-Options: SAMEORIGIN` / `CSP frame-ancestors`
+// because the iframe now points at same-origin and the upstream's
+// restrictive headers never reach the browser. Engines that still
+// show a CAPTCHA wall (Google on first request) get solved inline
+// because cookies now live on our server-side browser context.
+//
+// URLs come pre-composed from the server (urllib.parse.quote_plus);
+// the icon glyph + label come from the local SEARCH_ENGINES table as
+// a fallback (offline / 5xx case). The server response is the source
+// of truth for the URL itself.
+function renderSearchesTab(searches) {
+  if (!searches || searches.length === 0) {
+    return el(
+      "div",
+      {
+        class: "text-body-sm text-on-surface-variant px-2 py-4 text-center",
+      },
+      "No search links available for this taxon.",
+    );
+  }
 
-      const strip = el("div", { class: "search-engines-strip" });
-      const header = el("div", {
-        class: "search-engine-viewer-header",
-      });
-      const iframe = el("iframe", {
-        class: "search-engine-viewer-frame",
-        // sandbox strips top-level navigation + popups; the engine still
-        // runs scripts and forms inside the frame, just can't escape.
-        // `allow-same-origin` is intentionally omitted so the proxied
-        // page can't read our app's cookies/storage — it runs in an
-        // opaque origin instead.
-        sandbox: "allow-scripts allow-forms allow-popups",
-        referrerpolicy: "no-referrer",
-        title: "Search engine results",
-      });
-      const viewer = el("div", { class: "search-engine-viewer" }, header, iframe);
+  const strip = el("div", { class: "search-engines-strip" });
+  const header = el("div", {
+    class: "search-engine-viewer-header",
+  });
+  const iframe = el("iframe", {
+    class: "search-engine-viewer-frame",
+    // Sandbox flags — `allow-scripts` + `allow-forms` so the
+    // engine can run its JS + render forms; `allow-same-origin`
+    // so internal CAPTCHAs (which use nested iframes + click
+    // handlers) work — without it the sandbox gives the page
+    // an opaque origin and click events silently fail.
+    // `allow-popups` is omitted so the proxied page can't open
+    // a new window to escape the iframe.
+    // Security note: the app is single-user with no auth cookies,
+    // so giving the proxied content same-origin access only
+    // exposes the proxy endpoint itself (no user data).
+    sandbox: "allow-scripts allow-forms allow-same-origin",
+    referrerpolicy: "no-referrer",
+    title: "Search engine results",
+  });
+  const viewer = el("div", { class: "search-engine-viewer" }, header, iframe);
 
-      const buttons = searches.map((s) => {
-        const engine = SEARCH_ENGINES.find((e) => e.key === s.engine);
-        const icon = engine ? engine.icon : "search";
-        const btn = el(
-          "button",
-          {
-            type: "button",
-            class: "search-engine-btn",
-            "data-engine": s.engine,
-            title: `${s.label} — abrir dentro del panel`,
-          },
-          el("span", { class: "material-symbols-outlined" }, icon),
-          el("span", { class: "search-engine-btn-label" }, s.label),
-        );
-        btn.addEventListener("click", () => activate(s, btn));
-        strip.append(btn);
-        return btn;
-      });
+  const buttons = searches.map((s) => {
+    const engine = SEARCH_ENGINES.find((e) => e.key === s.engine);
+    const icon = engine ? engine.icon : "search";
+    const btn = el(
+      "button",
+      {
+        type: "button",
+        class: "search-engine-btn",
+        "data-engine": s.engine,
+        title: `${s.label} — abrir dentro del panel`,
+      },
+      el("span", { class: "material-symbols-outlined" }, icon),
+      el("span", { class: "search-engine-btn-label" }, s.label),
+    );
+    btn.addEventListener("click", () => activate(s, btn));
+    strip.append(btn);
+    return btn;
+  });
 
-      function activate(s, btn) {
-        for (const b of buttons) {
-          b.classList.toggle("active", b === btn);
-          b.setAttribute("aria-pressed", b === btn ? "true" : "false");
-        }
-        header.replaceChildren(
-          el("span", { class: "search-engine-viewer-title" }, s.label),
-          el(
-            "a",
-            {
-              href: s.url,
-              target: "_blank",
-              rel: "noopener noreferrer",
-              class: "search-engine-viewer-extlink",
-              title: `Abrir ${s.label} en una pestaña nueva`,
-            },
-            el(
-              "span",
-              { class: "material-symbols-outlined text-[16px]" },
-              "open_in_new",
-            ),
-            el("span", null, "Abrir en nueva pestaña"),
-          ),
-        );
-        // Route through the server-side Chromium proxy so engines
-        // that block third-party iframes still render inside the panel.
-        // Setting src on an already-mounted iframe forces a reload
-        // even when the same engine is clicked twice.
-        iframe.src = `/api/search/proxy?url=${encodeURIComponent(s.url)}`;
-      }
-
-      // Open the first engine by default so the viewer is never empty.
-      activate(searches[0], buttons[0]);
-
-      return el("div", { class: "search-engines-tab" }, strip, viewer);
+  function activate(s, btn) {
+    for (const b of buttons) {
+      b.classList.toggle("active", b === btn);
+      b.setAttribute("aria-pressed", b === btn ? "true" : "false");
     }
+    header.replaceChildren(
+      el("span", { class: "search-engine-viewer-title" }, s.label),
+      el(
+        "a",
+        {
+          href: s.url,
+          target: "_blank",
+          rel: "noopener noreferrer",
+          class: "search-engine-viewer-extlink",
+          title: `Abrir ${s.label} en una pestaña nueva`,
+        },
+        el(
+          "span",
+          { class: "material-symbols-outlined text-[16px]" },
+          "open_in_new",
+        ),
+        el("span", null, "Abrir en nueva pestaña"),
+      ),
+    );
+    // Route through the server-side Chromium proxy so engines
+    // that block third-party iframes still render inside the panel.
+    // Setting src on an already-mounted iframe forces a reload
+    // even when the same engine is clicked twice.
+    iframe.src = `/api/search/proxy?url=${encodeURIComponent(s.url)}`;
+  }
+
+  // Open the first engine by default so the viewer is never empty.
+  activate(searches[0], buttons[0]);
+
+  return el("div", { class: "search-engines-tab" }, strip, viewer);
+}
 
 // Render the Carpeta tab content — the line-by-line preview of the
 // root→taxon folder chain under ./Research, plus the count summary,
