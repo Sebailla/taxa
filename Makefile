@@ -1,3 +1,12 @@
+# shellcheck disable=SC1089,SC1132,SC2034
+# SC1089 fires because shellcheck parses each recipe line as a separate
+# script (it doesn't know about Make's .ONESHELL: directive below).
+# SC1132 fires because $(VAR) in a Makefile is variable expansion, not
+# shell command substitution. SC2034 fires because shellcheck mis-parses
+# `format=` inside URL query strings (e.g. COLDP_URL) as a variable
+# assignment. All three are false positives when shellcheck runs against
+# a Makefile that uses .ONESHELL: + $(VAR) expansion + URL variables.
+
 .PHONY: venv download etl coldp worms col load api clean test smoke css
 
 # Pass each recipe to a single shell invocation so multi-line shell
