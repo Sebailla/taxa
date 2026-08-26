@@ -71,7 +71,13 @@ function renderBreadcrumb() {
     );
     if (i === pathSegments.length - 1) {
       frag.append(
-        el("span", { class: `text-on-surface font-medium ${scientificNameClass(seg.rank)}` }, seg.name),
+        el(
+          "span",
+          {
+            class: `text-on-surface font-medium ${scientificNameClass(seg.rank)}`,
+          },
+          seg.name,
+        ),
       );
     } else {
       frag.append(

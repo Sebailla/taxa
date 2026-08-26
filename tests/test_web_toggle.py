@@ -301,14 +301,24 @@ def test_search_tab_renders_with_14_links(api_server):
             page.locator('[data-tree-source="freshwater"]').click()
             # The freshwater root is rank=collection (not a species), so
             # clicking the row toggles expansion rather than selecting.
-            # To open the detail panel for a non-species row, click its
-            # per-row search icon button (data-action="open-searches"),
-            # which selects the taxon AND forces the Search tab.
-            row = page.locator(
-                f'[data-taxon-id="{fresh_id}"][data-action="open-searches"]'
-            )
-            expect(row).to_be_visible(timeout=5_000)
-            row.click()
+            # To open the detail panel for a non-species row, drive its
+            # kebab menu: P1 #2 collapsed the per-row lupa into a kebab
+            # dropdown, so the search action is now reached via the
+            # `more_vert` trigger → "Search online" item.
+            kebab = page.locator(
+                f'[data-taxon-id="{fresh_id}"] [data-action="toggle-kebab"]'
+            ).first
+            expect(kebab).to_be_visible(timeout=5_000)
+            kebab.click()
+            # Kebab menu is now open — click the "Search online" item
+            # which carries the legacy data-action="open-searches"
+            # attribute. It selects the taxon AND opens the detail
+            # panel on the Search tab.
+            search_item = page.locator(
+                f'[data-taxon-id="{fresh_id}"] [data-action="open-searches"]'
+            ).first
+            expect(search_item).to_be_visible(timeout=5_000)
+            search_item.click()
             panel = page.locator("#detail-panel")
             expect(panel).to_be_visible(timeout=5_000)
             # Search tab must exist in the panel.
@@ -359,11 +369,19 @@ def test_search_engines_rendered_as_button_grid(api_server):
             page = browser.new_page()
             page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
             page.locator('[data-tree-source="freshwater"]').click()
-            row = page.locator(
-                f'[data-taxon-id="{fresh_id}"][data-action="open-searches"]'
-            )
-            expect(row).to_be_visible(timeout=5_000)
-            row.click()
+            # P1 #2: open the per-row kebab first, then drive the
+            # "Search online" item from the dropdown — the lupa lives
+            # inside the kebab menu now, not inline on the row.
+            kebab = page.locator(
+                f'[data-taxon-id="{fresh_id}"] [data-action="toggle-kebab"]'
+            ).first
+            expect(kebab).to_be_visible(timeout=5_000)
+            kebab.click()
+            search_item = page.locator(
+                f'[data-taxon-id="{fresh_id}"] [data-action="open-searches"]'
+            ).first
+            expect(search_item).to_be_visible(timeout=5_000)
+            search_item.click()
             panel = page.locator("#detail-panel")
             search_tab = panel.locator('[data-tab="searches"]')
             expect(search_tab).to_be_visible(timeout=5_000)
@@ -414,11 +432,18 @@ def test_detail_header_and_tabs_are_sticky(api_server):
             page = browser.new_page()
             page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
             page.locator('[data-tree-source="freshwater"]').click()
-            row = page.locator(
-                f'[data-taxon-id="{fresh_id}"][data-action="open-searches"]'
-            )
-            expect(row).to_be_visible(timeout=5_000)
-            row.click()
+            # P1 #2: per-row lupa is inside the kebab menu now — open
+            # the kebab, click the "Search online" item.
+            kebab = page.locator(
+                f'[data-taxon-id="{fresh_id}"] [data-action="toggle-kebab"]'
+            ).first
+            expect(kebab).to_be_visible(timeout=5_000)
+            kebab.click()
+            search_item = page.locator(
+                f'[data-taxon-id="{fresh_id}"] [data-action="open-searches"]'
+            ).first
+            expect(search_item).to_be_visible(timeout=5_000)
+            search_item.click()
             panel = page.locator("#detail-panel")
             expect(panel).to_be_visible(timeout=5_000)
             # Both the header and the tab strip must use position: sticky
@@ -485,15 +510,24 @@ def test_breadcrumb_walks_freshwater_chain(api_server):
             expect(
                 page.get_by_text("Families", exact=False)
             ).to_be_visible(timeout=10_000)
-            # Click the FIRST search icon button (the first family's
-            # icon). Families are rank=family (not species), so their
-            # rows toggle-expand rather than select; the search icon
-            # is the way to open the detail panel for a non-species.
-            first_family = page.locator(
-                '#tree-view [data-action="open-searches"]'
+            # Click the FIRST family's kebab trigger, then its "Search
+            # online" item. Families are rank=family (not species), so
+            # their rows toggle-expand rather than select; the kebab
+            # dropdown is the way to open the detail panel for a
+            # non-species after P1 #2 collapsed the per-row lupa.
+            # `kebab-trigger` always has a non-zero bounding box
+            # (opacity-0 by default, but counts as visible for click
+            # purposes), so Playwright clicks it without a hover step.
+            first_kebab = page.locator(
+                "#tree-view [data-action='toggle-kebab']"
             ).first
-            expect(first_family).to_be_visible(timeout=5_000)
-            first_family.click()
+            expect(first_kebab).to_be_visible(timeout=5_000)
+            first_kebab.click()
+            first_search = page.locator(
+                "#tree-view [data-action='open-searches']"
+            ).first
+            expect(first_search).to_be_visible(timeout=5_000)
+            first_search.click()
             # Breadcrumb must show BOTH the ancestor ("Freshwater Fishes")
             # AND the focused taxon's name. With the bug, only the
             # child's name shows (the parent_id walk exits immediately

@@ -325,6 +325,81 @@
         font-weight: 500;
         letter-spacing: 0;
       }
+
+      /* Overview section — P1 #1 from the Impeccable critique.
+         Renders BEFORE the tab strip when the selected taxon has
+         empty vernaculars + synonyms + distribution data, so the
+         user sees the taxon's essential metadata (rank + status
+         + authorship + species count + parent chain) instead of
+         just a Search + Folder grid. The layout is a key:value
+         grid with flush-left labels and a right column for the
+         value; the rank badge anchors the top of the section so
+         the user can confirm the taxon's tier at a glance. */
+      .overview-section {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .overview-rank {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .overview-grid {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        column-gap: 20px;
+        row-gap: 10px;
+        margin: 0;
+      }
+      .overview-row {
+        display: contents;
+      }
+      .overview-label {
+        color: var(--on-surface-variant);
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        font-weight: 500;
+        line-height: 1.4;
+        white-space: nowrap;
+      }
+      .overview-value {
+        color: var(--on-surface);
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        line-height: 1.4;
+        margin: 0;
+        word-break: break-word;
+      }
+      /* The scientific-name rule already styles the genus+species
+         binomial as italic (878cc4b) and the --roman modifier
+         flips higher ranks back to roman. The Overview value
+         slot inherits the rule from the inline class. */
+      .overview-chain {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px;
+      }
+      .overview-chain-segment {
+        background: transparent;
+        border: 0;
+        padding: 2px 4px;
+        margin: 0;
+        border-radius: 4px;
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        line-height: 1.4;
+        color: var(--on-surface);
+        cursor: pointer;
+        transition:
+          background-color 120ms ease-out,
+          color 120ms ease-out;
+      }
+      .overview-chain-segment:hover {
+        background-color: var(--surface-container-low);
+        color: var(--primary);
+      }
       .detail-item {
         font-size: 13px;
         color: var(--on-surface);
@@ -484,9 +559,90 @@
         align-items: center;
         justify-content: center;
       }
-      .materialize-btn:hover {
-        background: var(--surface-container-low);
-      }
+          .materialize-btn:hover {
+            background: var(--surface-container-low);
+          }
+
+          /* Kebab menu (P1 #2) — per-row "more actions" trigger that
+             replaces the old inline lupa + create_new_folder buttons.
+             The trigger is hover-gated (opacity-0 by default, opacity-1
+             on row hover or selection) so the visual weight stays low
+             when the user is just scrolling the tree. The menu itself
+             floats absolutely below the trigger so it overlays
+             subsequent rows without taking grid space. */
+          .kebab {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+          }
+          .kebab-trigger {
+            margin-left: 4px;
+            padding: 2px;
+            border-radius: 4px;
+            background: transparent;
+            border: 0;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 120ms linear, background-color 120ms linear;
+          }
+          .tree-row:hover .kebab-trigger,
+          .tree-row.selected .kebab-trigger,
+          .tree-row:focus-within .kebab-trigger,
+          .kebab-trigger:focus-visible {
+            opacity: 1;
+          }
+          .kebab-trigger:hover,
+          .kebab-trigger:focus-visible {
+            background: var(--surface-container-low);
+            outline: none;
+          }
+          .kebab-menu {
+            display: none;
+            position: absolute;
+            right: 0;
+            top: calc(100% + 4px);
+            min-width: 180px;
+            background: var(--surface);
+            border: 1px solid var(--outline-variant);
+            border-radius: 8px;
+            padding: 4px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+            z-index: 50;
+            flex-direction: column;
+            gap: 2px;
+          }
+          .kebab-menu.open {
+            display: flex;
+          }
+          .kebab-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            border: 0;
+            background: transparent;
+            border-radius: 6px;
+            font-family: "Raleway", sans-serif;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--on-surface);
+            text-align: left;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background-color 120ms linear;
+          }
+          .kebab-item:hover,
+          .kebab-item:focus-visible {
+            background: var(--surface-container-low);
+            outline: none;
+          }
+          .kebab-item-label {
+            flex: 1;
+            white-space: nowrap;
+          }
 
       /* Folder tab content — lives inside the detail panel's
                      "Folder" tab. Reuses the line-by-line preview UI
@@ -680,6 +836,36 @@
         grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
         gap: 12px;
         padding: 8px 4px 4px;
+      }
+      /* Category section header inside the search-engines grid.
+                 Spans every column so each category's engines flow into
+                 the next row, which is what gives the visual "block"
+                 grouping without splitting the single grid into five.
+                 Styled to echo the tier-header (flat, 1px border,
+                 uppercase label + icon) so the Search tab feels like
+                 the rest of the panel. */
+      .search-category-header {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 12px 2px 4px;
+        padding: 6px 4px 4px;
+        border-bottom: 1px solid var(--outline-variant);
+        font-family: "Raleway", sans-serif;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        line-height: 1.3;
+        text-transform: uppercase;
+        color: var(--on-surface-variant);
+      }
+      .search-category-header:first-child {
+        margin-top: 4px;
+      }
+      .search-category-header .material-symbols-outlined {
+        font-size: 14px;
+        color: var(--primary);
       }
       .search-engine-btn {
         display: flex;
