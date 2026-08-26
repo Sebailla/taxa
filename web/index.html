@@ -259,13 +259,16 @@
           0 1px 2px rgba(15, 23, 42, 0.04),
           0 4px 12px rgba(15, 23, 42, 0.06),
           0 12px 32px rgba(15, 23, 42, 0.04);
-        /* Keep the card from eating the whole viewport — scroll the
-               card's own content when a taxon has lots of vernaculars,
-               synonyms, or distribution entries. Otherwise the sticky
-               panel covers the tree and "center in remaining space"
-               becomes "center in zero space". */
-        max-height: min(560px, calc(100vh - 180px));
+        /* Card is 90% of viewport tall so the Búsquedas iframe and
+             other tab content have room to breathe. overflow-y:auto
+             handles the case where a single tab's content exceeds
+             the card height (rare given the 90vh budget). flex:
+             column lets the Búsquedas section grow to fill. */
+        height: 90vh;
+        max-height: 90vh;
         overflow-y: auto;
+        display: flex;
+        flex-direction: column;
       }
       .detail-header {
         display: flex;
@@ -294,6 +297,17 @@
       .detail-section {
         padding: 16px 24px;
         border-bottom: 1px solid var(--surface-container);
+      }
+      /* The Búsquedas section grows to fill the card so the inline
+           iframe viewer can be tall (90vh when the card itself is
+           90vh). The other tab sections keep their natural height.
+           `:has()` is supported in Chrome / Safari / Firefox 121+ and
+           is already used by the Search panel elsewhere. */
+      .detail-section:has(.search-engines-tab) {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
       }
       .detail-section:last-child {
         border-bottom: 0;
@@ -677,9 +691,10 @@
             display: flex;
             flex-direction: column;
             gap: 12px;
-            /* The viewer can get tall — let the parent detail card
-                 scroll rather than the strip itself, so the strip stays
-                 visible while the user scrolls through long result pages. */
+            /* Grow inside the parent detail section so the iframe viewer
+                 below can fill the remaining vertical space. */
+            flex: 1;
+            min-height: 0;
           }
           .search-engines-strip {
             display: flex;
@@ -745,6 +760,8 @@
             border-radius: 8px;
             overflow: hidden;
             background: var(--surface);
+            flex: 1;
+            min-height: 0;
           }
           .search-engine-viewer-header {
             display: flex;
@@ -790,7 +807,7 @@
           .search-engine-viewer-frame {
             flex: 1;
             width: 100%;
-            min-height: 420px;
+            min-height: 320px;
             height: 100%;
             border: 0;
             background: var(--surface);
