@@ -1,4 +1,4 @@
-.PHONY: venv download etl coldp worms col load api clean test smoke
+.PHONY: venv download etl coldp worms col load api clean test smoke css
 
 # Pass each recipe to a single shell invocation so multi-line shell
 # constructs (if/then/else/fi, for/done) parse cleanly without `\<newline>`
@@ -27,28 +27,23 @@ venv:
 	.venv/bin/pip install --quiet --upgrade pip
 	.venv/bin/pip install --quiet -r requirements.txt
 
+# Frontend CSS build — installs the Node toolchain on first run, then
+# compiles web/index.css into web/dist/tailwind.css via the Tailwind CLI.
+# Run before `make api` (the dev server serves web/dist/tailwind.css).
+# Idempotent: npm install is a no-op when node_modules/ is already in sync.
+css:
+	npm install --no-audit --no-fund
+	npm run build:css
+
 download:
 	@mkdir -p data/raw
-	@if [ ! -f "$(TEXTREE_FILE)" ]; then
-		echo "Downloading TextTree Base from CoL..."
-		curl -sSL -o "$(TEXTREE_ZIP)" "$(TEXTREE_URL)"
-		unzip -o -q "$(TEXTREE_ZIP)" -d data/raw/textree_base
-	else
-		echo "TextTree already downloaded"
-	fi
+	@if [ ! -f "$(TEXTREE_FILE)" ]; then echo "Downloading TextTree Base from CoL..."; curl -sSL -o "$(TEXTREE_ZIP)" "$(TEXTREE_URL)"; unzip -o -q "$(TEXTREE_ZIP)" -d data/raw/textree_base; else echo "TextTree already downloaded"; fi
 
 etl: download
 	.venv/bin/python3 etl/parse_textree.py $(TEXTREE_FILE) $(DB)
 
 coldp:
-	@if [ ! -d "$(COLDP_DIR)" ]; then
-		echo "Downloading ColDP from CoL (1 GB)..."
-		mkdir -p data/raw/coldp
-		curl -sSL -o data/raw/coldp/coldp.zip "$(COLDP_URL)"
-		unzip -o -q data/raw/coldp/coldp.zip -d "$(COLDP_DIR)"
-	else
-		echo "ColDP already extracted at $(COLDP_DIR)"
-	fi
+	@if [ ! -d "$(COLDP_DIR)" ]; then echo "Downloading ColDP from CoL (1 GB)..."; mkdir -p data/raw/coldp; curl -sSL -o data/raw/coldp/coldp.zip "$(COLDP_URL)"; unzip -o -q data/raw/coldp/coldp.zip -d "$(COLDP_DIR)"; else echo "ColDP already extracted at $(COLDP_DIR)"; fi
 	.venv/bin/python3 -m etl.load_coldp $(COLDP_DIR) $(DB)
 
 # Selector: load sources independently. WoRMS is ENRICHMENT over CoL —
@@ -81,10 +76,7 @@ worms: $(WORMS_TSV)
 # Each is idempotent. Re-running freshwater clears freshwater_id and re-loads.
 FRESHWATER_CSV := data/raw/freshwater.csv
 freshwater:
-	@if [ ! -f $(FRESHWATER_CSV) ]; then
-		echo "Missing $(FRESHWATER_CSV). Export your Freshwater Fishes Google Sheet to CSV and place it at this path."
-		exit 1
-	fi
+	@if [ ! -f $(FRESHWATER_CSV) ]; then echo "Missing $(FRESHWATER_CSV). Export your Freshwater Fishes Google Sheet to CSV and place it at this path."; exit 1; fi
 	.venv/bin/python3 scripts/transform_freshwater.py $(FRESHWATER_CSV)
 	.venv/bin/python3 -m etl.load_freshwater /tmp/freshwater.flat.csv
 
@@ -105,10 +97,7 @@ freshwater:
 # Each is idempotent. Re-running freshwater clears freshwater_id and re-loads.
 FRESHWATER_CSV := data/raw/freshwater.csv
 freshwater:
-	@if [ ! -f $(FRESHWATER_CSV) ]; then
-		echo "Missing $(FRESHWATER_CSV). Export your Freshwater Fishes Google Sheet to CSV and place it at this path."
-		exit 1
-	fi
+	@if [ ! -f $(FRESHWATER_CSV) ]; then echo "Missing $(FRESHWATER_CSV). Export your Freshwater Fishes Google Sheet to CSV and place it at this path."; exit 1; fi
 	.venv/bin/python3 scripts/transform_freshwater.py $(FRESHWATER_CSV)
 	.venv/bin/python3 etl/load_freshwater.py /tmp/freshwater.flat.csv
 
@@ -118,16 +107,7 @@ load-all: col worms freshwater
 
 # Backwards-compatible selector (kept for the make load SOURCE=... flow)
 load:
-	@if [ "$(SOURCE)" = "col" ]; then
-		$(MAKE) col
-	elif [ "$(SOURCE)" = "worms" ]; then
-		$(MAKE) worms
-	elif [ "$(SOURCE)" = "freshwater" ]; then
-		$(MAKE) freshwater
-	else
-		echo "Usage: make load SOURCE=col|worms|freshwater  (or: make col / make worms / make freshwater)"
-		exit 1
-	fi
+	@if [ "$(SOURCE)" = "col" ]; then $(MAKE) col; elif [ "$(SOURCE)" = "worms" ]; then $(MAKE) worms; elif [ "$(SOURCE)" = "freshwater" ]; then $(MAKE) freshwater; else echo "Usage: make load SOURCE=col|worms|freshwater  (or: make col / make worms / make freshwater)"; exit 1; fi
 
 # Download + extract WoRMS ColDP (idempotent — skips if already there).
 $(WORMS_TSV): $(WORMS_ZIP)
@@ -135,13 +115,7 @@ $(WORMS_TSV): $(WORMS_ZIP)
 
 $(WORMS_ZIP):
 	@mkdir -p $(WORMS_DIR)
-	@if [ ! -f $(WORMS_TSV) ]; then
-		echo "Downloading WoRMS ColDP (26 MB compressed)..."
-		curl -sSL -o $(WORMS_ZIP) "$(WORMS_URL)"
-		unzip -o -q $(WORMS_ZIP) -d $(WORMS_DIR)
-	else
-		echo "WoRMS ColDP already extracted at $(WORMS_DIR)"
-	fi
+	@if [ ! -f $(WORMS_TSV) ]; then echo "Downloading WoRMS ColDP (26 MB compressed)..."; curl -sSL -o $(WORMS_ZIP) "$(WORMS_URL)"; unzip -o -q $(WORMS_ZIP) -d $(WORMS_DIR); else echo "WoRMS ColDP already extracted at $(WORMS_DIR)"; fi
 
 api:
 	.venv/bin/python3 -m uvicorn api.server:app --host 127.0.0.1 --port 8765
