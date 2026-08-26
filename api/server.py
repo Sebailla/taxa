@@ -28,11 +28,10 @@ import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -1329,123 +1328,6 @@ f"actual {size} bytes"
         media_type=content_type,
         filename=candidate.name,
         content_disposition_type="inline",
-    )
-
-
-# ---------------------------------------------------------------------------
-# Search-result proxy
-#
-# GET /api/search/proxy?url=<encoded> — render a search-engine URL in
-# headless Chromium and return the post-JS HTML. Lets the Browser
-# tab's iframe viewer embed engines that normally block third-party
-# framing (Wikipedia, ResearchGate, Academia.edu, etc.) by stripping
-# the upstream's X-Frame-Options / CSP frame-ancestors on the way out.
-#
-# Implementation notes:
-#   - One persistent Chromium instance, one Playwright context per
-#     request. Contexts are cheap (~5MB); the browser itself is the
-#     ~200MB hit and that's why we share it.
-#   - asyncio.Semaphore caps concurrent renders at 3 so a burst of
-#     panel clicks doesn't OOM the box.
-#   - Realistic User-Agent + locale + `navigator.webdriver` override
-#     so engines with anti-bot detection (Brave, Cloudflare-fronted
-#     sites) treat us like a normal browser.
-#   - SSRF guard: localhost / loopback / .local hostnames are
-#     blocked at the parse step. Private-IP blocking at runtime is
-#     intentionally NOT done here — it's racy and adds a DNS round-
-#     trip per request. The app is single-user.
-#   - Google returns a CAPTCHA wall on the first request even with
-#     stealth (datacenter IP / automation fingerprints). The iframe
-#     shows that CAPTCHA; the user can solve it inline because the
-#     cookies are now on our server-side browser context.
-# ---------------------------------------------------------------------------
-import asyncio
-
-_SEARCH_PROXY_BROWSER = None
-_SEARCH_PROXY_PW = None
-_SEARCH_PROXY_SEM = None  # asyncio.Semaphore(3), created on first request
-
-async def _ensure_search_proxy_browser():
-    global _SEARCH_PROXY_BROWSER, _SEARCH_PROXY_PW, _SEARCH_PROXY_SEM
-    if _SEARCH_PROXY_BROWSER is None:
-        from playwright.async_api import async_playwright
-        _SEARCH_PROXY_PW = await async_playwright().start()
-        _SEARCH_PROXY_BROWSER = await _SEARCH_PROXY_PW.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage"],
-        )
-        _SEARCH_PROXY_SEM = asyncio.Semaphore(3)
-    return _SEARCH_PROXY_BROWSER
-
-@app.get("/api/search/proxy")
-async def search_proxy(url: str = Query(min_length=1, max_length=4096)):
-    """Render `url` in headless Chromium and return the post-JS HTML."""
-    # ---- URL validation + SSRF guard
-    try:
-        parsed = urlparse(url)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid URL")
-    if parsed.scheme not in ("http", "https"):
-        raise HTTPException(status_code=400, detail="Only http/https URLs allowed")
-    hostname = (parsed.hostname or "").lower()
-    if not hostname or hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or hostname.endswith(".local"):
-        raise HTTPException(status_code=403, detail="Localhost URLs blocked")
-
-    browser = await _ensure_search_proxy_browser()
-    if _SEARCH_PROXY_SEM is None:
-        # _ensure_search_proxy_browser always sets it; this branch is
-        # unreachable but keeps a runtime check instead of an `assert`
-        # (which python -O strips) so production stays safe.
-        raise HTTPException(status_code=503, detail="Search proxy not initialized")
-    async with _SEARCH_PROXY_SEM:
-        context = None
-        try:
-            context = await browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                ),
-                viewport={"width": 1280, "height": 800},
-                locale="en-US",
-            )
-            # Mask `navigator.webdriver` so Chrome's automation flag
-            # doesn't trigger Cloudflare / Google anti-bot checks.
-            await context.add_init_script(
-                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
-            )
-            page = await context.new_page()
-            try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=20000)
-                # Wait for JS to paint results. Most engines need
-                # 1-3s; longer waits eat into the 20s timeout budget.
-                await page.wait_for_timeout(2500)
-                content = await page.content()
-            finally:
-                await page.close()
-        except Exception as e:
-            raise HTTPException(status_code=502, detail=f"Render failed: {e}")
-        finally:
-            if context is not None:
-                await context.close()
-
-    # Inject a <base href="original-origin"> so relative asset / link /
-    # script URLs in the proxied page resolve against the upstream domain
-    # instead of our backend (otherwise the iframe renders with no CSS
-    # / no images). Done after the render — the proxy URL itself isn't
-    # referenced inside the HTML, every URL inside points at the upstream.
-    base_href = f"{parsed.scheme}://{parsed.netloc}/"
-    base_tag = f'<base href="{base_href}">'
-    head_re = re.compile(r"(<head[^>]*>)", re.IGNORECASE)
-    if head_re.search(content):
-        content = head_re.sub(lambda m: m.group(1) + base_tag, content, count=1)
-    else:
-        # No <head> — prepend so it applies to the whole document.
-        content = base_tag + content
-
-    return HTMLResponse(
-        content=content,
-        headers={"X-Proxied-From": parsed.netloc},
     )
 
 
