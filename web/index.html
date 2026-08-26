@@ -860,14 +860,31 @@
              §4. The flex container is also responsible for vertical
              scrolling so the inner panes don't get clipped on short
              viewports. */
+      /* Two-pane layout — left tree (18rem min, grows to fit long
+             folder names), right viewer (flex 1). Matches the Stitch
+             reference in design.md §4. The flex container is also
+             responsible for vertical scrolling so the inner panes
+             don't get clipped on short viewports. */
       .fex-shell {
         display: flex;
         gap: 0;
         width: 100%;
         min-height: calc(100vh - 96px);
+        /* If both panes together exceed the available width, allow
+             horizontal scroll at the shell level rather than clipping
+             the tree. overflow-x: auto only kicks in past 100%, so
+             narrow / short-name trees are unaffected. */
+        overflow-x: auto;
       }
       .fex-tree-pane {
-        width: 18rem;
+        /* Width grows with the longest row (padding-left + chevron +
+           icon + label + meta) up to a sensible cap so a single very
+           long folder name cannot eat the whole viewport. The cap
+           picks the smaller of 60% of the shell or 50rem so a wide
+           browser window still leaves the viewer at least 40% wide. */
+        min-width: 18rem;
+        width: max-content;
+        max-width: min(60%, 50rem);
         flex-shrink: 0;
         border-right: 1px solid var(--outline-variant);
         background: var(--surface);
