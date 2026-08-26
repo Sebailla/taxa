@@ -325,6 +325,81 @@
         font-weight: 500;
         letter-spacing: 0;
       }
+
+      /* Overview section — P1 #1 from the Impeccable critique.
+         Renders BEFORE the tab strip when the selected taxon has
+         empty vernaculars + synonyms + distribution data, so the
+         user sees the taxon's essential metadata (rank + status
+         + authorship + species count + parent chain) instead of
+         just a Search + Folder grid. The layout is a key:value
+         grid with flush-left labels and a right column for the
+         value; the rank badge anchors the top of the section so
+         the user can confirm the taxon's tier at a glance. */
+      .overview-section {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .overview-rank {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .overview-grid {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        column-gap: 20px;
+        row-gap: 10px;
+        margin: 0;
+      }
+      .overview-row {
+        display: contents;
+      }
+      .overview-label {
+        color: var(--on-surface-variant);
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        font-weight: 500;
+        line-height: 1.4;
+        white-space: nowrap;
+      }
+      .overview-value {
+        color: var(--on-surface);
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        line-height: 1.4;
+        margin: 0;
+        word-break: break-word;
+      }
+      /* The scientific-name rule already styles the genus+species
+         binomial as italic (878cc4b) and the --roman modifier
+         flips higher ranks back to roman. The Overview value
+         slot inherits the rule from the inline class. */
+      .overview-chain {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px;
+      }
+      .overview-chain-segment {
+        background: transparent;
+        border: 0;
+        padding: 2px 4px;
+        margin: 0;
+        border-radius: 4px;
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        line-height: 1.4;
+        color: var(--on-surface);
+        cursor: pointer;
+        transition:
+          background-color 120ms ease-out,
+          color 120ms ease-out;
+      }
+      .overview-chain-segment:hover {
+        background-color: var(--surface-container-low);
+        color: var(--primary);
+      }
       .detail-item {
         font-size: 13px;
         color: var(--on-surface);

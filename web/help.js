@@ -16,11 +16,7 @@ import { el } from "./dom.js";
 // which matches the existing tier-header treatment in index.html.
 // Inner content goes in the second slot; the caller controls its spacing.
 function sectionHeading(text) {
-  return el(
-    "h2",
-    { class: "text-h4 font-h4 text-on-surface" },
-    text,
-  );
+  return el("h2", { class: "text-h4 font-h4 text-on-surface" }, text);
 }
 
 function paragraph(text, opts = {}) {
@@ -96,8 +92,7 @@ export function renderHelp(host) {
     el(
       "div",
       {
-        class:
-          "max-w-3xl mx-auto px-row-padding-x lg:px-0 py-10 space-y-8",
+        class: "max-w-3xl mx-auto px-row-padding-x lg:px-0 py-10 space-y-8",
       },
 
       // About ----------------------------------------------------------
@@ -138,7 +133,12 @@ export function renderHelp(host) {
         { class: "space-y-3" },
         sectionHeading("Attribution"),
         bulletList([
-          el("span", null, el("strong", null, "Catalogue of Life"), ": CC-BY 4.0"),
+          el(
+            "span",
+            null,
+            el("strong", null, "Catalogue of Life"),
+            ": CC-BY 4.0",
+          ),
           el("span", null, el("strong", null, "WoRMS"), ": CC-BY 4.0"),
           el(
             "span",
@@ -170,7 +170,10 @@ export function renderHelp(host) {
             "span",
             null,
             "Source code: ",
-            extLink("https://github.com/Sebailla/taxa", "github.com/Sebailla/taxa"),
+            extLink(
+              "https://github.com/Sebailla/taxa",
+              "github.com/Sebailla/taxa",
+            ),
           ),
         ]),
       ),

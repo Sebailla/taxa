@@ -12,7 +12,12 @@ import {
   previewMaterialize,
   materializeResearch,
 } from "./api.js";
-import { rankLabel, scientificNameClass } from "./format.js";
+import {
+  rankLabel,
+  scientificNameClass,
+  statusDot,
+  speciesCountBadge,
+} from "./format.js";
 import { el, showToast } from "./dom.js";
 import { propagateMaterialized } from "./tree.js";
 import { SEARCH_ENGINES } from "./search_urls.js";
@@ -73,6 +78,222 @@ function buildDetailSection(icon, title, count, items) {
       el("span", { class: "count" }, String(count)),
     ),
     ...items,
+  );
+}
+
+// Render the Overview section content — a self-contained summary of
+// the taxon's essential metadata (rank badge + scientific name +
+// status + authorship + species count + parent chain). P1 #1 from
+// the Impeccable critique: the detail panel used to be search-grid-
+// first even for top-level taxa, which is pedagogically empty. This
+// section is rendered BEFORE the tab strip when the selected taxon
+// has empty vernaculars + synonyms + distribution data. When any
+// of those three has data, the Overview is suppressed entirely so
+// the data tabs can take the stage.
+//
+// Source-aware parent chain — mirrors breadcrumb.js. CoL walks
+// parent_id; WoRMS walks worms_parent_id; Freshwater walks
+// freshwater_parent_id. The chain shows the focused taxon + all
+// ancestors up to the root, each segment clickable via
+// data-action="focus-segment" (the same handler the breadcrumb
+// uses, already wired in nav.js). The chain row is hidden when
+// there's only one segment (no ancestors) — the title already
+// shows the taxon's own name.
+function renderOverview(taxon) {
+  const src = state.treeSource;
+  const parentIdOf = (t) => {
+    if (src === "worms") return t.worms_parent_id;
+    if (src === "freshwater") return t.freshwater_parent_id;
+    return t.parent_id;
+  };
+  // Walk from the selected taxon up to the root, unshift so the
+  // final array goes root → ... → focused (matches the breadcrumb
+  // order). 30-step safety cap mirrors breadcrumb.js; data
+  // corruption could otherwise spin forever.
+  const segments = [];
+  let currentId = state.selected;
+  let safety = 30;
+  while (currentId && safety-- > 0) {
+    const node = state.cache.get(currentId);
+    if (!node) break;
+    segments.unshift({
+      id: currentId,
+      name: node.taxon.scientific_name,
+      rank: node.taxon.rank,
+    });
+    currentId = parentIdOf(node.taxon);
+  }
+
+  // Build each key:value row. The label sits in a fixed-width left
+  // column; the value sits in the right. CSS grid handles the
+  // alignment so labels stay flush.
+  const grid = el("dl", { class: "overview-grid" });
+
+  // Scientific name — italic via the .scientific-name class added
+  // in 878cc4b (mirrors how the tree rows + breadcrumb render Latin
+  // binomials). scientificNameClass() picks italic for genus +
+  // below and roman for higher ranks per ICZN convention.
+  grid.append(
+    el(
+      "div",
+      { class: "overview-row" },
+      el("dt", { class: "overview-label" }, "Scientific name:"),
+      el(
+        "dd",
+        {
+          class: `overview-value font-display text-display ${scientificNameClass(taxon.rank)}`,
+        },
+        taxon.scientific_name,
+      ),
+    ),
+  );
+
+  // Status — colored dot + text label. statusDot() returns the
+  // span; the label maps the raw status string to a friendlier
+  // capitalized form (Accepted / Synonym / Unknown).
+  const statusText =
+    taxon.status === "accepted"
+      ? "Accepted"
+      : taxon.status === "synonym"
+        ? "Synonym"
+        : "Unknown";
+  grid.append(
+    el(
+      "div",
+      { class: "overview-row" },
+      el("dt", { class: "overview-label" }, "Status:"),
+      el(
+        "dd",
+        { class: "overview-value inline-flex items-center gap-2" },
+        statusDot(taxon.status),
+        statusText,
+      ),
+    ),
+  );
+
+  // Authorship — only render the row when the field has content.
+  // An empty/null authorship is suppressed entirely (no "—"
+  // placeholder) so the Overview isn't padded with meaningless
+  // rows. Wrapped in parens to match the convention used elsewhere
+  // in the panel (see the title block's authorship line).
+  if (taxon.authorship) {
+    grid.append(
+      el(
+        "div",
+        { class: "overview-row" },
+        el("dt", { class: "overview-label" }, "Authorship:"),
+        el(
+          "dd",
+          { class: "overview-value text-on-surface-variant" },
+          `(${taxon.authorship})`,
+        ),
+      ),
+    );
+  }
+
+  // Species count — reuse speciesCountBadge so the formatting
+  // (1.2k / 3.4M / 763 / etc.) stays consistent with the tree rows.
+  // null/undefined renders as an em dash so the row is preserved
+  // (the spec asks for "—", not row suppression) — preserves the
+  // visual rhythm of the Overview.
+  const sc = taxon.species_count;
+  grid.append(
+    el(
+      "div",
+      { class: "overview-row" },
+      el("dt", { class: "overview-label" }, "Species count:"),
+      el(
+        "dd",
+        { class: "overview-value" },
+        sc === null || sc === undefined ? "—" : speciesCountBadge(sc),
+      ),
+    ),
+  );
+
+  // Parent chain — skip when there's only one segment (no
+  // ancestors). The focused taxon's own name is already shown by
+  // the "Scientific name:" row above, so a one-segment chain would
+  // just duplicate it.
+  if (segments.length > 1) {
+    // Each segment is a clickable button — the same
+    // data-action="focus-segment" + data-taxon-id shape the
+    // breadcrumb uses, so the existing nav.js handler picks it up.
+    // Italic/roman styling follows scientificNameClass per rank.
+    // Chevron separators sit BETWEEN segments (not after the
+    // last) — same pattern as the breadcrumb.
+    const segEls = [];
+    segments.forEach((s, i) => {
+      segEls.push(
+        el(
+          "button",
+          {
+            type: "button",
+            class: `overview-chain-segment ${scientificNameClass(s.rank)}`,
+            "data-action": "focus-segment",
+            "data-taxon-id": s.id,
+          },
+          s.name,
+        ),
+      );
+      if (i < segments.length - 1) {
+        segEls.push(
+          el(
+            "span",
+            {
+              class:
+                "material-symbols-outlined text-[14px] text-on-surface-variant",
+            },
+            "chevron_right",
+          ),
+        );
+      }
+    });
+    grid.append(
+      el(
+        "div",
+        { class: "overview-row" },
+        el("dt", { class: "overview-label" }, "Parent chain:"),
+        el(
+          "dd",
+          { class: "overview-value overview-chain" },
+          ...segEls,
+        ),
+      ),
+    );
+  }
+
+  // Section wrapper — .detail-section gives the padding + bottom
+  // border that all other sections share. .overview-section adds
+  // the rank-badge row at the top.
+  const extinctCls = taxon.is_extinct ? "line-through opacity-70" : "";
+  return el(
+    "div",
+    { class: `detail-section overview-section ${extinctCls}`.trim() },
+    // h3 mirrors the section heading pattern used by
+    // buildDetailSection() for consistency.
+    el(
+      "h3",
+      null,
+      el("span", { class: "material-symbols-outlined text-[16px]" }, "info"),
+      " Overview",
+    ),
+    // Rank badge — visual anchor at the top of the section.
+    // Reuses the existing rank-badge styling from the title block
+    // so the badge looks identical when seen in the header vs.
+    // inside the Overview.
+    el(
+      "div",
+      { class: "overview-rank" },
+      el(
+        "span",
+        {
+          class:
+            "rank-badge uppercase tracking-[0.1em] px-2 py-0.5 rounded text-primary bg-primary/10",
+        },
+        rankLabel(taxon.rank),
+      ),
+    ),
+    grid,
   );
 }
 
@@ -236,11 +457,7 @@ function renderFolderTab(taxon) {
     el(
       "div",
       { class: "materialize-modal-preview-wrap" },
-      el(
-        "div",
-        { class: "materialize-modal-section-title" },
-        "Path preview:",
-      ),
+      el("div", { class: "materialize-modal-section-title" }, "Path preview:"),
       list,
     ),
     counts,
@@ -348,7 +565,9 @@ function renderDetailPanel() {
     badges,
     el(
       "h2",
-      { class: `font-display text-display ${extinctCls} ${scientificNameClass(taxon.rank)}` },
+      {
+        class: `font-display text-display ${extinctCls} ${scientificNameClass(taxon.rank)}`,
+      },
       taxon.scientific_name,
     ),
   );
@@ -395,12 +614,18 @@ function renderDetailPanel() {
   }
 
   // ----- Tab strip ----------------------------------------------------
-  // Tabs in this order: Search first, then Vernaculars, Synonyms,
-  // Distribution. Each non-Search tab is conditional on its data
-  // being non-empty (matches today's "hide empty sections" behaviour).
-  // Search is always shown when the panel renders so the per-row
-  // search icon always has a target.
+  // Tabs in this order: Overview (when applicable), then Search,
+  // then Folder, then Vernaculars, Synonyms, Distribution. The
+  // Overview tab only renders when vernaculars + synonyms +
+  // distribution are ALL empty (P1 #1 from the Impeccable critique)
+  // — when ANY of those three has data, the Overview is suppressed
+  // so the data tabs can take the stage. Search + Folder are always
+  // shown so the per-row search / folder icons always have a
+  // target.
+  const hasOverview = !hasVern && !hasSyn && !hasDist;
   const tabs = [];
+  if (hasOverview)
+    tabs.push({ key: "overview", label: "Overview", icon: "info" });
   tabs.push({ key: "searches", label: "Search", icon: "travel_explore" });
   // Folder is always present (unlike Vernaculars / Synonyms /
   // Distribution which are conditional on having data). The tab
@@ -414,14 +639,21 @@ function renderDetailPanel() {
   if (hasDist)
     tabs.push({ key: "distribution", label: "Distribution", icon: "public" });
 
-  // Decide the active tab. Per-taxon memory wins; otherwise default to
-  // Search (the new spec'd default) and fall back to the first
-  // available tab when Search isn't visible (e.g., empty name).
+  // Decide the active tab. Per-taxon memory wins; otherwise the
+  // default is:
+  //   - "overview" when the Overview tab is present (i.e. when
+  //     vernaculars + synonyms + distribution are all empty) — the
+  //     user just clicked a top-level taxon and Overview teaches
+  //     them what it is (P1 #1).
+  //   - first available tab otherwise (Search for taxa with data,
+  //     Folder for taxa with empty scientific_name where Search
+  //     isn't rendered).
   const taxonId = state.selected;
   const remembered = state.activeTab[taxonId];
+  const defaultKey = hasOverview ? "overview" : tabs[0].key;
   const activeKey = tabs.some((t) => t.key === remembered)
     ? remembered
-    : tabs[0].key;
+    : defaultKey;
   // Belt-and-braces: if for some reason tabs[0] is missing (empty
   // tabs array — can't happen given Search is always pushed, but
   // keep the guard), hide the panel.
@@ -462,6 +694,20 @@ function renderDetailPanel() {
   // tabs is O(1) (just toggles a class on the strip and a style on the
   // sections), no re-fetch.
   const sections = [];
+  // Overview section — only included when hasOverview is true
+  // (vernaculars + synonyms + distribution all empty). The Overview
+  // section reuses the .detail-section class so it shares the
+  // padding/border treatment with the data tabs.
+  if (hasOverview) {
+    sections.push({
+      key: "overview",
+      node: el(
+        "div",
+        { class: "detail-section", "data-tab-content": "overview" },
+        renderOverview(taxon),
+      ),
+    });
+  }
   sections.push({
     key: "searches",
     node: el(
@@ -490,11 +736,7 @@ function renderDetailPanel() {
               { class: "material-symbols-outlined text-[20px]" },
               "error",
             ),
-            el(
-              "span",
-              null,
-              `Could not render the Folder tab: ${e.message}`,
-            ),
+            el("span", null, `Could not render the Folder tab: ${e.message}`),
           );
         }
       })(),

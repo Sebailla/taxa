@@ -338,30 +338,37 @@ document.addEventListener("click", async (e) => {
     // Species are leaves: just select, no expansion.
     selectTaxon(id);
   } else if (action === "open-searches") {
-    // Per-row search icon — selects the taxon and forces the Search
-    // tab to be active. The icon's data-taxon-id carries the id; the
-    // detail panel's tab state is set BEFORE selectTaxon so the
-    // subsequent render() sees the right default.
+    // Per-row search icon — selects the taxon and opens the detail
+    // panel. The active tab is decided by renderDetailPanel's
+    // activeKey logic (P1 #1 Impeccable fix): Overview when
+    // vernaculars + synonyms + distribution are all empty, otherwise
+    // the first available tab (Search for taxa with data). We
+    // intentionally do NOT force the Search tab here — forcing it
+    // would override the new "Overview is the default" behaviour
+    // for top-level taxa. The icon's data-taxon-id carries the id.
     const id = parseInt(
       e.target.closest("[data-taxon-id]").dataset.taxonId,
       10,
     );
     if (Number.isFinite(id)) {
-      state.activeTab[id] = "searches";
+      state.focused = id;
       selectTaxon(id);
     }
     return;
   } else if (action === "open-folder-tab") {
     // Per-row folder icon (only rendered when the taxon's path is
     // already on disk — see tree.js). Opens the same detail panel
-    // the lupa opens, but on the "Folder" tab instead of
-    // "Search". Mirrors open-searches one-for-one: select the
-    // taxon, force the tab key, render.
+    // the lupa opens, but on the "Folder" tab. Mirrors
+    // open-searches: select the taxon + force the tab key, render.
+    // Forced here because the folder icon is the explicit "I want
+    // to see the folder for this taxon" affordance — unlike the
+    // lupa, which is a generic "open this taxon's panel" trigger.
     const id = parseInt(
       e.target.closest("[data-taxon-id]").dataset.taxonId,
       10,
     );
     if (!Number.isFinite(id)) return;
+    state.focused = id;
     state.activeTab[id] = "folder";
     selectTaxon(id);
     return;

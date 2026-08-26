@@ -90,7 +90,9 @@ function renderNodeRow(taxon, opts = {}) {
     ),
     el(
       "span",
-      { class: `${nameCls} truncate ${extinctCls} ${scientificNameClass(taxon.rank)}` },
+      {
+        class: `${nameCls} truncate ${extinctCls} ${scientificNameClass(taxon.rank)}`,
+      },
       taxon.scientific_name,
     ),
     taxon.authorship
