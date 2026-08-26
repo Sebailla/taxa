@@ -42,7 +42,7 @@ export const SEARCH_ENGINES = [
       },
       {
         key: "imagen",
-        label: "Imágenes",
+        label: "Images",
         template: "https://www.google.com/search?q={name}&tbm=isch",
         template_with_auth: null,
         with_authorship: false,
@@ -51,7 +51,7 @@ export const SEARCH_ENGINES = [
       },
       {
         key: "documentos",
-        label: "Documentos",
+        label: "Documents",
         template:
           "https://www.google.com/search?q={name}+%28filetype%3Adoc+OR+filetype%3Adocx+OR+filetype%3Atxt%29",
         template_with_auth: null,
