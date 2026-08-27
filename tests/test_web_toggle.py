@@ -806,10 +806,6 @@ DB_PATH = Path(__file__).resolve().parent.parent / "data" / "db" / "taxa.db"
 
 
 @pytest.mark.skipif(
-        _check_playwright_available() is None,
-        reason="playwright not installed (pip install playwright)",
-    )
-@pytest.mark.skipif(
     _check_playwright_available() is None,
     reason="playwright not installed (pip install playwright)",
 )
@@ -887,12 +883,250 @@ def test_folder_tab_renders_for_unmaterialized_taxon(api_server):
             )
             expect(error_msg).to_have_count(0, timeout=2_000)
 
-            # Positive assertion: the all_exist=false branch must
+# Positive assertion: the all_exist=false branch must
             # have run to completion, rendering the Create button.
             create_btn = folder_content.locator(
                 "button.materialize-modal-btn-primary"
             )
             expect(create_btn).to_be_visible(timeout=2_000)
+        finally:
+            browser.close()
+
+
+@pytest.mark.skipif(
+    _check_playwright_available() is None,
+    reason="playwright not installed (pip install playwright)",
+)
+def test_folder_tab_shows_open_and_copy_after_materialize(api_server):
+    """When the Research folder already exists on disk (all_exist=true),
+    the Folder tab must show [Open in Finder] + [Copy path] buttons in
+    place of the [Create N folders] button. The new pair is what makes
+    the Folder tab useful for routing files downloaded from external
+    search engines into the per-taxon Research folder.
+
+    Idempotent: the test adapts to either state.
+    - If the freshwater root is NOT yet materialized (Create button
+      visible), it clicks Create first to set up the all_exist=true
+      state, then asserts the buttons appear.
+    - If the root IS already materialized from a previous run (Create
+      button hidden), it skips Create and asserts the buttons directly.
+
+    Test path:
+      1. Switch to Freshwater, open the kebab on the root, click Search
+         online (same forced-open trick as the other Folder tab tests).
+      2. Click the Folder tab.
+      3. If Create is visible, click it; wait for the materialize round-
+         trip + re-render.
+      4. Assert:
+         - [Open in Finder] is visible.
+         - [Copy path] is visible.
+         - The catch-block error wrapper is absent.
+      5. Click Copy path and verify the clipboard now holds a Research
+         path string.
+    """
+    from playwright.sync_api import expect, sync_playwright  # type: ignore
+
+    base = api_server["base_url"]
+    fresh_id = api_server["freshwater_root_id"]
+    if fresh_id is None:
+        pytest.skip("no freshwater root in /api/domains — freshwater not loaded")
+
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch(headless=True)
+        except Exception as exc:
+            pytest.skip(f"chromium binary not available: {exc!r}")
+        try:
+            # Grant clipboard permission so navigator.clipboard.writeText AND
+            # .readText resolve without prompting. Headless chromium
+            # otherwise refuses clipboard access, which would mask the
+            # bug we want to detect (button click → no clipboard write)
+            # and the assertion we want to make (clipboard contains the
+            # expected Research path).
+            context = browser.new_context(
+                permissions=["clipboard-read", "clipboard-write"]
+            )
+            page = context.new_page()
+            page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
+            page.locator('[data-tree-source="freshwater"]').click()
+
+            row = page.locator(f'[data-taxon-id="{fresh_id}"]').first
+            expect(row).to_be_visible(timeout=5_000)
+            trigger = page.locator(
+                f'[data-taxon-id="{fresh_id}"] button[data-action="toggle-kebab"]'
+            ).first
+            search_item = page.locator(
+                f'[data-taxon-id="{fresh_id}"] [data-action="open-searches"]'
+            ).first
+
+            # Force the panel open via kebab → Search online.
+            row.hover()
+            trigger.click()
+            expect(search_item).to_be_visible(timeout=2_000)
+            search_item.click()
+
+            panel = page.locator("#detail-panel")
+            expect(panel).to_be_visible(timeout=5_000)
+
+            folder_tab = panel.locator('[data-tab="folder"]')
+            expect(folder_tab).to_be_visible(timeout=2_000)
+            folder_tab.click()
+
+            folder_content = panel.locator('[data-tab-content="folder"]')
+            create_btn = folder_content.locator(
+                '[data-action="create-research-folders"]'
+            )
+            open_btn = folder_content.locator(
+                '[data-action="open-research-folder"]'
+            )
+            copy_btn = folder_content.locator(
+                '[data-action="copy-research-path"]'
+            )
+
+            # Idempotent setup: only click Create if it's currently
+            # visible (i.e. the folder is not yet on disk). On re-runs
+            # of this test against the same DB the folder may already
+            # exist from a previous test invocation; in that case the
+            # Create button is hidden and we go straight to assertions.
+            if create_btn.count() > 0:
+                create_btn.first.click()
+                expect(open_btn).to_be_visible(timeout=10_000)
+            else:
+                # Folder already exists from a previous run; Open + Copy
+                # should be visible directly.
+                expect(open_btn).to_be_visible(timeout=5_000)
+
+            expect(copy_btn).to_be_visible(timeout=2_000)
+
+            # Negative regression: the path-actions render path
+            # shouldn't throw.
+            error_msg = folder_content.locator(
+                "text=Could not render the Folder tab"
+            )
+            expect(error_msg).to_have_count(0, timeout=2_000)
+
+            # Click Copy path and verify the clipboard now holds a path
+            # string. We don't assert the exact prefix because the
+            # server's RESEARCH_DIR can differ across environments
+            # (env var TAXA_RESEARCH_DIR).
+            copy_btn.click()
+            clipboard_text = page.evaluate("navigator.clipboard.readText()")
+            assert clipboard_text, "clipboard empty after Copy path click"
+            assert "/" in clipboard_text, (
+                f"clipboard does not look like a Research path: {clipboard_text!r}"
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.skipif(
+    _check_playwright_available() is None,
+    reason="playwright not installed (pip install playwright)",
+)
+def test_open_in_finder_button_calls_endpoint(api_server):
+    """Clicking [Open in Finder] must POST to /api/taxon/{id}/open-folder
+    with the current treeSource. The endpoint spawns the OS file manager
+    on the server side, so the test only verifies the network shape —
+    intercepting the request via page.route() keeps the test hermetic
+    (no real `open` / `xdg-open` invocation, no Finder window popup in CI).
+    """
+    from playwright.sync_api import expect, sync_playwright  # type: ignore
+
+    base = api_server["base_url"]
+    fresh_id = api_server["freshwater_root_id"]
+    if fresh_id is None:
+        pytest.skip("no freshwater root in /api/domains — freshwater not loaded")
+
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch(headless=True)
+        except Exception as exc:
+            pytest.skip(f"chromium binary not available: {exc!r}")
+        try:
+            context = browser.new_context(permissions=["clipboard-write"])
+            page = context.new_page()
+            page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
+            page.locator('[data-tree-source="freshwater"]').click()
+
+            row = page.locator(f'[data-taxon-id="{fresh_id}"]').first
+            expect(row).to_be_visible(timeout=5_000)
+            trigger = page.locator(
+                f'[data-taxon-id="{fresh_id}"] button[data-action="toggle-kebab"]'
+            ).first
+            search_item = page.locator(
+                f'[data-taxon-id="{fresh_id}"] [data-action="open-searches"]'
+            ).first
+
+            row.hover()
+            trigger.click()
+            expect(search_item).to_be_visible(timeout=2_000)
+            search_item.click()
+
+            panel = page.locator("#detail-panel")
+            expect(panel).to_be_visible(timeout=5_000)
+            folder_tab = panel.locator('[data-tab="folder"]')
+            expect(folder_tab).to_be_visible(timeout=2_000)
+            folder_tab.click()
+
+            folder_content = panel.locator('[data-tab-content="folder"]')
+            create_btn = folder_content.locator(
+                '[data-action="create-research-folders"]'
+            )
+            open_btn = folder_content.locator(
+                '[data-action="open-research-folder"]'
+            )
+            # Idempotent: only click Create if it's currently visible.
+            # Otherwise the folder already exists from a previous run.
+            if create_btn.count() > 0:
+                create_btn.first.click()
+                expect(open_btn).to_be_visible(timeout=10_000)
+            else:
+                expect(open_btn).to_be_visible(timeout=5_000)
+
+            # Intercept the open-folder call so the test doesn't actually
+            # pop a Finder window in CI. We return a synthetic 200 to let
+            # the toast + button state advance normally.
+            captured: list[dict] = []
+
+            def fulfill(route):
+                req = route.request
+                captured.append({
+                    "method": req.method,
+                    "url": req.url,
+                })
+                route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body='{"ok": true, "absolute_path": "/tmp/x", '
+                         '"relative_path": "x", "opened_with": "open"}',
+                )
+
+            page.route(
+                "**/api/taxon/*/open-folder*",
+                fulfill,
+            )
+
+            open_btn.click()
+            # Wait for the captured list to fill (the click handler awaits
+            # the fetch). The toast appears too but its text depends on
+            # the response payload — not stable enough to assert.
+            page.wait_for_function(
+                "() => true",  # no-op; we just want the next tick
+                timeout=2_000,
+            )
+            # Give the fetch + response a beat to land.
+            page.wait_for_timeout(500)
+
+            assert captured, "Open in Finder click did not trigger a request"
+            assert captured[0]["method"] == "POST", (
+                f"expected POST, got {captured[0]['method']}"
+            )
+            assert f"/api/taxon/{fresh_id}/open-folder" in captured[0]["url"], (
+                f"unexpected URL: {captured[0]['url']}"
+            )
+            assert "source=freshwater" in captured[0]["url"], (
+                f"missing source=freshwater: {captured[0]['url']}"
+            )
         finally:
             browser.close()
 

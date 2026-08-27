@@ -11,6 +11,7 @@ import {
   loadTaxon,
   previewMaterialize,
   materializeResearch,
+  openFolder,
 } from "./api.js";
 import {
   rankLabel,
@@ -372,8 +373,13 @@ function renderSearchesTab(searches) {
 // Render the Folder tab content — the line-by-line preview of the
 // root→taxon folder chain under ./Research, plus the count summary,
 // the info banner (when the path is fully materialized), and the
-// [Create N folders] action button (when something new would be
-// created). Reused CSS classes from the previous standalone modal
+// action button row at the bottom:
+//   [Create N folders]   when all_exist=false (path not on disk yet)
+//   [Open in Finder] [Copy path]   when all_exist=true (path exists)
+// The Open / Copy pair lets the user route files downloaded from
+// external search engines into the right per-taxon Research folder
+// without manually typing the absolute path in the OS save dialog.
+// Reused CSS classes from the previous standalone modal
 // (.materialize-modal-list, .materialize-modal-marker, etc.) so the
 // visual language stays consistent.
 function renderFolderTab(taxon) {
@@ -443,7 +449,7 @@ function renderFolderTab(taxon) {
       )
     : null;
 
-// The create button only shows when there's something new to
+  // The create button only shows when there's something new to
   // create. In the all-exist state, the tab is read-only.
   let createBtn = null;
   if (!preview.all_exist) {
@@ -453,6 +459,7 @@ function renderFolderTab(taxon) {
       {
         class: "materialize-modal-btn materialize-modal-btn-primary",
         type: "button",
+        "data-action": "create-research-folders",
       },
       label,
     );
@@ -472,9 +479,7 @@ function renderFolderTab(taxon) {
         // but until then the cached tree in state.explorer.tree stayed
         // stale — and the reload button on the Browser tab had no
         // handler either).
-        const { refresh: refreshExplorer } = await import(
-          "./file_explorer.js"
-        );
+        const { refresh: refreshExplorer } = await import("./file_explorer.js");
         await refreshExplorer();
         const newPreview = await previewMaterialize(
           taxon.id,
@@ -499,6 +504,92 @@ function renderFolderTab(taxon) {
     createBtn = btn;
   }
 
+  // Path-relative buttons: only meaningful when the folder actually
+  // exists on disk (all_exist=true). For unmaterialized taxa the user
+  // must click Create first; we keep the pair invisible until then
+  // rather than disabled, because the Create button is the primary
+  // CTA in that state and showing two dead buttons next to it would
+  // compete for attention.
+  //
+  //   Copy path: writes preview.absolute_path to the clipboard via
+  //   navigator.clipboard.writeText. The user can then paste the
+  //   path into the "Where" field of the OS Save dialog when saving
+  //   a file from an external search tab.
+  //
+  //   Open in Finder: POSTs to /api/taxon/{id}/open-folder, which
+  //   launches `open` (mac) / `xdg-open` (linux) / `explorer` (win)
+  //   pointed at the folder. The user can then drag files from the
+  //   browser's Downloads shelf into the freshly-opened window.
+  let pathActions = null;
+  if (preview.all_exist) {
+    const pathStr = preview.absolute_path;
+
+    const copyBtn = el(
+      "button",
+      {
+        class: "materialize-modal-btn materialize-modal-btn-secondary",
+        type: "button",
+        "data-action": "copy-research-path",
+      },
+      el(
+        "span",
+        { class: "material-symbols-outlined text-[18px]" },
+        "content_copy",
+      ),
+      el("span", null, "Copy path"),
+    );
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(pathStr);
+        showToast("Path copied to clipboard");
+        const labelSpan = copyBtn.querySelector("span:last-child");
+        const original = labelSpan.textContent;
+        labelSpan.textContent = "Copied!";
+        setTimeout(() => {
+          labelSpan.textContent = original;
+        }, 1200);
+      } catch (err) {
+        showToast(`Could not copy: ${err.message}`, { error: true });
+      }
+    });
+
+    const openBtn = el(
+      "button",
+      {
+        class: "materialize-modal-btn materialize-modal-btn-primary",
+        type: "button",
+        "data-action": "open-research-folder",
+      },
+      el(
+        "span",
+        { class: "material-symbols-outlined text-[18px]" },
+        "folder_open",
+      ),
+      el("span", null, "Open in Finder"),
+    );
+    openBtn.addEventListener("click", async () => {
+      openBtn.disabled = true;
+      const labelSpan = openBtn.querySelector("span:last-child");
+      const original = labelSpan ? labelSpan.textContent : null;
+      if (labelSpan) labelSpan.textContent = "Opening…";
+      try {
+        const r = await openFolder(taxon.id, state.treeSource);
+        showToast(`Opened ${r.opened_with}: ${r.relative_path}`);
+      } catch (err) {
+        showToast(`Could not open folder: ${err.message}`, { error: true });
+        openBtn.disabled = false;
+        if (labelSpan && original) labelSpan.textContent = original;
+      }
+    });
+
+    pathActions = el(
+      "div",
+      { class: "materialize-modal-path-actions" },
+      openBtn,
+      copyBtn,
+    );
+  }
+
   return el(
     "div",
     { class: "materialize-tab-content" },
@@ -511,6 +602,7 @@ function renderFolderTab(taxon) {
     counts,
     infoBanner,
     createBtn,
+    pathActions,
   );
 }
 

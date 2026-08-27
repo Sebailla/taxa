@@ -114,10 +114,49 @@ async function previewMaterialize(taxonId, source = "col") {
   return r.json();
 }
 
+// POST /api/taxon/{id}/open-folder — asks the server to launch the OS
+// file manager (Finder / xdg-open / explorer) pointed at the materialized
+// Research folder for this taxon. The endpoint is fire-and-forget from
+// the UI's point of view: a 200 means the OS subprocess was spawned, not
+// that the folder actually opened (no portable way to check). 404 means
+// the user hasn't materialized yet — the UI is expected to hide this
+// button until all_exist is true, but defensive error handling keeps the
+// toast useful if a stale preview slips through.
+//
+// `source` mirrors the materialize arguments — the materialized path
+// differs across sources (CoL vs WoRMS vs Freshwater walk different
+// parent columns).
+async function openFolder(taxonId, source = "col") {
+  const r = await fetch(
+    API +
+      `/api/taxon/${taxonId}/open-folder?source=${encodeURIComponent(source)}`,
+    { method: "POST" },
+  );
+  if (!r.ok) {
+    let detail = "";
+    try {
+      const body = await r.json();
+      detail = body.detail || "";
+    } catch {
+      // body wasn't JSON — fall back to statusText.
+    }
+    throw new Error(
+      `open-folder ${taxonId} failed: ${r.status}${detail ? " " + detail : ""}`,
+    );
+  }
+  return r.json();
+}
+
 export {
   api,
   loadTaxon,
   loadChildren,
   materializeResearch,
   previewMaterialize,
+  openFolder,
 };
+// openFolder intentionally not used inside this module yet — it's
+// consumed by the Folder tab in web/detail.js. Suppressed the unused
+// export hint because removing it would break the import on detail.js
+// (verified — see `openFolder(taxon.id, state.treeSource)` in
+// renderFolderTab).

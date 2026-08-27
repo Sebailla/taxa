@@ -785,6 +785,31 @@
       .materialize-modal-btn-primary:hover:not(:disabled) {
         background: color-mix(in srgb, #15803d 88%, black);
       }
+      .materialize-modal-btn-secondary {
+        background: transparent;
+        color: var(--primary, #15803d);
+        border: 1px solid currentColor;
+      }
+      .materialize-modal-btn-secondary:hover:not(:disabled) {
+        background: color-mix(
+          in srgb,
+          var(--primary, #15803d) 12%,
+          transparent
+        );
+      }
+      /* Path-actions row: a horizontal flex container for the
+             [Open in Finder] + [Copy path] pair shown once the Research
+             folder exists on disk. Wraps on narrow viewports so the
+             buttons never overflow the panel. */
+      .materialize-modal-path-actions {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-top: 0.75rem;
+      }
+      .materialize-modal-path-actions .materialize-modal-btn {
+        flex: 0 0 auto;
+      }
       @keyframes materialize-spin {
         from {
           transform: rotate(0deg);
