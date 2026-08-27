@@ -539,6 +539,190 @@ def test_breadcrumb_walks_freshwater_chain(api_server):
         finally:
             browser.close()
 
+@pytest.mark.skipif(
+    _check_playwright_available() is None,
+    reason='playwright not installed (pip install playwright)',
+)
+def test_kebab_menu_toggles_on_repeated_trigger_click(api_server):
+    """Clicking the kebab trigger must toggle the menu open/closed on
+    each click.
+
+    Regression: nav.js closed ALL open kebab menus BEFORE toggling
+    the target. Since the kebab trigger is a sibling (not a child)
+    of `.kebab-menu`, `e.target.closest('.kebab-menu.open')` returns
+    null even when the trigger's own menu is open, so the global
+    close-all ran first. By the time `toggleKebabMenu(trigger)`
+    executed, the menu was already closed, so
+    `opening = !menu.classList.contains('open')` flipped to `true`
+    and the menu reopened. Net effect: clicking the trigger twice
+    leaves the menu stuck open, and subsequent clicks feel
+    unresponsive.
+
+    This test exercises the closed -> open -> closed -> open cycle
+    on the same trigger and asserts the `.open` class flips on
+    every click.
+    """
+    import re
+
+    from playwright.sync_api import expect, sync_playwright  # type: ignore
+
+    base = api_server["base_url"]
+    fresh_id = api_server["freshwater_root_id"]
+    if fresh_id is None:
+        pytest.skip("no freshwater root in /api/domains — freshwater not loaded")
+
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch(headless=True)
+        except Exception as exc:
+            pytest.skip(f"chromium binary not available: {exc!r}")
+        try:
+            page = browser.new_page()
+            page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
+            page.locator('[data-tree-source="freshwater"]').click()
+            # Hover the freshwater root row so its hover-gated
+            # kebab-trigger becomes clickable (CSS opacity-0 -> 1).
+            row = page.locator(f'[data-taxon-id="{fresh_id}"]').first
+            expect(row).to_be_visible(timeout=5_000)
+            row.hover()
+            trigger = page.locator(
+                f'[data-taxon-id="{fresh_id}"] button[data-action="toggle-kebab"]'
+            ).first
+            expect(trigger).to_be_attached(timeout=5_000)
+            menu = page.locator(
+                f'[data-taxon-id="{fresh_id}"] .kebab-menu'
+            ).first
+
+            # Click 1 — menu must open.
+            trigger.click()
+            expect(menu).to_have_class(re.compile(r"\bopen\b"), timeout=2_000)
+
+            # Click 2 (same trigger) — menu must close. This is the
+            # regression: nav.js's global close-all ran first and
+            # closed the menu, then toggleKebabMenu reopened it
+            # because by then `menu.classList.contains("open")` was
+            # false. Before the fix this assertion fails.
+            trigger.click()
+            expect(menu).not_to_have_class(
+                re.compile(r"\bopen\b"), timeout=2_000
+            )
+
+            # Click 3 — menu must open again. After the fix this is
+            # the normal toggle path; we assert it so the test fails
+            # loudly if a future change re-breaks the alternation.
+            trigger.click()
+            expect(menu).to_have_class(re.compile(r"\bopen\b"), timeout=2_000)
+        finally:
+            browser.close()
+
+
+
+
+
+@pytest.mark.skipif(
+    _check_playwright_available() is None,
+    reason="playwright not installed (pip install playwright)",
+)
+@pytest.mark.parametrize("close_method", ["click_trigger", "click_outside", "press_escape", "kebab_item_action"])
+def test_kebab_menu_reopens_after_each_close_method(
+    api_server, close_method
+):
+    """After the kebab menu is closed (by ANY of the supported methods),
+    clicking the trigger again MUST reopen the menu.
+
+    Regression variants: the user's "it doesn\'t respond" complaint can
+    mean different things depending on how they closed the menu. This
+    parametrised test exercises every supported close path and asserts
+    the next click on the trigger reopens the menu.
+
+    Close methods covered:
+      - click_trigger: click the trigger again (same trigger). Before
+        the fix the trigger\'s sibling-of-menu layout made this leave
+        the menu stuck open.
+      - click_outside: click a non-kebab element. Fires the global
+        close-all branch.
+      - press_escape: keydown handler closes any open menu.
+    """
+    from playwright.sync_api import expect, sync_playwright  # type: ignore
+
+    base = api_server["base_url"]
+    fresh_id = api_server["freshwater_root_id"]
+    if fresh_id is None:
+        pytest.skip("no freshwater root in /api/domains — freshwater not loaded")
+
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch(headless=True)
+        except Exception as exc:
+            pytest.skip(f"chromium binary not available: {exc!r}")
+        try:
+            page = browser.new_page()
+            page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
+            page.locator('[data-tree-source="freshwater"]').click()
+            row = page.locator(f'[data-taxon-id="{fresh_id}"]').first
+            expect(row).to_be_visible(timeout=5_000)
+            row.hover()
+            trigger = page.locator(
+                f'[data-taxon-id="{fresh_id}"] button[data-action="toggle-kebab"]'
+            ).first
+            expect(trigger).to_be_attached(timeout=5_000)
+            menu = page.locator(
+                f'[data-taxon-id="{fresh_id}"] .kebab-menu'
+            ).first
+            open_cls = __import__("re").compile(r"\bopen\b")
+
+            # Open the menu.
+            trigger.click()
+            expect(menu).to_have_class(open_cls, timeout=2_000)
+
+            # Close it using the method under test.
+            if close_method == "click_trigger":
+                trigger.click()
+            elif close_method == "click_outside":
+                # Click outside any kebab menu or trigger — the search
+                # input is well outside #tree-view and has no data-action
+                # so it doesn't dispatch any side-effect beyond closing
+                # the search dropdown (which is already closed). Avoids
+                # the source-toggle buttons because clicking those
+                # switches the tree source and invalidates fresh_id.
+                page.locator("#search-input").click()
+            elif close_method == "press_escape":
+                page.keyboard.press("Escape")
+            elif close_method == "kebab_item_action":
+                # Click an item inside the menu (e.g. "Search online").
+                # The action handler dispatches selectTaxon() which
+                # calls render(), replacing the entire tree DOM. The
+                # kebab menu element is gone after the re-render — the
+                # user must be able to click the NEW trigger and still
+                # see a working kebab menu.
+                search_item = page.locator(
+                    f'[data-taxon-id="{fresh_id}"] [data-action="open-searches"]'
+                ).first
+                expect(search_item).to_be_visible(timeout=2_000)
+                search_item.click()
+                # selectTaxon has fired — the tree is rebuilt. The old
+                # `menu` locator now points at a detached element. The
+                # user observes the menu closed visually because the
+                # new menu starts without `.open`.
+                page.wait_for_function(
+                    f"() => document.querySelector('[data-taxon-id=\"{fresh_id}\"] .kebab-menu.open') === null",
+                    timeout=5_000,
+                )
+            else:
+                raise AssertionError(f"unknown close_method {close_method!r}")
+
+            expect(menu).not_to_have_class(open_cls, timeout=2_000)
+
+            # Reopen by hovering + clicking the trigger. The hover
+            # restores the trigger\'s opacity (it\'s hover-gated), so
+            # the user can see and click it again.
+            row.hover()
+            trigger.click()
+            expect(menu).to_have_class(open_cls, timeout=2_000)
+        finally:
+            browser.close()
+
+
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "db" / "taxa.db"
 
