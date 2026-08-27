@@ -445,7 +445,7 @@ function renderFolderTab(taxon) {
 
   // The create button only shows when there's something new to
   // create. In the all-exist state, the tab is read-only.
-  let createBtn = null;
+  const createBtn = null;
   if (!preview.all_exist) {
     const label = `Create ${preview.new_count} ${preview.new_count === 1 ? "folder" : "folders"}`;
     const btn = el(
@@ -463,6 +463,19 @@ function renderFolderTab(taxon) {
         const response = await materializeResearch(taxon.id, state.treeSource);
         state.materialized.add(taxon.id);
         propagateMaterialized(taxon.id);
+        // Refresh the Browser-tab file explorer if it's mounted. The
+        // refresh() helper is a no-op when the explorer isn't on
+        // screen, so it's safe to call regardless of which tab the
+        // user is on. Without this, a folder materialized from
+        // Classification wouldn't appear in the Browser tab until the
+        // user left and re-entered it (the next mount() would re-fetch,
+        // but until then the cached tree in state.explorer.tree stayed
+        // stale — and the reload button on the Browser tab had no
+        // handler either).
+        const { refresh: refreshExplorer } = await import(
+          "./file_explorer.js"
+        );
+        await refreshExplorer();
         const newPreview = await previewMaterialize(
           taxon.id,
           state.treeSource,
