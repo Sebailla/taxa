@@ -562,15 +562,29 @@ def _sanitize_segment(name: str, fallback_id: int) -> str:
 
 
 def _walk_parents(
-    conn: sqlite3.Connection, start_id: int
+    conn: sqlite3.Connection,
+    start_id: int,
+    parent_column: str = "parent_id",
 ) -> list[tuple[int, str]]:
-    """Walk the parent_id chain from start_id up to the root.
+    """Walk the `parent_column` chain from start_id up to the root.
+
+    The default `parent_column="parent_id"` walks the CoL backbone (used by
+    the /children endpoint, which passes the same column to its WHERE).
+    Pass `worms_parent_id` or `freshwater_parent_id` to walk the WoRMS or
+    freshwater overlay hierarchies — those rows have parent_id=NULL but
+    a populated `*_parent_id` that points at the next ancestor in their
+    own tree.
 
     Returns a list of (taxon_id, scientific_name) tuples in root→start order.
     Raises 500 on cycles or chains deeper than `_MAX_PARENT_DEPTH`. The id is
     preserved per ancestor so each segment's fallback uses its own taxon_id,
     not the request's id.
     """
+    # The `parent_column` value comes from `_SOURCE_TO_PARENT_COLUMN` (a
+    # module-level literal) or the default `"parent_id"`, so it is never
+    # user-controlled. A direct f-string here keeps the static column
+    # name visible to reviewers and avoids a parameterized-column hack
+    # sqlite3 doesn't support.
     visited: set[int] = set()
     chain: list[tuple[int, str]] = []
     current_id: Optional[int] = start_id
@@ -594,7 +608,8 @@ def _walk_parents(
             )
         visited.add(current_id)
         row = conn.execute(
-            "SELECT parent_id, scientific_name FROM taxon WHERE id = ?",
+            f"SELECT {parent_column} AS parent_id, scientific_name "
+            f"FROM taxon WHERE id = ?",
             (current_id,),
         ).fetchone()
         if row is None:
@@ -609,8 +624,20 @@ def _walk_parents(
     return chain
 
 
+# Maps the materialize endpoint's `source` query param to the column used
+# by `_walk_parents`. Mirrors the same mapping used by /children. CoL is
+# the default — the CoL backbone is the only hierarchy that ALSO carries a
+# server-trusted `path` (baked in by parse_textree.py), so it's the only
+# source that can take the path-shortcut in `_build_segments`.
+_SOURCE_TO_PARENT_COLUMN: MappingProxyType[str, str] = MappingProxyType({
+"col": "parent_id",
+"worms": "worms_parent_id",
+"freshwater": "freshwater_parent_id",
+})
+
+
 def _build_segments(
-    conn: sqlite3.Connection, taxon_id: int
+    conn: sqlite3.Connection, taxon_id: int, source: str = "col",
 ) -> list[str]:
     """Compute the sanitized root→taxon segment list for a taxon.
 
@@ -619,10 +646,29 @@ def _build_segments(
     order. Raises 404 if the taxon doesn't exist, 500 on cycles / depth
     overflow / empty result.
 
+    `source` selects which hierarchy to walk when the taxon's `path`
+    is NULL:
+    - "col" (default): walks `parent_id` (CoL backbone)
+    - "worms": walks `worms_parent_id` (WoRMS overlay hierarchy)
+    - "freshwater": walks `freshwater_parent_id` (freshwater overlay)
+
+    Only CoL rows carry a pre-baked `path` (loaded by parse_textree.py);
+    WoRMS and freshwater rows always have `path IS NULL`, so they always
+    fall through to `_walk_parents` with their own parent column.
+
     The dedup happens BEFORE sanitization, on the original `scientific_name`
     (see AC-4d in tests/test_api_materialize.py: three ancestors all named
     `///` collapse to a single `id-{first_ancestor_id}` segment).
     """
+    if source not in _SOURCE_TO_PARENT_COLUMN:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+f"unknown source {source!r}; "
+f"must be one of {sorted(_SOURCE_TO_PARENT_COLUMN)}"
+            ),
+        )
+    parent_column = _SOURCE_TO_PARENT_COLUMN[source]
     row = conn.execute(
         "SELECT scientific_name, path FROM taxon WHERE id = ?",
         (taxon_id,),
@@ -635,16 +681,21 @@ def _build_segments(
     path = row["path"]
 
     # Build (taxon_id, scientific_name) list in root→taxon order.
-    # When path is set, it's server-trusted (loaded from ETL with the
-    # correct names baked in), so we use the requested taxon_id for every
-    # segment — fallbacks won't fire because server-trusted names are
-    # clean. When path is NULL, walk parents and keep each ancestor's id.
-    if path:
+    # The path-shortcut ONLY applies to CoL — parse_textree.py bakes the
+    # full root→taxon path into the CoL rows at load time, and that path
+    # is server-trusted (clean names, no fallbacks needed). WoRMS and
+    # freshwater rows have path=NULL by design (only CoL rows get paths),
+    # so they always fall through to `_walk_parents` with their own
+    # parent column. Walking by parent_id on a freshwater taxon would
+    # produce a single folder (the taxon itself), because every
+    # freshwater row has parent_id=NULL — the hierarchy lives in
+    # freshwater_parent_id.
+    if path and source == "col":
         segments_with_ids: list[tuple[int, str]] = [
             (taxon_id, seg) for seg in path.split("/") if seg
         ]
     else:
-        segments_with_ids = _walk_parents(conn, taxon_id)
+        segments_with_ids = _walk_parents(conn, taxon_id, parent_column)
 
     # Consecutive dedup by ORIGINAL scientific_name (before sanitize).
     # The dedup keeps the first tuple of each name run so the fallback uses
@@ -757,7 +808,10 @@ def _safe_resolve(root: Path, rel: str) -> Path:
 
 
 @app.get("/api/taxon/{taxon_id}/materialize-preview")
-def materialize_research_folder_preview(taxon_id: int):
+def materialize_research_folder_preview(
+    taxon_id: int,
+    source: str = Query(default="col", pattern="^(col|worms|freshwater)$"),
+):
     """Preview the path that POST /materialize WOULD create, without side effects.
 
     Each segment reports its filesystem state (`exists`, `is_dir`, `is_new`)
@@ -765,6 +819,15 @@ def materialize_research_folder_preview(taxon_id: int):
     and decide whether to show [Crear] or [Cerrar] in the confirmation
     modal. The endpoint does NOT touch the filesystem; re-running the same
     request is always safe and free.
+
+    `source` selects which hierarchy to walk (same semantics as
+    /api/taxon/{id}/children):
+    - "col" (default): the CoL backbone — walks `parent_id` or uses the
+      pre-baked `path` column when present.
+    - "worms": the WoRMS overlay — walks `worms_parent_id`.
+    - "freshwater": the freshwater overlay — walks `freshwater_parent_id`.
+    Required for Freshwater view materializes: freshwater rows have
+    parent_id=NULL and the hierarchy lives in `freshwater_parent_id`.
     """
     with db() as conn:
         row = conn.execute(
@@ -775,7 +838,7 @@ def materialize_research_folder_preview(taxon_id: int):
                 status_code=404, detail=f"taxon {taxon_id} not found",
             )
         sci_name = row["scientific_name"]
-        sanitized = _build_segments(conn, taxon_id)
+        sanitized = _build_segments(conn, taxon_id, source)
 
     segments: list[dict] = []
     new_count = 0
@@ -816,12 +879,20 @@ def materialize_research_folder_preview(taxon_id: int):
 
 
 @app.post("/api/taxon/{taxon_id}/materialize")
-def materialize_research_folder(taxon_id: int):
+def materialize_research_folder(
+    taxon_id: int,
+    source: str = Query(default="col", pattern="^(col|worms|freshwater)$"),
+):
     """Create the root→taxon folder structure under RESEARCH_DIR.
 
     For each ancestor + the taxon itself:
     - Folder name = sanitized `scientific_name`.
     - `mkdir(parents=True, exist_ok=True)` is idempotent.
+
+    `source` selects which hierarchy to walk — same semantics as the preview
+    endpoint above. Freshwater and WoRMS rows carry parent_id=NULL with the
+    real hierarchy in `freshwater_parent_id` / `worms_parent_id`; pass the
+    matching source so the walk finds the ancestors.
 
     Idempotent: re-calling the endpoint on the same taxon reports the existing
     folders instead of failing. Returns 409 if any path component collides
@@ -829,7 +900,7 @@ def materialize_research_folder(taxon_id: int):
     instead of a cryptic `FileExistsError` from mkdir).
     """
     with db() as conn:
-        sanitized = _build_segments(conn, taxon_id)
+        sanitized = _build_segments(conn, taxon_id, source)
 
     # Create folders in a single pass. We pre-check existence so we can
     # distinguish "created by this call" from "pre-existed", and bail out

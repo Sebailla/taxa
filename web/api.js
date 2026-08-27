@@ -56,10 +56,19 @@ async function loadChildren(id) {
 // We use POST (not GET) because the call has side effects on the server's
 // filesystem. Errors are surfaced as a thrown Error so the caller (nav.js)
 // can show them in a toast.
-async function materializeResearch(taxonId) {
-  const r = await fetch(API + `/api/taxon/${taxonId}/materialize`, {
-    method: "POST",
-  });
+//
+// `source` selects which hierarchy to walk — same semantics as
+// `loadChildren` below and `/api/taxon/{id}/children?source=...`. The
+// caller passes `state.treeSource` (always one of "col" | "worms" |
+// "freshwater"); api.js doesn't import state so it stays pure. For WoRMS
+// and Freshwater views, the rows have parent_id=NULL with the real
+// hierarchy in `worms_parent_id` / `freshwater_parent_id` — passing the
+// matching source lets the server walk the right column.
+async function materializeResearch(taxonId, source = "col") {
+  const r = await fetch(
+    API + `/api/taxon/${taxonId}/materialize?source=${encodeURIComponent(source)}`,
+    { method: "POST" },
+  );
   if (!r.ok) {
     let detail = "";
     try {
@@ -82,8 +91,13 @@ async function materializeResearch(taxonId) {
 // (not POST) because the call is purely informational. Errors are
 // surfaced as a thrown Error so the caller (dom.js::openMaterializeModal)
 // can show them in the modal.
-async function previewMaterialize(taxonId) {
-  const r = await fetch(API + `/api/taxon/${taxonId}/materialize-preview`);
+//
+// `source` mirrors the POST argument — see `materializeResearch` above.
+async function previewMaterialize(taxonId, source = "col") {
+  const r = await fetch(
+    API +
+      `/api/taxon/${taxonId}/materialize-preview?source=${encodeURIComponent(source)}`,
+  );
   if (!r.ok) {
     let detail = "";
     try {

@@ -658,3 +658,150 @@ def test_children_flag_with_prepopulated_research_dir(db_client_and_base):
     by_name = {c["scientific_name"]: c for c in body}
     assert by_name["Animalia"]["research_path_exists"] is False
     assert by_name["Plantae"]["research_path_exists"] is True
+
+
+# ---------------------------------------------------------------------------
+# AC-10 — freshwater source walks freshwater_parent_id
+#
+# The freshwater overlay rows are isolated from CoL: parent_id is NULL on
+# every freshwater row, and the actual hierarchy lives in
+# `freshwater_parent_id`. Without `source=freshwater`, the materialize
+# endpoint would fall back to walking parent_id (always NULL on these
+# rows) and produce a single folder per taxon. With the right source
+# the endpoint walks 5 hops up and creates the full
+# Research/Freshwater Fishes/{Order}/{Family}/{Genus}/{Species} tree.
+# ---------------------------------------------------------------------------
+
+
+def test_materialize_freshwater_creates_full_chain(db_client_and_base):
+    """AC-10: A freshwater species with a 5-deep freshwater_parent_id
+    chain materializes the full root→species folder structure when called
+    with `?source=freshwater`. All rows have parent_id=NULL (CoL backbone
+    is irrelevant in the freshwater overlay)."""
+    conn, client, base = db_client_and_base
+    # Build the chain from the root down: root → order → family →
+    # genus → species. Every row has parent_id=NULL and the real
+    # hierarchy is in freshwater_parent_id (mirroring the production
+    # loader's output).
+    root = _insert(conn, scientific_name="Freshwater Fishes",
+                   rank="root", path=None, freshwater_id=1,
+                   freshwater_parent_id=None)
+    order = _insert(conn, scientific_name="Cypriniformes",
+                    rank="order", path=None,
+                    freshwater_id=1001,
+                    freshwater_parent_id=root)
+    family = _insert(conn, scientific_name="Cyprinidae",
+                     rank="family", path=None,
+                     freshwater_id=1002,
+                     freshwater_parent_id=order)
+    genus = _insert(conn, scientific_name="Cyprinus",
+                    rank="genus", path=None,
+                    freshwater_id=1003,
+                    freshwater_parent_id=family)
+    species = _insert(conn, scientific_name="Cyprinus carpio",
+                      rank="species", path=None,
+                      freshwater_id=1004,
+                      freshwater_parent_id=genus)
+
+    resp = client.post(f"/api/taxon/{species}/materialize?source=freshwater")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # All 5 segments created — root→species, NOT just the species leaf.
+    assert body["segments"] == [
+        "Freshwater Fishes", "Cypriniformes", "Cyprinidae",
+        "Cyprinus", "Cyprinus carpio",
+    ]
+    assert body["folders_created"] == 5
+    assert body["folders_existed"] == 0
+    assert body["relative_path"] == (
+        "Freshwater Fishes/Cypriniformes/Cyprinidae/Cyprinus/Cyprinus carpio"
+    )
+    # The full chain exists on disk under base_dir. Every folder is a
+    # directory; the leaf is empty (the endpoint never writes files).
+    for d in (
+        "Freshwater Fishes",
+        "Freshwater Fishes/Cypriniformes",
+        "Freshwater Fishes/Cypriniformes/Cyprinidae",
+        "Freshwater Fishes/Cypriniformes/Cyprinidae/Cyprinus",
+        "Freshwater Fishes/Cypriniformes/Cyprinidae/Cyprinus/Cyprinus carpio",
+    ):
+        assert (base / d).is_dir(), f"missing folder: {d}"
+        files = [c for c in (base / d).iterdir() if c.is_file()]
+        assert files == [], f"unexpected files in {d}: {files}"
+    # The absolute path resolves to base_dir + relative_path.
+    expected_abs = (
+        base / "Freshwater Fishes" / "Cypriniformes" / "Cyprinidae"
+        / "Cyprinus" / "Cyprinus carpio"
+    ).resolve()
+    assert body["absolute_path"] == str(expected_abs)
+
+
+def test_preview_freshwater_returns_full_chain(db_client_and_base):
+    """AC-10b: The preview endpoint mirrors the POST behavior: with
+    `?source=freshwater` the response carries 5 segments (root→species)
+    and reports all of them as new on a fresh research dir."""
+    conn, client, _base = db_client_and_base
+    root = _insert(conn, scientific_name="Freshwater Fishes",
+                   rank="root", path=None, freshwater_id=1,
+                   freshwater_parent_id=None)
+    order = _insert(conn, scientific_name="Siluriformes",
+                    rank="order", path=None, freshwater_id=2001,
+                    freshwater_parent_id=root)
+    family = _insert(conn, scientific_name="Ictaluridae",
+                     rank="family", path=None, freshwater_id=2002,
+                     freshwater_parent_id=order)
+    genus = _insert(conn, scientific_name="Ictalurus",
+                    rank="genus", path=None, freshwater_id=2003,
+                    freshwater_parent_id=family)
+    species = _insert(conn, scientific_name="Ictalurus punctatus",
+                      rank="species", path=None, freshwater_id=2004,
+                      freshwater_parent_id=genus)
+
+    preview = client.get(
+        f"/api/taxon/{species}/materialize-preview?source=freshwater"
+    )
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body["new_count"] == 5
+    assert body["existing_count"] == 0
+    assert body["all_exist"] is False
+    assert [s["name"] for s in body["segments"]] == [
+        "Freshwater Fishes", "Siluriformes", "Ictaluridae",
+        "Ictalurus", "Ictalurus punctatus",
+    ]
+
+
+def test_materialize_worms_uses_worms_parent_id(db_client_and_base):
+    """AC-10c: Bonus regression — the WoRMS view uses worms_parent_id.
+    Same shape as the freshwater fix: source=worms walks the WoRMS
+    hierarchy even though parent_id is NULL on the WoRMS-only rows."""
+    conn, client, base = db_client_and_base
+    # Build the chain with raw SQL because the shared `_insert` helper
+    # above does not expose `worms_parent_id` (its column list ends at
+    # `freshwater_parent_id` and silently drops unknown kwargs). CoL and
+    # freshwater rows don't need worms_parent_id; only this WoRMS-shape
+    # test does, so a one-off inline INSERT keeps the helper untouched.
+    def _ins_worms(scientific_name, worms_id, worms_parent_id):
+        cur = conn.execute(
+            "INSERT INTO taxon (rank, status, scientific_name, is_extinct, "
+            "worms_id, worms_parent_id) VALUES (?, 'accepted', ?, 0, ?, ?)",
+            ("root" if worms_parent_id is None else "intermediate",
+             scientific_name, worms_id, worms_parent_id),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+    biota = _ins_worms("Biota", 1, None)
+    mollusca = _ins_worms("Mollusca", 101, biota)
+    ceph = _ins_worms("Cephalopoda", 102, mollusca)
+    sepia = _ins_worms("Sepia", 103, ceph)
+
+    resp = client.post(f"/api/taxon/{sepia}/materialize?source=worms")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # 4 segments: Biota → Mollusca → Cephalopoda → Sepia.
+    assert body["segments"] == [
+        "Biota", "Mollusca", "Cephalopoda", "Sepia",
+    ]
+    assert body["folders_created"] == 4
+    assert (base / "Biota" / "Mollusca" / "Cephalopoda" / "Sepia").is_dir()
