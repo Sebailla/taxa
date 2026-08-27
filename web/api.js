@@ -66,7 +66,8 @@ async function loadChildren(id) {
 // matching source lets the server walk the right column.
 async function materializeResearch(taxonId, source = "col") {
   const r = await fetch(
-    API + `/api/taxon/${taxonId}/materialize?source=${encodeURIComponent(source)}`,
+    API +
+      `/api/taxon/${taxonId}/materialize?source=${encodeURIComponent(source)}`,
     { method: "POST" },
   );
   if (!r.ok) {

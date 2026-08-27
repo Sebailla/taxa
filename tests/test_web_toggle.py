@@ -580,7 +580,7 @@ def test_version_banner_shows_on_outdated_db(api_server):
                 page = browser.new_page()
                 page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
                 # Banner element exists in the DOM (just hidden by default).
-                # When user_version (2) < expected (4), boot() removes the
+                # When user_version (2) < expected (5), boot() removes the
                 # `hidden` class and writes the numbers into the spans.
                 banner = page.locator("#version-banner")
                 expect(banner).to_be_visible(timeout=5_000)
@@ -589,7 +589,7 @@ def test_version_banner_shows_on_outdated_db(api_server):
                 ).to_have_text("2", timeout=2_000)
                 expect(
                     page.locator("#version-banner-expected")
-                ).to_have_text("4", timeout=2_000)
+                ).to_have_text("5", timeout=2_000)
             finally:
                 browser.close()
     finally:

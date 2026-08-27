@@ -3,15 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Taxonomic Tree</title>
-        <!-- Tailwind compiled output — replaces the previous runtime CDN script
+    <title>Taxonomic Tree</title>
+    <!-- Tailwind compiled output — replaces the previous runtime CDN script
              and inline tailwind.config. Tokens now live in tailwind.config.js
              at the project root; rebuild with `npm run build:css` (or
              `make css`). Loaded before the inline <style> block so the
              project's bespoke CSS variables, class rules, @keyframes, and
              .animate-spin override retain the final word in cascade order. -->
-        <link rel="stylesheet" href="dist/tailwind.css" />
-        <style>
+    <link rel="stylesheet" href="dist/tailwind.css" />
+    <style>
       @layer base {
         html,
         body {
@@ -211,22 +211,26 @@
         color: #ffffff;
       }
 
-/* Rank badge — Raleway, 13px, 600, 1px tracking (H4 from brief) */
-          .rank-badge {
-            font-family: "Raleway", sans-serif;
-            font-size: 13px;
-            line-height: 1.4;
-            letter-spacing: 1px;
-            font-weight: 600;
-          }
+      /* Rank badge — Raleway, 13px, 600, 1px tracking (H4 from brief) */
+      .rank-badge {
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        line-height: 1.4;
+        letter-spacing: 1px;
+        font-weight: 600;
+      }
 
-          /* Latin binomials — italic by ICZN convention for genus + below;
+      /* Latin binomials — italic by ICZN convention for genus + below;
              roman for higher ranks (domain, kingdom, phylum, class, order,
              family, plus sub-ranks and tribe/subtribe). Higher ranks use the
              .scientific-name--roman modifier; the base .scientific-name
              rule defaults to italic. */
-          .scientific-name { font-style: italic; }
-          .scientific-name--roman { font-style: normal; }
+      .scientific-name {
+        font-style: italic;
+      }
+      .scientific-name--roman {
+        font-style: normal;
+      }
 
       /* Detail panel — modern card with subtle layered shadow.
              The shadow is multi-layered (close + mid + far) so the card feels
@@ -566,90 +570,92 @@
         align-items: center;
         justify-content: center;
       }
-          .materialize-btn:hover {
-            background: var(--surface-container-low);
-          }
+      .materialize-btn:hover {
+        background: var(--surface-container-low);
+      }
 
-          /* Kebab menu (P1 #2) — per-row "more actions" trigger that
+      /* Kebab menu (P1 #2) — per-row "more actions" trigger that
              replaces the old inline lupa + create_new_folder buttons.
              The trigger is hover-gated (opacity-0 by default, opacity-1
              on row hover or selection) so the visual weight stays low
              when the user is just scrolling the tree. The menu itself
              floats absolutely below the trigger so it overlays
              subsequent rows without taking grid space. */
-          .kebab {
-            position: relative;
-            display: inline-flex;
-            align-items: center;
-          }
-          .kebab-trigger {
-            margin-left: 4px;
-            padding: 2px;
-            border-radius: 4px;
-            background: transparent;
-            border: 0;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            opacity: 0;
-            transition: opacity 120ms linear, background-color 120ms linear;
-          }
-          .tree-row:hover .kebab-trigger,
-          .tree-row.selected .kebab-trigger,
-          .tree-row:focus-within .kebab-trigger,
-          .kebab-trigger:focus-visible {
-            opacity: 1;
-          }
-          .kebab-trigger:hover,
-          .kebab-trigger:focus-visible {
-            background: var(--surface-container-low);
-            outline: none;
-          }
-          .kebab-menu {
-            display: none;
-            position: absolute;
-            right: 0;
-            top: calc(100% + 4px);
-            min-width: 180px;
-            background: var(--surface);
-            border: 1px solid var(--outline-variant);
-            border-radius: 8px;
-            padding: 4px;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-            z-index: 50;
-            flex-direction: column;
-            gap: 2px;
-          }
-          .kebab-menu.open {
-            display: flex;
-          }
-          .kebab-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 8px 10px;
-            border: 0;
-            background: transparent;
-            border-radius: 6px;
-            font-family: "Raleway", sans-serif;
-            font-size: 13px;
-            font-weight: 500;
-            color: var(--on-surface);
-            text-align: left;
-            cursor: pointer;
-            text-decoration: none;
-            transition: background-color 120ms linear;
-          }
-          .kebab-item:hover,
-          .kebab-item:focus-visible {
-            background: var(--surface-container-low);
-            outline: none;
-          }
-          .kebab-item-label {
-            flex: 1;
-            white-space: nowrap;
-          }
+      .kebab {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+      }
+      .kebab-trigger {
+        margin-left: 4px;
+        padding: 2px;
+        border-radius: 4px;
+        background: transparent;
+        border: 0;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        transition:
+          opacity 120ms linear,
+          background-color 120ms linear;
+      }
+      .tree-row:hover .kebab-trigger,
+      .tree-row.selected .kebab-trigger,
+      .tree-row:focus-within .kebab-trigger,
+      .kebab-trigger:focus-visible {
+        opacity: 1;
+      }
+      .kebab-trigger:hover,
+      .kebab-trigger:focus-visible {
+        background: var(--surface-container-low);
+        outline: none;
+      }
+      .kebab-menu {
+        display: none;
+        position: absolute;
+        right: 0;
+        top: calc(100% + 4px);
+        min-width: 180px;
+        background: var(--surface);
+        border: 1px solid var(--outline-variant);
+        border-radius: 8px;
+        padding: 4px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+        z-index: 50;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .kebab-menu.open {
+        display: flex;
+      }
+      .kebab-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 10px;
+        border: 0;
+        background: transparent;
+        border-radius: 6px;
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--on-surface);
+        text-align: left;
+        cursor: pointer;
+        text-decoration: none;
+        transition: background-color 120ms linear;
+      }
+      .kebab-item:hover,
+      .kebab-item:focus-visible {
+        background: var(--surface-container-low);
+        outline: none;
+      }
+      .kebab-item-label {
+        flex: 1;
+        white-space: nowrap;
+      }
 
       /* Folder tab content — lives inside the detail panel's
                      "Folder" tab. Reuses the line-by-line preview UI
@@ -942,7 +948,11 @@
       [data-action="nav-tab"]:focus-visible,
       #nav-help:focus-visible,
       #collapse-all:focus-visible,
-      button:focus-visible:not(:disabled):not(.search-engine-btn):not([data-tab]):not(.kebab-item):not(.kebab-trigger):not(.materialize-btn):not(.load-all):not(.search-icon-btn) {
+      button:focus-visible:not(:disabled):not(.search-engine-btn):not(
+          [data-tab]
+        ):not(.kebab-item):not(.kebab-trigger):not(.materialize-btn):not(
+          .load-all
+        ):not(.search-icon-btn) {
         outline: 2px solid var(--primary);
         outline-offset: 2px;
       }
@@ -1288,11 +1298,11 @@
       .fex-row.folder[data-realm="plantae"] .fex-label {
         color: var(--realm-plantae);
       }
-          .fex-row.folder[data-realm="chromista"] .fex-icon,
-          .fex-row.folder[data-realm="chromista"] .fex-label {
-            color: var(--realm-chromista);
-          }
-          /* Realm tint for Classification tree rows — mirrors the Browser
+      .fex-row.folder[data-realm="chromista"] .fex-icon,
+      .fex-row.folder[data-realm="chromista"] .fex-label {
+        color: var(--realm-chromista);
+      }
+      /* Realm tint for Classification tree rows — mirrors the Browser
                      .fex-row pattern above. The Classification tree stamps
                      data-realm on every <div id="taxon-..."> via tree.js;
                      the hue goes on the .scientific-name span only (not the
@@ -1303,34 +1313,34 @@
                      clearest signal on the page. Specificity is tied (two
                      classes + one element) so the override below wins on
                      source order alone. */
-          .tree-row[data-realm] .scientific-name {
-            color: var(--realm-other);
-          }
-          .tree-row[data-realm="bacteria"] .scientific-name {
-            color: var(--realm-bacteria);
-          }
-          .tree-row[data-realm="archaea"] .scientific-name {
-            color: var(--realm-archaea);
-          }
-          .tree-row[data-realm="viruses"] .scientific-name {
-            color: var(--realm-viruses);
-          }
-          .tree-row[data-realm="animalia"] .scientific-name {
-            color: var(--realm-animalia);
-          }
-          .tree-row[data-realm="fungi"] .scientific-name {
-            color: var(--realm-fungi);
-          }
-          .tree-row[data-realm="plantae"] .scientific-name {
-            color: var(--realm-plantae);
-          }
-          .tree-row[data-realm="chromista"] .scientific-name {
-            color: var(--realm-chromista);
-          }
-          .tree-row.selected .scientific-name,
-          .tree-row.focused .scientific-name {
-            color: var(--primary);
-          }
+      .tree-row[data-realm] .scientific-name {
+        color: var(--realm-other);
+      }
+      .tree-row[data-realm="bacteria"] .scientific-name {
+        color: var(--realm-bacteria);
+      }
+      .tree-row[data-realm="archaea"] .scientific-name {
+        color: var(--realm-archaea);
+      }
+      .tree-row[data-realm="viruses"] .scientific-name {
+        color: var(--realm-viruses);
+      }
+      .tree-row[data-realm="animalia"] .scientific-name {
+        color: var(--realm-animalia);
+      }
+      .tree-row[data-realm="fungi"] .scientific-name {
+        color: var(--realm-fungi);
+      }
+      .tree-row[data-realm="plantae"] .scientific-name {
+        color: var(--realm-plantae);
+      }
+      .tree-row[data-realm="chromista"] .scientific-name {
+        color: var(--realm-chromista);
+      }
+      .tree-row.selected .scientific-name,
+      .tree-row.focused .scientific-name {
+        color: var(--primary);
+      }
       .fex-row .fex-label {
         flex: 1;
         min-width: 0;
@@ -1476,7 +1486,7 @@
             href="#"
             >Settings</a
           >
-<a
+          <a
             id="nav-help"
             data-action="nav-tab"
             data-path="help"
