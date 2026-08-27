@@ -372,10 +372,27 @@ document.addEventListener("click", async (e) => {
   // Close order matters: closing happens BEFORE the toggle-kebab
   // branch so a click on trigger B (while A is open) closes A first
   // and then opens B. Otherwise A would stay open while B opens too.
-  if (!e.target.closest(".kebab-menu.open")) {
-    closeAllKebabMenus();
-  }
+  //
+  // BUT — and this is the critical part — we must skip the global
+  // close-all when the click is on a kebab trigger itself. The kebab
+  // trigger is a SIBLING of `.kebab-menu` inside `.kebab`, not a
+  // descendant, so `e.target.closest('.kebab-menu.open')` returns
+  // null even when the trigger's own menu is open. Without this
+  // guard, the global close-all would first close the menu, and
+  // then `toggleKebabMenu(trigger)` would see a closed menu and
+  // reopen it (because `opening = !menu.classList.contains('open')`
+  // flipped to true). Net effect: clicking the trigger to close it
+  // left the menu stuck open, and the user reported the trigger as
+  // unresponsive on subsequent clicks. The other open menus get
+  // closed inside `toggleKebabMenu` itself via
+  // `closeAllKebabMenusOtherThan` when we open, so we don't need
+  // the global close-all here for the cross-menu case.
   const kebabTrigger = e.target.closest('[data-action="toggle-kebab"]');
+  if (!kebabTrigger) {
+    if (!e.target.closest(".kebab-menu.open")) {
+      closeAllKebabMenus();
+    }
+  }
   if (kebabTrigger) {
     toggleKebabMenu(kebabTrigger);
     // Stop here — don't let the click also bubble to the row's
