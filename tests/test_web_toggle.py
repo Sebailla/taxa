@@ -724,6 +724,84 @@ def test_kebab_menu_reopens_after_each_close_method(
 
 
 
+
+@pytest.mark.skipif(
+    _check_playwright_available() is None,
+    reason="playwright not installed (pip install playwright)",
+)
+def test_search_online_reopens_detail_panel_after_close(api_server):
+    """Regression: clicking "Search online" on a row whose detail
+    panel was previously closed must reopen the panel.
+
+    Background: closeDetail() flips state.detailOpen = false but
+    intentionally leaves state.selected set (the file explorer and
+    URL hash stay rooted at that taxon). selectTaxon() had an
+    `if (state.selected === id) return` early-exit that ignored
+    detailOpen, so a subsequent "Search online" click on the same
+    row was a silent no-op. Users reported the kebab item "no
+    responde" after closing the panel.
+
+    Test path:
+      1. Open the kebab, click "Search online" -> panel opens.
+      2. Close the panel via the X button.
+      3. Open the kebab again, click "Search online" -> panel
+         MUST reopen (this is what the user reported broken).
+    """
+    from playwright.sync_api import expect, sync_playwright  # type: ignore
+
+    base = api_server["base_url"]
+    fresh_id = api_server["freshwater_root_id"]
+    if fresh_id is None:
+        pytest.skip("no freshwater root in /api/domains — freshwater not loaded")
+
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch(headless=True)
+        except Exception as exc:
+            pytest.skip(f"chromium binary not available: {exc!r}")
+        try:
+            page = browser.new_page()
+            page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
+            page.locator('[data-tree-source="freshwater"]').click()
+
+            row = page.locator(f'[data-taxon-id="{fresh_id}"]').first
+            expect(row).to_be_visible(timeout=5_000)
+            trigger = page.locator(
+                f'[data-taxon-id="{fresh_id}"] button[data-action="toggle-kebab"]'
+            ).first
+            search_item = page.locator(
+                f'[data-taxon-id="{fresh_id}"] [data-action="open-searches"]'
+            ).first
+            panel = page.locator("#detail-panel")
+            close_btn = page.locator('[data-action="close-detail"]').first
+
+            # Step 1: open the panel via Search online.
+            row.hover()
+            trigger.click()
+            expect(search_item).to_be_visible(timeout=2_000)
+            search_item.click()
+            expect(panel).to_be_visible(timeout=5_000)
+
+            # Step 2: close the panel via the X button. state.selected
+            # stays set (by design — see closeDetail comment), so the
+            # URL hash and file explorer context survive the close.
+            expect(close_btn).to_be_visible(timeout=2_000)
+            close_btn.click()
+            expect(panel).not_to_be_visible(timeout=2_000)
+
+            # Step 3: open the kebab again, click Search online. The
+            # detail panel MUST reopen. Before the fix this was a
+            # silent no-op because selectTaxon()'s early return saw
+            # state.selected === id and returned without re-rendering.
+            row.hover()
+            trigger.click()
+            expect(search_item).to_be_visible(timeout=2_000)
+            search_item.click()
+            expect(panel).to_be_visible(timeout=5_000)
+        finally:
+            browser.close()
+
+
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "db" / "taxa.db"
 
 
