@@ -319,6 +319,28 @@ function renderTreeHeader() {
     "div",
     { class: "fex-tree-header" },
     el("h2", null, "Research"),
+    // Collapse-all button — mirrors the same affordance the taxonomic
+    // tree exposes in nav.js (the toolbar above the classification tree).
+    // Walks every expanded folder row in the explorer pane and flips
+    // its aria-expanded to false, hiding the children container in
+    // place. No re-render needed — the toggle state lives in the DOM
+    // (chevron glyph + display style), so the operation is O(folders)
+    // and stays smooth on deep trees.
+    el(
+      "button",
+      {
+        type: "button",
+        class: "fex-snippet-btn",
+        title: "Collapse all folders",
+        "aria-label": "Collapse all folders",
+        onclick: () => collapseAllFolders(),
+      },
+      el(
+        "span",
+        { class: "material-symbols-outlined text-[16px]" },
+        "unfold_less",
+      ),
+    ),
     el(
       "button",
       {
@@ -331,6 +353,30 @@ function renderTreeHeader() {
       el("span", { class: "material-symbols-outlined text-[16px]" }, "refresh"),
     ),
   );
+}
+
+// Collapse every expanded folder in the explorer pane. Mirrors the
+// visual state the chevron click would produce: aria-expanded="false",
+// children container hidden, chevron flipped to the right-pointing
+// glyph, icon switched from "folder" to "folder_open". Idempotent — a
+// no-op on already-collapsed folders (they're skipped via the early
+// `aria-expanded !== "true"` filter).
+function collapseAllFolders() {
+  if (!_currentHost) return;
+  _currentHost.querySelectorAll(".fex-row.folder").forEach((row) => {
+    if (row.getAttribute("aria-expanded") !== "true") return;
+    row.setAttribute("aria-expanded", "false");
+    const wrap = row.parentElement;
+    if (!wrap) return;
+    const childrenContainer = wrap.querySelector(
+      `[data-folder-children-of="${cssEscape(row.dataset.folderPath || "")}"]`,
+    );
+    if (childrenContainer) childrenContainer.style.display = "none";
+    const chevron = row.querySelector("[data-folder-toggle]");
+    if (chevron) chevron.textContent = "keyboard_arrow_right";
+    const icon = row.querySelector(".fex-icon");
+    if (icon) icon.textContent = "folder_open";
+  });
 }
 
 // Recursive node rendering. Folders use a chevron + folder icon +
