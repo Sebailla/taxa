@@ -44,7 +44,13 @@ async function toggleExpand(id) {
 
 function selectTaxon(id, opts = {}) {
   const { updateUrl = "push" } = opts;
-  if (state.selected === id) return;
+  // Early-return ONLY when the user-visible state is already correct:
+  // this taxon is selected AND its detail panel is open. closeDetail()
+  // intentionally leaves state.selected set (so the URL hash and file
+  // explorer stay rooted at the taxon), so checking `state.selected`
+  // alone would silently no-op a kebab "Search online" / "Open folder"
+  // click that the user makes after closing the panel.
+  if (state.selected === id && state.detailOpen) return;
   state.selected = id;
   if (id === null) {
     // Clearing the selection: keep the URL clean (no trailing " ").
@@ -59,7 +65,12 @@ function selectTaxon(id, opts = {}) {
     if (updateUrl === "push") history.pushState({ id }, "", `#${id}`);
     else if (updateUrl === "replace")
       history.replaceState({ id }, "", `#${id}`);
-    loadDetail(id);
+    // Re-fetch only if we don't already have detail for this taxon;
+    // closeDetail doesn't clear state.detail, so the cached copy is
+    // still valid when the user re-opens the panel via the kebab.
+    if (!state.detail || state.detail.id !== id) {
+      loadDetail(id);
+    }
   }
   render();
 }
