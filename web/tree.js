@@ -424,7 +424,14 @@ function matchesTreeSource(taxon) {
 }
 
 function renderTree() {
+  // Guard: renderTree() can be called from boot()'s final render() or
+  // from a popstate handler AFTER the user has navigated to the
+  // Browser tab (which replaces <main> with the file explorer shell,
+  // destroying #tree-view). Bail silently when the tree view isn't
+  // mounted — there's nothing to render in the explorer tab and the
+  // file_explorer.js module owns the explorer pane rendering.
   const view = document.querySelector("#tree-view");
+  if (!view) return;
   if (state.roots.length === 0) {
     view.replaceChildren(
       el(
