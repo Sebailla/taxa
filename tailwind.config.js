@@ -4,10 +4,7 @@
 // web/index.html's <script id="tailwind-config"> block. Keep in
 // sync with the inline <style> block's :root tokens.
 module.exports = {
-  content: [
-    "./web/index.html",
-    "./web/**/*.js",
-  ],
+  content: ["./web/index.html", "./web/**/*.js"],
   theme: {
     extend: {
       colors: {

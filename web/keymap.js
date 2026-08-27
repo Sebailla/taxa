@@ -19,7 +19,13 @@
 import { state } from "./state.js";
 
 const TEXT_INPUT_TYPES = new Set([
-  "text", "search", "email", "url", "password", "tel", "number",
+  "text",
+  "search",
+  "email",
+  "url",
+  "password",
+  "tel",
+  "number",
 ]);
 
 function isTextInput(el) {

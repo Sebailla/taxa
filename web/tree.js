@@ -261,11 +261,7 @@ function renderNodeRow(taxon, opts = {}) {
             },
             "more_vert",
           ),
-          el(
-            "div",
-            { class: "kebab-menu", role: "menu" },
-            ...kebabItems,
-          ),
+          el("div", { class: "kebab-menu", role: "menu" }, ...kebabItems),
         )
       : null;
 

@@ -42,7 +42,9 @@ async function loadDetail(id) {
       taxon.scientific_name
         ? api(`/api/taxon/${id}/searches`)
         : Promise.resolve([]),
-      previewMaterialize(id, state.treeSource).catch((e) => ({ error: e.message })),
+      previewMaterialize(id, state.treeSource).catch((e) => ({
+        error: e.message,
+      })),
     ]);
     if (state.selected !== id) return; // user navigated away
     state.detail = {
@@ -458,10 +460,13 @@ function renderFolderTab(taxon) {
       btn.disabled = true;
       btn.textContent = "Creating…";
       try {
-const response = await materializeResearch(taxon.id, state.treeSource);
+        const response = await materializeResearch(taxon.id, state.treeSource);
         state.materialized.add(taxon.id);
         propagateMaterialized(taxon.id);
-        const newPreview = await previewMaterialize(taxon.id, state.treeSource).catch((e) => ({
+        const newPreview = await previewMaterialize(
+          taxon.id,
+          state.treeSource,
+        ).catch((e) => ({
           error: e.message,
         }));
         if (state.selected === taxon.id && state.detail) {
