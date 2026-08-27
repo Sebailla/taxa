@@ -24,7 +24,6 @@
     }
   ],
   "action": {
-    "default_popup": "popup.html",
     "default_title": "Send current tab to taxa",
     "default_icon": {
       "16": "icons/icon-16.png",
