@@ -28,7 +28,7 @@ from pathlib import Path
 
 # The schema version this codebase expects the DB to be at.
 # Bump in lockstep with MIGRATIONS additions.
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 # Ordered list of additive migrations, applied top-down. Each entry is
 # (version, filename) where filename is a SQL file relative to the
@@ -37,6 +37,7 @@ MIGRATIONS: list[tuple[int, str]] = [
     (2, "schema_v2.sql"),
     (3, "schema_v3.sql"),
     (4, "schema_v4.sql"),
+    (5, "schema_v5.sql"),
 ]
 
 

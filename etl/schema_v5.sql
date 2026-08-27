@@ -1,0 +1,21 @@
+-- taxa.db schema v5 — version marker for the worms_parent_id addition.
+--
+-- This file is intentionally a no-op. The actual column + index creation
+-- happens in etl/load_worms.py before apply_pending_migrations runs, gated
+-- by a Python-side `PRAGMA table_info` check (SQLite has no `ALTER TABLE
+-- ADD COLUMN IF NOT EXISTS`, so the column add has to be conditional in
+-- code, not in SQL).
+--
+-- This file exists so apply_pending_migrations can bump PRAGMA user_version
+-- from 4 → 5, which /api/health reads to decide whether to show the
+-- "DB outdated" banner. Without a v5 entry the version would stay pinned
+-- at 4 forever on fresh DBs even though the column is in place.
+--
+-- Why a no-op instead of a real ALTER: legacy DBs (e.g. data/db/taxa.db.bak.*)
+-- were built by external tooling that bypassed the migration runner. Those
+-- snapshots already carry the worms_parent_id column with `user_version=0`,
+-- so re-running v5 on them with a real ALTER would fail with "duplicate
+-- column name". The Python-side check in load_worms.py is the single source
+-- of truth for the column; this SQL file is just the version bump.
+
+SELECT 1;

@@ -35,16 +35,17 @@ def schema_dir(tmp_path):
     """Copy the real etl/schema_v*.sql files into tmp_path so the runner
     operates on an isolated schema directory. Tests that need to inject
     a broken schema file can overwrite individual files in tmp_path."""
-    for filename in ("schema_v2.sql", "schema_v3.sql", "schema_v4.sql"):
+    for filename in ("schema_v2.sql", "schema_v3.sql", "schema_v4.sql", "schema_v5.sql"):
         shutil.copy(REAL_SCHEMA_DIR / filename, tmp_path / filename)
     return tmp_path
 
 
 @pytest.fixture
 def db():
-    """In-memory SQLite with the minimal taxon table the v2-v4 SQL files
+    """In-memory SQLite with the minimal taxon table the v2-v5 SQL files
     need (coldp_id for v2's CREATE INDEX, no freshwater columns so v4's
-    ALTER TABLE ADD COLUMN actually has work to do).
+    ALTER TABLE ADD COLUMN actually has work to do; no worms_parent_id
+    so v5's ALTER TABLE has work to do).
 
     The runner is what we're testing — the SQL files themselves are
     integration-tested by the per-loader suites. This fixture exists
@@ -66,6 +67,7 @@ def db():
             coldp_id    TEXT,
             worms_id    INTEGER
             -- no freshwater_id / freshwater_parent_id — v4 adds them
+            -- no worms_parent_id — v5 adds it
         );
     """)
     yield conn
@@ -82,8 +84,8 @@ def test_get_applied_version_default():
 def test_apply_pending_from_fresh(db, schema_dir):
     """Fresh DB (user_version=0) gets every migration applied in order."""
     applied = apply_pending_migrations(db, schema_dir)
-    assert applied == [2, 3, 4]
-    assert get_applied_version(db) == 4
+    assert applied == [2, 3, 4, 5]
+    assert get_applied_version(db) == 5
     # v4's CREATE INDEX (the idempotent part after the ALTER TABLEs) should
     # have landed — proof the runner executed the SQL, not just bumped the
     # version. The ALTER TABLEs are confirmed by the version bump itself.
@@ -91,14 +93,21 @@ def test_apply_pending_from_fresh(db, schema_dir):
         "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_taxon_freshwater'"
     ).fetchone()[0]
     assert idx_count == 1, "v4's CREATE INDEX should have landed"
+    # v5 is a version-marker only — schema_v5.sql is intentionally a
+    # no-op (`SELECT 1`) because the worms_parent_id column + index are
+    # created by etl/load_worms.py's Python-side check (SQLite has no
+    # ADD COLUMN IF NOT EXISTS, and legacy DBs carry the column without
+    # a version bump). Asserting the version lands is enough — the
+    # column/index creation is tested by load_worms.py's own suite.
+    assert get_applied_version(db) == CURRENT_SCHEMA_VERSION
 
 
 def test_apply_pending_from_v2(db, schema_dir):
-    """DB at v2 gets only v3 and v4 applied — v2 is skipped."""
+    """DB at v2 gets only v3, v4 and v5 applied — v2 is skipped."""
     db.execute("PRAGMA user_version = 2")
     applied = apply_pending_migrations(db, schema_dir)
-    assert applied == [3, 4]
-    assert get_applied_version(db) == 4
+    assert applied == [3, 4, 5]
+    assert get_applied_version(db) == 5
 
 
 def test_apply_pending_already_current(db, schema_dir):
@@ -112,7 +121,7 @@ def test_apply_pending_already_current(db, schema_dir):
 def test_apply_pending_idempotent(db, schema_dir):
     """Running twice in a row produces no extra work the second time."""
     first = apply_pending_migrations(db, schema_dir)
-    assert first == [2, 3, 4]
+    assert first == [2, 3, 4, 5]
     second = apply_pending_migrations(db, schema_dir)
     assert second == []
     assert get_applied_version(db) == CURRENT_SCHEMA_VERSION
