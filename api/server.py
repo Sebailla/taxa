@@ -21,8 +21,11 @@ from __future__ import annotations
 
 import logging
 import os
+import platform
 import re
 import sqlite3
+import subprocess
+import sys
 from types import MappingProxyType
 import unicodedata
 from datetime import datetime
@@ -884,16 +887,16 @@ def materialize_research_folder(
     source: str = Query(default="col", pattern="^(col|worms|freshwater)$"),
 ):
     """Create the root→taxon folder structure under RESEARCH_DIR.
-
+    
     For each ancestor + the taxon itself:
     - Folder name = sanitized `scientific_name`.
     - `mkdir(parents=True, exist_ok=True)` is idempotent.
-
+    
     `source` selects which hierarchy to walk — same semantics as the preview
     endpoint above. Freshwater and WoRMS rows carry parent_id=NULL with the
     real hierarchy in `freshwater_parent_id` / `worms_parent_id`; pass the
     matching source so the walk finds the ancestors.
-
+    
     Idempotent: re-calling the endpoint on the same taxon reports the existing
     folders instead of failing. Returns 409 if any path component collides
     with an existing non-directory file (so the user gets a clear error
@@ -901,7 +904,7 @@ def materialize_research_folder(
     """
     with db() as conn:
         sanitized = _build_segments(conn, taxon_id, source)
-
+    
     # Create folders in a single pass. We pre-check existence so we can
     # distinguish "created by this call" from "pre-existed", and bail out
     # with 409 if any component is an existing non-directory file (a
@@ -912,14 +915,14 @@ def materialize_research_folder(
     folders_existed = 0
     for i in range(1, len(sanitized) + 1):
         d = RESEARCH_DIR.joinpath(*sanitized[:i])
-
+    
         if d.exists() and not d.is_dir():
             raise HTTPException(
                 status_code=409,
                 detail=f"path conflict at {d}: not a directory",
             )
         is_new = not d.exists()
-
+    
         try:
             d.mkdir(parents=True, exist_ok=True)
         except FileExistsError:
@@ -935,12 +938,12 @@ def materialize_research_folder(
                 status_code=500,
                 detail=f"failed to create {d}: {e}",
             )
-
+    
         if is_new:
             folders_created += 1
         else:
             folders_existed += 1
-
+    
     return {
         "ok": True,
         "absolute_path": str(target.resolve()),
@@ -948,6 +951,117 @@ def materialize_research_folder(
         "folders_created": folders_created,
         "folders_existed": folders_existed,
         "segments": sanitized,
+    }
+
+
+def _os_open_folder(path: Path) -> str:
+    """Open `path` in the OS file manager (Finder on macOS, the
+    default file manager on Linux via xdg-open, Explorer on Windows).
+
+    Returns the binary name actually invoked ("open" / "xdg-open" /
+    "explorer") so callers can surface it in logs / responses. Raises
+    HTTPException(500) on failure with the underlying stderr/returncode.
+    """
+    system = sys.platform
+    if system == "darwin":
+        cmd = ["open", str(path)]
+    elif system == "win32":
+        # `explorer` returns exit code 1 even on success when given a
+        # folder path; treat any non-None return as success and rely on
+        # stderr to surface real failures.
+        cmd = ["explorer", str(path)]
+    else:
+        cmd = ["xdg-open", str(path)]
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            # Detach from the API process so closing the API doesn't
+            # close the file manager.
+            start_new_session=True,
+        )
+        stderr = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
+        proc.stderr.close() if proc.stderr else None
+        return cmd[0]
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"'{cmd[0]}' not found on PATH; cannot open file manager "
+                f"on {system}"
+            ),
+        )
+    except OSError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"failed to launch '{cmd[0]}': {e}",
+        )
+
+
+@app.post("/api/taxon/{taxon_id}/open-folder")
+def open_research_folder(
+    taxon_id: int,
+    source: str = Query(default="col", pattern="^(col|worms|freshwater)$"),
+):
+    """Open the materialized research folder for this taxon in the
+    OS file manager.
+
+    The frontend uses this when the user clicks 'Open in Finder' on
+    the Folder tab so they can drag files downloaded from external
+    search results directly into the per-taxon Research directory
+    instead of navigating there manually in the OS save dialog.
+
+    Behaviour:
+    - Computes the same chain `_build_segments(conn, taxon_id, source)`
+      that `materialize` uses, so the path always matches what the
+      preview tab showed.
+    - 404 if the folder does not exist on disk — the user must click
+      'Create N folders' first (the UI hides this button when the
+      path is missing, but a direct API call could still hit it).
+    - 400 if the resolved path would escape RESEARCH_DIR (defense in
+      depth — `_build_segments` already sanitizes, this guards
+      against future regressions).
+    - Spawns `open` / `xdg-open` / `explorer` (platform-dependent)
+      detached from the API process so closing taxa doesn't close
+      the file manager.
+    """
+    with db() as conn:
+        sanitized = _build_segments(conn, taxon_id, source)
+
+    target = RESEARCH_DIR.joinpath(*sanitized)
+    # Defense in depth: re-resolve and assert containment even though
+    # `_build_segments` already sanitizes names. If a future refactor
+    # introduces an escape vector we want a clean 400, not silent
+    # arbitrary-path execution via subprocess.
+    try:
+        resolved = target.resolve()
+    except OSError as e:
+        raise HTTPException(status_code=400, detail=f"invalid path: {e}")
+    if not resolved.is_relative_to(RESEARCH_DIR):
+        raise HTTPException(status_code=400, detail="Path escapes research root")
+
+    if not resolved.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"folder does not exist on disk: {resolved}. "
+                "Materialize it first via POST /api/taxon/{id}/materialize."
+            ),
+        )
+    if not resolved.is_dir():
+        raise HTTPException(
+            status_code=409,
+            detail=f"path exists but is not a directory: {resolved}",
+        )
+
+    opener = _os_open_folder(resolved)
+    return {
+        "ok": True,
+        "absolute_path": str(resolved),
+        "relative_path": "/".join(sanitized),
+        "opened_with": opener,
     }
 
 
