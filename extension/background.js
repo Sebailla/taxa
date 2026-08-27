@@ -9,6 +9,9 @@
 //
 // All network calls target the user's local taxa instance. There is
 // no remote-server fallback by design.
+//
+// DEBUG: every meaningful event logs to the service-worker console.
+// Open it from chrome://extensions → "service worker" link.
 
 const TAXA_BASE = "http://localhost:8765";
 const MENU_ID = "send-to-taxa";
@@ -16,19 +19,26 @@ const BADGE_OK_MS = 3000;
 
 const NOTIF_ICON = "icons/icon-48.png";
 
+console.log("[taxa ext] background.js loaded");
+
 function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function humanizeError(status, detail) {
   if (status === 400) return `URL rejected: ${detail || "check the URL."}`;
-  if (status === 404) return `Folder not materialized: ${detail || "open taxa and click Create on the Folder tab first."}`;
-  if (status === 413) return `File too large: ${detail || "the file exceeds 50 MB."}`;
-  if (status === 415) return `File type rejected: ${detail || "the content-type is not in the allowlist."}`;
-  if (status === 502) return `Source error: ${detail || "the origin returned an error."}`;
-  if (status === 504) return `Timed out: ${detail || "the origin did not respond in time."}`;
+  if (status === 404)
+    return `Folder not materialized: ${detail || "open taxa and click Create on the Folder tab first."}`;
+  if (status === 413)
+    return `File too large: ${detail || "the file exceeds 50 MB."}`;
+  if (status === 415)
+    return `File type rejected: ${detail || "the content-type is not in the allowlist."}`;
+  if (status === 502)
+    return `Source error: ${detail || "the origin returned an error."}`;
+  if (status === 504)
+    return `Timed out: ${detail || "the origin did not respond in time."}`;
   return `Error ${status}: ${detail || "unknown error."}`;
 }
 
@@ -36,6 +46,12 @@ async function refreshMenu(currentTaxon) {
   const title = currentTaxon
     ? `Send to taxa: ${currentTaxon.scientific_name}`
     : "Send to taxa: (no taxon selected — open taxa and click a row)";
+  console.log(
+    "[taxa ext] refreshMenu:",
+    currentTaxon ? `${currentTaxon.id} ${currentTaxon.scientific_name}` : "(no taxon)",
+    "enabled=",
+    !!currentTaxon,
+  );
   try {
     await chrome.contextMenus.update(MENU_ID, {
       title,
@@ -45,7 +61,7 @@ async function refreshMenu(currentTaxon) {
     // contextMenus.update throws if the menu doesn't exist yet (it
     // does — we create it on install) or if MV3 woke the worker up
     // before the install event finished. Either way, nothing to do.
-    console.warn("taxa extension: contextMenus.update failed", err);
+    console.warn("[taxa ext] contextMenus.update failed", err);
   }
 }
 
@@ -65,6 +81,7 @@ function showNotification(title, message) {
 }
 
 chrome.runtime.onInstalled.addListener(async () => {
+  console.log("[taxa ext] onInstalled");
   // contextMenus.create throws if the menu already exists (e.g. the
   // service worker restarted and onStartup already ran). Catch it so
   // refreshMenu still fires — without that, the menu would stay in
@@ -75,15 +92,19 @@ chrome.runtime.onInstalled.addListener(async () => {
       title: "Send to taxa: (no taxon selected)",
       contexts: ["link", "page", "image", "video", "audio"],
     });
+    console.log("[taxa ext] contextMenus.create succeeded");
   } catch {
     // Menu already exists — that's fine.
-    console.debug("taxa extension: contextMenus.create skipped (already exists)");
+    console.debug(
+      "[taxa ext] contextMenus.create skipped (already exists)",
+    );
   }
   const { currentTaxon } = await chrome.storage.local.get("currentTaxon");
   await refreshMenu(currentTaxon);
 });
 
 chrome.runtime.onStartup.addListener(async () => {
+  console.log("[taxa ext] onStartup");
   // Service worker re-hydrated after browser restart. Rebuild the menu
   // (MV3 wipes contextMenus on shutdown) and refresh the title.
   // The create call can throw if onInstalled already ran in this
@@ -94,8 +115,11 @@ chrome.runtime.onStartup.addListener(async () => {
       title: "Send to taxa: (no taxon selected)",
       contexts: ["link", "page", "image", "video", "audio"],
     });
-  } catch (err) {
-    console.debug("taxa extension: contextMenus.create skipped (already exists)", err);
+    console.log("[taxa ext] contextMenus.create (onStartup) succeeded");
+  } catch {
+    console.debug(
+      "[taxa ext] contextMenus.create (onStartup) skipped (already exists)",
+    );
   }
   const { currentTaxon } = await chrome.storage.local.get("currentTaxon");
   await refreshMenu(currentTaxon);
@@ -103,11 +127,17 @@ chrome.runtime.onStartup.addListener(async () => {
 
 chrome.storage.onChanged.addListener((changes) => {
   if (Object.hasOwn(changes, "currentTaxon")) {
-    refreshMenu(changes.currentTaxon.newValue);
+    const newVal = changes.currentTaxon.newValue;
+    console.log(
+      "[taxa ext] storage.onChanged: currentTaxon =",
+      newVal ? `${newVal.id} ${newVal.scientific_name}` : "(cleared)",
+    );
+    refreshMenu(newVal);
   }
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  console.log("[taxa ext] contextMenu clicked", { menuItemId: info.menuItemId, url: info.linkUrl || info.srcUrl || info.pageUrl });
   const { currentTaxon } = await chrome.storage.local.get("currentTaxon");
   if (!currentTaxon) {
     showNotification(
@@ -158,7 +188,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       showNotification("Cannot save", humanizeError(resp.status, body.detail));
       showBadge("✗", "#b91c1c");
     }
-  } catch (err) {
+  } catch {
     showNotification(
       "Cannot save",
       `taxa is not running at ${TAXA_BASE}. Start it and try again.`,

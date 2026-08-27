@@ -22,9 +22,14 @@
 // most recent selection wins.
 
 (() => {
-  
-
   const DEBOUNCE_MS = 250;
+
+  // Boot signal — visible in the page console as soon as the content
+  // script loads. If you don't see this, the script didn't inject
+  // (likely a manifest `matches` mismatch — confirm taxa is on
+  // http://localhost:8765 and the extension is loaded in
+  // chrome://extensions).
+  console.log("[taxa ext] content.js loaded on", location.origin);
 
   let writeTimer = null;
   let pending = null;
@@ -39,11 +44,16 @@
       writeTimer = null;
       try {
         chrome.storage.local.set({ currentTaxon: toWrite });
+        console.log(
+          "[taxa ext] captured:",
+          toWrite.id,
+          toWrite.scientific_name,
+        );
       } catch (err) {
         // Storage write can fail in incognito or when the quota is
         // exhausted. Surface the error to the page console — the
         // background worker logs the same on its end.
-        console.error("taxa extension: storage write failed", err);
+        console.error("[taxa ext] storage write failed", err);
       }
     }, DEBOUNCE_MS);
   }
