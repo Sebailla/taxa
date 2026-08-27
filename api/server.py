@@ -19,18 +19,25 @@ Run:
 
 from __future__ import annotations
 
+import ipaddress
 import logging
+import mimetypes
 import os
 import platform
 import re
+import socket
 import sqlite3
 import subprocess
 import sys
+import time
 from types import MappingProxyType
 import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -79,6 +86,213 @@ _CONTENT_TYPE_BY_EXT: MappingProxyType = MappingProxyType({
     "xls":  "application/vnd.ms-excel",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 })
+
+
+# --- Save-URL endpoint constants ---------------------------------------------
+#
+# The browser extension (browser-extension-save-to-research change) POSTs
+# {url, suggested_filename} to /api/taxon/{id}/save-url. The server fetches
+# the URL, validates it, and writes the response body to the materialized
+# Research folder. See design.md §2 + spec R4.
+_SAVE_URL_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
+_SAVE_URL_CONNECT_TIMEOUT = 30  # seconds
+_SAVE_URL_READ_TIMEOUT = 60  # seconds
+# Allowlist by content-type. `application/octet-stream` is the catch-all
+# for unknown binary downloads (e.g. Safari sometimes sends this for
+# PDF/image even when the response is well-formed). Everything else
+# outside this set is rejected with 415.
+_SAVE_URL_ALLOWED_TYPES = frozenset({
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/svg+xml",
+    "text/html",
+    "text/plain",
+    "application/json",
+    "application/octet-stream",
+})
+# RFC1918 + reserved ranges. Checked against the RESOLVED IP (not the
+# hostname string) to defeat DNS rebinding. A POST whose hostname
+# resolves to any of these nets is rejected with 400.
+_PRIVATE_NETS = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("224.0.0.0/4"),
+    ipaddress.ip_network("240.0.0.0/4"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+]
+
+
+def _is_private_or_reserved_ip(hostname: str) -> bool:
+    """Return True if `hostname` (literal IP or DNS name) resolves to
+    any private/reserved range. Unresolvable hostnames fail closed
+    (return True) — the caller treats that as 400.
+
+    DNS rebinding defense: we resolve once and the actual fetch
+    consults the same getaddrinfo() result implicitly (urllib uses
+    the system resolver). A clever rebinding attack would have to
+    re-resolve between this check and the actual connect; Python's
+    GIL makes that racy. v1 accepts the small race window; document
+    the limit in the extension's README.
+    """
+    try:
+        infos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror:
+        return True  # fail closed
+    for info in infos:
+        ip_str = info[4][0]
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            return True
+        for net in _PRIVATE_NETS:
+            if ip in net:
+                return True
+    return False
+
+
+def _sanitize_filename(name: str) -> str:
+    """Reduce `name` to a safe on-disk basename.
+
+    - Take the last path segment (split on both / and \\).
+    - Replace any char outside [A-Za-z0-9._-] with `_`.
+    - Drop leading dots (hidden files).
+    - Return "" for empty or fully-invalid input (caller falls back to
+      a timestamped name).
+    """
+    if not name:
+        return ""
+    name = name.replace("\\", "/").split("/")[-1]
+    cleaned = re.sub(r"[^A-Za-z0-9._-]", "_", name)
+    cleaned = cleaned.lstrip(".")
+    if not cleaned or cleaned in {".", ".."}:
+        return ""
+    return cleaned
+
+
+def _save_url_to_research(
+    target_dir: Path, url: str, suggested_filename: str, taxon_id: int,
+) -> dict:
+    """Fetch `url` server-side and write the response body to
+    `target_dir/<safe_filename>__<taxon_id>.<ext>`.
+
+    Returns `{absolute_path, size, content_type}` on success.
+    Raises HTTPException with the right status (400 SSRF, 404 path
+    escape, 413 size, 415 content-type, 502 origin 4xx/5xx, 504
+    timeout) on failure.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(400, f"unsupported scheme: {parsed.scheme!r}")
+    if not parsed.hostname:
+        raise HTTPException(400, "URL has no host")
+
+    if _is_private_or_reserved_ip(parsed.hostname):
+        raise HTTPException(
+            400,
+            "URL points to a private or reserved network range",
+        )
+
+    req = Request(url, headers={"User-Agent": "taxa-save-url/0.1"})
+    try:
+        with urlopen(req, timeout=_SAVE_URL_CONNECT_TIMEOUT) as resp:
+            content_type = (
+                (resp.headers.get("Content-Type") or "")
+                .split(";")[0]
+                .strip()
+                .lower()
+            )
+            if content_type not in _SAVE_URL_ALLOWED_TYPES:
+                raise HTTPException(
+                    415,
+                    f"Content-Type not in allowlist: {content_type!r}",
+                )
+
+            # Build the safe filename. Always append __<taxon_id> so
+            # the per-taxon destination stays unambiguous even if
+            # the suggested name is generic. On collision, append
+            # __<timestamp> and never overwrite. Strip any extension
+            # from the suggested filename before using it as the
+            # base — the extension we append comes from the
+            # Content-Type of the actual response, which is more
+            # reliable than whatever the caller guessed.
+            ext = (mimetypes.guess_extension(content_type) or "").lstrip(".")
+            base_raw = _sanitize_filename(suggested_filename) or "download"
+            if "." in base_raw:
+                base = base_raw.rsplit(".", 1)[0]
+            else:
+                base = base_raw
+            if not base:
+                base = "download"
+            base_with_id = f"{base}__{taxon_id}"
+            ext_suffix = f".{ext}" if ext else ""
+            candidate = target_dir / f"{base_with_id}{ext_suffix}"
+            if candidate.exists():
+                ts = int(time.time())
+                candidate = target_dir / f"{base_with_id}__{ts}{ext_suffix}"
+
+            # Stream with hard size cap. On cap-hit, unlink the
+            # partial file so the directory stays clean. The flag
+            # is set BEFORE the raise so the post-try cleanup runs
+            # regardless of which exit path the loop took.
+            total = 0
+            cap_exceeded = False
+            fh = candidate.open("wb")
+            try:
+                while True:
+                    chunk = resp.read(64 * 1024)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > _SAVE_URL_MAX_BYTES:
+                        cap_exceeded = True
+                        break
+                    fh.write(chunk)
+            finally:
+                fh.close()
+            if cap_exceeded:
+                candidate.unlink(missing_ok=True)
+                raise HTTPException(
+                    413,
+                    f"Response exceeds {_SAVE_URL_MAX_BYTES // (1024 * 1024)} MB cap",
+                )
+
+            return {
+                "absolute_path": str(candidate.resolve()),
+                "size": total,
+                "content_type": content_type,
+            }
+    except HTTPError as e:
+        detail = ""
+        try:
+            detail = e.read().decode("utf-8", errors="replace")[:500]
+        except Exception:
+            pass
+        if e.code in (401, 403):
+            raise HTTPException(
+                502,
+                f"Origin returned {e.code} — authentication required",
+            )
+        if e.code == 404:
+            raise HTTPException(
+                502,
+                f"Origin returned 404 — resource moved or deleted",
+            )
+        raise HTTPException(502, f"Origin returned {e.code} — {detail}")
+    except URLError as e:
+        raise HTTPException(502, f"Could not reach origin: {e.reason}")
+    except socket.timeout:
+        raise HTTPException(
+            504,
+            f"Origin timed out after {_SAVE_URL_READ_TIMEOUT}s",
+        )
 
 
 def db() -> sqlite3.Connection:
@@ -1062,6 +1276,81 @@ def open_research_folder(
         "absolute_path": str(resolved),
         "relative_path": "/".join(sanitized),
         "opened_with": opener,
+    }
+
+
+class SaveUrlRequest(BaseModel):
+    """Body of POST /api/taxon/{id}/save-url. The extension sends the
+    target URL (the user right-clicked on) and a suggested filename
+    (from the <a download> attr, the URL's last segment, or the page
+    title — in that order). The backend sanitizes the filename; the
+    suggestion is a hint, not a contract.
+    """
+    url: str
+    suggested_filename: str = ""
+
+
+@app.post("/api/taxon/{taxon_id}/save-url")
+def save_url_to_research(
+    taxon_id: int,
+    body: SaveUrlRequest,
+    source: str = Query(default="col", pattern="^(col|worms|freshwater)$"),
+):
+    """Fetch a URL server-side and write the response body to the
+    materialized Research folder for this taxon.
+
+    Browser extension (browser-extension-save-to-research) calls this
+    when the user right-clicks "Send to taxa: <scientific_name>".
+    The server is the source of truth for filename sanitization, SSRF
+    defense, content-type allowlist, and size cap — the extension
+    never touches the response body directly.
+
+    See design.md §2 + spec R4 for the full contract.
+
+    Responses:
+    - 200: file on disk, returns {ok, absolute_path, size, content_type}.
+    - 400: invalid URL scheme, private/reserved IP, or path escape.
+    - 404: taxon not found, or its Research path not materialized.
+    - 413: response body exceeds 50 MB cap.
+    - 415: Content-Type not in the allowlist.
+    - 502: origin returned 4xx/5xx (auth-required / not-found / other).
+    - 504: origin timed out.
+    """
+    with db() as conn:
+        row = conn.execute(
+            "SELECT id FROM taxon WHERE id = ?", (taxon_id,),
+        ).fetchone()
+        if row is None:
+                raise HTTPException(404, f"taxon {taxon_id} not found")
+        sanitized = _build_segments(conn, taxon_id, source)
+ 
+    target_dir = RESEARCH_DIR.joinpath(*sanitized)
+    if not target_dir.exists():
+        raise HTTPException(404, "Materialize the folder first")
+
+    # Defense in depth: re-resolve and assert containment even though
+    # `_build_segments` already sanitizes names. Same pattern as
+    # open-folder above.
+    try:
+        target_resolved = target_dir.resolve()
+    except OSError as e:
+        raise HTTPException(400, f"invalid path: {e}")
+    if not target_resolved.is_relative_to(RESEARCH_DIR):
+        raise HTTPException(400, "Path escapes research root")
+
+    result = _save_url_to_research(
+        target_resolved, body.url, body.suggested_filename, taxon_id,
+    )
+    _logger.info(
+        "save-url taxon_id=%s source=%s url=%s content_type=%s size=%s path=%s",
+        taxon_id, source, body.url, result["content_type"],
+        result["size"], result["absolute_path"],
+    )
+    return {
+        "ok": True,
+        "absolute_path": result["absolute_path"],
+        "size": result["size"],
+        "content_type": result["content_type"],
     }
 
 

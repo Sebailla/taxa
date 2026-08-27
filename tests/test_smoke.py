@@ -66,6 +66,7 @@ def test_openapi_schema_is_valid_json():
         "/api/taxon/{taxon_id}/searches",
         "/api/taxon/{taxon_id}/files",
         "/api/taxon/{taxon_id}/files/serve",
+        "/api/taxon/{taxon_id}/save-url",
         "/api/search",
     }
     assert expected_paths.issubset(set(schema["paths"].keys())), (

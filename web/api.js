@@ -147,6 +147,45 @@ async function openFolder(taxonId, source = "col") {
   return r.json();
 }
 
+// POST /api/taxon/{id}/save-url — ask the server to fetch a URL and
+// write the response body to the materialized Research folder for
+// this taxon. Used by the browser extension (Send to Research change)
+// and any future server-side fetch flows. The server enforces SSRF
+// defense, content-type allowlist, size cap, and filename
+// sanitization — the caller is just a transport.
+//
+// `suggestedFilename` is a hint: the server sanitizes it and
+// appends `__<taxon_id>` plus a `__<timestamp>` on collision. The
+// extension sends the <a download> attr, the URL's last segment, or
+// the page title (in that order).
+//
+// `source` mirrors the materialize arguments — the path differs
+// across sources (CoL vs WoRMS vs Freshwater walk different parent
+// columns).
+async function saveUrl(taxonId, url, suggestedFilename = "", source = "col") {
+  const r = await fetch(
+    API + `/api/taxon/${taxonId}/save-url?source=${encodeURIComponent(source)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, suggested_filename: suggestedFilename }),
+    },
+  );
+  if (!r.ok) {
+    let detail = "";
+    try {
+      const body = await r.json();
+      detail = body.detail || "";
+    } catch {
+      // body wasn't JSON — fall back to statusText.
+    }
+    throw new Error(
+      `save-url ${taxonId} failed: ${r.status}${detail ? " " + detail : ""}`,
+    );
+  }
+  return r.json();
+}
+
 export {
   api,
   loadTaxon,
@@ -154,6 +193,7 @@ export {
   materializeResearch,
   previewMaterialize,
   openFolder,
+  saveUrl,
 };
 // openFolder intentionally not used inside this module yet — it's
 // consumed by the Folder tab in web/detail.js. Suppressed the unused
