@@ -806,6 +806,98 @@ DB_PATH = Path(__file__).resolve().parent.parent / "data" / "db" / "taxa.db"
 
 
 @pytest.mark.skipif(
+        _check_playwright_available() is None,
+        reason="playwright not installed (pip install playwright)",
+    )
+@pytest.mark.skipif(
+    _check_playwright_available() is None,
+    reason="playwright not installed (pip install playwright)",
+)
+def test_folder_tab_renders_for_unmaterialized_taxon(api_server):
+    """Regression: the Folder tab must render without throwing when
+    the preview's all_exist is false (taxon NOT yet materialized).
+
+    Background: renderFolderTab() in web/detail.js declared the
+    `createBtn` local with `const createBtn = null` but later tried
+    to reassign it (`createBtn = btn`) inside the
+    `if (!preview.all_exist)` branch. V8 raises
+    `TypeError: Assignment to constant variable` and the tab caught
+    the error, surfacing the "Could not render the Folder tab:
+    Assignment to constant variable." message instead of the
+    preview list + "Create N folders" button. Users reported
+    "no folders" / "Folder tab broken" in the freshwater tree.
+
+    Test path:
+      1. Switch to the Freshwater tree source.
+      2. Open the kebab on the freshwater root row and click Search
+         online (the freshwater root has no searches/vern/syn/dist data,
+         so a plain row click leaves the detail panel hidden — we have
+         to use the kebab → Search online flow to force the panel open,
+         same as test_search_online_reopens_detail_panel_after_close).
+      3. Click the Folder tab.
+      4. The error message must NOT be visible.
+      5. The "Create N folders" button MUST be visible (proves the
+         all_exist=false branch ran without throwing).
+    """
+    from playwright.sync_api import expect, sync_playwright  # type: ignore
+
+    base = api_server["base_url"]
+    fresh_id = api_server["freshwater_root_id"]
+    if fresh_id is None:
+        pytest.skip("no freshwater root in /api/domains — freshwater not loaded")
+
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch(headless=True)
+        except Exception as exc:
+            pytest.skip(f"chromium binary not available: {exc!r}")
+        try:
+            page = browser.new_page()
+            page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
+            page.locator('[data-tree-source="freshwater"]').click()
+
+            row = page.locator(f'[data-taxon-id="{fresh_id}"]').first
+            expect(row).to_be_visible(timeout=5_000)
+            trigger = page.locator(
+                f'[data-taxon-id="{fresh_id}"] button[data-action="toggle-kebab"]'
+            ).first
+            search_item = page.locator(
+                f'[data-taxon-id="{fresh_id}"] [data-action="open-searches"]'
+            ).first
+
+            # Force the panel open via kebab → Search online.
+            row.hover()
+            trigger.click()
+            expect(search_item).to_be_visible(timeout=2_000)
+            search_item.click()
+
+            panel = page.locator("#detail-panel")
+            expect(panel).to_be_visible(timeout=5_000)
+
+            folder_tab = panel.locator('[data-tab="folder"]')
+            expect(folder_tab).to_be_visible(timeout=2_000)
+            folder_tab.click()
+
+            folder_content = panel.locator('[data-tab-content="folder"]')
+            # The error wrapper from the catch-block: it contains
+            # the literal "Could not render the Folder tab" string.
+            # Without the fix this locator matches and the test fails.
+            error_msg = folder_content.locator(
+                "text=Could not render the Folder tab"
+            )
+            expect(error_msg).to_have_count(0, timeout=2_000)
+
+            # Positive assertion: the all_exist=false branch must
+            # have run to completion, rendering the Create button.
+            create_btn = folder_content.locator(
+                "button.materialize-modal-btn-primary"
+            )
+            expect(create_btn).to_be_visible(timeout=2_000)
+        finally:
+            browser.close()
+
+
+@pytest.mark.skipif(
     _check_playwright_available() is None,
     reason="playwright not installed (pip install playwright)",
 )

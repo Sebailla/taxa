@@ -443,9 +443,9 @@ function renderFolderTab(taxon) {
       )
     : null;
 
-  // The create button only shows when there's something new to
+// The create button only shows when there's something new to
   // create. In the all-exist state, the tab is read-only.
-  const createBtn = null;
+  let createBtn = null;
   if (!preview.all_exist) {
     const label = `Create ${preview.new_count} ${preview.new_count === 1 ? "folder" : "folders"}`;
     const btn = el(
