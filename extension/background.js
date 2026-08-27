@@ -65,11 +65,20 @@ function showNotification(title, message) {
 }
 
 chrome.runtime.onInstalled.addListener(async () => {
-  await chrome.contextMenus.create({
-    id: MENU_ID,
-    title: "Send to taxa: (no taxon selected)",
-    contexts: ["link", "page", "image", "video", "audio"],
-  });
+  // contextMenus.create throws if the menu already exists (e.g. the
+  // service worker restarted and onStartup already ran). Catch it so
+  // refreshMenu still fires — without that, the menu would stay in
+  // its initial "disabled" state until the next storage change.
+  try {
+    await chrome.contextMenus.create({
+      id: MENU_ID,
+      title: "Send to taxa: (no taxon selected)",
+      contexts: ["link", "page", "image", "video", "audio"],
+    });
+  } catch {
+    // Menu already exists — that's fine.
+    console.debug("taxa extension: contextMenus.create skipped (already exists)");
+  }
   const { currentTaxon } = await chrome.storage.local.get("currentTaxon");
   await refreshMenu(currentTaxon);
 });
@@ -77,11 +86,17 @@ chrome.runtime.onInstalled.addListener(async () => {
 chrome.runtime.onStartup.addListener(async () => {
   // Service worker re-hydrated after browser restart. Rebuild the menu
   // (MV3 wipes contextMenus on shutdown) and refresh the title.
-  await chrome.contextMenus.create({
-    id: MENU_ID,
-    title: "Send to taxa: (no taxon selected)",
-    contexts: ["link", "page", "image", "video", "audio"],
-  });
+  // The create call can throw if onInstalled already ran in this
+  // session — wrap it so the refreshMenu call below still happens.
+  try {
+    await chrome.contextMenus.create({
+      id: MENU_ID,
+      title: "Send to taxa: (no taxon selected)",
+      contexts: ["link", "page", "image", "video", "audio"],
+    });
+  } catch (err) {
+    console.debug("taxa extension: contextMenus.create skipped (already exists)", err);
+  }
   const { currentTaxon } = await chrome.storage.local.get("currentTaxon");
   await refreshMenu(currentTaxon);
 });
