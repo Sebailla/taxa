@@ -108,6 +108,16 @@ export function clear() {
   _currentRootTaxonId = null;
 }
 
+// Re-fetch the research tree and re-render. No-op when the explorer
+// isn't currently mounted (e.g. the user is on the Classification tab
+// and triggered a materialize from the detail panel). Lets the reload
+// button + post-materialize hooks refresh the tree without forcing
+// the user to leave and re-enter the Browser tab.
+export async function refresh() {
+  if (!_currentHost) return;
+  await mount(_currentHost, _currentRootTaxonId);
+}
+
 // ---- Re-render helpers ----------------------------------------------
 
 function rerender() {
@@ -316,6 +326,7 @@ function renderTreeHeader() {
         class: "fex-snippet-btn",
         title: "Reload research tree",
         "aria-label": "Reload research tree",
+        onclick: () => refresh(),
       },
       el("span", { class: "material-symbols-outlined text-[16px]" }, "refresh"),
     ),
