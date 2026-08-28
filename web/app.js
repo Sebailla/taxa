@@ -75,10 +75,21 @@ export function render() {
 }
 
 async function boot() {
- // Global keyboard shortcuts (see web/keymap.js). Attached exactly once
- // at boot — never re-attached on render() so the listener stays a
- // single source of truth for key events.
- bootKeymap();
+  // Global keyboard shortcuts (see web/keymap.js). Attached exactly once
+  // at boot — never re-attached on render() so the listener stays a
+  // single source of truth for key events.
+  bootKeymap();
+
+  // Apply the persisted theme (light/dark) before the first paint so the
+  // user never sees the light default flash if they chose dark in a
+  // previous visit. Settings owns the toggle and the storage key;
+  // this call just stamps <html data-theme="…"> synchronously.
+  try {
+    const settings = await import("./settings.js");
+    settings.bootstrapTheme();
+  } catch (e) {
+    console.error("settings.bootstrapTheme failed", e);
+  }
 
  // Health check (best-effort; doesn't block render).
  try {

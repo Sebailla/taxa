@@ -119,6 +119,14 @@ export async function refresh() {
   await mount(_currentHost, _currentRootTaxonId);
 }
 
+// True while the Browser tab's explorer is mounted. Used by nav.js
+// to decide whether a tree-source toggle (CoL / WoRMS / Freshwater)
+// should also navigate back to the tree view, since the toggle is
+// meaningless while the explorer is hiding the tree.
+export function isMounted() {
+  return _currentHost !== null;
+}
+
 // ---- Re-render helpers ----------------------------------------------
 
 function rerender() {
@@ -360,6 +368,18 @@ function renderTreeHeader() {
   // render function stays pure / idempotent.
   header.append(renderSearchBlock());
   wireSearch(header);
+  // Auto-focus the search input on every mount so the user can type
+  // immediately after clicking the Browser tab. Deferred via
+  // requestAnimationFrame so the DOM is committed to the document
+  // before focus() runs (calling focus() synchronously on a freshly
+  // appended node is a no-op in some browsers). Skipped when the
+  // user is mid-IME composition to avoid stealing the keystroke.
+  requestAnimationFrame(() => {
+    const input = header.querySelector(".fex-search-input");
+    if (input && document.activeElement === document.body) {
+      input.focus({ preventScroll: true });
+    }
+  });
   return header;
 }
 
