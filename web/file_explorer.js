@@ -1126,17 +1126,22 @@ async function openFile(node) {
     ),
   );
 
-  // Wire the tab strip (Raw / Table / Tree). For now the tabs only
-  // store state — only Raw triggers a renderer. Table + Tree are
-  // placeholders that will land in a later iteration.
+  // Wire the tab strip (Raw / Table / Tree). Clicking a tab flips
+  // state.explorer.viewerTab, paints the active class, and dispatches
+  // the matching renderer against the existing snippet body. The
+  // Raw / Table / Tree renderers are keyed off `file.extension` in
+  // file_viewer.js — so we just call fileViewer.render() with the
+  // SAME file descriptor openFile() already built and the body the
+  // snippet frame still owns. No re-render of the meta strip, tab
+  // strip, copy button, etc. — those were wired once and stay put.
+  //
+  // Non-tabular format on Table/Tree: `RENDERERS` dispatches
+  // `renderUnsupported` which already says "Format .xyz not
+  // supported in viewer" + a download link. The spec also calls
+  // for the more specific "Table/Tree view not available for this
+  // format — use Raw." message — see handleTabClick() below.
   viewerPane.querySelectorAll("[data-viewer-tab]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const tab = btn.dataset.viewerTab;
-      state.explorer.viewerTab = tab;
-      viewerPane
-        .querySelectorAll("[data-viewer-tab]")
-        .forEach((b) => b.classList.toggle("active", b === btn));
-    });
+    btn.addEventListener("click", () => handleTabClick(viewerPane, btn, file));
   });
 
   // Wire the Copy snippet button. Reads the latest text content from
@@ -1179,6 +1184,80 @@ function updateMetaStrip(strip, { name, extension, size }) {
     el("span", { class: "fex-meta-spacer" }),
     el("span", { class: "fex-meta" }, name || ""),
   );
+}
+
+// Tab click handler — see the wiring comment in openFile() above.
+// Three responsibilities:
+//
+//   1. Flip state.explorer.viewerTab so other code reading the
+//      state (selection state, rerender on tree refresh) stays in
+//      sync.
+//   2. Paint the `.active` class on the clicked tab + drop it from
+//      the others — visual feedback.
+//   3. Dispatch the matching renderer against the existing snippet
+//      body. We do NOT re-run openFile() — that would rebuild the
+//      meta strip + tab strip + snippet frame and drop the user's
+//      scroll position. Instead we re-use the file descriptor
+//      openFile() captured in closure and the body the snippet
+//      frame still owns.
+//
+// Non-tabular formats (e.g. .md on Table tab): render() falls
+// through to renderUnsupported which says "Format .xyz not
+// supported in viewer" — but the spec contract
+// (spec.md §Non-tabular file ignores Table/Tree tabs) wants the
+// more specific "Table/Tree view not available for this format —
+// use Raw." We check the file's extension here and paint that
+// message directly so the wording matches the spec, while still
+// letting render() handle Raw on non-renderer formats.
+function handleTabClick(viewerPane, btn, file) {
+  const tab = btn.dataset.viewerTab;
+  state.explorer.viewerTab = tab;
+  viewerPane
+    .querySelectorAll("[data-viewer-tab]")
+    .forEach((b) => b.classList.toggle("active", b === btn));
+
+  const body = viewerPane.querySelector("[data-viewer-body]");
+  if (!body) return;
+
+  if (tab === "Table" || tab === "Tree") {
+    const ext = (file.extension || "").toLowerCase();
+    const supported =
+      (tab === "Table" && (ext === "csv" || ext === "tsv")) ||
+      (tab === "Tree" && ext === "json");
+    if (!supported) {
+      // Spec contract: explicit message for the unsupported-tab case,
+      // plus a download link as a recovery path (matches renderUnsupported
+      // behaviour but with the spec's exact wording).
+      body.replaceChildren(
+        el(
+          "div",
+          { class: "fex-empty-state" },
+          el(
+            "span",
+            { class: "fex-empty-state-icon" },
+            "visibility_off",
+          ),
+          el(
+            "p",
+            { class: "font-semibold text-on-surface" },
+            `${tab} view not available for .${ext || "?"} files — use Raw.`,
+          ),
+          el(
+            "a",
+            {
+              href: file.url,
+              download: file.name,
+              class: "fex-snippet-btn mt-2",
+            },
+            "Download file",
+          ),
+        ),
+      );
+      return;
+    }
+  }
+
+  fileViewer.render(body, file);
 }
 
 // ---- Viewer pane (no file opened yet) -------------------------------
