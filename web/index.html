@@ -1165,14 +1165,14 @@
         overflow-x: auto;
       }
       .fex-tree-pane {
-        /* Width grows with the longest row (padding-left + chevron +
-           icon + label + meta) up to a sensible cap so a single very
-           long folder name cannot eat the whole viewport. The cap
-           picks the smaller of 60% of the shell or 50rem so a wide
-           browser window still leaves the viewer at least 40% wide. */
-        min-width: 18rem;
-        width: max-content;
-        max-width: min(60%, 50rem);
+        /* Default 30% of the shell, capped at 50rem so a single very
+           long folder name cannot eat the whole viewport. The splitter
+           lets the user override this on the fly — the JS reads/writes
+           the explicit width to localStorage (taxa.fex.treeWidth) and
+           bumps max-width:none so the saved value wins the cascade. */
+        min-width: 14rem;
+        width: 30%;
+        max-width: 30%;
         flex-shrink: 0;
         border-right: 1px solid var(--outline-variant);
         background: var(--surface);
@@ -1861,15 +1861,6 @@
           </div>
         </div>
         <nav class="flex items-center gap-6">
-          <a
-            id="nav-classification"
-            data-action="nav-tab"
-            data-path="classification"
-            aria-current="page"
-            class="transition-colors text-primary font-bold"
-            href="#"
-            >Classification</a
-          >
           <a
             id="nav-browser"
             data-action="nav-tab"
