@@ -70,6 +70,16 @@ const state = {
     openFilePath: null,
     openFileFormat: null,
     viewerTab: "Raw",
+    // Tree search (Browser tab). Session-scoped only — intentionally
+    // NOT in localStorage: research folders may contain sensitive
+    // taxon names, and the tree itself is re-fetched on reload so a
+    // stale query against a missing tree would produce a confusing
+    // empty result. See design.md §State Changes.
+    //
+    //   query     string              — debounced input value, "" when idle
+    //   mode      "filter"|"highlight"— filter hides non-matches, highlight paints them
+    //   hideEmpty boolean             — filter-only: hide folders with no descendant matches
+    search: { query: "", mode: "filter", hideEmpty: true },
   },
 };
 
@@ -83,6 +93,7 @@ export function initialExplorerShape() {
     openFilePath: null,
     openFileFormat: null,
     viewerTab: "Raw",
+    search: { query: "", mode: "filter", hideEmpty: true },
   };
 }
 

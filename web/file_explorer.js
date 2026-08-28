@@ -18,7 +18,7 @@
 // viewerTab, tree). Selection in the left tree lives in DOM via
 // data-file-path / data-folder-path attributes — no extra state.
 
-import { state, API } from "./state.js";
+import { state, API, initialExplorerShape } from "./state.js";
 import { el } from "./dom.js";
 import { realmForFolderPath } from "./format.js";
 import * as fileViewer from "./file_viewer.js";
@@ -56,10 +56,13 @@ export async function mount(host, rootTaxonId) {
   // itself is always fetched from /api/files below. Loading skeletons
   // are shown up-front so the UI never blocks on the fetch.
   state.explorer.rootTaxonId = rootTaxonId ?? null;
-  state.explorer.tree = null;
-  state.explorer.openFilePath = null;
-  state.explorer.openFileFormat = null;
-  state.explorer.viewerTab = "Raw";
+  // Reset every other field through initialExplorerShape() so adding
+  // a new explorer.* field (e.g. search) doesn't silently survive a
+  // remount. See state.js + design.md §State Changes — search is
+  // session-scoped and must clear on mount.
+  const fresh = initialExplorerShape();
+  fresh.rootTaxonId = state.explorer.rootTaxonId;
+  Object.assign(state.explorer, fresh);
 
   host.replaceChildren(
     el(
@@ -99,11 +102,9 @@ export function clear() {
     _abortController.abort();
     _abortController = null;
   }
-  state.explorer.rootTaxonId = null;
-  state.explorer.tree = null;
-  state.explorer.openFilePath = null;
-  state.explorer.openFileFormat = null;
-  state.explorer.viewerTab = "Raw";
+  // Reset every explorer.* field through the initial shape so future
+  // shape additions (e.g. search) reset automatically. See state.js.
+  Object.assign(state.explorer, initialExplorerShape());
   _currentHost = null;
   _currentRootTaxonId = null;
 }
@@ -315,7 +316,7 @@ function renderTreeHeader() {
   // selected taxon, so the header shows the directory itself instead
   // of a taxon name. The reload button keeps the same icon + tooltip
   // shape the rest of the toolbar uses.
-  return el(
+  const header = el(
     "div",
     { class: "fex-tree-header" },
     el("h2", null, "Research"),
@@ -353,6 +354,475 @@ function renderTreeHeader() {
       el("span", { class: "material-symbols-outlined text-[16px]" }, "refresh"),
     ),
   );
+  // Mount the search UI underneath the toolbar so it's always visible
+  // without taking horizontal space from the collapse/reload buttons.
+  // Handlers attach in wireSearch() below — kept separate so the
+  // render function stays pure / idempotent.
+  header.append(renderSearchBlock());
+  wireSearch(header);
+  return header;
+}
+
+// ---- Tree search ----------------------------------------------------
+//
+// Search runs over `state.explorer.tree.root` (the recursive folder
+// tree fetched by mount()). It's pure client-side: no /api/search
+// endpoint, no round-trip. The tree is already in memory; matching
+// against it is cheaper than the network.
+//
+// The render strategy is **render-time toggle, not re-mount**: the
+// search walker computes a {matches, ancestors} annotation once per
+// query, then applySearchToTree() / applyHighlightToTree() walk the
+// existing DOM and toggle display / class only. Two consequences:
+//
+//  * `mount()` / `rerender()` never re-build the tree from scratch on
+//    a keystroke — the row DOM is the same nodes mount() produced,
+//    just with display / class flipped.
+//  * In highlight mode the user's expand/collapse state is preserved
+//    by construction — we only touch `.search-match`, never
+//    `aria-expanded` or `<details>.open` (the latter isn't even used).
+//
+// Debouncing lives in wireSearch(); the helpers below are pure.
+
+// Render the search block (input + clear + toggle row). Pure: no
+// event listeners attached here, all wiring happens in wireSearch().
+function renderSearchBlock() {
+  const s = state.explorer.search;
+  return el(
+    "div",
+    { class: "fex-tree-header-search" },
+    el(
+      "div",
+      { class: "fex-search-row" },
+      el(
+        "span",
+        { class: "fex-search-icon material-symbols-outlined" },
+        "search",
+      ),
+      el("input", {
+        type: "text",
+        class: "fex-search-input",
+        placeholder: "Search files & folders…",
+        autocomplete: "off",
+        spellcheck: "false",
+        value: s.query,
+        "data-search-input": "",
+      }),
+      el(
+        "button",
+        {
+          type: "button",
+          class: "fex-search-clear",
+          title: "Clear search",
+          "aria-label": "Clear search",
+          "data-search-clear": "",
+          onclick: () => clearSearchInput(),
+        },
+        el(
+          "span",
+          { class: "material-symbols-outlined" },
+          "close",
+        ),
+      ),
+    ),
+    el(
+      "div",
+      { class: "fex-search-toggles" },
+      el(
+        "button",
+        {
+          type: "button",
+          class: "fex-snippet-btn fex-search-mode-btn",
+          title:
+            s.mode === "filter"
+              ? "Filter mode: hiding non-matches. Click to switch to highlight."
+              : "Highlight mode: painting matches. Click to switch to filter.",
+          "aria-label": "Toggle search mode",
+          "aria-pressed": s.mode === "filter" ? "true" : "false",
+          "data-search-mode-btn": "",
+          "data-mode": s.mode,
+          onclick: () => toggleSearchMode(),
+        },
+        el(
+          "span",
+          {
+            class: "material-symbols-outlined",
+            "data-search-mode-icon": "",
+          },
+          s.mode === "filter" ? "filter_alt" : "highlight_alt",
+        ),
+        el(
+          "span",
+          { "data-search-mode-label": "" },
+          s.mode === "filter" ? "Filter" : "Highlight",
+        ),
+      ),
+      el(
+        "button",
+        {
+          type: "button",
+          class: "fex-snippet-btn fex-search-hide-empty-btn",
+          title:
+            s.hideEmpty
+              ? "Hide empty folders: ON. Click to show all folders."
+              : "Hide empty folders: OFF. Click to hide folders with no matches.",
+          "aria-label": "Toggle hide empty folders",
+          "aria-pressed": s.hideEmpty ? "true" : "false",
+          "data-search-hide-empty-btn": "",
+          onclick: () => toggleHideEmpty(),
+        },
+        el(
+          "span",
+          { class: "material-symbols-outlined" },
+          "visibility_off",
+        ),
+        "Hide empty",
+      ),
+    ),
+  );
+}
+
+// Wire the input + clear + toggle behaviour onto a freshly-rendered
+// search block. Called from renderTreeHeader() so the listeners
+// re-attach every time mount() / rerender() rebuilds the DOM.
+function wireSearch(header) {
+  const input = header.querySelector("[data-search-input]");
+  if (!input) return;
+
+  // 200 ms debounce — matches the spec contract (spec.md L13). The
+  // previous timer is cancelled on every keystroke so a fast typer
+  // only triggers one runSearch() after they stop.
+  let timer = null;
+  input.addEventListener("input", () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      runSearch(input.value);
+    }, 200);
+  });
+
+  // Esc clears the input without losing focus — handy keyboard escape
+  // hatch while the input is focused.
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && input.value) {
+      e.preventDefault();
+      input.value = "";
+      runSearch("");
+    }
+  });
+}
+
+// Clear the input value + state, then restore the tree. The button
+// itself is hidden when the input is empty (CSS handles visibility)
+// but the click handler still fires when it IS shown.
+function clearSearchInput() {
+  const host = _currentHost;
+  if (!host) return;
+  const input = host.querySelector("[data-search-input]");
+  if (input) input.value = "";
+  state.explorer.search.query = "";
+  restoreTree();
+}
+
+// Toggle filter ↔ highlight, swap icon, update aria-pressed, and
+// re-apply the current search so the user sees the effect immediately.
+function toggleSearchMode() {
+  const host = _currentHost;
+  if (!host) return;
+  const btn = host.querySelector("[data-search-mode-btn]");
+  if (!btn) return;
+  const next =
+    state.explorer.search.mode === "filter" ? "highlight" : "filter";
+  state.explorer.search.mode = next;
+  btn.dataset.mode = next;
+  btn.setAttribute("aria-pressed", next === "filter" ? "true" : "false");
+  btn.title =
+    next === "filter"
+      ? "Filter mode: hiding non-matches. Click to switch to highlight."
+      : "Highlight mode: painting matches. Click to switch to filter.";
+  const icon = btn.querySelector("[data-search-mode-icon]");
+  if (icon) icon.textContent = next === "filter" ? "filter_alt" : "highlight_alt";
+  const label = btn.querySelector("[data-search-mode-label]");
+  if (label) label.textContent = next === "filter" ? "Filter" : "Highlight";
+  // Re-apply so the user sees the new mode instantly. runSearch() is
+  // idempotent — calling it with the same query just re-paints.
+  if (state.explorer.search.query) runSearch(state.explorer.search.query);
+}
+
+// Toggle hide-empty, update aria-pressed + title, re-apply filter.
+// In highlight mode this toggle has no visible effect — hideEmpty is
+// a filter-only concept. We still update state for consistency and
+// so the user can pre-toggle before switching to filter.
+function toggleHideEmpty() {
+  const host = _currentHost;
+  if (!host) return;
+  const btn = host.querySelector("[data-search-hide-empty-btn]");
+  if (!btn) return;
+  const next = !state.explorer.search.hideEmpty;
+  state.explorer.search.hideEmpty = next;
+  btn.setAttribute("aria-pressed", next ? "true" : "false");
+  btn.title = next
+    ? "Hide empty folders: ON. Click to show all folders."
+    : "Hide empty folders: OFF. Click to hide folders with no matches.";
+  if (
+    state.explorer.search.query &&
+    state.explorer.search.mode === "filter"
+  ) {
+    runSearch(state.explorer.search.query);
+  }
+}
+
+// Single entry point for "the search input changed". Writes the query
+// to state, runs the recursive walker, then dispatches to the right
+// pass (filter / highlight / restore). Empty query restores the tree
+// without re-running the walker.
+function runSearch(rawQuery) {
+  const query = (rawQuery || "").trim();
+  state.explorer.search.query = query;
+  const host = _currentHost;
+  if (!host || !state.explorer.tree) return;
+  const treeRoot = host.querySelector(".fex-tree-pane");
+  // Wipe the "No matches." placeholder if it was up — restoreTree
+  // always re-shows the body so the next pass starts from a clean
+  // slate. Cheap, idempotent.
+  hideSearchEmpty(treeRoot);
+
+  if (!query) {
+    restoreTree();
+    return;
+  }
+
+  const annotation = _annotateMatches(state.explorer.tree.root, query);
+  if (state.explorer.search.mode === "filter") {
+    applySearchToTree(host, annotation);
+    if (
+      state.explorer.search.hideEmpty &&
+      annotation.matches.size === 0
+    ) {
+      showSearchEmpty(treeRoot);
+    }
+  } else {
+    applyHighlightToTree(host, annotation);
+  }
+}
+
+// Recursive walk over the JSON tree returned by /api/files. Returns
+// { matches: Set<path>, ancestors: Set<path> } where:
+//
+//   matches   — every node whose `name` OR `path` contains the query
+//               (case-insensitive substring). Files + folders both
+//               match — a folder matches when its OWN name matches;
+//               descendants of a matching folder are NOT automatically
+//               in `matches` (they're in `ancestors`).
+//   ancestors — every folder that contains at least one matching
+//               descendant (transitively). Filter mode keeps these
+//               visible AND auto-expands them so the user can see
+//               the matched descendant. Includes the root if any
+//               descendant matches.
+//
+// Two passes for clarity: pass 1 collects self-matches; pass 2 walks
+// post-order (children before parent) so a folder is added to
+// `ancestors` only after all its children have been processed.
+//
+// The walks use explicit stacks rather than recursion so we never
+// blow the JS call stack on a deep tree (>1000 folders).
+function _annotateMatches(rootNode, query) {
+  const matches = new Set();
+  const ancestors = new Set();
+  if (!rootNode || !query) return { matches, ancestors };
+  const needle = query.toLowerCase();
+
+  // Pass 1 — find every node that directly matches.
+  const stack1 = [rootNode];
+  while (stack1.length) {
+    const node = stack1.pop();
+    if (!node) continue;
+    const path = node.path || "";
+    const name = node.name || "";
+    if (
+      path.toLowerCase().includes(needle) ||
+      name.toLowerCase().includes(needle)
+    ) {
+      matches.add(path);
+    }
+    if (node.type === "folder" && Array.isArray(node.children)) {
+      for (const c of node.children) stack1.push(c);
+    }
+  }
+
+  // Pass 2 — post-order walk. For each folder, check whether ANY of
+  // its descendants ended up in `matches`. If so, the folder is an
+  // ancestor and stays visible in filter mode (auto-expanded by
+  // applySearchToTree). Post-order ensures every descendant has been
+  // resolved before we decide whether THIS folder should be in
+  // `ancestors`. We compute the transitive has-match flag bottom-up:
+  // a folder is "has-match" if it OR any descendant matches. Since
+  // `matches` is already populated by pass 1, we just need to know
+  // "does any descendant match?" — which is true if (a) this folder
+  // itself matches, OR (b) any child folder recursively has a match.
+  // We track (b) via the `_folderHasMatch` set built during this
+  // walk.
+  const folderHasMatch = new Set();
+  // Recursive visit() — tree depth is bounded (typical <20), so a
+  // real recursive call is fine here. The two iterative passes above
+  // were the only ones needing explicit stacks (huge flat tree).
+  const visit = (node) => {
+    if (!node) return false;
+    const path = node.path || "";
+    if (matches.has(path)) return true; // direct hit
+    if (node.type !== "folder" || !Array.isArray(node.children)) {
+      return false;
+    }
+    let childHasMatch = false;
+    for (const c of node.children) {
+      if (visit(c)) childHasMatch = true;
+    }
+    if (childHasMatch) folderHasMatch.add(path);
+    return childHasMatch;
+  };
+  visit(rootNode);
+  // Promote every folder-with-match to an ancestor.
+  for (const p of folderHasMatch) ancestors.add(p);
+
+  return { matches, ancestors };
+}
+
+// Filter mode: hide non-matches, show matches + their ancestor chain.
+// DOM-only: toggles `style.display` on the `[data-row-wrap]` for each
+// row + expands folders whose ancestors contain a match. Never
+// touches the row's class list (so `.selected` and `.search-match`
+// stay intact across searches).
+//
+// The walk uses data-file-path / data-folder-path attribute selectors
+// to match the same `path` we stored during _annotateMatches. Paths
+// are URL-escaped via cssEscape() to handle spaces, accents, quotes.
+//
+// Auto-expand: any folder on the ancestor chain gets its
+// `aria-expanded` flipped to "true" and the chevron + icon swapped
+// back to "down" + "folder" — same DOM mutation the chevron click
+// would produce. This intentionally overrides any prior collapse:
+// the spec contract (spec.md §Filter mode hides non-matching rows)
+// says "any folder whose subtree contains a match is auto-expanded".
+function applySearchToTree(host, annotation) {
+  if (!host) return;
+  const pane = host.querySelector(".fex-tree-pane");
+  if (!pane) return;
+  const { matches, ancestors } = annotation;
+
+  // First, expand every folder on the ancestor chain.
+  for (const folderPath of ancestors) {
+    const row = pane.querySelector(
+      `[data-folder-path="${cssEscape(folderPath)}"]`,
+    );
+    if (!row) continue;
+    const wrap = row.closest("[data-row-wrap]");
+    const childrenContainer = wrap?.querySelector(
+      `[data-folder-children-of="${cssEscape(folderPath)}"]`,
+    );
+    if (childrenContainer) childrenContainer.style.display = "";
+    if (row.getAttribute("aria-expanded") !== "true") {
+      row.setAttribute("aria-expanded", "true");
+      const chevron = row.querySelector("[data-folder-toggle]");
+      if (chevron) chevron.textContent = "keyboard_arrow_down";
+      const icon = row.querySelector(".fex-icon");
+      if (icon) icon.textContent = "folder";
+    }
+  }
+
+  // Walk every wrap in the pane. Hide non-match wraps; show matches
+  // + ancestor wraps. Using `[data-row-wrap]` as the selector (vs
+  // walking each row) avoids the parent-might-be-shared trap where
+  // a file row's parent is the shared childrenContainer.
+  const wraps = pane.querySelectorAll("[data-row-wrap]");
+  wraps.forEach((wrap) => {
+    const row = wrap.querySelector(".fex-row");
+    if (!row) return;
+    const isFolder = row.classList.contains("folder");
+    const path = isFolder
+      ? row.dataset.folderPath || ""
+      : row.dataset.filePath || "";
+    if (matches.has(path) || ancestors.has(path)) {
+      wrap.style.display = "";
+    } else {
+      wrap.style.display = "none";
+    }
+  });
+}
+
+// Highlight mode: paint every matching row with `.search-match`.
+// Idempotent — clears stale classes from a previous query before
+// applying the new set. Never touches `aria-expanded`, the chevron
+// glyph, or `.fex-children` display, so the user's manual
+// collapse/expand choices survive. This is the spec contract for
+// highlight mode (spec.md §Highlight mode keeps expand/collapse state).
+function applyHighlightToTree(host, annotation) {
+  if (!host) return;
+  const pane = host.querySelector(".fex-tree-pane");
+  if (!pane) return;
+  const { matches } = annotation;
+  const rows = pane.querySelectorAll(".fex-row");
+  rows.forEach((row) => {
+    const isFolder = row.classList.contains("folder");
+    const path = isFolder
+      ? row.dataset.folderPath || ""
+      : row.dataset.filePath || "";
+    if (matches.has(path)) {
+      row.classList.add("search-match");
+    } else {
+      row.classList.remove("search-match");
+    }
+  });
+}
+
+// Restore the tree to its pre-search render. Resets:
+//   - display on every row wrap (un-hide hidden ones)
+//   - `.search-match` class on every row
+//   - the "No matches." placeholder (if up)
+//
+// Does NOT touch aria-expanded / chevron / folder icon — those are
+// the user's domain in the absence of a search query.
+function restoreTree() {
+  const host = _currentHost;
+  if (!host) return;
+  const pane = host.querySelector(".fex-tree-pane");
+  if (!pane) return;
+  pane.querySelectorAll("[data-row-wrap]").forEach((wrap) => {
+    wrap.style.display = "";
+  });
+  pane.querySelectorAll(".fex-row").forEach((row) => {
+    row.classList.remove("search-match");
+  });
+  hideSearchEmpty(pane);
+}
+
+// "No matches." placeholder — painted INSIDE the tree pane (not the
+// viewer pane) so the user's eye stays in the same place. Reuses the
+// existing .fex-empty-state chrome from index.html (icon + centered
+// text). Toggled via the .fex-search-empty class on the pane so the
+// rest of the pane (header, toggle row) stays visible.
+function showSearchEmpty(pane) {
+  if (!pane) return;
+  pane.classList.add("fex-search-empty-active");
+  let empty = pane.querySelector("[data-search-empty]");
+  if (!empty) {
+    empty = el(
+      "div",
+      {
+        class: "fex-empty-state fex-search-empty",
+        "data-search-empty": "",
+      },
+      el("span", { class: "fex-empty-state-icon" }, "search_off"),
+      el("p", null, "No matches."),
+    );
+    pane.append(empty);
+  }
+}
+
+function hideSearchEmpty(pane) {
+  if (!pane) return;
+  pane.classList.remove("fex-search-empty-active");
+  const empty = pane.querySelector("[data-search-empty]");
+  if (empty) empty.remove();
 }
 
 // Collapse every expanded folder in the explorer pane. Mirrors the
@@ -448,7 +918,12 @@ function renderFolderRow(node, depth) {
     }
     selectFolder(node.path || "");
   });
-  const wrap = el("div", null, row, childrenContainer);
+  const wrap = el(
+    "div",
+    { "data-row-wrap": "folder", class: "fex-row-wrap" },
+    row,
+    childrenContainer,
+  );
   return wrap;
 }
 
@@ -479,7 +954,14 @@ function renderFileRow(node, depth) {
   row.addEventListener("dblclick", () => {
     openFile(node);
   });
-  return row;
+  // Wrap each file row in its own div so the search filter pass can
+  // hide individual rows without hiding the whole `.fex-children`
+  // container they're attached to. Folder rows already get a wrap
+  // from renderFolderRow(); without this, hiding a file row's
+  // `display` would require setting it on the row itself, which
+  // conflicts with the inline `padding-left` style for indent.
+  const wrap = el("div", { "data-row-wrap": "file", class: "fex-row-wrap" }, row);
+  return wrap;
 }
 
 // Map file extensions to Material Symbols icons. Falls back to a
