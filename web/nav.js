@@ -668,11 +668,27 @@ document.querySelector("#collapse-all").addEventListener("click", () => {
 // live in different hierarchies and must be re-fetched with the right
 // `source=` param. Also clears expand/showAll so the tree rebuilds from
 // the new root instead of carrying over the previous view's expansion.
-document.addEventListener("click", (e) => {
+//
+// When the explorer is mounted (Browser tab is the active view),
+// clicking the toggle also navigates back to the tree so the user
+// sees the result of the switch — otherwise the toggle just updates
+// invisible state behind the file-explorer pane.
+document.addEventListener("click", async (e) => {
   const btn = e.target.closest("#tree-source-toggle [data-tree-source]");
   if (!btn) return;
   const source = btn.dataset.treeSource;
   if (state.treeSource === source) return;
+  // If we're currently in the Browser tab, leave it before mutating
+  // tree state — clearFileExplorer() resets state.explorer and renders
+  // the classification shell that renderTree() will populate.
+  try {
+    const fileExplorer = await import("./file_explorer.js");
+    if (fileExplorer.isMounted()) {
+      clearFileExplorer();
+    }
+  } catch (err) {
+    console.error("file_explorer import failed during source switch", err);
+  }
   state.treeSource = source;
   // Drop cached children — they were loaded with the previous source and
   // are stale for the new one.
