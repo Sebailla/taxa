@@ -116,7 +116,7 @@ def test_search_engine_contract():
 
     assert len(py_entries) == len(js_entries), (
         f"entry count drift: py={len(py_entries)} js={len(js_entries)}; "
-        "both must be exactly 14 engines"
+        "both must contain the same engines"
     )
     for i, (py, js) in enumerate(zip(py_entries, js_entries)):
         assert py["key"] == js[0], (
@@ -129,6 +129,22 @@ def test_search_engine_contract():
             f"with_authorship drift at index {i}: "
             f"py={py['with_authorship']} js={js[2]}"
         )
+
+
+def test_fixed_search_destinations_are_returned_unchanged():
+    """The curated external destinations remain available in the Search tab."""
+    from api.server import _build_search
+
+    links = {link.engine: link.url for link in _build_search("Any taxon", None)}
+
+    assert links["threads_acipenser"] == (
+        "https://www.threads.com/search?q=acipenser&serp_type=default&"
+        "xmt=AQG0AC54-jrPT9LBkalK5Lx_FGM7VtC3KUhDTE2hJLKTAwE"
+    )
+    assert links["facebook_acipenser_baerii"] == (
+        "https://www.facebook.com/search/top?q=acipenser%20baerii"
+    )
+    assert links["threads_shared_post"] == "https://www.threads.com/share/BAnZDpDtPZ/"
 
 
 def test_static_index_html_served():
