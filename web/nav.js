@@ -139,18 +139,18 @@ function renderCollapseAllButton() {
 }
 
 // ------------------------------------------------------------------
-// Header navigation tabs (Browser / Classification / Settings / Help)
+// Header navigation tabs (Browser / Settings / Help)
 // ------------------------------------------------------------------
-// The header carries four nav links (Browser / Classification / Settings /
-// Help), each stamped with `data-path="<tab>"`. Clicking Browser mounts
+// The header carries three nav links (Browser / Settings / Help),
+// each stamped with `data-path="<tab>"`. Clicking Browser mounts
 // the file explorer (if a taxon is selected) or the placeholder (if
 // state.selected is null). Clicking Help mounts the About / Help view
-// (web/help.js) into <main>. Clicking Classification or Settings clears
-// the explorer and restores the classification view. The Explorer and
-// Help modules are imported lazily inside the function body so nav.js
-// can boot before they're resolved — and so the same nav.js stays
-// usable even if either fails to load (the classification path is
-// untouched).
+// (web/help.js) into <main>. Clicking Settings clears the explorer
+// and restores the classification view (the tree is the default view
+// — the dedicated Classification nav tab was removed). The Explorer
+// and Help modules are imported lazily inside the function body so
+// nav.js can boot before they're resolved — and so the same nav.js
+// stays usable even if either fails to load.
 
 // Highlight a single header tab (Browser / Classification / Settings /
 // Help) by toggling the same primary-color + bold treatment the
@@ -266,6 +266,7 @@ async function mountFileExplorer(rootTaxonId) {
 // content on top of that shell.
 async function mountHelpView() {
   await clearFileExplorer();
+  await clearSettingsView();
   state.helpOpen = true;
   setActiveHeaderTab("help");
   render();
@@ -276,8 +277,51 @@ async function mountHelpView() {
   history.pushState({ view: "help" }, "", "#help");
 }
 
+// Mount the Settings view into <main>. Drops the explorer and the
+// help shell first so the only thing visible is the settings shell.
+// settings.js owns its own mount/clear pair — nav.js just drives the
+// lifecycle and the active-tab highlight. We deliberately do NOT
+// call render() at the end: render() is the tree-view pipeline and
+// would replace the settings shell with the classification view.
+async function mountSettingsView() {
+  await clearFileExplorer();
+  await clearHelpView();
+  const main = document.querySelector("main > div");
+  if (!main) return;
+  // Reinstall the empty <main> shell that clearFileExplorer left.
+  // renderSettings replaces its children with the settings UI; we
+  // don't need any chrome (header, breadcrumb, etc.) inside settings.
+  try {
+    const settings = await import("./settings.js");
+    settings.renderSettings(main);
+  } catch (e) {
+    console.error("settings.js import failed", e);
+  }
+  setActiveHeaderTab("settings");
+  state.helpOpen = false;
+}
+
+// Drop the settings shell from <main> if mounted. Idempotent — a no-op
+// when settings isn't on screen.
+async function clearSettingsView() {
+  try {
+    const settings = await import("./settings.js");
+    settings.clearSettingsView();
+  } catch (e) {
+    // settings.js may not have loaded yet — fine, nothing to clear.
+  }
+}
+
+// Drop the help shell from <main> if mounted. Same idempotent pattern
+// as clearSettingsView — used when navigating between non-help tabs.
+async function clearHelpView() {
+  if (!state.helpOpen) return;
+  state.helpOpen = false;
+  render();
+}
+
 // Drop the explorer state and listeners. Called when the user leaves the
-// Browser tab (Classification or Settings) so any in-flight fetches are
+// Browser tab (Help or Settings) so any in-flight fetches are
 // aborted and the right viewer is reset to a fresh empty placeholder.
 // The classification view is re-rendered via the normal render() pipeline.
 async function clearFileExplorer() {
@@ -289,10 +333,18 @@ async function clearFileExplorer() {
   } catch (e) {
     console.error("file_explorer.clear() failed", e);
   }
+  // Drop any settings shell too — Settings is exclusive with the tree
+  // and the Browser view, and clearFileExplorer is the catch-all
+  // "drop whatever's not the tree" path.
+  await clearSettingsView();
   // Reset state.explorer to its initial shape via the exported helper so
   // nav.js doesn't have to duplicate the literal from state.js.
   Object.assign(state.explorer, initialExplorerShape());
-  setActiveHeaderTab("classification");
+  // No nav tab is active while the tree view owns the stage —
+  // Classification no longer lives in the header (removed when the
+  // Browser tab swallowed its dedicated view), and Browser stays
+  // active only while the explorer is mounted.
+  setActiveHeaderTab(null);
   // Restore the classification-view shell so render() can re-populate it.
   const main = document.querySelector("main > div");
   if (main) {
@@ -560,15 +612,15 @@ document.addEventListener("click", async (e) => {
   } else if (action === "close-detail") {
     closeDetail();
   } else if (action === "nav-tab") {
-    // Header navigation (Browser / Classification / Settings / Help).
+    // Header navigation (Browser / Settings / Help).
     // The data-path attribute on each link carries the tab key.
     //   - "browser" → mount the explorer (placeholder when no taxon
     //     is selected; otherwise fetch + render the tree).
     //   - "help" → mount the About / Help view (drops any mounted
     //     explorer first, then paints the help shell).
-    //   - "classification" / "settings" → clear the explorer (drops
-    //     listeners + aborts in-flight fetches) and restore the
-    //     classification view via the normal render() pipeline.
+    //   - "settings" → mount the Settings view (theme toggle, reset
+    //     tree width, shortcuts link). Drops the explorer + help
+    //     shell first so the only thing visible is the new view.
     //
     // Each non-help branch also pushes a tagged history entry so
     // browser Back/Forward can cycle through the view stack (paired
@@ -592,14 +644,10 @@ document.addEventListener("click", async (e) => {
       );
     } else if (tab === "help") {
       mountHelpView();
-    } else {
-      // Classification / Settings: drop the explorer if it was mounted,
-      // and ensure the help shell is closed (mountHelpView sets the
-      // flag; the inverse path needs to clear it).
-      state.helpOpen = false;
-      clearFileExplorer();
+    } else if (tab === "settings") {
+      mountSettingsView();
       history.pushState(
-        { view: "classification" },
+        { view: "settings" },
         "",
         location.pathname + location.search,
       );
