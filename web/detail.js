@@ -296,7 +296,7 @@ function renderOverview(taxon) {
   );
 }
 
-// Render the Search tab: a grid of 14 search-engine buttons, each
+// Render the Search tab: a grid of search-engine buttons, each
 // opening in a new tab. The URLs come pre-composed from the server
 // (urllib.parse.quote_plus); the icon glyph + label come from the local
 // SEARCH_ENGINES table as a fallback (offline / 5xx case). The server
@@ -324,8 +324,8 @@ function renderSearchesTab(searches) {
   // Build a {key: engine} lookup once so the inner loop is O(1).
   const engineByKey = new Map(SEARCH_ENGINES.map((e) => [e.key, e]));
   // Index the response by engine key — the server may not return all
-  // 14, and the client never knows which keys map to which response
-  // entries (the server is the source of truth for URLs).
+  // configured engines, and the client never knows which keys map to
+  // which response entries (the server is the source of truth for URLs).
   const children = [];
   for (const cat of CATEGORIES) {
     let emittedHeader = false;
