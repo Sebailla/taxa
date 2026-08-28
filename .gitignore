@@ -37,6 +37,11 @@ data/*.log
 # The folder contents (notes, references) are managed by the user and
 # should not be committed.
 Research/
+# OpenSpec spec deltas live under `openspec/changes/<name>/specs/research/`
+# (lowercase). The `Research/` ignore rule above matches case-insensitively
+# on macOS and would silently drop these. Explicit negation keeps the spec
+# deltas tracked while still ignoring user-generated Research content.
+!openspec/changes/*/specs/research/
 
 # Node + Tailwind build — install with `npm install`, rebuild with
 # `npm run build:css` (or `make css`). The compiled CSS in web/dist/ is

@@ -25,6 +25,11 @@ const CDN_URLS = {
   mammoth: "https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js",
   XLSX: "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
   ePub: "https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js",
+  // papaparse@5.4.1 — CSV / TSV parser. Loaded on demand by
+  // renderTable when the Table tab is opened. Pinned URL: do not
+  // unpin. See web/index.html CDN-pinning block for matching
+  // <script> tag.
+  Papa: "https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js",
 };
 
 // Per-renderer promise cache — first call injects the <script>, subsequent
@@ -375,6 +380,280 @@ function renderUnsupported(target, file) {
   );
 }
 
+// Table viewer (CSV / TSV via Papa Parse). Sticky <thead> so the
+// header row stays pinned while the body scrolls vertically. Lazy
+// loads Papa through the existing loadScriptOnce pattern — see
+// CDN_URLS.Papa. On CDN failure (offline / blocked / network blip)
+// falls back to renderOfflineBanner so the user can still download
+// the raw file via the banner link.
+//
+// Delimiter: CSV uses "," (Papa default); TSV uses "\t". The
+// extension comes from `file.extension` lower-cased, matching the
+// `RENDERERS` dispatcher's case-normalisation.
+//
+// On parse error (Papa returns { errors: [...] } but throws nothing
+// by default) we surface the first error via the offline banner so
+// the user sees something is wrong without a console-spam.
+async function renderTable(target, file) {
+  try {
+    await loadScriptOnce("Papa");
+    const res = await fetch(file.url);
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    const text = await res.text();
+    const ext = (file.extension || "").toLowerCase();
+    const delimiter = ext === "tsv" ? "\t" : ",";
+    const parsed = window.Papa.parse(text, {
+      delimiter,
+      skipEmptyLines: true,
+    });
+    if (parsed.errors && parsed.errors.length > 0) {
+      // Surface the first parse error in the banner; Papa reports
+      // many "warnings" for benign cases (e.g. trailing delimiter),
+      // so don't block the render on them — only show if the user
+      // explicitly asked for error visibility (and we'd rather not
+      // regress their table view for a noisy warning).
+      const first = parsed.errors[0];
+      if (first && first.code !== "TooFewFields" && first.code !== "TooManyFields") {
+        throw new Error(first.message || "CSV parse error");
+      }
+    }
+    const rows = Array.isArray(parsed.data) ? parsed.data : [];
+    if (rows.length === 0) {
+      target.replaceChildren(
+        el(
+          "p",
+          { class: "p-4 text-on-surface-variant" },
+          "Table is empty.",
+        ),
+      );
+      return;
+    }
+    // First row is the header (Papa's default when header is omitted).
+    // For files without a header row, treat row 0 as data and synthesise
+    // "Col N" headers — matches the behaviour most spreadsheet apps
+    // give users opening raw CSVs.
+    const [headerRow, ...bodyRows] = rows;
+    const hasHeader =
+      Array.isArray(headerRow) &&
+      headerRow.some(
+        (cell) => typeof cell === "string" && cell.trim().length > 0,
+      );
+    const headers = hasHeader
+      ? headerRow.map((h) => String(h ?? ""))
+      : headerRow.map((_, i) => `Col ${i + 1}`);
+    const table = el("table", { class: "fex-csv-table" });
+    const thead = el("thead", null);
+    const headerTr = el("tr", null);
+    for (const h of headers) {
+      headerTr.append(el("th", null, h));
+    }
+    thead.append(headerTr);
+    table.append(thead);
+    const tbody = el("tbody", null);
+    for (const r of hasHeader ? bodyRows : rows) {
+      const tr = el("tr", null);
+      for (let i = 0; i < headers.length; i++) {
+        const cell = r && i < r.length ? String(r[i] ?? "") : "";
+        tr.append(el("td", null, cell));
+      }
+      tbody.append(tr);
+    }
+    table.append(tbody);
+    target.replaceChildren(el("div", { class: "fex-csv-scroller" }, table));
+  } catch (e) {
+    renderOfflineBanner(target, file);
+    console.error("renderTable failed", e);
+  }
+}
+
+// Tree viewer (JSON, native). Collapsible via <details>/<summary>;
+// 16 px indent per nesting level; type-coloured leaves using the
+// existing --realm-* palette (no hardcoded hex). Iterative walk
+// capped at MAX_JSON_NODES (50 000) — past the cap we append a
+// `<p class="fex-tree-truncated">"Tree truncated — open raw"</p>`
+// so the user can still see the structure.
+//
+// Why iterative (not recursive): a 50 000-node JSON in a deeply-
+// nested object can blow the JS stack at ~10 000 levels deep. The
+// iterative walk uses an explicit stack of pending children so the
+// depth is bounded by heap, not by the call stack.
+//
+// Why type-coloured: matches the spec's "type-coloured leaves"
+// requirement (spec.md §Tree viewer tab). Strings/numbers/booleans/
+// null each carry a Tailwind token class — `var(--realm-fungi)` /
+// `var(--realm-bacteria)` / `var(--realm-archaea)` / italic
+// `var(--on-surface-variant)` — so the leaf value's TYPE is
+// visible at a glance. No hardcoded hex.
+const MAX_JSON_NODES = 50000;
+
+async function renderJsonTree(target, file) {
+  try {
+    const res = await fetch(file.url);
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    const text = await res.text();
+    const root = JSON.parse(text);
+    const host = el("div", { class: "fex-json-tree" });
+    const walker = buildJsonWalker(host, root);
+    walker.run();
+    target.replaceChildren(host);
+    if (walker.truncated) {
+      target.append(
+        el(
+          "p",
+          { class: "fex-tree-truncated" },
+          "Tree truncated — open raw",
+        ),
+      );
+    }
+  } catch (e) {
+    renderOfflineBanner(target, file);
+    console.error("renderJsonTree failed", e);
+  }
+}
+
+// Build the iterative JSON walker. Returns an object with `run()`
+// (which paints the tree) and `truncated` (true if we hit the cap
+// before exhausting the document). The walker renders ONE level at
+// a time: a root node paints its caret, and each summary click
+// reveals more children lazily — this keeps the initial render
+// fast even on huge documents (only the root paints upfront;
+// nested levels paint only when the user clicks to expand them).
+function buildJsonWalker(host, root) {
+  let count = 0;
+  let truncated = false;
+
+  // Paints the root + registers a one-shot "expand" handler that
+  // walks its children on demand. The walk is iterative over the
+  // child list so we don't recurse for the initial root paint.
+  const rootNode = renderJsonNode("[root]", root, true);
+  host.append(rootNode.element);
+
+  const expand = (nodeEl, value) => {
+    if (!nodeEl || nodeEl.dataset.expanded === "true") return;
+    nodeEl.dataset.expanded = "true";
+    nodeEl.classList.add("open");
+    if (!Array.isArray(value) && typeof value !== "object" || value === null) {
+      return;
+    }
+    const childrenList = el("ul", { class: "fex-json-children" });
+    const entries = Array.isArray(value)
+      ? value.map((v, i) => [i, v])
+      : Object.entries(value);
+    for (const [k, v] of entries) {
+      count++;
+      if (count > MAX_JSON_NODES) {
+        truncated = true;
+        childrenList.append(
+          el(
+            "li",
+            { class: "fex-json-node" },
+            el(
+              "span",
+              { class: "fex-tree-leaf" },
+              "…",
+            ),
+          ),
+        );
+        break;
+      }
+      const child = renderJsonNode(String(k), v, false);
+      if (typeof v === "object" && v !== null) {
+        const summary = child.element.querySelector(".fex-json-summary");
+        const onClick = (e) => {
+          e.preventDefault();
+          const willOpen = !child.element.classList.contains("open");
+          if (willOpen) expand(child.element, v);
+          else child.element.classList.remove("open");
+        };
+        summary.addEventListener("click", onClick);
+        summary.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onClick(e);
+          }
+        });
+      }
+      childrenList.append(el("li", { class: "fex-json-node" }, child.element));
+    }
+    nodeEl.append(childrenList);
+  };
+
+  // Auto-expand the root so the user immediately sees the structure
+  // (otherwise they'd need to click the caret). Same semantics as
+  // the user's chevron click, just on initial paint.
+  expand(rootNode.element, root);
+
+  return {
+    run() {
+      /* initial paint already done above; run() is a no-op kept for
+         a stable interface in case future renderer work wants to
+         defer paint to a microtask. */
+    },
+    get truncated() {
+      return truncated;
+    },
+  };
+}
+
+// Render a single JSON value as a node element. `isRoot` controls
+// whether we wrap the node in <details> (always, for objects/arrays)
+// or just paint a leaf (for primitives).
+function renderJsonNode(key, value, isRoot) {
+  const type = jsonType(value);
+
+  // Primitive — paint a leaf row, no caret.
+  if (type !== "object" && type !== "array") {
+    const leaf = el(
+      "div",
+      { class: `fex-tree-leaf type-${type}` },
+      `${formatJsonPrimitive(value)}`,
+    );
+    return { element: leaf, type };
+  }
+
+  // Object / array — a div + summary row that we manage ourselves
+  // (NOT a real <details>, because we want lazy child rendering —
+  // the native <details> toggle would expand everything at once
+  // and defeat the iterative walk). CSS gives the caret a 90°
+  // rotation when the parent has `.open` (see index.html).
+  const caret = el(
+    "span",
+    { class: "fex-json-caret material-symbols-outlined" },
+    "chevron_right",
+  );
+  const summary = el(
+    "div",
+    {
+      class: "fex-json-summary",
+      role: "button",
+      tabindex: "0",
+    },
+    caret,
+    el("span", { class: "fex-json-key" }, key),
+    el(
+      "span",
+      { class: "fex-tree-leaf type-meta" },
+      type === "array"
+        ? `Array(${Array.isArray(value) ? value.length : 0})`
+        : `Object{${Object.keys(value || {}).length}}`,
+    ),
+  );
+  const node = el("div", { class: "fex-json-node" }, summary);
+  return { element: node, type };
+}
+
+function jsonType(value) {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value; // "object" | "string" | "number" | "boolean"
+}
+
+function formatJsonPrimitive(value) {
+  if (value === null) return "null";
+  if (typeof value === "string") return JSON.stringify(value);
+  return String(value);
+}
+
 // Public dispatcher — used by file_explorer.js to render a file given
 // its extension. Falls through to renderUnsupported for unknown formats
 // so callers don't need to check.
@@ -394,6 +673,12 @@ const RENDERERS = {
   xls: renderSheet,
   xlsx: renderSheet,
   epub: renderEpub,
+  // CSV / TSV — Table tab. Both extensions share the same renderer;
+  // the delimiter is chosen by extension inside renderTable.
+  csv: renderTable,
+  tsv: renderTable,
+  // JSON — Tree tab. Native collapsible renderer, no CDN.
+  json: renderJsonTree,
 };
 
 export {
