@@ -168,8 +168,10 @@ download.
 ### Requirement: Multi-format file viewer
 
 The system MUST render each of the nine supported file types in the
-right viewer when the user double-clicks the file, and MUST pin a
-single CDN URL per library.
+right viewer when the user double-clicks the file, MUST pin a single
+CDN URL per library, and MUST dispatch the **Raw / Table / Tree** tab
+buttons to the matching renderer for the open file's format (CSV/TSV →
+Table, JSON → Tree, everything else → Raw).
 
 #### Scenario: PDF rendering
 
@@ -252,6 +254,128 @@ single CDN URL per library.
 - WHEN the user double-clicks a file that requires that library
 - THEN the viewer renders a banner `"Viewer offline — raw download unavailable"` and keeps the tree interactive
 - AND no uncaught exception is raised; no silent corruption occurs
+
+#### Scenario: Table tab dispatches to Table renderer for CSV
+
+- GIVEN the user has double-clicked `data.csv`
+- WHEN they click the **Table** tab button
+- THEN the right viewer re-renders the file via the Table renderer (sticky header + scrollable body)
+- AND the Table tab is the active tab in the tab strip
+- AND the **Tree** tab is NOT auto-activated
+
+#### Scenario: Tree tab dispatches to Tree renderer for JSON
+
+- GIVEN the user has double-clicked `spec.json`
+- WHEN they click the **Tree** tab button
+- THEN the right viewer re-renders the file via the Tree renderer (collapsible, indented)
+- AND the Tree tab is the active tab in the tab strip
+- AND the **Table** tab is NOT auto-activated
+
+#### Scenario: Non-tabular file ignores Table/Tree tabs
+
+- GIVEN the user has double-clicked `notes.md`
+- WHEN they click the **Table** or **Tree** tab
+- THEN the viewer shows the message `"Table/Tree view not available for this format — use Raw."`
+- AND no renderer error is thrown
+
+### Requirement: Tree search
+
+The system MUST expose a search input inside the left tree header that
+filters or highlights rows by case-insensitive substring match on a row's
+`name` or full `path`. The system MUST debounce input by 200 ms and
+persist `{ query, mode, hideEmpty }` in `state.explorer.search`.
+
+#### Scenario: Filter mode hides non-matching rows
+
+- GIVEN the tree has 200 files and folders
+- WHEN the user types `acr` in the search input
+- THEN within 250 ms the tree shows only rows whose path or basename contains `acr` (case-insensitive)
+- AND any folder whose subtree contains a match is auto-expanded
+
+#### Scenario: Filter mode + hide-empty shows "No matches."
+
+- GIVEN filter mode is active and `hideEmpty` is on
+- WHEN the user types `foo` and no descendant matches exist
+- THEN the tree pane shows the message `"No matches."` in place of an empty space
+
+#### Scenario: Highlight mode keeps expand/collapse state
+
+- GIVEN highlight mode is active
+- AND the user manually collapsed folder `X` before typing
+- WHEN the user types `something` that matches a descendant of `X`
+- THEN folder `X` stays collapsed
+- AND every matching row is painted with `.fex-row.search-match`
+
+#### Scenario: Clear restores tree without state churn
+
+- GIVEN the search input has an active query
+- WHEN the user clicks the "X" clear button (or empties the field)
+- THEN the search input becomes empty
+- AND the tree restores to its pre-search render
+- AND in highlight mode the user's prior expand/collapse state is preserved
+
+#### Scenario: Toggles persist while keeping the query
+
+- GIVEN a query is active in filter mode
+- WHEN the user clicks the mode toggle to switch to highlight
+- THEN the query text remains
+- AND the mode icon flips to highlight
+- AND matching rows are painted (not hidden)
+
+### Requirement: Table viewer tab
+
+The system MUST render CSV / TSV files via Papa Parse when the user
+clicks the **Table** tab, with a sticky `<thead>` and a horizontally
+and vertically scrollable body.
+
+#### Scenario: CSV opens with sticky header
+
+- GIVEN the user has double-clicked `data.csv`
+- WHEN they click the **Table** tab
+- THEN the first row is rendered as a sticky `<thead>`
+- AND subsequent rows scroll horizontally and vertically
+- AND the meta strip still shows `FORMAT=CSV | SIZE=<bytes>`
+
+#### Scenario: TSV uses tab delimiter
+
+- GIVEN the user has double-clicked `data.tsv`
+- WHEN they click the **Table** tab
+- THEN Papa Parse is invoked with `delimiter: "\t"`
+- AND cells render without tab artefacts in the cell content
+
+#### Scenario: CDN load failure falls back to Raw
+
+- GIVEN the Papa Parse CDN `<script>` failed to load
+- WHEN the user clicks the **Table** tab on a `.csv` file
+- THEN the viewer shows the same offline banner already used by other CDN-failure paths
+- AND no uncaught exception is raised
+
+### Requirement: Tree viewer tab
+
+The system MUST render JSON files as a collapsible native tree when the
+user clicks the **Tree** tab, with 16 px indent per nesting level and
+type-coloured leaves. No CDN is used.
+
+#### Scenario: JSON root expands on click
+
+- GIVEN the user has double-clicked `spec.json`
+- WHEN they click the **Tree** tab
+- THEN the root object appears as a clickable caret node
+- AND clicking the caret expands its children with 16 px indent per level
+
+#### Scenario: Leaf values are type-coloured
+
+- GIVEN a JSON object is expanded in the Tree viewer
+- WHEN the renderer paints leaves
+- THEN strings, numbers, booleans, and `null` each carry a distinct type token from the Tailwind config (no hardcoded hex)
+- AND object / array keys render as `<summary>` rows
+
+#### Scenario: Large JSON is truncated with a hint
+
+- GIVEN a JSON file larger than the configured node cap (50 000)
+- WHEN the Tree renderer walks the document
+- THEN it stops at the cap and shows `"Tree truncated — open raw"`
+- AND the Raw tab still renders the full body
 
 ### Requirement: Tree interaction semantics
 

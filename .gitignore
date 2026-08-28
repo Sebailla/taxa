@@ -42,6 +42,8 @@ Research/
 # on macOS and would silently drop these. Explicit negation keeps the spec
 # deltas tracked while still ignoring user-generated Research content.
 !openspec/changes/*/specs/research/
+!openspec/changes/archive/*/specs/research/
+!openspec/specs/research/
 
 # Node + Tailwind build — install with `npm install`, rebuild with
 # `npm run build:css` (or `make css`). The compiled CSS in web/dist/ is

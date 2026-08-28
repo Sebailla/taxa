@@ -4,6 +4,18 @@
 > canonical requirement block listed under `MODIFIED Requirements`
 > below and adds the new requirements verbatim.
 
+## Archive
+
+> **Status: archived** — merged into the canonical spec
+> `openspec/specs/research/spec.md` on 2026-08-27. The delta's three
+> `ADDED Requirements` (`Tree search`, `Table viewer tab`,
+> `Tree viewer tab`) and the dispatch scenarios appended to
+> `Multi-format file viewer` (Table / Tree tab dispatch + non-tabular
+> ignore) now live in the canonical spec. Final state on `main`:
+> commit `9649b0b` (PR #64 — viewer tabs CSS recovery). All three PRs
+> of this change are merged: #62 (search block, `1d7a3b3`), #63
+> (closed after conflict), #64 (CSS recovery, `9649b0b`).
+
 ## ADDED Requirements
 
 ### Requirement: Tree search
