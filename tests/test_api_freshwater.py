@@ -326,11 +326,12 @@ def test_searches_returns_14_entries(db_and_client):
     resp = client.get(f"/api/taxon/{homo_id}/searches")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert len(body) == 14, f"expected 14 entries, got {len(body)}"
+    assert len(body) == 17, f"expected 17 entries, got {len(body)}"
     expected_keys = [
         "google", "imagen", "documentos", "pdf", "wikipedia", "bhl",
         "researchgate", "plos", "academia", "scielo", "scholar",
         "youtube", "zootaxa", "scribd",
+        "threads_acipenser", "facebook_acipenser_baerii", "threads_shared_post",
     ]
     actual_keys = [e["engine"] for e in body]
     assert actual_keys == expected_keys, (
@@ -364,10 +365,15 @@ def test_searches_urls_are_well_formed(db_and_client):
         # The server uses urllib.parse.quote_plus, so spaces are encoded
         # as `+` (form-urlencoded style). Either `+` or `%20` is technically
         # valid; we accept both because the spec is loose on this.
-        encoded = "Homo+sapiens"
-        assert encoded in entry["url"] or "Homo%20sapiens" in entry["url"], (
-            f"scientific_name missing from URL for {entry['engine']}: {entry['url']}"
-        )
+        if entry["engine"] not in {
+            "threads_acipenser",
+            "facebook_acipenser_baerii",
+            "threads_shared_post",
+        }:
+            encoded = "Homo+sapiens"
+            assert encoded in entry["url"] or "Homo%20sapiens" in entry["url"], (
+                f"scientific_name missing from URL for {entry['engine']}: {entry['url']}"
+            )
 
 
 def test_searches_authorship_on_bhl_and_scholar_only(db_and_client):
