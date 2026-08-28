@@ -1540,6 +1540,201 @@
       .fex-search-empty {
         padding: 24px 12px;
       }
+
+      /* Viewer-tab CSS — Table (CSV/TSV) + Tree (JSON) renderers
+              painted by web/file_viewer.js. The renderers REPLACE the
+              host element's children, so each top-level container
+              (.fex-csv-scroller / .fex-json-tree) is responsible for
+              its own scroll / paint surface. Tokens come from the
+              project palette above; no new custom properties are
+              introduced here. */
+
+      /* Table viewer — scroller owns the scroll surface so the sticky
+              thead (next rule) can pin to the top while the body
+              scrolls. min-height keeps a one-row preview visible when
+              the snippet frame is short; the body itself can grow
+              unbounded without clipping the surrounding chrome. */
+      .fex-csv-scroller {
+        max-height: 100%;
+        overflow: auto;
+        background: var(--surface);
+        border: 1px solid var(--outline-variant);
+        border-radius: 8px;
+      }
+      /* Sticky thead — header row stays pinned while the user scrolls
+              rows vertically. The thead also gets a faint surface tint
+              so it visually separates from the body when both scroll
+              past the same column. font-feature-settings keeps numeric
+              columns aligned with the mono body below. */
+      .fex-csv-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--on-surface);
+      }
+      .fex-csv-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: var(--surface-container-low);
+        color: var(--on-surface);
+        font-weight: 600;
+        text-align: left;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--outline-variant);
+        white-space: nowrap;
+      }
+      .fex-csv-table tbody td {
+        padding: 6px 12px;
+        border-bottom: 1px solid var(--outline-variant);
+        vertical-align: top;
+        white-space: pre;
+        max-width: 480px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      /* Subtle zebra — every other body row picks up the low surface
+              tint so wide tables stay readable across columns. Uses
+              color-mix on the existing surface so it tracks theme. */
+      .fex-csv-table tbody tr:nth-child(even) td {
+        background: color-mix(
+          in srgb,
+          var(--surface-container-low) 70%,
+          transparent
+        );
+      }
+      .fex-csv-table tbody tr:hover td {
+        background: color-mix(in srgb, var(--primary) 6%, transparent);
+      }
+
+      /* Tree viewer — host container. font-mono + compact line-height
+              so deeply nested JSON reads as a single column. The render
+              is iterative (see web/file_viewer.js buildJsonWalker), so
+              we don't need to support the whole tree painting at once
+              — only the visible subtree. */
+      .fex-json-tree {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 13px;
+        line-height: 1.55;
+        color: var(--on-surface);
+      }
+      /* Indent per nesting level — each .fex-json-children pushes its
+              children 16px to the right. Equivalent to
+              `padding-left: calc(var(--depth) * 16px)` if the walker
+              ever paints a --depth custom property per node; the
+              margin-left pattern avoids that JS dependency entirely. */
+      .fex-json-children {
+        list-style: none;
+        margin: 4px 0 4px 16px;
+        padding: 0;
+      }
+      .fex-json-node {
+        position: relative;
+      }
+      /* Summary row — caret + key + meta leaf, all in one flex line.
+              Hover surfaces a faint primary wash (mirrors .fex-row) so
+              the user knows each row is interactive. */
+      .fex-json-summary {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 2px 8px 2px 4px;
+        border-radius: 6px;
+        cursor: pointer;
+        user-select: none;
+      }
+      .fex-json-summary:hover {
+        background: color-mix(in srgb, var(--primary) 6%, transparent);
+      }
+      .fex-json-summary:focus-visible {
+        outline: 2px solid
+          color-mix(in srgb, var(--primary) 60%, transparent);
+        outline-offset: 1px;
+      }
+      .fex-json-caret {
+        font-family: "Material Symbols Outlined";
+        font-size: 16px;
+        color: var(--on-surface-variant);
+        transition: transform 120ms ease-out;
+        flex: 0 0 auto;
+      }
+      .fex-json-node.open > .fex-json-summary > .fex-json-caret {
+        transform: rotate(90deg);
+      }
+      .fex-json-key {
+        color: var(--on-surface);
+        font-weight: 500;
+        flex: 0 0 auto;
+      }
+      /* Leaf pills — type-coloured chips for primitive values. The
+              "meta" variant carries structural info ("Object{3}",
+              "Array(12)") so it sits next to the key on summary rows;
+              the type-* variants sit at the leaf position and read
+              as values. Tokens come from the --realm-* palette so
+              type colours stay consistent with the Browser tree tints. */
+      .fex-tree-leaf {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 12px;
+        padding: 1px 6px;
+        border-radius: 4px;
+        background: var(--surface-container-low);
+        color: var(--on-surface-variant);
+        flex: 0 1 auto;
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .fex-tree-leaf.type-string {
+        color: var(--realm-plantae);
+        background: color-mix(in srgb, var(--realm-plantae) 10%, transparent);
+      }
+      .fex-tree-leaf.type-number {
+        color: var(--realm-fungi);
+        background: color-mix(in srgb, var(--realm-fungi) 10%, transparent);
+      }
+      .fex-tree-leaf.type-boolean {
+        color: var(--realm-archaea);
+        background: color-mix(in srgb, var(--realm-archaea) 10%, transparent);
+      }
+      .fex-tree-leaf.type-null {
+        color: var(--on-surface-variant);
+        font-style: italic;
+        background: transparent;
+      }
+      .fex-tree-leaf.type-meta {
+        color: var(--on-surface-variant);
+        background: transparent;
+        font-size: 11px;
+      }
+
+      /* Truncation banner — rendered when the JSON tree exceeds the
+              50 000-node cap. Sits below the tree with a data_object
+              icon to signal "this is the structural view, truncated";
+              user can switch to Raw for the full payload. */
+      .fex-tree-truncated {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 12px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--primary) 8%, transparent);
+        border: 1px solid
+          color-mix(in srgb, var(--primary) 25%, transparent);
+        color: var(--on-surface);
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .fex-tree-truncated .material-symbols-outlined {
+        font-size: 18px;
+        color: var(--primary);
+      }
     </style>
     <link
       rel="stylesheet"
