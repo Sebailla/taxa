@@ -9,7 +9,7 @@ GET  /api/domains                                   → top-level domains
 GET  /api/taxon/{id}                                → single taxon + breadcrumb
 GET  /api/taxon/{id}/children                       → direct children (paginated)
 GET  /api/taxon/{id}/vernaculars                    → common names for this taxon
-GET  /api/taxon/{id}/searches                       → 14 server-composed search URLs
+GET  /api/taxon/{id}/searches                       → server-composed search URLs
 GET  /api/search?q=                                 → search across scientific name,
                                                            authorship AND vernacular
 
@@ -677,7 +677,7 @@ def get_children(
 # ---------------------------------------------------------------------------
 # Search-engine URL composition
 #
-# The server is the source of truth for the 14 pre-composed search URLs
+# The server is the source of truth for the pre-composed search URLs
 # returned by /api/taxon/{id}/searches. The frontend has a parallel table
 # in web/search_urls.js; tests/test_smoke.py::test_search_engine_contract
 # (AC-21) enforces byte-identical key/label/with_authorship between the
@@ -709,11 +709,14 @@ _SEARCH_ENGINES = [
     {"key": "youtube",      "label": "YouTube",       "template": "https://www.youtube.com/results?search_query={name}",                                                         "template_with_auth": None,                                                     "with_authorship": False, "icon": "play_circle"},
     {"key": "zootaxa",      "label": "Zootaxa",       "template": "https://www.biotaxa.org/Zootaxa/search?query={name}",                                                         "template_with_auth": None,                                                     "with_authorship": False, "icon": "bug_report"},
     {"key": "scribd",       "label": "Scribd",        "template": "https://www.scribd.com/search?query={name}",                                                                  "template_with_auth": None,                                                     "with_authorship": False, "icon": "auto_stories"},
+    {"key": "threads_acipenser", "label": "Threads: Acipenser", "template": "https://www.threads.com/search?q=acipenser&serp_type=default&xmt=AQG0AC54-jrPT9LBkalK5Lx_FGM7VtC3KUhDTE2hJLKTAwE", "template_with_auth": None, "with_authorship": False, "icon": "share"},
+    {"key": "facebook_acipenser_baerii", "label": "Facebook: Acipenser baerii", "template": "https://www.facebook.com/search/top?q=acipenser%20baerii", "template_with_auth": None, "with_authorship": False, "icon": "share"},
+    {"key": "threads_shared_post", "label": "Threads: Shared post", "template": "https://www.threads.com/share/BAnZDpDtPZ/", "template_with_auth": None, "with_authorship": False, "icon": "share"},
 ]
 
 
 def _build_search(scientific_name: str, authorship: Optional[str]) -> list[SearchLink]:
-    """Compose the 14 SearchLink entries for a single taxon.
+    """Compose the configured SearchLink entries for a single taxon.
 
     URLs are pre-formatted via urllib.parse.quote_plus (the server is the
     single source of truth for query encoding). The frontend never builds

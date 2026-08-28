@@ -1,4 +1,4 @@
-// Single source of truth for the 14 search engines (icon + label only).
+// Single source of truth for the search engines (icon + label only).
 // Mirrored in api/server.py::_SEARCH_ENGINES. The AC-21 contract test
 // (tests/test_smoke.py::test_search_engine_contract) parses both files
 // as text and asserts the keys, labels, and with_authorship flags match
@@ -158,6 +158,34 @@ export const SEARCH_ENGINES = [
     with_authorship: false,
     icon: "auto_stories",
     category: "documents",
+  },
+  {
+    key: "threads_acipenser",
+    label: "Threads: Acipenser",
+    template:
+      "https://www.threads.com/search?q=acipenser&serp_type=default&xmt=AQG0AC54-jrPT9LBkalK5Lx_FGM7VtC3KUhDTE2hJLKTAwE",
+    template_with_auth: null,
+    with_authorship: false,
+    icon: "share",
+    category: "general",
+  },
+  {
+    key: "facebook_acipenser_baerii",
+    label: "Facebook: Acipenser baerii",
+    template: "https://www.facebook.com/search/top?q=acipenser%20baerii",
+    template_with_auth: null,
+    with_authorship: false,
+    icon: "share",
+    category: "general",
+  },
+  {
+    key: "threads_shared_post",
+    label: "Threads: Shared post",
+    template: "https://www.threads.com/share/BAnZDpDtPZ/",
+    template_with_auth: null,
+    with_authorship: false,
+    icon: "share",
+    category: "general",
   },
 ];
 
