@@ -975,6 +975,21 @@ function iconForExt(ext) {
   if (e === "txt") return "description";
   if (e === "doc" || e === "docx") return "article";
   if (e === "xls" || e === "xlsx") return "table_chart";
+  // Image + video icons match the renderers registered in
+  // web/file_viewer.js so the tree row tells the user what viewer
+  // will open on double-click. SVG uses the same icon as the other
+  // raster images even though it inlines instead of <img src=…>.
+  if (
+    e === "jpg" ||
+    e === "jpeg" ||
+    e === "png" ||
+    e === "gif" ||
+    e === "webp" ||
+    e === "bmp" ||
+    e === "svg"
+  )
+    return "image";
+  if (e === "mp4" || e === "webm" || e === "ogv") return "videocam";
   return "draft";
 }
 
