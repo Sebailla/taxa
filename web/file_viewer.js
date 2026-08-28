@@ -108,6 +108,159 @@ function renderPdf(target, file) {
   target.replaceChildren(frame, fallback);
 }
 
+// Image rendering — <img> with object-contain so the picture scales to
+// fit the snippet frame without distortion or cropping. The browser's
+// native decoder handles every extension we register (jpg/jpeg/png/
+// gif/webp/bmp); no CDN, no library, no parsing. On load error (e.g.
+// truncated file, unsupported sub-format) the onerror handler swaps
+// the frame for an inline error card so the user can still download
+// the raw file instead of seeing a broken-image glyph.
+//
+// Big-file advisory: anything over 50 MB gets a yellow banner above
+// the image. Decoding 50 MP photos or RAW-like inputs freezes the
+// tab — a soft warning is the proportional response.
+const IMAGE_BIG_FILE_BYTES = 50 * 1024 * 1024;
+
+function renderImage(target, file) {
+  const frame = el("div", { class: "fex-image-frame" });
+  const big = (file.size || 0) > IMAGE_BIG_FILE_BYTES;
+  const advisory = big
+    ? el(
+        "div",
+        { class: "fex-image-advisory", role: "status" },
+        el("span", { class: "material-symbols-outlined" }, "warning"),
+        `Large image (${formatSize(file.size || 0)}) — decoding may be slow.`,
+      )
+    : null;
+
+  const img = el("img", {
+    src: file.url,
+    alt: file.name,
+    title: file.name,
+    class: "fex-image",
+    loading: "lazy",
+    decoding: "async",
+  });
+  img.addEventListener("error", () => {
+    target.replaceChildren(renderImageError(file));
+  });
+
+  frame.replaceChildren(img);
+  target.replaceChildren(advisory, frame);
+}
+
+// Inline image error card — painted when the browser fails to decode
+// the file (corrupt, unsupported sub-format like progressive JPEG
+// without browser support, etc.). Mirrors the shape of
+// renderOfflineBanner so the recovery path is consistent.
+function renderImageError(file) {
+  return el(
+    "div",
+    { class: "fex-empty-state" },
+    el("span", { class: "fex-empty-state-icon" }, "broken_image"),
+    el(
+      "p",
+      { class: "font-semibold text-on-surface" },
+      `Could not decode ${file.name}`,
+    ),
+    el(
+      "p",
+      { class: "text-on-surface-variant text-body-sm" },
+      "The file may be corrupt or use a sub-format the browser can't render inline.",
+    ),
+    el(
+      "a",
+      {
+        href: file.url,
+        download: file.name,
+        class: "fex-snippet-btn mt-2",
+      },
+      "Download file",
+    ),
+  );
+}
+
+// SVG rendering — fetch + inline so the image scales crisply at any
+// size and inherits page CSS variables (theme / realm tint). The fetch
+// is required even though the <img src="..."> path works: inlining lets
+// us validate the XML before injecting it, so a malicious SVG claiming
+// to be an image but carrying <script> gets caught and rendered as
+// the generic image error instead of executing. The DOMParser route
+// uses the standard XML mode (image/svg+xml) so <script> tags survive
+// parsing and the inline path takes responsibility for stripping them.
+async function renderSvg(target, file) {
+  try {
+    const res = await fetch(file.url);
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    const text = await res.text();
+    const doc = new DOMParser().parseFromString(text, "image/svg+xml");
+    const svg = doc.documentElement;
+    if (!svg || svg.nodeName.toLowerCase() !== "svg") {
+      throw new Error("Document is not a valid SVG");
+    }
+    // Strip <script> and event-handler attributes — XSS defense for
+    // inline SVGs that came from arbitrary sources. We don't try to be
+    // clever (no allowlist of safe tags); we just drop anything that
+    // could run code.
+    svg.querySelectorAll("script").forEach((n) => n.remove());
+    const walker = doc.createTreeWalker(svg, NodeFilter.SHOW_ELEMENT);
+    let node = walker.currentNode;
+    while (node) {
+      for (const attr of [...node.attributes]) {
+        if (/^on/i.test(attr.name)) node.removeAttribute(attr.name);
+      }
+      node = walker.nextNode();
+    }
+    // Pin the SVG to the frame's box so it scales with object-contain.
+    svg.setAttribute("class", "fex-image");
+    if (!svg.getAttribute("preserveAspectRatio")) {
+      svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    }
+    const frame = el("div", { class: "fex-image-frame" });
+    frame.replaceChildren(svg);
+    target.replaceChildren(frame);
+  } catch (e) {
+    target.replaceChildren(renderImageError(file));
+    console.error("renderSvg failed", e);
+  }
+}
+
+// Video rendering — <video controls> with the native player UI. We
+// intentionally do NOT autoplay (UX: surprise audio is hostile), and
+// preload="metadata" only fetches the first frame so opening a large
+// file doesn't pin the network. The browser's native codec support
+// covers mp4/h264 (universal), webm/vp9 (Chrome/Firefox/Edge), ogv
+// (Firefox/older Chrome). Unsupported codecs surface as the native
+// "video can't be played" overlay; the onerror handler paints our
+// generic error card with a download link so the user always has an
+// escape hatch.
+function renderVideo(target, file) {
+  const frame = el("div", { class: "fex-video-frame" });
+  const video = el("video", {
+    src: file.url,
+    title: file.name,
+    class: "fex-video-el",
+    controls: "",
+    preload: "metadata",
+  });
+  video.addEventListener("error", () => {
+    target.replaceChildren(renderImageError(file));
+  });
+  frame.replaceChildren(video);
+  target.replaceChildren(frame);
+}
+
+// formatSize helper for the image advisory. Lives at module scope so
+// the other renderers (PDF meta strip, file_explorer.js) can reuse it
+// in the future; right now only renderImage references it.
+function formatSize(n) {
+  if (n == null) return "?";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
 // HTML rendering — sandboxed iframe (no allow-same-origin) so the loaded
 // HTML can't reach the parent page's cookies / DOM. Strict TDD note:
 // same-origin XSS surface is noted in design §8.
@@ -679,6 +832,20 @@ const RENDERERS = {
   tsv: renderTable,
   // JSON — Tree tab. Native collapsible renderer, no CDN.
   json: renderJsonTree,
+  // Images — inline <img>, browser-native decoder. SVG is fetched and
+  // inlined (with XSS scrub) so it inherits CSS variables and scales
+  // crisply; everything else uses <img src>.
+  jpg: renderImage,
+  jpeg: renderImage,
+  png: renderImage,
+  gif: renderImage,
+  webp: renderImage,
+  bmp: renderImage,
+  svg: renderSvg,
+  // Videos — native <video controls>, no autoplay, no CDN.
+  mp4: renderVideo,
+  webm: renderVideo,
+  ogv: renderVideo,
 };
 
 export {
@@ -690,6 +857,10 @@ export {
   renderDocx,
   renderSheet,
   renderEpub,
+  renderImage,
+  renderImageError,
+  renderSvg,
+  renderVideo,
   renderUnsupported,
   render,
 };

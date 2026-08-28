@@ -1735,6 +1735,72 @@
         font-size: 18px;
         color: var(--primary);
       }
+
+      /* Image + video viewers. The frame owns the scroll surface so
+              the inner element (img / video / inline svg) can shrink to
+              fit via object-contain. min-height keeps a thumbnail-sized
+              viewer from collapsing to nothing when the surrounding
+              snippet frame is short. */
+
+      .fex-image-frame {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--surface-container-low);
+        border: 1px solid var(--outline-variant);
+        border-radius: 8px;
+        min-height: 320px;
+        max-height: 100%;
+        overflow: auto;
+        padding: 12px;
+      }
+      .fex-image {
+        display: block;
+        max-width: 100%;
+        max-height: 70vh;
+        width: auto;
+        height: auto;
+        object-fit: contain;
+      }
+      /* Big-file advisory above the image — yellow surface, primary
+              icon, so the user gets a heads-up before the browser tries
+              to decode something that may stall the tab. */
+      .fex-image-advisory {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        margin-bottom: 8px;
+        background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+        border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--outline-variant));
+        border-radius: 6px;
+        font-family: "Raleway", sans-serif;
+        font-size: 12px;
+        color: var(--on-surface);
+      }
+      .fex-image-advisory .material-symbols-outlined {
+        font-size: 16px;
+        color: var(--primary);
+      }
+
+      .fex-video-frame {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+        border-radius: 8px;
+        min-height: 320px;
+        max-height: 100%;
+        overflow: hidden;
+      }
+      .fex-video-el {
+        display: block;
+        max-width: 100%;
+        max-height: 70vh;
+        width: auto;
+        height: auto;
+        background: #000;
+      }
     </style>
     <link
       rel="stylesheet"
