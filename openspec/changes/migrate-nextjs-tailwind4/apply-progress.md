@@ -25,7 +25,7 @@
 | PR 1b.3a | Hydration measurement script | 339 | `scripts/measure_hydration.py` + schema subset of `tests/test_hydration_timing.py` | reconstruction pending |
 | PR 1b.3b | Hydration timing test | 181 | remainder of `tests/test_hydration_timing.py` | reconstruction pending |
 | PR 2a | Layer scaffold | 409* | `tsconfig.json` + 5 barrels + 20 `.gitkeep` + `tests/test_module_layers.py` | `size:exception` **accepted** by the maintainer (2026-08-29); work unit in `taxa-worktrees/migrate-nextjs-tailwind4-2a` cleared for commit + push to `develop` as staged |
-| PR 2b | ESLint config | 227 | `.eslintrc.cjs` + 3 fixtures + config+barrel blocks of `tests/test_no_restricted_imports.py` | reconstruction pending |
+| PR 2b | ESLint config (literal + alias enforcement) | 388 | `.eslintrc.cjs` + `scripts/eslint-fixtures/{barrel_import,deep_import,deep_import_research}.js` + `tests/test_no_restricted_imports.py` | **staged** in worktree `taxa-worktrees/migrate-nextjs-tailwind4-2b`; cleared for commit + push to `develop` as staged |
 | PR 2c | ESLint triangulation | 259 | 20 fixtures + runtime-triangulation block of `tests/test_no_restricted_imports.py` | reconstruction pending |
 | PR 2d | Taxonomy domain | 350 | `src/modules/taxonomy/domain/taxon.ts` + `tests/test_taxonomy_domain.py` | reconstruction pending |
 | PR 2e | Domain purity guard | 176 | `tests/test_domain_purity.py` | reconstruction pending |
@@ -51,10 +51,32 @@ code+test lines against the 400-line budget, and the PR carries the
 This record documents the decision only; it changes no code or tests and
 performs no commit or push.
 
+\*\* **PR 2b measured size and alias-form expansion**: the PR 2b row above
+shows the actual measured figure (**388** code+test lines), not the
+original forecast (**227**). Breakdown: `.eslintrc.cjs` 66 +
+`scripts/eslint-fixtures/barrel_import.js` 4 +
+`scripts/eslint-fixtures/deep_import.js` 4 +
+`scripts/eslint-fixtures/deep_import_research.js` 5 +
+`tests/test_no_restricted_imports.py` 309 = **388** (`wc -l` on the
+staged files). This **fits the 400-line per-PR review budget** with
+**-12 lines (-3.0 %)** of headroom after the trim pass. The growth
+from the original 227-line forecast comes entirely from the
+maintainer's explicit alias-form enforcement expansion: the literal
+`src/modules/<cap>/<layer>/*` rule alone (the original forecast)
+ships in ~32 LoC of patterns inside `.eslintrc.cjs`, but the alias
+form `@taxa/<cap>/<layer>/*` adds another ~32 LoC of patterns plus
+~50 LoC of alias-form triangulation tests in the test file, plus
+~30 LoC for the `_load_eslint_patterns` Node-loading helper that lets
+the test assert on the *resolved* config (rather than scanning source
+text, which would have broken the programmatic-pattern-array
+refactor). PR 2b ships under the 400-line budget without a
+`size:exception`; the expanded alias coverage is part of the design
+contract, not an overrun.
+
 **Total delivered to `develop`**: 0 / 14 sub-PRs.
-**Total reconstruction pending**: 13 sub-PRs.
-**Total staged in worktree, authorized for commit**: 1 sub-PR (PR 2a,
-accepted `size:exception`).
+**Total reconstruction pending**: 12 sub-PRs.
+**Total staged in worktree, authorized for commit**: 2 sub-PRs
+(PR 2a, accepted `size:exception`; PR 2b, under budget).
 
 ### Reconstruction order (deterministic, sequential to `develop`)
 
@@ -135,9 +157,17 @@ The two repartitions together yield **14 sub-PRs** targeting
 
 - Mode: **stacked-to-main chained PR** (sequential sub-PRs of Phase 1 + Phase 2).
 - Total sub-PRs after reconstruction: **14** (1a.1, 1a.2, 1b.1, 1b.2, 1b.3a, 1b.3b, 2a, 2b, 2c, 2d, 2e, 3, 4, 5 — note 3, 4, 5 are single-PR per original plan).
-- Each sub-PR ≤ 339 LoC authored, **except PR 2a at 409 code+test
-  lines**, which ships under the maintainer-accepted `size:exception`
-  (+9 lines, +2.3 % over the 400-line review budget).
+- Each sub-PR ≤ 339 LoC authored, **except**:
+  - **PR 2a at 409 code+test lines**, which ships under the
+    maintainer-accepted `size:exception` (+9 lines, +2.3 % over
+    the 400-line review budget).
+  - **PR 2b at 388 code+test lines**, which ships **under the
+    400-line review budget** (-12 lines, -3.0 % headroom). PR 2b's
+    expanded surface (vs. the original 227-line forecast) is the
+    maintainer's explicit alias-form enforcement expansion
+    (`@taxa/<cap>/<layer>/*` in addition to
+    `src/modules/<cap>/<layer>/*`) plus the corresponding
+    alias-form triangulation tests.
 - Each sub-PR's base = `origin/develop` after the previous sub-PR merges.
   No stacked branches. No child PR bases.
 
@@ -161,7 +191,22 @@ per-PR review budget, PR 2a carries an **accepted `size:exception`**:
 on 2026-08-29 the maintainer explicitly authorized the +9-line (+2.3 %)
 overrun, so the delivery choice is settled and PR 2a is cleared to
 commit + push to `develop` as staged under the `size:exception` label.
-Remaining sub-PRs (1a.x, 1b.x, 2b–2e, 3, 4, 5) are reconstruction
+
+PR 2b work unit is staged in worktree
+`taxa-worktrees/migrate-nextjs-tailwind4-2b` (ESLint config + 3 fixtures
++ focused test + OpenSpec progress records + Spanish mirror); focused
+test `tests/test_no_restricted_imports.py` passes 32 / 32 (RED → GREEN
+→ TRIANGULATE → REFACTOR captured; runtime ESLint invocation of all
+40 `(capability × layer × form)` combinations confirmed). At **388**
+code+test lines against the **400**-line per-PR review budget, PR 2b
+ships **under budget** (-12 lines, -3.0 % headroom). The expanded
+surface vs. the original 227-line forecast is the maintainer's
+explicit alias-form enforcement expansion
+(`@taxa/<cap>/<layer>/*` in addition to `src/modules/<cap>/<layer>/*`)
+plus the corresponding alias-form triangulation tests — no
+`size:exception` is required.
+
+Remaining sub-PRs (1a.x, 1b.x, 2c–2e, 3, 4, 5) are reconstruction
 pending per `tasks.md` §Reconstruction Notice.
 
 ---
@@ -199,3 +244,26 @@ pending per `tasks.md` §Reconstruction Notice.
   `size:exception` label and the delivery choice is no longer pending.
   This record changes no code or tests and performs no commit or push.
   Spanish mirror updated in lockstep.
+- **2026-08-29** — PR 2b work unit staged in the dedicated worktree
+  `taxa-worktrees/migrate-nextjs-tailwind4-2b`. Files added:
+  `.eslintrc.cjs` (66 LoC, CommonJS legacy form; `no-restricted-imports`
+  patterns derived from a `CAPABILITIES × LAYERS` matrix and emit
+  BOTH path spellings — literal `src/modules/<cap>/<layer>/*` AND
+  alias `@taxa/<cap>/<layer>/*` — per the maintainer's explicit
+  decision to prevent alias-form bypass);
+  `scripts/eslint-fixtures/{barrel_import,deep_import,deep_import_research}.js`
+  (3 fixtures, 13 LoC total);
+  `tests/test_no_restricted_imports.py` (309 LoC, 32 focused
+  assertions including 2 alias-form triangulation tests using
+  pytest's `tmp_path` so no extra fixture files are committed).
+  Focused test passes 32 / 32 against `.eslintrc.cjs` (RED → GREEN
+  → TRIANGULATE → REFACTOR captured). Runtime ESLint invocation
+  was used to verify all 40 `(capability × layer × form)`
+  combinations are rejected and all 10 barrel paths (5 caps × 2
+  spellings) are allowed. Measured size **388** code+test lines
+  against the **400**-line per-PR review budget — under budget by
+  **-12 lines (-3.0 %)** after the trim pass. The expanded surface
+  vs. the original 227-line forecast is the maintainer's explicit
+  alias-form enforcement expansion; no `size:exception` is required.
+  This record changes no code or tests and performs no commit or
+  push. Spanish mirror updated in lockstep.
