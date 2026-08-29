@@ -1,0 +1,40 @@
+name: Migration
+description: Propose an approved dependency or platform migration.
+title: "migration: "
+labels:
+  - type:chore
+body:
+  - type: textarea
+    id: scope
+    attributes:
+      label: Migration scope
+      description: Identify the packages, platform versions, or build tooling to migrate.
+      placeholder: "Next.js 16, React 19, and Tailwind CSS v4"
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: Explain why this migration is needed and the expected benefit.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: List the observable outcomes required to consider the migration complete.
+      placeholder: |
+        - [ ] The application builds successfully.
+        - [ ] Relevant test suites pass.
+        - [ ] Existing user-facing behavior remains intact.
+    validations:
+      required: true
+  - type: textarea
+    id: validation-plan
+    attributes:
+      label: Validation plan
+      description: Name the commands or checks that will verify the migration.
+      placeholder: "pnpm lint && pnpm test && pnpm build"
+    validations:
+      required: true

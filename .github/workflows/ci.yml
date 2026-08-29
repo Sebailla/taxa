@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 # Restrict GITHUB_TOKEN to the minimum needed for this job. The smoke
 # suite doesn't upload artifacts, comment on PRs, or write to the repo,
