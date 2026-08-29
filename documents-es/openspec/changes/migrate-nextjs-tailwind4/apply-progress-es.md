@@ -27,7 +27,7 @@
 | PR 1b.3b | Test de cronometraje de hidratación | 181 | resto de `tests/test_hydration_timing.py` | reconstrucción pendiente |
 | PR 2a | Andamio de capas | 409* | `tsconfig.json` + 5 barrels + 20 `.gitkeep` + `tests/test_module_layers.py` | `size:exception` **aceptada** por el mantenedor (2026-08-29); unidad de trabajo en `taxa-worktrees/migrate-nextjs-tailwind4-2a` habilitada para commit + push a `develop` tal como está staged |
 | PR 2b | Configuración ESLint (literal + alias) | 388 | `.eslintrc.cjs` + `scripts/eslint-fixtures/{barrel_import,deep_import,deep_import_research}.js` + `tests/test_no_restricted_imports.py` | **staged** en árbol `taxa-worktrees/migrate-nextjs-tailwind4-2b`; habilitado para commit + push a `develop` tal como está staged |
-| PR 2c | Triangulación ESLint | 240 | 20 fixtures + bloque de triangulación runtime de `tests/test_no_restricted_imports.py` | **staged** en árbol `taxa-worktrees/migrate-nextjs-tailwind4-2c`; habilitado para commit + push a `develop` tal como está staged |
+| PR 2c | Triangulación ESLint | 239 | 20 fixtures + bloque de triangulación runtime de `tests/test_no_restricted_imports.py` | **staged** en árbol `taxa-worktrees/migrate-nextjs-tailwind4-2c`; habilitado para commit + push a `develop` tal como está staged |
 | PR 2d | Dominio de taxonomía | 350 | `src/modules/taxonomy/domain/taxon.ts` + `tests/test_taxonomy_domain.py` | reconstrucción pendiente |
 | PR 2e | Guardia de pureza de dominio | 176 | `tests/test_domain_purity.py` | reconstrucción pendiente |
 | PR 3 | Bootstrap de frontend (Tailwind 4, Makefile, static mount, search_urls) | TBD | aún no escrito | reconstrucción pendiente |
@@ -228,13 +228,13 @@ import** se rechazan: 20 fixtures literales
 (`@taxa/<cap>/<layer>/deep` en `tmp_path`), parametrizadas sobre la
 matriz completa `CAPABILITIES × LAYERS`. Los barrels públicos se
 mantienen permitidos bajo ambas formas (10 casos barrel-allow). Con
-**240** líneas de código+test frente al presupuesto de revisión de
-**400** líneas por PR, PR 2c se envía **bajo presupuesto** (-160
-líneas, -40,0 % de holgura). Desglose: 20 fixtures
+**239** líneas de código+test frente al presupuesto de revisión de
+**400** líneas por PR, PR 2c se envía **bajo presupuesto** (-161
+líneas, -40,25 % de holgura). Desglose: 20 fixtures
 (`scripts/eslint-fixtures/deep_import_<cap>_<layer>.js`) a 5 LoC
 cada uno = **100** + delta de `tests/test_no_restricted_imports.py`
-de **140** (`wc -l` sobre el archivo staged = 449 frente a la base
-PR 2b de 309) = **240** (`wc -l` sobre los archivos staged). No se
+de **139** (`wc -l` sobre el archivo staged = 448 frente a la base
+PR 2b de 309) = **239** (`wc -l` sobre los archivos staged). No se
 requiere `size:exception`.
 
 Los sub-PRs restantes (1a.x, 1b.x, 2d–2e, 3, 4, 5) quedan pendientes de
@@ -309,8 +309,8 @@ reconstrucción según `tasks.md` §Aviso de reconstrucción.
       cubriendo cada par `(capability × layer)` sobre la matriz de 5
       capacidades × 4 capas); el archivo existente
       `tests/test_no_restricted_imports.py` se extendió con un bloque
-      parametrizado de triangulación runtime (delta de +140 LoC llevando
-      el archivo de 309 a 449 LoC, +70 aserciones enfocadas: 20 de
+      parametrizado de triangulación runtime (delta de +139 LoC llevando
+      el archivo de 309 a 448 LoC, +70 aserciones enfocadas: 20 de
       existencia de fixture, 20 de runtime forma literal, 20 de runtime
       forma alias vía `tmp_path`, 10 de barrel permitido cubriendo
       ambas formas de barrel literal y alias). El test enfocado pasa
@@ -321,9 +321,9 @@ reconstrucción según `tasks.md` §Aviso de reconstrucción.
       (`src/modules/<cap>/<layer>/deep`) más 20 entradas dinámicas de
       alias (`@taxa/<cap>/<layer>/deep` escritas en `tmp_path` por
       test). Los barrels públicos se mantienen permitidos bajo ambas
-      formas. Tamaño medido **240** líneas de código+test (20 fixtures
-      100 + delta del archivo de test 140) frente al presupuesto de
-      revisión de **400** líneas por PR — bajo presupuesto por **-160
-      líneas (-40,0 %)** de holgura. No se requiere `size:exception`.
+      formas. Tamaño medido **239** líneas de código+test (20 fixtures
+      100 + delta del archivo de test 139) frente al presupuesto de
+      revisión de **400** líneas por PR — bajo presupuesto por **-161
+      líneas (-40,25 %)** de holgura. No se requiere `size:exception`.
       Este registro no modifica código ni tests y no realiza commit ni
       push. Espejo en inglés actualizado en paralelo.
