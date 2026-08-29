@@ -3,14 +3,14 @@
 > Hybrid-mode persistence artifact. Mirrors the structured
 > apply-progress in Engram (`topic_key` = `sdd/migrate-nextjs-tailwind4/apply-progress`).
 >
-> **Reconstruction notice**: this change has **no work delivered** to
-> `origin/develop` yet. The current worktree
-> (`taxa-worktrees/migrate-nextjs-tailwind4-pr1`) holds planning
-> artefacts plus untracked implementation files. The previous
-> version of this file reported "7 / 35 tasks complete" for PR 1 +
-> PR 2a; that count was a planning artefact, not delivered work.
-> All 35 tasks are reconstruction pending per the updated
-> `tasks.md` §Reconstruction Notice.
+> **Reconciliation notice (2026-08-29)**: this change has **6 / 14
+> sub-PRs delivered to `origin/develop`** based on commit history
+> (1a.1, 1b.1, 2a, 2b, 2c, 2d — see per-row provenance below);
+> **5 / 14 sub-PRs are uncertain** because named-slice provenance
+> cannot be determined from commit boundaries (1a.2, 1b.2,
+> 1b.3a, 1b.3b, 2e); **3 / 14 sub-PRs remain reconstruction
+> pending** (PR 3, PR 4, PR 5). The prior "7 / 35 tasks
+> complete" framing was a planning artefact and is superseded.
 
 ---
 
@@ -18,17 +18,17 @@
 
 | Sub-PR | Scope | LoC budget | Source files | Status |
 |--------|-------|------------|--------------|--------|
-| PR 1a.1 | Build-profile emitter | 296 | `scripts/emit_build_profile.mjs` + script-contract block of `tests/test_build_profile.py` | reconstruction pending |
-| PR 1a.2 | Build-profile schema test | 241 | remainder of `tests/test_build_profile.py` | reconstruction pending |
-| PR 1b.1 | Chromium pin | 247 | `scripts/verify_chromium.py` + chromium block of `tests/test_evidence_baseline.py` | reconstruction pending |
-| PR 1b.2 | Evidence baseline | 250 | remainder of `tests/test_evidence_baseline.py` | reconstruction pending |
-| PR 1b.3a | Hydration measurement script | 339 | `scripts/measure_hydration.py` + schema subset of `tests/test_hydration_timing.py` | reconstruction pending |
-| PR 1b.3b | Hydration timing test | 181 | remainder of `tests/test_hydration_timing.py` | reconstruction pending |
-| PR 2a | Layer scaffold | 409* | `tsconfig.json` + 5 barrels + 20 `.gitkeep` + `tests/test_module_layers.py` | `size:exception` **accepted** by the maintainer (2026-08-29); work unit in `taxa-worktrees/migrate-nextjs-tailwind4-2a` cleared for commit + push to `develop` as staged |
-| PR 2b | ESLint config (literal + alias enforcement) | 388 | `.eslintrc.cjs` + `scripts/eslint-fixtures/{barrel_import,deep_import,deep_import_research}.js` + `tests/test_no_restricted_imports.py` | **staged** in worktree `taxa-worktrees/migrate-nextjs-tailwind4-2b`; cleared for commit + push to `develop` as staged |
-| PR 2c | ESLint triangulation | 239 | 20 fixtures + runtime-triangulation block of `tests/test_no_restricted_imports.py` | **staged** in worktree `taxa-worktrees/migrate-nextjs-tailwind4-2c`; cleared for commit + push to `develop` as staged |
-| PR 2d | Taxonomy domain | 350 | `src/modules/taxonomy/domain/taxon.ts` + `tests/test_taxonomy_domain.py` | reconstruction pending |
-| PR 2e | Domain purity guard | 176 | `tests/test_domain_purity.py` | reconstruction pending |
+| PR 1a.1 | Build-profile emitter | 296 | `scripts/emit_build_profile.mjs` + script-contract block of `tests/test_build_profile.py` | delivered — origin/develop #75 (`646f00d`) ships `scripts/emit_build_profile.mjs` + entire `tests/test_build_profile.py` (321 LoC) |
+| PR 1a.2 | Build-profile schema test | 241 | remainder of `tests/test_build_profile.py` | uncertain — #75 added `tests/test_build_profile.py` whole; named-slice boundary with 1a.1 (script-contract block vs schema remainder) not determinable from commit history |
+| PR 1b.1 | Chromium pin | 247 | `scripts/verify_chromium.py` + chromium block of `tests/test_evidence_baseline.py` | delivered — origin/develop #76 (`97776de`) ships entire `tests/test_evidence_baseline.py` (829 LoC); `scripts/verify_chromium.py` predates the slice (#3c16dad, feat(security)) |
+| PR 1b.2 | Evidence baseline | 250 | remainder of `tests/test_evidence_baseline.py` | uncertain — #76 added `tests/test_evidence_baseline.py` whole; named-slice boundary with 1b.1 (chromium block vs evidence remainder) not determinable |
+| PR 1b.3a | Hydration measurement script | 339 | `scripts/measure_hydration.py` + schema subset of `tests/test_hydration_timing.py` | uncertain — #77 (`9d2e8a4`) ships `scripts/measure_hydration.py` (189 LoC) + entire `tests/test_hydration_timing.py` (331 LoC); named-slice boundary with 1b.3b (script + schema subset vs remainder) not determinable |
+| PR 1b.3b | Hydration timing test | 181 | remainder of `tests/test_hydration_timing.py` | uncertain — #77 added `tests/test_hydration_timing.py` whole; named-slice boundary with 1b.3a not determinable |
+| PR 2a | Layer scaffold | 409* | `tsconfig.json` + 5 barrels + 20 `.gitkeep` + `tests/test_module_layers.py` | delivered — origin/develop #78 (`3e596db`); `size:exception` accepted (409 code+test lines, +9 / +2.3 % over 400-line budget) |
+| PR 2b | ESLint config (literal + alias enforcement) | 388 | `.eslintrc.cjs` + `scripts/eslint-fixtures/{barrel_import,deep_import,deep_import_research}.js` + `tests/test_no_restricted_imports.py` | delivered — origin/develop #80 (`00560db`); under 400-line budget (-12 / -3.0 %) |
+| PR 2c | ESLint triangulation | 239 | 20 fixtures + runtime-triangulation block of `tests/test_no_restricted_imports.py` | delivered — origin/develop #82 (`0bd294a`); under 400-line budget (-161 / -40.25 %) |
+| PR 2d | Taxonomy domain | 350 | `src/modules/taxonomy/domain/taxon.ts` + `tests/test_taxonomy_domain.py` | delivered — origin/develop #84 (`8315c0b`); 347 code+test lines |
+| PR 2e | Domain purity guard | 176 | `tests/test_domain_purity.py` | uncertain — #86 (`53a33be`) ships `tests/test_domain_purity.py` (320 LoC) but exceeds the 176 LoC plan budget; named-slice provenance uncertain (plan budget vs delivered size mismatch) |
 | PR 3 | Frontend-bootstrap (Tailwind 4, Makefile, static mount, search_urls) | TBD | not yet authored | reconstruction pending |
 | PR 4 | Browser-state | TBD | not yet authored | reconstruction pending |
 | PR 5 | Capability ports + delete legacy `web/*` | TBD | not yet authored | reconstruction pending |
@@ -73,10 +73,13 @@ refactor). PR 2b ships under the 400-line budget without a
 `size:exception`; the expanded alias coverage is part of the design
 contract, not an overrun.
 
-**Total delivered to `develop`**: 0 / 14 sub-PRs.
-**Total reconstruction pending**: 11 sub-PRs.
-**Total staged in worktree, authorized for commit**: 3 sub-PRs
-(PR 2a, accepted `size:exception`; PR 2b, under budget; PR 2c, under budget).
+**Total delivered to `develop`**: 6 / 14 sub-PRs (1a.1, 1b.1, 2a, 2b,
+2c, 2d — based on origin/develop commit history).
+**Total uncertain (named-slice provenance)**: 5 / 14 sub-PRs
+(1a.2, 1b.2, 1b.3a, 1b.3b, 2e — file content present in
+`origin/develop`, named-slice boundary not determinable from commit
+history).
+**Total reconstruction pending**: 3 / 14 sub-PRs (PR 3, PR 4, PR 5).
 
 ### Reconstruction order (deterministic, sequential to `develop`)
 
@@ -182,32 +185,42 @@ The two repartitions together yield **14 sub-PRs** targeting
 
 ## Status
 
-**0 / 35 tasks delivered to `develop`.** PR 2a work unit is staged
-in worktree `taxa-worktrees/migrate-nextjs-tailwind4-2a` (scaffold
+**6 / 14 sub-PRs delivered to `develop`** based on commit history
+(1a.1, 1b.1, 2a, 2b, 2c, 2d); **5 sub-PRs are uncertain**
+(named-slice provenance not determinable: 1a.2, 1b.2, 1b.3a,
+1b.3b, 2e); **3 sub-PRs remain reconstruction pending**
+(PR 3, PR 4, PR 5). Prior PR 2a / 2b / 2c staging records below
+are preserved as historical context — those units have since been
+delivered to `develop` via PRs #78 (#3e596db), #80 (#00560db),
+and #82 (#0bd294a). PR 2a work unit was staged in worktree
+`taxa-worktrees/migrate-nextjs-tailwind4-2a` (scaffold
 + test + tsconfig + OpenSpec evidence + Spanish mirrors); focused
 test `tests/test_module_layers.py` passes 40 / 40 (RED → GREEN →
 TRIANGULATE captured). At **409** code+test lines against the **400**-line
 per-PR review budget, PR 2a carries an **accepted `size:exception`**:
 on 2026-08-29 the maintainer explicitly authorized the +9-line (+2.3 %)
-overrun, so the delivery choice is settled and PR 2a is cleared to
-commit + push to `develop` as staged under the `size:exception` label.
+overrun, so the delivery choice was settled (accepted 2026-08-29) and
+PR 2a has since been delivered to `develop` under the
+`size:exception` label.
 
-PR 2b work unit is staged in worktree
-`taxa-worktrees/migrate-nextjs-tailwind4-2b` (ESLint config + 3 fixtures
+PR 2b work unit was staged in worktree
+`taxa-worktrees/migrate-nextjs-tailwind4-2b` (delivered via PR #80
+/ #00560db) (ESLint config + 3 fixtures
 + focused test + OpenSpec progress records + Spanish mirror); focused
 test `tests/test_no_restricted_imports.py` passes 32 / 32 (RED → GREEN
 → TRIANGULATE → REFACTOR captured; runtime ESLint invocation of all
 40 `(capability × layer × form)` combinations confirmed). At **388**
 code+test lines against the **400**-line per-PR review budget, PR 2b
-ships **under budget** (-12 lines, -3.0 % headroom). The expanded
+shipped **under budget** (-12 lines, -3.0 % headroom). The expanded
 surface vs. the original 227-line forecast is the maintainer's
 explicit alias-form enforcement expansion
 (`@taxa/<cap>/<layer>/*` in addition to `src/modules/<cap>/<layer>/*`)
 plus the corresponding alias-form triangulation tests — no
 `size:exception` is required.
 
-PR 2c work unit is staged in worktree
-`taxa-worktrees/migrate-nextjs-tailwind4-2c` (20 literal fixtures +
+PR 2c work unit was staged in worktree
+`taxa-worktrees/migrate-nextjs-tailwind4-2c` (delivered via PR #82
+/ #0bd294a) (20 literal fixtures +
 runtime-triangulation block of `tests/test_no_restricted_imports.py` +
 OpenSpec progress records + Spanish mirror); focused test
 `tests/test_no_restricted_imports.py` passes 102 / 102 (32 PR 2b + 70
@@ -217,15 +230,15 @@ fixtures (`src/modules/<cap>/<layer>/deep`) + 20 dynamic alias inputs
 (`@taxa/<cap>/<layer>/deep` in `tmp_path`), parametrized across the full
 `CAPABILITIES × LAYERS` matrix. Public barrels stay allowed under both
 spelling forms (10 barrel-allow cases). At **239** code+test lines
-against the **400**-line per-PR review budget, PR 2c ships **under
-budget** (-161 lines, -40.25 % headroom). Breakdown: 20 fixtures
+against the **400**-line per-PR review budget, PR 2c shipped
+**under budget** (-161 lines, -40.25 % headroom). Breakdown: 20 fixtures
 (`scripts/eslint-fixtures/deep_import_<cap>_<layer>.js`) at 5 LoC each
 = **100** + `tests/test_no_restricted_imports.py` delta of **139**
 (`wc -l` on the staged file = 448 vs the PR 2b baseline 309) = **239**
 (`wc -l` on the staged files). No `size:exception` is required.
 
-Remaining sub-PRs (1a.x, 1b.x, 2d–2e, 3, 4, 5) are reconstruction
-pending per `tasks.md` §Reconstruction Notice.
+Remaining sub-PRs (PR 3, PR 4, PR 5) are reconstruction pending
+per `tasks.md` §Reconstruction Notice.
 
 ---
 
@@ -306,6 +319,25 @@ pending per `tasks.md` §Reconstruction Notice.
       spelling forms. Measured size **239** code+test lines
       (20 fixtures 100 + test file delta 139) against the
       **400**-line per-PR review budget — under budget by **-161
-      lines (-40.25 %)** headroom. No `size:exception` is required.
-      This record changes no code or tests and performs no commit or
-      push. Spanish mirror updated in lockstep.
+          lines (-40.25 %)** headroom. No `size:exception` is required.
+          This record changes no code or tests and performs no commit or
+          push. Spanish mirror updated in lockstep.
+    - **2026-08-29** — Ledger reconciliation pass (this entry). Per
+      the parent task, the `apply-progress.md` ledger is reconciled
+      against `origin/develop` commit history. **6 / 14 sub-PRs
+      marked delivered** (1a.1 → #75 / `646f00d`; 1b.1 → #76 /
+      `97776de`; 2a → #78 / `3e596db`; 2b → #80 / `00560db`; 2c → #82
+      / `0bd294a`; 2d → #84 / `8315c0b`). **5 / 14 sub-PRs marked
+      uncertain** (1a.2, 1b.2, 1b.3a, 1b.3b, 2e) because the
+      named-slice boundary within the merged test file is not
+      determinable from the commit boundary (the relevant commits
+      added the test file whole, not split). **PR 3, PR 4, PR 5
+      status preserved exactly as origin** (reconstruction pending,
+      not yet authored). Totals updated; PR 2a / 2b / 2c "staged in
+      worktree" framing converted to past tense because those units
+      have since been delivered. PR 2e named-slice provenance
+      further uncertain because delivered size (320 LoC) exceeds the
+      176 LoC plan budget. PR 2a `size:exception` (409 / +9 / +2.3 %)
+      and PR 2b alias-form expansion notes retained verbatim. No
+      code or test changes; no commit / push performed in this pass.
+      Spanish mirror updated in lockstep.
