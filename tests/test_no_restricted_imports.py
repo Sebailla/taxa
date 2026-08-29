@@ -1,5 +1,5 @@
 """
-ESLint barrel-only contract tests for the modular monolith — PR 2b slice.
+ESLint barrel-only contract tests for the modular monolith — PR 2b + 2c slices.
 
 PR 2 task 2.4 installs `.eslintrc.cjs` whose `no-restricted-imports` rule
 rejects **deep imports** into any module's layer folders. Cross-module
@@ -8,9 +8,12 @@ access MUST go through `src/modules/<capability>/index.ts` (or the
 (`src/modules/<cap>/<layer>/*` AND `@taxa/<cap>/<layer>/*`) per the
 maintainer's explicit decision.
 
-This PR 2b slice covers the config-presence and allowed-barrel fixture
-behaviour only. The runtime triangulation of every (capability × layer)
-pair (PR 2c) is out of scope here.
+PR 2b covers the config-presence and allowed-barrel fixture behaviour.
+PR 2c extends that with a runtime triangulation across the full
+`CAPABILITIES × LAYERS` matrix — 20 committed literal fixtures plus
+dynamic `@taxa/<cap>/<layer>/deep` inputs in `tmp_path` — proving all
+40 deep-import forms (literal AND alias) are rejected while public
+barrels stay allowed.
 
 References:
     openspec/changes/migrate-nextjs-tailwind4/design.md §Cross-module import guard
@@ -306,4 +309,140 @@ def test_alias_form_barrel_is_allowed(require_npx: None, tmp_path: Path):
                 f"ESLint blocked a legitimate alias-form barrel import.\n"
                 f"stdout: {result.stdout}\nstderr: {result.stderr}"
             )
+        # Any other ESLint complaint is out of scope; pass for our contract.
+
+
+# ---------------------------------------------------------------------------
+# PR 2c — Runtime triangulation across the full (capability × layer) matrix.
+#
+# PR 2b ships 3 literal fixtures and one-off runtime checks for one
+# alias pair. PR 2c closes the sweep: 20 committed literal fixtures
+# (`scripts/eslint-fixtures/deep_import_<cap>_<layer>.js`) plus dynamic
+# `@taxa/<cap>/<layer>/deep` inputs in tmp_path, parametrized over every
+# (capability × layer) pair so all 40 deep-import forms (literal AND alias)
+# are runtime-tested against the ESLint config PR 2b installed. Public
+# barrels stay allowed.
+# ---------------------------------------------------------------------------
+
+
+def _pr2c_fixture_name(capability: str, layer: str) -> str:
+    """Stable on-disk name for a PR 2c literal fixture.
+
+    Format: `deep_import_<capability>_<layer>.js`. Keeping the matrix
+    pair in the filename makes the fixture self-describing in directory
+    listings and aligns with PR 2b's `deep_import_research.js` convention.
+    """
+    return f"deep_import_{capability}_{layer}.js"
+
+
+def _pr2c_literal_fixture_path(capability: str, layer: str) -> Path:
+    return FIXTURES_DIR / _pr2c_fixture_name(capability, layer)
+
+
+@pytest.mark.parametrize("capability", CAPABILITIES)
+@pytest.mark.parametrize("layer", LAYERS)
+def test_pr2c_literal_fixture_files_exist(capability: str, layer: str):
+    """Every (capability × layer) pair MUST have a committed literal
+    fixture under `scripts/eslint-fixtures/`. The runtime triangulation
+    test below points at these stable on-disk files; without them the
+    sweep cannot reproduce a failing run from the repo alone."""
+    path = _pr2c_literal_fixture_path(capability, layer)
+    assert path.is_file(), (
+        f"missing PR 2c literal fixture for {capability}/{layer}: "
+        f"{path}. PR 2c ships 20 such fixtures (5 caps x 4 layers)."
+    )
+
+
+@pytest.mark.parametrize("capability", CAPABILITIES)
+@pytest.mark.parametrize("layer", LAYERS)
+def test_pr2c_literal_deep_import_is_rejected(
+    require_npx: None, capability: str, layer: str
+):
+    """Runtime ESLint invocation against the committed literal fixture.
+    Each `src/modules/<cap>/<layer>/deep` path MUST be rejected by the
+    `no-restricted-imports` rule. This is the first half of PR 2c's
+    40-form sweep (20 literal paths)."""
+    if not ESLINTRC.exists():
+        pytest.skip("eslintrc not present yet")
+    fixture = _pr2c_literal_fixture_path(capability, layer)
+    if not fixture.is_file():
+        pytest.fail(
+            f"PR 2c fixture missing for {capability}/{layer}: {fixture}"
+        )
+    result = _run_eslint([fixture], config=ESLINTRC)
+    assert result.returncode != 0, (
+        f"ESLint must reject literal deep import into "
+        f"src/modules/{capability}/{layer}; exited 0.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    combined = result.stdout + result.stderr
+    assert f"src/modules/{capability}/{layer}" in combined, (
+        f"ESLint error must include the offending literal path "
+        f"src/modules/{capability}/{layer}; got:\n{combined}"
+    )
+
+
+@pytest.mark.parametrize("capability", CAPABILITIES)
+@pytest.mark.parametrize("layer", LAYERS)
+def test_pr2c_alias_form_deep_import_is_rejected(
+    require_npx: None, capability: str, layer: str, tmp_path: Path
+):
+    """Runtime ESLint invocation against a dynamically generated
+    tmp_path file containing `@taxa/<cap>/<layer>/deep`. Each alias
+    form MUST be rejected. This is the second half of PR 2c's 40-form
+    sweep (20 alias paths); the tmp_path generation avoids committing
+    20 mirror fixtures just to assert the rule."""
+    if not ESLINTRC.exists():
+        pytest.skip("eslintrc not present yet")
+    fixture = tmp_path / f"deep_import_alias_{capability}_{layer}.js"
+    # Use the resolved layer+capability in the import string. Capability
+    # names contain a hyphen but the rule pattern matches on `<cap>/<layer>/`,
+    # so the literal capability string is the contract-relevant form.
+    fixture.write_text(
+        f'import {{ something }} from "@taxa/{capability}/{layer}/deep";\n'
+        "console.log(something);\n"
+    )
+    result = _run_eslint([fixture], config=ESLINTRC)
+    assert result.returncode != 0, (
+        f"ESLint must reject alias-form deep import into "
+        f"@taxa/{capability}/{layer}/deep; exited 0.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    combined = result.stdout + result.stderr
+    assert f"@taxa/{capability}/{layer}" in combined, (
+        f"ESLint error must include the offending alias path "
+        f"@taxa/{capability}/{layer}; got:\n{combined}"
+    )
+
+
+@pytest.mark.parametrize("capability", CAPABILITIES)
+@pytest.mark.parametrize("form", ("literal", "alias"))
+def test_pr2c_barrel_import_remains_allowed(
+    require_npx: None, capability: str, form: str, tmp_path: Path
+):
+    """Triangulation: every public barrel (literal AND alias form)
+    MUST remain allowed even after PR 2c sweeps every
+    (capability × layer) pair. Catches a regression where a future
+    pattern refactor accidentally matches the barrel path (no layer
+    segment) and over-blocks the legitimate public surface."""
+    if not ESLINTRC.exists():
+        pytest.skip("eslintrc not present yet")
+    fixture = tmp_path / f"barrel_{form}_{capability}.js"
+    if form == "literal":
+        target = f"src/modules/{capability}"
+    else:
+        target = f"@taxa/{capability}"
+    fixture.write_text(
+        f'import {{ something }} from "{target}";\n'
+        "console.log(something);\n"
+    )
+    result = _run_eslint([fixture], config=ESLINTRC)
+    if result.returncode != 0:
+        combined = result.stdout + result.stderr
+        if "no-restricted-imports" in combined and target in combined:
+                pytest.fail(
+                    f"ESLint blocked a legitimate {form}-form barrel import "
+                    f"into {target}.\n"
+                    f"stdout: {result.stdout}\nstderr: {result.stderr}"
+                )
         # Any other ESLint complaint is out of scope; pass for our contract.
