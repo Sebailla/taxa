@@ -474,6 +474,168 @@ tasks, and spec artifacts:
 
 ---
 
-`status: complete` · `next_recommended: "sdd-verify — re-run the
-focused layout test and the dangling-reference repair checks before
-PR 2a is cleared for commit + push to develop"`
+## PR3a Boundary Scope Planning
+
+This section supersedes the prior assumption that PR3 could bootstrap
+a FastAPI-served static export and then relocate `web/search_urls.js`.
+It adds the **PR3a planning artifacts only** — the active-consumer
+inventory (§3.1) and the G1 boundary decision scope (§3.2). The G2–G6
+evidence matrix and the coordinated cutover manifest land in later
+planning slices per `tasks.md` §Phase 3d/3e and are **not** in this
+artifact. **The boundary decision itself is not selected by this
+artifact, no evidence is recorded as passing, and PR3e cannot activate
+until G1–G6 close.** Static export under FastAPI remains blocked by
+the proposal and is not reopened by this planning pass.
+
+### §3.1 Active-consumer inventory
+
+This is the concrete inventory of every active runtime consumer of the
+two protected ownership edges. Until PR3e activates the atomic cut,
+**no path in this map may be removed or relocated** without breaking
+the active vanilla frontend or AC-21. The inventory is the
+authoritative reference for the future coordinated cutover manifest
+and G3's consumer-readiness evidence.
+
+#### §3.1.1 Active consumers of the FastAPI web mount
+
+The current FastAPI process serves the vanilla frontend via:
+
+```python
+# api/server.py:1815
+app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
+```
+
+(`WEB_DIR = Path(__file__).parent.parent / "web"` at `api/server.py:54`;
+uvicorn bound at `api/server.py:1820` to `127.0.0.1:8765`.)
+
+Every path below is an active runtime read of that mount:
+
+| Consumer path | What it reads | When |
+| --- | --- | --- |
+| Browser / Chrome extension / `curl GET /` | `web/index.html` (via `html=True` fallback) | Every page load |
+| Browser / Chrome extension `GET /index.html` | `web/index.html` directly | Direct URL load |
+| `web/index.html:13` `<link>` tag | `web/dist/tailwind.css` (built by `make css`) | On every page load |
+| `web/index.html:2163` `<script type="module">` tag | `web/app.js` (the **only** direct script tag in `index.html`) | On every page load |
+| `web/app.js:39–54` ES `import` lines | `state.js`, `api.js`, `tree.js`, `breadcrumb.js`, `detail.js`, `nav.js`, `dom.js`, `banner.js`, `help.js`, `keymap.js` (10 modules) | First load after `app.js` parses |
+| `web/app.js:88` dynamic `import()` | `settings.js` (lazy — settings panel) | When the user opens the settings panel |
+| `web/nav.js:14–17` ES `import` lines | `detail.js`, `search.js`, `tree.js`, `state.js`, `api.js`, `dom.js` | On first nav.js parse |
+| `web/nav.js:252, 295, 308, 331, 685` dynamic `import()` calls | `settings.js`, `file_explorer.js` (lazy) | Lazy on settings / file-explorer open |
+| `web/breadcrumb.js:8` `import` | `format.js` (plus `dom.js` + `state.js`) | On every breadcrumb render |
+| `web/search.js:7` `import` | `format.js` (plus `state.js` + `api.js` + `dom.js`) | On first search.js parse |
+| `web/detail.js:482` dynamic `import()` | `file_explorer.js` (lazy — file viewer) | When the user opens the file explorer |
+| `web/file_explorer.js:24` `import` | `file_viewer.js` (and `format.js`) | On first file_explorer parse |
+| `web/file_viewer.js::loadScriptOnce` (URLs at lines 25–27, helper at 40+) | `mammoth@1.8.0`, `xlsx@0.18.5`, `epubjs@0.3.93` CDN libs — URLs pinned at `web/index.html:2180, 2188, 2194` | Lazy on .docx / .xlsx / .epub open |
+| `tests/test_smoke.py:150` (`test_static_index_html_served`) | `GET /index.html` (asserts 200 + HTML) | Smoke test |
+| `tests/test_smoke.py:157` (`test_static_app_js_served`) | `GET /app.js` (asserts 200 + ≥1000 bytes) | Smoke test |
+| `tests/test_evidence_baseline.py:276` (`test_legacy_html_present_and_nontrivial`) | reads `WEB_DIR/index.html` | PR 1a.1 baseline evidence |
+| `tests/test_evidence_baseline.py:294` (`test_legacy_module_count_matches_exploration`) | reads `WEB_DIR.glob("*.js")` | PR 1a.1 baseline evidence |
+| `tests/test_evidence_baseline.py:316` (`test_legacy_total_source_size_below_threshold`) | walks `WEB_DIR` bytes | PR 1a.1 baseline evidence |
+| `tests/test_build_profile.py` (e.g. `test_emit_writes_profile_with_required_keys` at line 110) | reads `web/dist/build-profile.json` (built by `scripts/emit_build_profile.mjs`) | PR 1a.1 build profile |
+| `tests/test_hydration_timing.py` (e.g. `test_measure_hydration_exits_zero_on_valid_artifact` at line 140) | measures `web/index.html` server-shell first-paint | PR 1b.3a/b hydration evidence |
+| `extension/manifest.json:13–15` (`host_permissions`) + `:21` (`content_scripts.matches`) | `http://localhost:8765/*` injection target | Every Chrome content-script injection on the local origin |
+
+**Move/delete authority for the mount**: PR3e, atomic with every
+active consumer listed above. No other slice may change this mount,
+the `WEB_DIR` constant, or the served directory.
+
+#### §3.1.2 Active consumers of `web/search_urls.js`
+
+The current `web/search_urls.js` exports `SEARCH_ENGINES` (14 entries)
+and `CATEGORIES` and is consumed by active vanilla code, by AC-21's
+contract test, and by the search-tab grouping test:
+
+| Consumer path | What it reads | When |
+| --- | --- | --- |
+| `web/detail.js:24` | `import { SEARCH_ENGINES, CATEGORIES } from "./search_urls.js"` | On every detail panel render |
+| `web/detail.js:325` | `new Map(SEARCH_ENGINES.map((e) => [e.key, e]))` builds `engineByKey` | On every detail panel render |
+| `web/detail.js:332` | `for (const e of SEARCH_ENGINES)` populates the Search tab UI | On every detail panel render |
+| `tests/test_smoke.py:77–100` (AC-21 `test_search_engine_contract`) | `open("web/search_urls.js").read()` + regex parse on `{ key, label, with_authorship }` | Contract test on every `make test` |
+| `tests/test_search_categories.py:141` | references `CATEGORIES in web/search_urls.js` (expected grouping: `general`, `taxonomic`, `academic`, `multimedia`, `documents`) | Search tab tests |
+
+**Server-side mirror**: `api/server.py:697 _SEARCH_ENGINES = [...]` is
+the server's authoritative source for `/api/taxon/{id}/searches`. The
+frontend reads the JS file only for `icon` and `label` fallback when
+the server response is unavailable; URLs always come from the server
+(`urllib.parse.quote_plus`). The AC-21 contract test
+(`tests/test_smoke.py:77–100`) enforces that the two literals agree on
+`key`, `label`, and `with_authorship` in the same order.
+
+**Move/delete authority for `web/search_urls.js`**: PR3e, atomic with
+the five consumers above. PR3a may **only** author a future location
+(e.g. `src/data/search-engines.js`) and document it; PR3e must update
+the imports, the test reader path, and the legacy file in the same
+release unit.
+
+### §3.2 Supported single-FastAPI-origin boundary decision scope (G1 input)
+
+The boundary to be decided is **how a single FastAPI deployable owns
+the local origin `127.0.0.1:8765` while a replacement UI ships beside
+it**. The scope below enumerates every input that PR3a records. **No
+input is selected, evidenced, or implied to be passing by this
+artifact.** The actual decision remains blocked pending a future
+proposal revision that supplies the evidence the current proposal
+explicitly rejects.
+
+#### §3.2.1 Fixed (rules-bound, not subject to PR3a choice)
+
+- **Process / origin ownership** — FastAPI is the sole deployable
+  process and the sole HTTP origin on `127.0.0.1:8765`
+  (`api/server.py:1818–1820`:
+  `if __name__ == "__main__": uvicorn.run(app, host="127.0.0.1", port=8765, ...)`).
+- **API continuity** — `/api/*` paths, methods, request shapes,
+  response shapes, status codes, and headers are unchanged. AC-21
+  (`tests/test_smoke.py:77 test_search_engine_contract`) is unchanged
+  except for the path it reads from.
+- **Extension continuity** — `extension/manifest.json::host_permissions`
+  stays at `["http://localhost:8765/*"]` (lines 13–15);
+  `content_scripts.matches` stays at `["http://localhost:8765/*"]`
+  (line 21). No second origin, no new port.
+- **Modular-monolith compliance** — rules 1–7 of
+  `specs/modular-architecture/spec.md` are binding on the chosen
+  approach.
+
+#### §3.2.2 In scope (requires decision)
+
+- **HTML owner** — which process serves `/`, `index.html`, and the
+  fallback for direct navigation to unknown routes (deep links to
+  `/taxon/{id}` and similar).
+- **Static-asset owner** — which process serves JS bundles, CSS,
+  fonts, and any other `/assets/*`.
+- **Build/start contract** — exact commands, Node runtime check
+  (`node --version ≥ 20.9.0`), artifact location, and failure
+  behavior. **Build failure must NOT silently fall back to the legacy
+  runtime.**
+- **Direct-navigation fallback** — exact mechanism for `/taxon/{id}`
+  and other client-only routes when reached without a server
+  roundtrip.
+- **Cutover/rollback unit** — exact paths changed together in
+  activation and exact revert boundary.
+
+#### §3.2.3 Out of scope (already rejected by proposal)
+
+- **Static export under FastAPI** — blocked by evidence gates; not a
+  default, fallback, or implementation target in PR3b–PR3e. Reopening
+  requires a proposal revision with new evidence.
+- **Two independently active runtimes** — rejected; coordinated legacy
+  cut, not compatibility layer.
+- **Mount-only or search-file-only migration** — rejected; both edges
+  must move atomically with all consumers (§3.1).
+- **Anything that requires changing `/api/*`, the extension manifest,
+  or the SQLite/DB behavior** — out of scope for this change.
+
+#### §3.2.4 Decision authority
+
+When the G1 boundary is recorded (future proposal revision + G1
+evidence), it MUST:
+
+1. Comply with `specs/modular-architecture/spec.md` rules 1–7.
+2. Cite `specs/modular-architecture/spec.md` as architectural
+   authority.
+3. List every active-consumer path it impacts; each must appear in the
+   future coordinated cutover manifest.
+4. Pass G1 (this artifact, design-review minutes) before any
+   PR3b/3c/3d/3e work begins.
+
+---
+
+`status: complete (PR 2a slice; PR3a boundary scope planning appended — no boundary selected, no G2–G6 evidence, no cutover manifest yet)`
