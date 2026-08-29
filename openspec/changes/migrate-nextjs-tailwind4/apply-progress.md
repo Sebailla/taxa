@@ -26,7 +26,7 @@
 | PR 1b.3b | Hydration timing test | 181 | remainder of `tests/test_hydration_timing.py` | reconstruction pending |
 | PR 2a | Layer scaffold | 409* | `tsconfig.json` + 5 barrels + 20 `.gitkeep` + `tests/test_module_layers.py` | `size:exception` **accepted** by the maintainer (2026-08-29); work unit in `taxa-worktrees/migrate-nextjs-tailwind4-2a` cleared for commit + push to `develop` as staged |
 | PR 2b | ESLint config (literal + alias enforcement) | 388 | `.eslintrc.cjs` + `scripts/eslint-fixtures/{barrel_import,deep_import,deep_import_research}.js` + `tests/test_no_restricted_imports.py` | **staged** in worktree `taxa-worktrees/migrate-nextjs-tailwind4-2b`; cleared for commit + push to `develop` as staged |
-| PR 2c | ESLint triangulation | 240 | 20 fixtures + runtime-triangulation block of `tests/test_no_restricted_imports.py` | **staged** in worktree `taxa-worktrees/migrate-nextjs-tailwind4-2c`; cleared for commit + push to `develop` as staged |
+| PR 2c | ESLint triangulation | 239 | 20 fixtures + runtime-triangulation block of `tests/test_no_restricted_imports.py` | **staged** in worktree `taxa-worktrees/migrate-nextjs-tailwind4-2c`; cleared for commit + push to `develop` as staged |
 | PR 2d | Taxonomy domain | 350 | `src/modules/taxonomy/domain/taxon.ts` + `tests/test_taxonomy_domain.py` | reconstruction pending |
 | PR 2e | Domain purity guard | 176 | `tests/test_domain_purity.py` | reconstruction pending |
 | PR 3 | Frontend-bootstrap (Tailwind 4, Makefile, static mount, search_urls) | TBD | not yet authored | reconstruction pending |
@@ -216,12 +216,12 @@ invocation proves all **40 deep-import forms** are rejected: 20 literal
 fixtures (`src/modules/<cap>/<layer>/deep`) + 20 dynamic alias inputs
 (`@taxa/<cap>/<layer>/deep` in `tmp_path`), parametrized across the full
 `CAPABILITIES × LAYERS` matrix. Public barrels stay allowed under both
-spelling forms (10 barrel-allow cases). At **240** code+test lines
+spelling forms (10 barrel-allow cases). At **239** code+test lines
 against the **400**-line per-PR review budget, PR 2c ships **under
-budget** (-160 lines, -40.0 % headroom). Breakdown: 20 fixtures
+budget** (-161 lines, -40.25 % headroom). Breakdown: 20 fixtures
 (`scripts/eslint-fixtures/deep_import_<cap>_<layer>.js`) at 5 LoC each
-= **100** + `tests/test_no_restricted_imports.py` delta of **140**
-(`wc -l` on the staged file = 449 vs the PR 2b baseline 309) = **240**
+= **100** + `tests/test_no_restricted_imports.py` delta of **139**
+(`wc -l` on the staged file = 448 vs the PR 2b baseline 309) = **239**
 (`wc -l` on the staged files). No `size:exception` is required.
 
 Remaining sub-PRs (1a.x, 1b.x, 2d–2e, 3, 4, 5) are reconstruction
@@ -292,8 +292,8 @@ pending per `tasks.md` §Reconstruction Notice.
       every `(capability × layer)` pair across the 5 capabilities
       × 4 layers matrix); the existing
       `tests/test_no_restricted_imports.py` was extended with a
-      parametrized runtime-triangulation block (delta of +140 LoC
-      bringing the file from 309 to 449 LoC, +70 focused assertions:
+      parametrized runtime-triangulation block (delta of +139 LoC
+      bringing the file from 309 to 448 LoC, +70 focused assertions:
       20 fixture-existence, 20 literal-form runtime, 20 alias-form
       runtime via `tmp_path`, 10 barrel-allow covering both literal
       and alias barrel spellings). Focused test passes 102 / 102
@@ -303,9 +303,9 @@ pending per `tasks.md` §Reconstruction Notice.
       fixtures (`src/modules/<cap>/<layer>/deep`) plus 20 dynamic
       alias inputs (`@taxa/<cap>/<layer>/deep` written into
       `tmp_path` per test). Public barrels stay allowed under both
-      spelling forms. Measured size **240** code+test lines
-      (20 fixtures 100 + test file delta 140) against the
-      **400**-line per-PR review budget — under budget by **-160
-      lines (-40.0 %)** headroom. No `size:exception` is required.
+      spelling forms. Measured size **239** code+test lines
+      (20 fixtures 100 + test file delta 139) against the
+      **400**-line per-PR review budget — under budget by **-161
+      lines (-40.25 %)** headroom. No `size:exception` is required.
       This record changes no code or tests and performs no commit or
       push. Spanish mirror updated in lockstep.
