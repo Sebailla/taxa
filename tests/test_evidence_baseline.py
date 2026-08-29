@@ -117,9 +117,19 @@ def _chromium_pinnable(script_output: str) -> bool:
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-@pytest.fixture(scope="module")
-def chromium_status() -> dict:
-    """Run scripts/verify_chromium.py and parse its output.
+def _run_verify_chromium_script(script_path: Path, cwd: Path) -> dict:
+    """Run `scripts/verify_chromium.py` (or a fake equivalent) and parse
+    its output into a status dict consumed by the chromium-pin tests.
+
+    Returns a dict with three keys:
+      - ``returncode``: the script's exit status
+      - ``output``: combined stdout + stderr
+      - ``pinnable``: True iff the binary was successfully hashed AND
+        the script's reported platform matches the pin's captured
+        platform (chrome-mac-arm64). False for the "binary missing",
+        "binary unreadable", "playwright missing", and "wrong
+        platform" cases — each must surface as a clean skip in the
+        chromium-pin tests rather than a fixture-setup ERROR.
 
     The script prints lines like:
         binary:  /.../chrome
@@ -127,34 +137,115 @@ def chromium_status() -> dict:
         sha256:  a596b1cfc6353e987fcec8d71a23a28cd6a9e7a6b4e20b908e4c4fcffe51158e
         [OK] SHA256 matches pinned value.
 
-    We assert the script can locate chromium (or fail clearly if it
-    cannot) before PR 3's CI depends on it.
+    On Ubuntu CI where the playwright package is installed but
+    ``playwright install chromium`` was never run, the script's
+    ``sha256_of()`` call exits first with only::
 
-    The fixture also exposes a `pinnable` flag — True only when the
-    script successfully hashed a chromium binary that matches the
-    pin's captured platform (chrome-mac-arm64). Tests use this flag
-    to skip cleanly on runners where chromium is missing or runs on
-    a different OS/arch, without losing strict validation on the
-    compatible environment.
+        [error] could not read /…/chrome-linux/chrome: [Errno 2] No such file or directory
+
+    The ``binary:`` line is NOT printed in that case (the script
+    prints it AFTER hashing, not before). The setup must therefore
+    not require a ``binary:`` line; it must accept the missing-
+    binary output and classify it as ``pinnable=False`` so the
+    chromium-pin tests skip cleanly on CI.
     """
     proc = subprocess.run(
-        [sys.executable, str(SCRIPT)],
+        [sys.executable, str(script_path)],
         capture_output=True,
         text=True,
         check=False,
-        cwd=REPO_ROOT,
+        cwd=cwd,
     )
     # The script must print SOMETHING informative even on failure.
+    # We deliberately do NOT require a 'binary:' prefix here: on the
+    # real Ubuntu CI failure shape (playwright installed, chromium
+    # binary not downloaded), verify_chromium.py prints the
+    # `[error] could not read …` line and exits before printing the
+    # `binary:` line. Asserting `binary:` in output would crash the
+    # fixture setup on CI and mask every dependent test's skip path.
     output = (proc.stdout or "") + (proc.stderr or "")
-    assert "binary:" in output, (
-        f"verify_chromium.py produced no machine-readable output:\n{output}"
-    )
     pinnable = _chromium_pinnable(output)
     return {
         "returncode": proc.returncode,
         "output": output,
         "pinnable": pinnable,
     }
+
+
+@pytest.fixture(scope="module")
+def chromium_status() -> dict:
+    """Run scripts/verify_chromium.py and parse its output.
+
+    Delegates to ``_run_verify_chromium_script(SCRIPT, REPO_ROOT)`` so
+    the same parsing logic is testable against a fake script in a
+    tmp_path without touching the real binary. The returned dict
+    exposes ``pinnable`` — True only when the script successfully
+    hashed a chromium binary that matches the pin's captured
+    platform (chrome-mac-arm64). Tests use this flag to skip
+    cleanly on runners where chromium is missing or runs on a
+    different OS/arch, without losing strict validation on the
+    compatible environment.
+    """
+    return _run_verify_chromium_script(SCRIPT, cwd=REPO_ROOT)
+
+
+def test_chromium_status_setup_handles_real_ci_missing_binary_shape(tmp_path):
+    """Regression control for the PR 1b.1 CI failure.
+
+    On Ubuntu CI where the playwright package is installed but
+    ``playwright install chromium`` was never run, ``scripts/
+    verify_chromium.py`` emits ONLY::
+
+        [error] could not read /…/chrome-linux/chrome: [Errno 2] No such file or directory
+
+    The ``binary:`` line is NOT printed — the script prints it AFTER
+    ``sha256_of()``, which is the call that fails first. Before the
+    fix, ``_run_verify_chromium_script()`` (and therefore the
+    ``chromium_status`` fixture) asserted ``"binary:" in output`` and
+    crashed with a setup ERROR on CI, masking every dependent test's
+    skip path.
+
+    This test runs the same helper against a fake script that mirrors
+    the real CI output byte-for-byte and asserts the helper returns
+    ``pinnable=False`` instead of raising. With the broken helper it
+    fails with the same setup ERROR CI saw; after the fix it passes
+    and the chromium-pin tests can rely on the skip path on CI.
+    """
+    # Fake that mirrors the real CI failure shape EXACTLY: only the
+    # [error] line, NO 'binary:' prefix. Any 'binary:' prefix here
+    # would mask the regression — the whole point is that the real
+    # script does not emit one on the missing-binary path.
+    fake = tmp_path / "verify_chromium.py"
+    fake.write_text(
+        "import sys\n"
+        "print('[error] could not read "
+        "/root/.cache/ms-playwright/chromium-1234/chrome-linux/chrome: "
+        "[Errno 2] No such file or directory')\n"
+        "sys.exit(1)\n"
+    )
+
+    # The real-CI shape: no 'binary:' line, no 'sha256:' line.
+    status = _run_verify_chromium_script(fake, cwd=tmp_path)
+
+    # Sanity: the script actually failed with the expected shape.
+    assert status["returncode"] != 0
+    assert "[error] could not read" in status["output"]
+    assert "binary:" not in status["output"], (
+        f"fake must mirror real CI shape (no 'binary:' line); got:\n"
+        f"{status['output']}"
+    )
+    assert "sha256:" not in status["output"], (
+        f"fake must mirror real CI shape (no 'sha256:' line); got:\n"
+        f"{status['output']}"
+    )
+
+    # The contract: this exact shape must classify as NOT pinnable so
+    # the chromium-pin tests skip cleanly on the CI runner.
+    assert status["pinnable"] is False, (
+        "real CI missing-binary output must classify as not pinnable so "
+        "the chromium-pin tests skip cleanly on Ubuntu CI; helper "
+        f"returned pinnable=True for output:\n{status['output']}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -510,31 +601,35 @@ def test_evidence_baseline_lighthouse_block_well_typed(
 # rather than as a red CI job.
 def test_chromium_pinnable_classifies_unavailable_outputs():
     """The CI scenario: playwright is importable but the chromium
-    binary isn't readable on this runner. The script prints the
-    binary path (so it can name what it's looking for) but no
-    `sha256:` line (because the file isn't there). The helper must
-    classify this output as NOT pinnable so the chromium-pin tests
-    skip cleanly on Ubuntu CI rather than fail.
+    binary isn't readable on this runner. The script's
+    ``sha256_of()`` call exits first with only an ``[error] could
+    not read …`` line — NO ``binary:`` line is printed, because
+    the script prints the binary path AFTER hashing, not before.
+    The helper must classify this output as NOT pinnable so the
+    chromium-pin tests skip cleanly on Ubuntu CI rather than fail.
     """
-    # Playwright installed but chromium binary missing.
+    # Playwright installed but chromium binary missing — the exact
+    # real CI failure shape. No `binary:` line; only the [error]
+    # line emitted by `sha256_of()` before it `sys.exit(1)`s.
     assert _chromium_pinnable(
-        "binary:  /root/.cache/ms-playwright/chromium-1234/chrome-linux/chrome\n"
         "[error] could not read "
         "/root/.cache/ms-playwright/chromium-1234/chrome-linux/chrome: "
         "[Errno 2] No such file or directory\n"
     ) is False
 
-    # Playwright not installed at all (no `binary:` line either).
+    # Playwright not installed at all — `find_chromium_binary()`
+    # itself exits before any `binary:` line is printed.
     assert _chromium_pinnable(
         "[error] playwright is not installed: No module named 'playwright'\n"
         "  pip install playwright && playwright install chromium\n"
     ) is False
 
-    # Mac arm64 binary reported but file missing (defence in depth —
-    # the script prints the path before attempting to read it).
+    # Same missing-binary path on the Mac arm64 platform the pin
+    # was captured for. Still no `binary:` line — `sha256_of()`
+    # fails before the path is printed. Defence-in-depth: the
+    # helper must NOT assume a `binary:` prefix on the
+    # missing-binary output regardless of the reported platform.
     assert _chromium_pinnable(
-        "binary:  /Users/x/Library/Caches/ms-playwright/"
-        "chromium-1234/chrome-mac-arm64/.../Google Chrome for Testing\n"
         "[error] could not read .../Google Chrome for Testing: "
         "[Errno 2] No such file or directory\n"
     ) is False
@@ -614,8 +709,11 @@ def test_chromium_unavailable_skips_via_fake_script(tmp_path):
     unavailable binary. It does so by:
 
       1. Writing a fake `verify_chromium.py` to a tmp_path that
-         mimics the exact CI output shape (binary path printed,
-         sha256: line absent because the file isn't readable).
+         mimics the EXACT real CI output shape — only the
+         `[error] could not read …` line, with NO `binary:`
+         prefix and NO `sha256:` line. (The real script prints
+         the binary path AFTER hashing, not before, so on the
+         missing-binary path the `binary:` line is never emitted.)
       2. Running the fake as a subprocess the way the
          chromium_status fixture does.
       3. Applying the same classification the fixture uses and
@@ -635,7 +733,6 @@ def test_chromium_unavailable_skips_via_fake_script(tmp_path):
     fake = tmp_path / "verify_chromium.py"
     fake.write_text(
         "import sys\n"
-        "print('binary:  /root/.cache/ms-playwright/chromium-1234/chrome-linux/chrome')\n"
         "print('[error] could not read /root/.cache/ms-playwright/chromium-1234/chrome-linux/chrome: [Errno 2] No such file\\nor directory')\n"
         "sys.exit(1)\n"
     )
@@ -653,9 +750,17 @@ def test_chromium_unavailable_skips_via_fake_script(tmp_path):
     )
     output = (proc.stdout or "") + (proc.stderr or "")
 
-    # Sanity: the fake mirrors the CI output shape.
-    assert "binary:" in output, (
-        f"fake verify_chromium.py must print a binary: line; got:\n{output}"
+    # Sanity: the fake mirrors the real CI output shape — NO
+    # 'binary:' line (the script emits the path AFTER hashing, so
+    # on the missing-binary path it never reaches that print),
+    # and NO 'sha256:' line.
+    assert "binary:" not in output, (
+        f"fake must mirror the real CI shape (no 'binary:' line); "
+        f"got:\n{output}"
+    )
+    assert "sha256:" not in output, (
+        f"fake must mirror the real CI shape (no 'sha256:' line); "
+        f"got:\n{output}"
     )
 
     # The classification must mark this output as NOT pinnable so
