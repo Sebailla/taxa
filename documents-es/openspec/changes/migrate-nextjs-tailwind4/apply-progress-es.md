@@ -26,7 +26,7 @@
 | PR 1b.3a | Script de medición de hidratación | 339 | `scripts/measure_hydration.py` + subset de esquema de `tests/test_hydration_timing.py` | reconstrucción pendiente |
 | PR 1b.3b | Test de cronometraje de hidratación | 181 | resto de `tests/test_hydration_timing.py` | reconstrucción pendiente |
 | PR 2a | Andamio de capas | 409* | `tsconfig.json` + 5 barrels + 20 `.gitkeep` + `tests/test_module_layers.py` | `size:exception` **aceptada** por el mantenedor (2026-08-29); unidad de trabajo en `taxa-worktrees/migrate-nextjs-tailwind4-2a` habilitada para commit + push a `develop` tal como está staged |
-| PR 2b | Configuración ESLint | 227 | `.eslintrc.cjs` + 3 fixtures + bloques config+barrel de `tests/test_no_restricted_imports.py` | reconstrucción pendiente |
+| PR 2b | Configuración ESLint (literal + alias) | 388 | `.eslintrc.cjs` + `scripts/eslint-fixtures/{barrel_import,deep_import,deep_import_research}.js` + `tests/test_no_restricted_imports.py` | **staged** en árbol `taxa-worktrees/migrate-nextjs-tailwind4-2b`; habilitado para commit + push a `develop` tal como está staged |
 | PR 2c | Triangulación ESLint | 259 | 20 fixtures + bloque de triangulación runtime de `tests/test_no_restricted_imports.py` | reconstrucción pendiente |
 | PR 2d | Dominio de taxonomía | 350 | `src/modules/taxonomy/domain/taxon.ts` + `tests/test_taxonomy_domain.py` | reconstrucción pendiente |
 | PR 2e | Guardia de pureza de dominio | 176 | `tests/test_domain_purity.py` | reconstrucción pendiente |
@@ -54,10 +54,33 @@ No se requiere más re-rebanado ni recorte. Este registro documenta
 únicamente la decisión; no modifica código ni tests y no realiza commit
 ni push.
 
+\*\* **Tamaño medido de PR 2b y expansión de forma alias**: la fila de
+PR 2b arriba muestra la cifra medida real (**388** líneas de código+test),
+no el pronóstico original (**227**). Desglose: `.eslintrc.cjs` 66 +
+`scripts/eslint-fixtures/barrel_import.js` 4 +
+`scripts/eslint-fixtures/deep_import.js` 4 +
+`scripts/eslint-fixtures/deep_import_research.js` 5 +
+`tests/test_no_restricted_imports.py` 309 = **388** (`wc -l` sobre los
+archivos staged). Esto **cabe en el presupuesto de revisión de 400
+líneas por PR** con **-12 líneas (-3,0 %)** de holgura tras la pasada
+de recorte. El crecimiento desde el pronóstico original de 227 líneas
+proviene enteramente de la expansión explícita de aplicación de la
+forma alias autorizada por el mantenedor: la regla literal
+`src/modules/<cap>/<layer>/*` sola (el pronóstico original) envía
+~32 LoC de patrones dentro de `.eslintrc.cjs`, pero la forma alias
+`@taxa/<cap>/<layer>/*` añade otros ~32 LoC de patrones más ~50 LoC
+de tests de triangulación de forma alias en el archivo de tests,
+más ~30 LoC para el helper `_load_eslint_patterns` que carga vía
+Node y permite al test afirmar sobre la config *resuelta* (en vez de
+escanear el texto fuente, lo cual habría roto el refactor del array
+de patrones programático). PR 2b se envía bajo el presupuesto de 400
+líneas sin `size:exception`; la cobertura expandida del alias es
+parte del contrato de diseño, no un exceso.
+
 **Total entregado en `develop`**: 0 / 14 sub-PRs.
-**Total pendiente de reconstrucción**: 13 sub-PRs.
-**Total staged en árbol de trabajo, autorizado para commit**: 1 sub-PR
-(PR 2a, `size:exception` aceptada).
+**Total pendiente de reconstrucción**: 12 sub-PRs.
+**Total staged en árbol de trabajo, autorizado para commit**: 2 sub-PRs
+(PR 2a, `size:exception` aceptada; PR 2b, bajo presupuesto).
 
 ### Orden de reconstrucción (determinista, secuencial hacia `develop`)
 
@@ -141,10 +164,17 @@ Las dos reparticiones juntas producen **14 sub-PRs** apuntando a
 
 - Modo: **PRs encadenados apilados-a-main** (sub-PRs secuenciales de Fase 1 + Fase 2).
 - Total de sub-PRs tras la reconstrucción: **14** (1a.1, 1a.2, 1b.1, 1b.2, 1b.3a, 1b.3b, 2a, 2b, 2c, 2d, 2e, 3, 4, 5 — notar que 3, 4, 5 son PR único según plan original).
-- Cada sub-PR ≤ 339 LoC autorales, **excepto PR 2a con 409 líneas de
-  código+test**, que se envía bajo la `size:exception` aceptada por el
-  mantenedor (+9 líneas, +2,3 % sobre el presupuesto de revisión de 400
-  líneas).
+- Cada sub-PR ≤ 339 LoC autorales, **excepto**:
+  - **PR 2a con 409 líneas de código+test**, que se envía bajo la
+    `size:exception` aceptada por el mantenedor (+9 líneas, +2,3 %
+    sobre el presupuesto de revisión de 400 líneas).
+  - **PR 2b con 388 líneas de código+test**, que se envía **bajo el
+    presupuesto de revisión de 400 líneas** (-12 líneas, -3,0 % de
+    holgura). La superficie expandida de PR 2b (frente al pronóstico
+    original de 227 líneas) es la expansión explícita de aplicación de
+    forma alias autorizada por el mantenedor
+    (`@taxa/<cap>/<layer>/*` además de `src/modules/<cap>/<layer>/*`)
+    más los tests de triangulación de forma alias correspondientes.
 - Base de cada sub-PR = `origin/develop` tras el merge del sub-PR previo.
   Sin ramas apiladas. Sin bases hijas.
 
@@ -168,8 +198,24 @@ al presupuesto de revisión de **400** líneas por PR, PR 2a lleva una
 **`size:exception` aceptada**: el 2026-08-29 el mantenedor autorizó
 explícitamente el exceso de +9 líneas (+2,3 %), por lo que la decisión
 de entrega queda cerrada y PR 2a queda habilitado para commit + push a
-`develop` tal como está staged bajo la etiqueta `size:exception`. Los
-sub-PRs restantes (1a.x, 1b.x, 2b–2e, 3, 4, 5) quedan pendientes de
+`develop` tal como está staged bajo la etiqueta `size:exception`.
+
+La unidad de trabajo PR 2b está staged en el árbol
+`taxa-worktrees/migrate-nextjs-tailwind4-2b` (config ESLint + 3
+fixtures + test enfocado + registros de progreso OpenSpec + espejo en
+español); el test enfocado `tests/test_no_restricted_imports.py` pasa
+32 / 32 (RED → GREEN → TRIANGULATE → REFACTOR capturado; se confirmó
+la invocación runtime de ESLint sobre las 40 combinaciones
+`(capability × layer × form)`). Con **388** líneas de código+test
+frente al presupuesto de revisión de **400** líneas por PR, PR 2b se
+envía **bajo presupuesto** (-12 líneas, -3,0 % de holgura). La
+superficie expandida frente al pronóstico original de 227 líneas es la
+expansión explícita de aplicación de forma alias autorizada por el
+mantenedor (`@taxa/<cap>/<layer>/*` además de
+`src/modules/<cap>/<layer>/*`) más los tests de triangulación de forma
+alias correspondientes; no se requiere `size:exception`.
+
+Los sub-PRs restantes (1a.x, 1b.x, 2c–2e, 3, 4, 5) quedan pendientes de
 reconstrucción según `tasks.md` §Aviso de reconstrucción.
 
 ---
@@ -209,3 +255,28 @@ reconstrucción según `tasks.md` §Aviso de reconstrucción.
   con la etiqueta `size:exception` y la decisión de entrega deja de
   estar pendiente. Este registro no modifica código ni tests y no
   realiza commit ni push. Espejo en inglés actualizado en paralelo.
+- **2026-08-29** — Unidad de trabajo PR 2b staged en el árbol dedicado
+  `taxa-worktrees/migrate-nextjs-tailwind4-2b`. Archivos añadidos:
+  `.eslintrc.cjs` (66 LoC, forma CommonJS legacy; patrones de
+  `no-restricted-imports` derivados de una matriz
+  `CAPABILITIES × LAYERS` y emiten AMBAS formas de ruta — literal
+  `src/modules/<cap>/<layer>/*` Y alias `@taxa/<cap>/<layer>/*` —
+  según la decisión explícita del mantenedor para evitar bypass por
+  forma alias);
+  `scripts/eslint-fixtures/{barrel_import,deep_import,deep_import_research}.js`
+  (3 fixtures, 13 LoC en total);
+  `tests/test_no_restricted_imports.py` (309 LoC, 32 aserciones
+  enfocadas incluyendo 2 tests de triangulación de forma alias usando
+  `tmp_path` de pytest para no commitear fixtures adicionales). El
+  test enfocado pasa 32 / 32 contra `.eslintrc.cjs` (RED → GREEN →
+  TRIANGULATE → REFACTOR capturado). La invocación runtime de ESLint
+  verificó que las 40 combinaciones `(capability × layer × form)` se
+  rechazan y los 10 paths de barrel (5 caps × 2 formas) se permiten.
+  Tamaño medido **388** líneas de código+test frente al presupuesto
+  de revisión de **400** líneas por PR — bajo presupuesto por
+  **-12 líneas (-3,0 %)** tras la pasada de recorte. La superficie
+  expandida frente al pronóstico original de 227 líneas es la
+  expansión explícita de aplicación de forma alias autorizada por el
+  mantenedor; no se requiere `size:exception`. Este registro no
+  modifica código ni tests y no realiza commit ni push. Espejo en
+  inglés actualizado en paralelo.
