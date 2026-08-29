@@ -502,7 +502,174 @@ migrados de propuesta, tareas y spec:
 
 ---
 
-`status: complete` · `next_recommended: "sdd-verify — volver a
-correr el test enfocado de layout y las comprobaciones de la
-reparación de referencias colgantes antes de que PR 2a quede
-habilitado para commit + push a develop"`
+## Planificación del alcance de frontera PR3a
+
+Esta sección reemplaza la asunción previa de que PR3 podía bootstrappear
+una exportación estática servida por FastAPI y luego reubicar
+`web/search_urls.js`. Añade **solo los artefactos de planificación de
+PR3a** — el inventario de consumidores activos (§3.1) y el alcance de
+la decisión de frontera G1 (§3.2). La matriz de evidencia G2–G6 y el
+manifest coordinado de cutover aterrizan en rebanadas de planificación
+posteriores según `tasks-es.md` §Fase 3d/3e y **no** están en este
+artefacto. **La decisión de frontera misma no queda seleccionada por
+este artefacto, no se registra evidencia como aprobada, y PR3e no
+puede activarse hasta que G1–G6 cierren.** La exportación estática
+bajo FastAPI permanece bloqueada por la propuesta y esta pasada de
+planificación no la reabre.
+
+### §3.1 Inventario de consumidores activos
+
+Este es el inventario concreto de cada consumidor de runtime activo de
+los dos bordes de ownership protegidos. Hasta que PR3e active el corte
+atómico, **ninguna ruta de este mapa puede eliminarse o reubicarse**
+sin romper el frontend vanilla activo o AC-21. El inventario es la
+referencia autorizada para el futuro manifest coordinado de cutover
+y la evidencia de readiness de consumidores G3.
+
+#### §3.1.1 Consumidores activos del mount web de FastAPI
+
+El proceso FastAPI actual sirve el frontend vanilla mediante:
+
+```python
+# api/server.py:1815
+app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
+```
+
+(`WEB_DIR = Path(__file__).parent.parent / "web"` en `api/server.py:54`;
+uvicorn vinculado en `api/server.py:1820` a `127.0.0.1:8765`.)
+
+Cada ruta de abajo es una lectura activa de runtime de ese mount:
+
+| Ruta del consumidor | Qué lee | Cuándo |
+| --- | --- | --- |
+| Browser / Chrome extension / `curl GET /` | `web/index.html` (vía fallback `html=True`) | Cada carga de página |
+| Browser / Chrome extension `GET /index.html` | `web/index.html` directamente | Carga directa por URL |
+| Tag `<link>` en `web/index.html:13` | `web/dist/tailwind.css` (compilado por `make css`) | En cada carga de página |
+| Tag `<script type="module">` en `web/index.html:2163` | `web/app.js` (el **único** tag `<script>` directo en `index.html`) | En cada carga de página |
+| Líneas `import` ES en `web/app.js:39–54` | `state.js`, `api.js`, `tree.js`, `breadcrumb.js`, `detail.js`, `nav.js`, `dom.js`, `banner.js`, `help.js`, `keymap.js` (10 módulos) | Primera carga tras parsear `app.js` |
+| `import()` dinámico en `web/app.js:88` | `settings.js` (perezoso — panel de settings) | Cuando el usuario abre el panel de settings |
+| Líneas `import` ES en `web/nav.js:14–17` | `detail.js`, `search.js`, `tree.js`, `state.js`, `api.js`, `dom.js` | Al parsear nav.js por primera vez |
+| Llamadas `import()` dinámicas en `web/nav.js:252, 295, 308, 331, 685` | `settings.js`, `file_explorer.js` (perezosos) | Perezoso al abrir settings / file-explorer |
+| `import` en `web/breadcrumb.js:8` | `format.js` (junto a `dom.js` + `state.js`) | En cada render del breadcrumb |
+| `import` en `web/search.js:7` | `format.js` (junto a `state.js` + `api.js` + `dom.js`) | Al parsear search.js por primera vez |
+| `import()` dinámico en `web/detail.js:482` | `file_explorer.js` (perezoso — visor de archivos) | Cuando el usuario abre el file explorer |
+| `import` en `web/file_explorer.js:24` | `file_viewer.js` (y `format.js`) | Al parsear file_explorer.js por primera vez |
+| `web/file_viewer.js::loadScriptOnce` (URLs en líneas 25–27, helper en 40+) | libs CDN `mammoth@1.8.0`, `xlsx@0.18.5`, `epubjs@0.3.93` — URLs fijadas en `web/index.html:2180, 2188, 2194` | Perezoso al abrir .docx / .xlsx / .epub |
+| `tests/test_smoke.py:150` (`test_static_index_html_served`) | `GET /index.html` (afirma 200 + HTML) | Smoke test |
+| `tests/test_smoke.py:157` (`test_static_app_js_served`) | `GET /app.js` (afirma 200 + ≥1000 bytes) | Smoke test |
+| `tests/test_evidence_baseline.py:276` (`test_legacy_html_present_and_nontrivial`) | lee `WEB_DIR/index.html` | Evidencia baseline PR 1a.1 |
+| `tests/test_evidence_baseline.py:294` (`test_legacy_module_count_matches_exploration`) | lee `WEB_DIR.glob("*.js")` | Evidencia baseline PR 1a.1 |
+| `tests/test_evidence_baseline.py:316` (`test_legacy_total_source_size_below_threshold`) | recorre bytes de `WEB_DIR` | Evidencia baseline PR 1a.1 |
+| `tests/test_build_profile.py` (p. ej. `test_emit_writes_profile_with_required_keys` en línea 110) | lee `web/dist/build-profile.json` (compilado por `scripts/emit_build_profile.mjs`) | Perfil de build PR 1a.1 |
+| `tests/test_hydration_timing.py` (p. ej. `test_measure_hydration_exits_zero_on_valid_artifact` en línea 140) | mide el server-shell first-paint de `web/index.html` | Evidencia de hidratación PR 1b.3a/b |
+| `extension/manifest.json:13–15` (`host_permissions`) + `:21` (`content_scripts.matches`) | objetivo de inyección `http://localhost:8765/*` | Cada inyección de content-script de Chrome sobre el origen local |
+
+**Autoridad de mover/borrar el mount**: PR3e, atómica con cada
+consumidor activo listado arriba. Ninguna otra rebanada puede cambiar
+este mount, la constante `WEB_DIR`, ni el directorio servido.
+
+#### §3.1.2 Consumidores activos de `web/search_urls.js`
+
+El actual `web/search_urls.js` exporta `SEARCH_ENGINES` (14 entradas)
+y `CATEGORIES` y es consumido por código vanilla activo, por el test
+contractual AC-21, y por el test de agrupación de la pestaña de
+búsqueda:
+
+| Ruta del consumidor | Qué lee | Cuándo |
+| --- | --- | --- |
+| `web/detail.js:24` | `import { SEARCH_ENGINES, CATEGORIES } from "./search_urls.js"` | En cada render del panel de detalle |
+| `web/detail.js:325` | `new Map(SEARCH_ENGINES.map((e) => [e.key, e]))` construye `engineByKey` | En cada render del panel de detalle |
+| `web/detail.js:332` | `for (const e of SEARCH_ENGINES)` puebla la UI de la pestaña Search | En cada render del panel de detalle |
+| `tests/test_smoke.py:77–100` (AC-21 `test_search_engine_contract`) | `open("web/search_urls.js").read()` + parse regex sobre `{ key, label, with_authorship }` | Test contractual en cada `make test` |
+| `tests/test_search_categories.py:141` | referencia `CATEGORIES in web/search_urls.js` (agrupación esperada: `general`, `taxonomic`, `academic`, `multimedia`, `documents`) | Tests de la pestaña de búsqueda |
+
+**Espejo del lado servidor**: `api/server.py:697 _SEARCH_ENGINES = [...]`
+es la fuente autorizada del servidor para `/api/taxon/{id}/searches`.
+El frontend lee el archivo JS solo para fallback de `icon` y `label`
+cuando la respuesta del servidor no está disponible; las URLs vienen
+siempre del servidor (`urllib.parse.quote_plus`). El test contractual
+AC-21 (`tests/test_smoke.py:77–100`) exige que los dos literales
+coincidan en `key`, `label`, y `with_authorship` en el mismo orden.
+
+**Autoridad de mover/borrar `web/search_urls.js`**: PR3e, atómica con
+los cinco consumidores de arriba. PR3a solo puede **autorar una
+ubicación futura** (p. ej. `src/data/search-engines.js`) y
+documentarla; PR3e debe actualizar los imports, la ruta lectora del
+test, y el archivo legacy en la misma unidad de release.
+
+### §3.2 Alcance de la decisión de frontera single-FastAPI-origin (entrada G1)
+
+La frontera por decidir es **cómo un único desplegable FastAPI es
+dueño del origen local `127.0.0.1:8765` mientras una UI de reemplazo
+se envía junto a él**. El alcance de abajo enumera cada entrada que
+PR3a registra. **Ninguna entrada queda seleccionada, evidenciada, ni
+implícita como aprobada por este artefacto.** La decisión real
+permanece bloqueada pendiente de una futura revisión de propuesta que
+aporte la evidencia que la propuesta actual rechaza explícitamente.
+
+#### §3.2.1 Fijos (reglados, no sujetos a elección de PR3a)
+
+- **Ownership de proceso / origen** — FastAPI es el único proceso
+  desplegable y el único origen HTTP sobre `127.0.0.1:8765`
+  (`api/server.py:1818–1820`:
+  `if __name__ == "__main__": uvicorn.run(app, host="127.0.0.1", port=8765, ...)`).
+- **Continuidad de la API** — las rutas, métodos, formas de request,
+  formas de response, status codes y headers de `/api/*` permanecen
+  sin cambios. AC-21 (`tests/test_smoke.py:77 test_search_engine_contract`)
+  permanece sin cambios excepto por la ruta que lee.
+- **Continuidad de la extensión** — `extension/manifest.json::host_permissions`
+  se queda en `["http://localhost:8765/*"]` (líneas 13–15);
+  `content_scripts.matches` se queda en `["http://localhost:8765/*"]`
+  (línea 21). Ni un segundo origen, ni un puerto nuevo.
+- **Cumplimiento del monolito modular** — las reglas 1–7 de
+  `specs/modular-architecture/spec-es.md` son vinculantes para el
+  enfoque elegido.
+
+#### §3.2.2 En alcance (requieren decisión)
+
+- **Owner del HTML** — qué proceso sirve `/`, `index.html`, y el
+  fallback para navegación directa a rutas desconocidas (deep links
+  a `/taxon/{id}` y similares).
+- **Owner de los assets estáticos** — qué proceso sirve los bundles
+  JS, CSS, fonts, y cualquier otro `/assets/*`.
+- **Contrato de build/start** — comandos exactos, comprobación del
+  runtime de Node (`node --version ≥ 20.9.0`), ubicación del
+  artefacto, y comportamiento ante fallo. **Un fallo de build NO
+  debe caer silenciosamente al runtime legacy.**
+- **Fallback de navegación directa** — mecanismo exacto para
+  `/taxon/{id}` y otras rutas solo-cliente cuando se llegan sin un
+  roundtrip al servidor.
+- **Unidad de cutover/rollback** — rutas exactas cambiadas juntas en
+  la activación y límite exacto de reversión.
+
+#### §3.2.3 Fuera de alcance (ya rechazados por la propuesta)
+
+- **Exportación estática bajo FastAPI** — bloqueada por las puertas
+  de evidencia; no es default, fallback, ni objetivo de
+  implementación en PR3b–PR3e. Reabrirla exige una revisión de
+  propuesta con evidencia nueva.
+- **Dos runtimes activos independientes** — rechazado; coordinated
+  legacy cut, no capa de compatibilidad.
+- **Migración solo del mount o solo del archivo de búsqueda** —
+  rechazado; ambos bordes deben moverse atómicamente con todos los
+  consumidores (§3.1).
+- **Cualquier cosa que requiera cambiar `/api/*`, el manifest de la
+  extensión, o el comportamiento de SQLite/DB** — fuera del alcance
+  de este cambio.
+
+#### §3.2.4 Autoridad de la decisión
+
+Cuando la frontera G1 se registre (futura revisión de propuesta +
+evidencia G1), DEBE:
+
+1. Cumplir las reglas 1–7 de `specs/modular-architecture/spec-es.md`.
+2. Citar `specs/modular-architecture/spec-es.md` como autoridad
+   arquitectónica.
+3. Listar cada ruta de consumidor activo que impacta; cada una debe
+   aparecer en el futuro manifest coordinado de cutover.
+4. Pasar G1 (este artefacto, actas de revisión de diseño) antes de
+   que arranque cualquier trabajo de PR3b/3c/3d/3e.
+
+---
+
+`status: complete (rebanada PR 2a; alcance de frontera PR3a añadido — ninguna frontera seleccionada, sin evidencia G2–G6, sin manifest de cutover todavía)`
