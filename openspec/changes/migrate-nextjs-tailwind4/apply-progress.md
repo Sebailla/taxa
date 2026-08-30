@@ -569,3 +569,112 @@ updated: G2 remains `blocked — contract defined; verifier not
             The `design.md::§3.3.2.1` G2 contract body is **not**
             changed in this pass. Spanish mirrors updated in lockstep.
             No commit, push, or PR opened in this pass.
+            - **2026-08-30** — G3 cutover-manifest authoring pass (this entry).
+              Per the parent task, the canonical machine-readable consumer
+              manifest is added at
+              `openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json`
+              and the canonical G3 contract is defined in
+              `design.md::§3.3.3.1` (with faithful Spanish mirror in
+              `design-es.md::§3.3.3.1`). **No source, tests, scripts, tasks,
+              product files, evidence files, candidate workspace, or
+              `package-lock.json` are touched, committed, or pushed in this
+              pass.** G3 **contract defined; manifest authored with every
+              §3.1 consumer unselected; verifier not implemented** (no G3
+              verifier is authored in this pass, no gate passes, no consumer
+              is flipped to `selected`).
+              (1) **Canonical manifest path** —
+                `openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json`.
+                Single source of truth for every active consumer in
+                `design.md::§3.1`.
+              (2) **Coverage** — all **26** active consumers from §3.1 are
+                enumerated verbatim: **21** consumers in §3.1.1 (FastAPI web
+                mount: 2 HTML reads + 1 CSS link + 1 JS module-entry + 4 ES
+                import + 3 dynamic import + 1 CDN pin + 3 smoke/evidence
+                baseline tests + 2 build-profile/hydration tests + 1
+                extension-manifest pin + 3 evidence-baseline tests) + **5**
+                consumers in §3.1.2 (`web/search_urls.js`: 3 detail.js
+                runtime uses + 2 contract tests). No consumer was collapsed
+                or merged; IDs were issued from fresh `mount-` (21) and
+                `search-urls-` (5) namespaces following the
+                `<edge-prefix>-<kind>-NNN` convention.
+              (3) **Per-consumer fields** — every consumer record carries
+                the seven fields required by the task brief:
+                `id`, `ownership_edge` (one of `fastapi_web_mount`,
+                `web_search_urls_js`), `current_path`, `replacement`
+                (`{status: "unselected"}` for every consumer in this pass),
+                `verification` (`{command, expect}`), `activation_status`
+                (`"unselected"` for every consumer), `rollback` (the
+                exact `git revert` statement that restores `current_path`).
+              (4) **Top-level shape** — the manifest also carries
+                `$schema_version`, `change`, `planning_artifact`,
+                `generated_by`, `scope_intent`, `anchor`, `fail_closed_summary`,
+                `edges[]` (the two ownership edges with `id`, `label`,
+                `anchor`, `single_origin_contract`), `consumers[]`,
+                `selection_invariants` (approach_status,
+                all_replacements_unselected, fail_closed_semantics,
+                atomic_cutover_invariant, rollback_invariant,
+                selection_rule), and `verifier_contract_summary` (producer,
+                command, artifact, threshold, fail_closed_invariant).
+              (5) **Fail-closed invariant** — every consumer in this pass
+                has `activation_status: unselected` and
+                `replacement.status: unselected`. The G3 verifier
+                (`scripts/verify_consumers.py`, AÚN NO AUTORIADO —
+                to land in PR3d) MUST exit non-zero AND emit no valid
+                `CONSUMER-READINESS.json` while ANY consumer is unselected.
+                The manifest's `fail_closed_summary` and the §3.3.3.1
+                `Failure semantics (fail-closed)` row enumerate this
+                invariant.
+              (6) **G3 contract body** — `design.md::§3.3.3.1` (and the
+                faithful Spanish mirror `design-es.md::§3.3.3.1`) define
+                the canonical input for the strict-TDD G3 verifier across
+                the rows: Canonical manifest path; Manifest top-level
+                shape; Consumer record schema; Stable-ID convention;
+                Atomic cutover unit; Rollback unit; Failure semantics
+                (fail-closed); `CONSUMER-READINESS.json` schema
+                (`manifest_path`, `manifest_sha256`, `node_version`,
+                `verified_at`, `exit_code`, `consumers[]`,
+                `unselected_count`, `failed_verifications[]`,
+                `activation_complete` — invalid when `activation_complete`
+                is `false` OR `exit_code != 0` OR `unselected_count > 0`
+                OR any `failed_verifications[]` entry exists; verifier
+                writes via temp-file + rename); Test fixture requirements
+                (canonical manifest as red/green fixture + parametrized
+                `tmp_path` fixtures over the four failure modes + a
+                SHA256-stability fixture + a fail-closed invariant
+                fixture); Selection rule (gating — requires G2/G4/G5/G6
+                all `passed`); Provenance.
+              (7) **§3.3.3 G3 row update** — the producer / command /
+                artifact / threshold cells in `design.md::§3.3.3` (and
+                `design-es.md::§3.3.3`) now reference the canonical
+                `cutover-manifest.json` path instead of the prior
+                `design.md::§3.4` placeholder.
+              (8) **Status footer** — the `status:` footer in `design.md`
+                (and the Spanish mirror) is updated to enumerate this
+                G3 contract / manifest authoring record while preserving
+                verbatim the G2 PASS record, the G5 unreproducible
+                disposition, the G4 / G6 blocked language, the
+                static-export-unselected language, and the
+                no-FastAPI-activation language.
+              **Truth preserved** — G3 **contract defined; manifest
+              authored with every §3.1 consumer unselected; verifier
+              not implemented** (no consumer is flipped to `selected`,
+              no G3 verifier is authored, no gate passes); **static
+              export remains unselected** (no Approach A / B / C chosen);
+              **no FastAPI activation** (the cutover-manifest.json is a
+              pure planning artifact — no `WEB_DIR` repoint, no
+              consumer-update, no Makefile / extension / API /
+              product-source change); **G4, G5, G6 remain blocked**
+              (G5 unreproducible per the §3.3.5 audit; G4 / G6
+              verifiers not authored yet). Spanish mirrors updated in
+              lockstep. No commit, push, or PR opened in this pass.
+              **Size note (planning-only)** — this pass adds
+              `openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json`
+              (273 lines, planning artifact analogous to the generated
+              `BUILD-INVENTORY.json` at G2 — the manifest is a data
+              file, not a code/test addition, and is bounded by the
+              number of §3.1 consumers) plus the §3.3.3 row update +
+              new §3.3.3.1 contract definition + status-footer record
+              in `design.md` and `design-es.md` (≈ 36 net lines across
+              the two files). Total authored planning-doc additions in
+              this pass stay well under the 400-line per-PR review
+              budget.
