@@ -118,6 +118,14 @@ The probe `package.json` MUST be paired with a committed lockfile (`package-lock
 
 A PR that ships the authorized implementation MUST be split into smaller pieces if its combined diff (probe sources, configs, scripts, lockfile, and any follow-on design amendment) would exceed 400 added lines. Splitting is a precondition for review, not a post-hoc cleanup.
 
+### Pinned dependencies and `generateBuildId` parity
+
+The probe `package.json` MUST pin exactly `next@16.3.3`, `react@19.2.8`, and `react-dom@19.2.8`; drift to a different resolved range invalidates the emitted evidence. The probe `generateBuildId` MUST be a deterministic function of that exact pinned tuple so independent runs emit a comparable build identifier. The capture script MUST record the resolved `next`, `react`, and `react-dom` versions and the emitted `generateBuildId` in the evidence artifact; if any recorded value differs from the pinned tuple, the script MUST exit nonzero and emit no valid artifact (see *Capture failure semantics* above). No other generated file qualifies for any version-pin carve-out, and this rule does not relax any forbidden-write or capture-failure constraint above.
+
+### `package-lock.json` line-budget exception
+
+Sole, user-approved carve-out from the PR-split threshold: `tools/static-export-probe/package-lock.json` is excluded from the 400 authored non-lockfile line budget **only after** `npm ci` succeeds against the probe `package.json`. Until `npm ci` succeeds, the lockfile remains governed by the budget, and any lockfile drift still causes capture failure (see *Capture failure semantics* above). No other generated file — including `node_modules/`, Next build output, or Playwright traces — qualifies for any size carve-out.
+
 ---
 
 ## Audit criteria (negative inventory + checklist)
