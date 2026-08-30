@@ -363,3 +363,40 @@ reconstrucción según `tasks.md` §Aviso de reconstrucción.
       forma alias de PR 2b se conservan verbatim. Sin cambios de
       código o test en esta pasada; no se realiza commit / push.
       Espejo en inglés actualizado en paralelo.
+    - **2026-08-30** — Pasada de reconciliación de docs-only G2 / G5
+      (esta entrada). Según la tarea del padre, los artefactos de
+      planificación canónicos (`proposal.md`, `design.md`,
+      `apply-progress.md`) y sus espejos fieles en español
+      (`proposal-es.md`, `design-es.md`, `apply-progress-es.md`) se
+      reconcilian contra el estado actual. **No se crean fuente,
+      tests, scripts, tasks, ficheros de producto, ficheros de
+      evidencia, ni el workspace `tools/g2-candidate/`.**
+      Autorizaciones de la tarea del padre: (1) el workspace
+      candidato aislado sin activación en `tools/g2-candidate/` queda
+      **autorizado pero no creado** en esta pasada — no debe cablear
+      FastAPI, `web/`, CI, `package.json` raíz, `Makefile`, ni
+      `extension/manifest.json`, y no selecciona el Enfoque A / B / C
+      ni exportación estática; (2) la disposición de la auditoría
+      del legado queda **irreproducible y no aceptada para G5**.
+      Deltas concretos: (a) `design.md::§3.3.2.1` registra el
+      contrato G2 (raíz candidata `tools/g2-candidate/`, comando de
+      build `<candidate-root>/node_modules/.bin/next build`, raíz de
+      salida `<candidate-root>/out/`, clases de activo, esquema y
+      ubicación de `BUILD-INVENTORY.json`, requisito de Node `>= 20.9.0`,
+      semántica de fallo sin fallback silencioso al legado, y
+      precondiciones del verificador strict-TDD G2); (b)
+      `design.md::§3.3.5` registra la disposición G5 como
+      **irreproducible**, enumera los ficheros de evidencia revisados
+      solo por nombre (`web/dist/evidence-baseline.json`,
+      `tests/test_evidence_baseline.py`,
+      `tools/static-export-probe/scripts/capture.mjs`,
+      `tools/static-export-probe/evidence/*.json`), lista el
+      inventario de pruebas faltantes (comando de captura, log,
+      entorno, número de iteraciones, Playwright crudo, Lighthouse
+      crudo, fila de delta, coincidencia con CLI/esquema), y fija el
+      camino de cierre. Pie de estado actualizado: G2 queda
+      `bloqueado — contrato definido; verificador no implementado`;
+      G5 queda `bloqueada — línea base no reproducible; comparación
+      no intentada`; la activación de PR3e sigue bloqueada hasta que
+      G1–G6 cierren. Espejos en español actualizados en paralelo.
+      No se realiza commit ni push en esta pasada.
