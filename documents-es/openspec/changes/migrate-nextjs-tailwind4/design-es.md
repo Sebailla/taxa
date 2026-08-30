@@ -670,6 +670,55 @@ evidencia G1), DEBE:
 4. Pasar G1 (este artefacto, actas de revisión de diseño) antes de
    que arranque cualquier trabajo de PR3b/3c/3d/3e.
 
+### §3.3 Productores y umbrales de evidencia
+
+Cada puerta tiene un productor nombrado, un comando de invocación, una ruta de artefacto y un umbral de aceptación. **Ninguna puerta queda marcada como aprobada por este artefacto.** Evidencia ausente, fallida, obsoleta (>7 días) o incomparable queda **bloqueada**, nunca aprobada. PR3a registra la matriz productor + comando + artefacto + umbral abajo; PR3b–PR3e adjuntan los resultados reales.
+
+#### §3.3.2 G2 — construcción de base
+
+| Campo | Valor |
+| --- | --- |
+| Productor | `scripts/verify_build.py` (AÚN NO AUTORIADO — se enviará en PR3b junto a la base) |
+| Comando | `python scripts/verify_build.py --out <build-root> --node-min 20.9.0` |
+| Artefacto | `<build-root>/BUILD-INVENTORY.json` + log de build + snapshot `node --version` |
+| Umbral | (a) comando de build sale 0; (b) inventario lista cada artefacto esperado (entrada HTML, bundles JS, CSS, fuentes); (c) versión Node cumple `≥20.9.0`; (d) fallo de build produce salida no-cero y **no** recurre silenciosamente al legado |
+
+#### §3.3.3 G3 — preparación de consumidores
+
+| Campo | Valor |
+| --- | --- |
+| Productor | `scripts/verify_consumers.py` (AÚN NO AUTORIADO — se enviará en PR3d) |
+| Comando | `python scripts/verify_consumers.py --map openspec/changes/migrate-nextjs-tailwind4/design.md::§3.1 --cut-manifest design.md::§3.4` |
+| Artefacto | `<build-root>/CONSUMER-READINESS.json` |
+| Umbral | para cada consumidor listado en §3.1, el manifiesto §3.4 nombra la ruta de reemplazo y una ruta de verificación; ningún consumidor de §3.1 permanece "activo" contra una ruta que PR3e pretende eliminar |
+
+#### §3.3.4 G4 — paridad de comportamiento
+
+| Campo | Valor |
+| --- | --- |
+| Productor | Suite Playwright + Lighthouse (AÚN NO AUTORIADO — se enviará en PR3d); `tests/test_smoke.py` existente (sin cambios) |
+| Comando | `make test && make parity` (propuesto) |
+| Artefacto | `parity-reports/<date>/{navigation,api,search,a11y,browser-state}.json` |
+| Umbral | rutas de navegación coinciden con el legado; `/api/*` coincide con el legado (pruebas existentes verdes); AC-21 sigue pasando contra la ubicación lectora post-corte; accesibilidad ≥ puntuación del legado; claves de estado del navegador (`last-taxon-id`, `tree-source`, `selected-realm`, `version-banner-dismissed`) hidratan la UI de reemplazo idénticamente |
+
+#### §3.3.5 G5 — comparabilidad de rendimiento
+
+| Campo | Valor |
+| --- | --- |
+| Productor | `scripts/measure_hydration.py` (entregable PR 1b.3a — **reconstrucción pendiente**, no entregado a `develop`) + Lighthouse |
+| Comando | `python scripts/measure_hydration.py --baseline docs/baselines/legacy-web-2026-08-26.json --candidate <build-root> --iterations 10` |
+| Artefacto | `parity-reports/<date>/hydration.json` |
+| Umbral | primer render server-shell dentro de ±10 % de la línea base del legado; latencia de interacción (pestañas clave / dropdown búsqueda) dentro de ±10 % de la línea base del legado; tamaño de bundle dentro del umbral declarado (TBD; registrado en PR3b) |
+
+#### §3.3.6 G6 — ensayo de corte
+
+| Campo | Valor |
+| --- | --- |
+| Productor | `scripts/rehearse_cutover.py` (AÚN NO AUTORIADO — se enviará en PR3d) |
+| Comando | `python scripts/rehearse_cutover.py --manifest openspec/changes/migrate-nextjs-tailwind4/design.md::§3.4 --dry-run` |
+| Artefacto | `parity-reports/<date>/cutover-rehearsal.json` |
+| Umbral | cada ruta listada en §3.4 queda verificada por el ensayo: ruta de montaje, raíz de artefacto servido, comportamiento fallback, cada actualización de consumidor, ruta lectora AC-21; el dry-run coincide exactamente con el manifiesto; el ensayo de reversión restaura el montaje previo + el grafo canónico de consumidores |
+
 ---
 
-`status: complete (rebanada PR 2a; alcance de frontera PR3a añadido — ninguna frontera seleccionada, sin evidencia G2–G6, sin manifest de cutover todavía)`
+`status: complete (rebanada PR 2a; alcance de frontera PR3a con plan productor/umbral de evidencia G2–G6 añadido — ninguna frontera seleccionada, ninguna puerta aprobada, sin manifest de cutover todavía)`
