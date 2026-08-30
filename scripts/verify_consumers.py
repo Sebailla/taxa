@@ -11,12 +11,24 @@ Slice (PR3d reconstruction): adds opt-in controlled local-server lifecycle
 pytest command execution (`--venv` / `--repo-root` → rewrite leading
 `pytest` tokens to the venv python). Both features are strictly opt-in;
 the existing fail-closed contract is preserved.
+
+Slice (PR3d fixture-serve reconstruction): adds a controlled **fixture-
+serve** branch via `--serve --fixture-web-root <dir>`. Spawns
+`python -m http.server <isolated_free_port> --directory <dir>` against
+the merged self-contained fixture's web/ tree on an OS-picked free TCP
+port (never the legacy 8765), and rewrites each consumer's
+`verification.command` URL from `127.0.0.1:8765` to the picked port so
+manifest consumers continue to validate against the fixture. The
+`--serve` lifecycle remains strictly opt-in: without `--serve`,
+`--fixture-web-root` is a silent no-op. The pre-existing
+fail-closed contract is preserved across all branches.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -128,18 +140,57 @@ def rewrite_pytest_for_venv(cmd: str, venv_python: Path) -> str:
     return leading + quoted
 
 
-class LocalServer:
-    """Controlled local-server lifecycle for `verification.command` checks
-    that target the running FastAPI mount. Strict fail-closed: only spawns
-    when `enable=True`; always terminates on context exit (success or
-    error); never falls back to a started server if the healthcheck fails.
+def pick_free_port(host: str = "127.0.0.1") -> int:
+    """Bind to (host, 0) so the OS picks a free TCP port, then release
+    the socket and return the port. Idiomatic test-harness approach;
+    there's an inherent race between close and the subsequent bind,
+    but it's the standard pattern and good enough for a verifier
+    fixture path that runs locally. Read-only: does NOT mutate state."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind((host, 0))
+        return s.getsockname()[1]
+    finally:
+        s.close()
 
-    Spawn / wait_ready / terminate are method hooks so tests can patch each
-    step in isolation via monkeypatch.
+
+def rewrite_command_port(cmd: str, old_port: int, new_port: int) -> str:
+    """Replace literal `127.0.0.1:<old_port>` with `127.0.0.1:<new_port>`
+    in `cmd`. Only the precise URL pattern is substituted; unrelated
+    text is preserved (no regex, no tokenization). Used by the
+    fixture-serve path to redirect manifest consumers from the legacy
+    8765 to the isolated free port picked for the fixture."""
+    return cmd.replace(f"127.0.0.1:{old_port}", f"127.0.0.1:{new_port}")
+
+
+class LocalServer:
+    """Controlled local-server lifecycle for `verification.command` checks.
+    Two controlled-server modes are supported, both opt-in via `--serve`:
+
+    1. **uvicorn / FastAPI** (default, `fixture_web_root=None`): spawns
+       `python -m uvicorn api.server:app` on `127.0.0.1:<port>` — the
+       production-runtime branch. Healthcheck polls
+       `http://127.0.0.1:<port>/api/health`.
+    2. **python -m http.server / merged self-contained fixture**
+       (`fixture_web_root=<dir>`): spawns `python -m http.server
+       <isolated_free_port> --directory <dir>` against the merged
+       self-contained fixture's web/ directory on an OS-picked free
+       port (the "isolated port" — never the legacy 8765). Healthcheck
+       polls `http://127.0.0.1:<picked_port>/index.html`.
+
+    Strict fail-closed: only spawns when `enable=True`; always
+    terminates on context exit (success or error); never falls back to
+    a started server if the healthcheck fails. Fixture-serve path
+    additionally validates that `<dir>` exists and is a directory
+    before binding.
+
+    Spawn / wait_ready / terminate are method hooks so tests can patch
+    each step in isolation via monkeypatch.
     """
     DEFAULT_HOST = "127.0.0.1"
     DEFAULT_PORT = 8765
     DEFAULT_HEALTHCHECK = "http://127.0.0.1:8765/api/health"
+    DEFAULT_FIXTURE_HEALTHCHECK_PATH = "/index.html"
     READY_TIMEOUT_S = 30.0
     TERMINATE_GRACE_S = 5.0
 
@@ -149,6 +200,7 @@ class LocalServer:
                  venv_python: Path | None = None,
                  repo_root: Path | None = None,
                  healthcheck: str = DEFAULT_HEALTHCHECK,
+                 fixture_web_root: Path | None = None,
                  ready_timeout: float = READY_TIMEOUT_S,
                  log=_log) -> None:
         self.enable = enable
@@ -157,12 +209,19 @@ class LocalServer:
         self.venv_python = venv_python
         self.repo_root = repo_root
         self.healthcheck = healthcheck
+        self.fixture_web_root = (Path(fixture_web_root).resolve()
+                                 if fixture_web_root is not None else None)
         self.ready_timeout = ready_timeout
         self.log = log
         self.proc = None
 
     def _build_argv(self) -> list[str]:
         py = str(self.venv_python) if self.venv_python else sys.executable
+        if self.fixture_web_root is not None:
+            # Fixture-serve: python -m http.server <port> --directory <root>
+            return [py, "-m", "http.server", str(self.port),
+                    "--directory", str(self.fixture_web_root)]
+        # Default: uvicorn + FastAPI on a fixed port.
         return [py, "-m", "uvicorn", "api.server:app",
                 "--host", self.host, "--port", str(self.port),
                 "--log-level", "warning"]
@@ -206,10 +265,28 @@ class LocalServer:
     def __enter__(self):
         if not self.enable:
             return self
+        # Fixture-serve path: validate the web root, pick an isolated free
+        # port, and point the healthcheck at the fixture's /index.html.
+        # Fail-closed: any pre-spawn invariant failure aborts BEFORE spawn.
+        if self.fixture_web_root is not None:
+            if not self.fixture_web_root.exists():
+                raise RuntimeError(
+                    f"--fixture-web-root path does not exist: "
+                    f"{self.fixture_web_root}")
+            if not self.fixture_web_root.is_dir():
+                raise RuntimeError(
+                    f"--fixture-web-root is not a directory: "
+                    f"{self.fixture_web_root}")
+            self.port = pick_free_port(self.host)
+            self.healthcheck = (
+                f"http://{self.host}:{self.port}"
+                f"{self.DEFAULT_FIXTURE_HEALTHCHECK_PATH}")
         argv = self._build_argv()
         cwd = str(self.repo_root) if self.repo_root else None
+        label = ("http.server" if self.fixture_web_root is not None
+                 else "uvicorn")
         self.log("verify_consumers",
-                 f"starting local server (uvicorn) cwd={cwd}: {argv}")
+                 f"starting local server ({label}) cwd={cwd}: {argv}")
         self.proc = self._spawn(argv, cwd=cwd,
                                 stdout=subprocess.DEVNULL,
                                 stderr=subprocess.PIPE)
@@ -239,11 +316,20 @@ def _run_check(cmd: str, timeout: int = 60) -> int:
 
 
 def _check_all(consumers: list[dict],
-               *, venv_python: Path | None = None
+               *, venv_python: Path | None = None,
+               port_rewrite: tuple[int, int] | None = None
                ) -> list[tuple[str, str]]:
     """Return [(id, reason)] for every consumer whose check failed.
-    If `venv_python` is set, `pytest`-prefixed commands are rewritten to
-    use the venv python (controlled, opt-in via --venv / --repo-root)."""
+
+    Two opt-in rewrites are applied (both strictly opt-in):
+
+    - `venv_python` set: `pytest`-prefixed commands are rewritten to
+      use the venv python (controlled, opt-in via `--venv` /
+      `--repo-root`).
+    - `port_rewrite=(old, new)` set: literal `127.0.0.1:<old>` URLs in
+      each command are rewritten to `127.0.0.1:<new>`. Used by the
+      fixture-serve path to redirect manifest consumers from the
+      legacy 8765 to the isolated free port picked at server spawn."""
     failures: list[tuple[str, str]] = []
     for c in consumers:
         if not isinstance(c, dict):
@@ -255,6 +341,8 @@ def _check_all(consumers: list[dict],
             continue
         if venv_python is not None:
             cmd = rewrite_pytest_for_venv(cmd, venv_python)
+        if port_rewrite is not None:
+            cmd = rewrite_command_port(cmd, port_rewrite[0], port_rewrite[1])
         rc = _run_check(cmd)
         if rc != 0:
             failures.append((str(c.get("id")),
@@ -286,6 +374,14 @@ def main(argv=None) -> int:
     ap.add_argument("--serve", action="store_true",
                     help="controlled local-server lifecycle: spawn uvicorn "
                          "before checks, terminate after.")
+    ap.add_argument("--fixture-web-root", default=None,
+                    help="merged self-contained fixture path: spawn "
+                         "python -m http.server against <dir> on an "
+                         "isolated free port (must be combined with "
+                         "--serve). Each consumer's verification.command "
+                         "is rewritten from 127.0.0.1:<legacy> to the "
+                         "picked port. <dir> must exist and be a "
+                         "directory (fail-closed otherwise).")
     ap.add_argument("--venv", default=None,
                     help="python executable to use when a "
                          "verification.command starts with `pytest` "
@@ -298,7 +394,8 @@ def main(argv=None) -> int:
     except SystemExit:
         _log("verify_consumers",
              "usage: verify_consumers.py --manifest <path> --out <path> "
-             "[--serve] [--venv <python>] [--repo-root <dir>]")
+             "[--serve] [--fixture-web-root <dir>] [--venv <python>] "
+             "[--repo-root <dir>]")
         return EXIT_USAGE
     mp = Path(ns.manifest).resolve()
     out = Path(ns.out).resolve()
@@ -324,11 +421,36 @@ def main(argv=None) -> int:
     venv_python = (Path(ns.venv).resolve() if ns.venv
                    else find_venv_python(repo_root))
 
+    # Fixture-serve: opt-in via `--serve --fixture-web-root <dir>`.
+    # `--fixture-web-root` alone (without `--serve`) is a SILENT no-op:
+    # the verifier behaves exactly as if `--fixture-web-root` were
+    # absent (no server spawn, no port rewriting). This keeps the
+    # controlled lifecycle strictly opt-in via `--serve` without
+    # rejecting valid manifest checks that don't need a server.
+    fixture_root_arg = (Path(ns.fixture_web_root).resolve()
+                        if ns.fixture_web_root else None)
+    if fixture_root_arg is not None and not ns.serve:
+        fixture_root_arg = None  # silent no-op
+
+    # Legacy port the manifest commands target. The fixture-serve path
+    # rewrites `:8765` → isolated free port. This is the source port for
+    # rewrite_command_port; uvicorn + FastAPI mode (default) keeps 8765.
+    legacy_port = LocalServer.DEFAULT_PORT  # 8765
+
     try:
         with LocalServer(enable=ns.serve,
                          venv_python=venv_python,
-                         repo_root=repo_root) as _srv:
-            failures = _check_all(consumers, venv_python=venv_python)
+                         repo_root=repo_root,
+                         fixture_web_root=fixture_root_arg) as srv:
+            # If fixture-serve picked an isolated port, rewrite consumer
+            # commands from the legacy 8765 to the picked port. Otherwise
+            # (uvicorn on 8765 or --serve disabled), no rewrite.
+            port_rewrite: tuple[int, int] | None = None
+            if (srv.fixture_web_root is not None
+                    and srv.port != legacy_port):
+                port_rewrite = (legacy_port, srv.port)
+            failures = _check_all(consumers, venv_python=venv_python,
+                                   port_rewrite=port_rewrite)
     except RuntimeError as exc:
         _log("verify_consumers", f"server lifecycle error: {exc}")
         return EXIT_SERVER
