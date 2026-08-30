@@ -109,6 +109,39 @@ parity). The hard constraints above are the non-negotiables.
 - Coverage tooling (`coverage.available: false` is the current
   state; out of scope).
 
+### Disposable Static-Export Probe (Evidence Only)
+
+A bounded, **disposable** static-export probe slice is permitted
+**only as an evidence-gathering exercise** while the
+Next.js ↔ FastAPI server-responsibility decision remains open.
+The probe is governed by these non-negotiables:
+
+- **Unreachable from production**: the probe output is not served
+  by FastAPI, not bound to `127.0.0.1:8765`, and not reachable
+  from any shipped artifact (no extension `host_permissions`
+  change, no `make api` integration, no release artifact).
+- **No consumer change**: the `api/server.py:1847` `StaticFiles`
+  mount, AC-21 search-engine contract consumers, and UI
+  activation paths (`state` singleton, `localStorage` keys) stay
+  untouched. The probe produces no consumer-visible surface.
+- **Evidence only**: records `next build` size, hydration
+  profile, and optional Playwright parity samples. It does not
+  amend `design.md` §1 and does not pre-select Approach A.
+- **Explicit discard / rollback**: the probe lives on a
+  short-lived branch; `git branch -D` plus worktree removal
+  restores the pre-probe state with no source/tests/config
+  residue.
+- **Cannot select static export alone**: probe evidence is
+  necessary but not sufficient. Selecting Approach A requires a
+  follow-up amendment to this proposal (or a successor change),
+  reviewed against the recorded evidence; this proposal is not
+  the selection point.
+
+The probe does **not** modify "Out of Scope", "Approach", or
+"Success Criteria", and introduces no source/tests/config change
+in this PR. Its sole purpose is to convert the open
+server-responsibility decision into evidence before finalising.
+
 ## Capabilities
 
 ### New Capabilities

@@ -125,6 +125,45 @@ anteriores son innegociables.
 - Cobertura (`coverage.available: false` es el estado actual;
   fuera de alcance).
 
+### Sonda de Exportación Estática Desechable (Solo Evidencia)
+
+Una rebanada de sonda de exportación estática acotada y
+**desechable** se permite **solo como ejercicio de recolección
+de evidencia** mientras la decisión de responsabilidad de
+servidor Next.js ↔ FastAPI siga abierta. La sonda se rige por
+estos innegociables:
+
+- **Inalcanzable desde producción**: la salida de la sonda no la
+  sirve FastAPI, no se vincula a `127.0.0.1:8765` y no es
+  alcanzable desde ningún artefacto desplegado (sin cambios en
+  `host_permissions` de la extensión, sin integración con
+  `make api`, sin artefacto de release).
+- **Sin cambios en consumidores**: el montaje `StaticFiles` en
+  `api/server.py:1847`, los consumidores del contrato AC-21 de
+  motores de búsqueda y las rutas de activación de UI
+  (singleton `state`, claves de `localStorage`) quedan intactos.
+  La sonda no produce ninguna superficie visible para los
+  consumidores.
+- **Solo evidencia**: registra tamaño de `next build`, perfil de
+  hidratación y muestras opcionales de paridad con Playwright.
+  No modifica `design.md` §1 ni pre-selecciona la Aproximación A.
+- **Descarte / rollback explícito**: la sonda vive en una rama
+  de corta vida; `git branch -D` más la eliminación del worktree
+  restablece el estado previo a la sonda sin residuos en
+  fuente, tests o configuración.
+- **No puede seleccionar exportación estática por sí sola**: la
+  evidencia de la sonda es necesaria pero no suficiente.
+  Seleccionar la Aproximación A requiere una modificación de
+  seguimiento a esta propuesta (o un cambio sucesor), revisada
+  contra la evidencia registrada; esta propuesta no es el punto
+  de selección.
+
+La sonda **no** modifica "Fuera de Alcance", "Approach" ni
+"Criterios de Éxito", y no introduce cambios en fuente, tests
+o configuración en este PR. Su único propósito es convertir la
+decisión abierta de responsabilidad de servidor en evidencia
+antes de finalizarla.
+
 ## Capabilities
 
 ### Nuevas
