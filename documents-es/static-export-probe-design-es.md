@@ -120,6 +120,14 @@ El `package.json` de la sonda DEBE ir acompañado de un lockfile versionado (`pa
 
 Un PR que envíe la implementación autorizada DEBE dividirse en piezas más pequeñas si su diff combinado (fuentes de la sonda, configuraciones, scripts, lockfile y cualquier modificación de diseño posterior) supera las 400 líneas añadidas. Dividir es precondición de revisión, no limpieza posterior.
 
+### Versiones fijadas y paridad de `generateBuildId`
+
+El `package.json` de la sonda DEBE fijar exactamente `next@16.3.3`, `react@19.2.8` y `react-dom@19.2.8`; toda deriva a otro rango resuelto invalida la evidencia emitida. El `generateBuildId` de la sonda DEBE ser una función determinista de esa terna fijada para que corridas independientes emitan un identificador de build comparable. El script de captura DEBE registrar las versiones resueltas de `next`, `react` y `react-dom` y el `generateBuildId` emitido en el artefacto de evidencia; si cualquier valor registrado difiere de la terna fijada, el script DEBE salir distinto de cero y no emitir ningún artefacto válido (ver *Semántica de fallo de captura* arriba). Ningún otro archivo generado califica para cualquier excepción de fijado de versiones, y esta regla no relaja ninguna restricción de escritura prohibida ni de fallo de captura arriba.
+
+### Excepción de tamaño para `package-lock.json`
+
+Única excepción aprobada por el usuario, exclusivamente, del umbral de división de PR: `tools/static-export-probe/package-lock.json` se excluye del presupuesto de 400 líneas no-lockfile **solo después** de que `npm ci` tenga éxito contra el `package.json` de la sonda. Hasta que `npm ci` tenga éxito, el lockfile sigue regido por el presupuesto y cualquier deriva del lockfile sigue provocando fallo de captura (ver *Semántica de fallo de captura* arriba). Ningún otro archivo generado — incluidos `node_modules/`, salida de build de Next o trazas de Playwright — califica para cualquier excepción de tamaño.
+
 ---
 
 ## Criterios de auditoría (inventario negativo + lista)
