@@ -70,7 +70,7 @@ tres aproximaciones viables:
 
 | Aproximación | Rol de Next.js | Rol de FastAPI | Contrato de puerto único |
 |--------------|----------------|----------------|--------------------------|
-| **A — Exportación estática bajo FastAPI** | `next build` → `out/`; el montaje `StaticFiles` de FastAPI lo sirve. Sin SSR / route handlers / server components. | Único origen HTTP en `127.0.0.1:8765`; sirve frontend + `/api/*`. El montaje `StaticFiles` en `api/server.py:1847` se reorienta a `out/`. | **Preservado.** |
+| **A — Exportación estática bajo FastAPI** | `next build` → `out/`; el montaje `StaticFiles` de FastAPI lo sirve. Sin SSR / route handlers / server components. | Único origen HTTP en `127.0.0.1:8765`; sirve frontend + `/api/*`. El montaje `StaticFiles` en `api/server.py:1815` se reorienta a `out/` una vez registrada. | **Preservado.** |
 | **B — Servidor de dev Next.js completo, dos puertos** | `next dev` en puerto 3000; `rewrites()` redirige `/api/*` hacia FastAPI. SSR real, server components, `next/font`. | FastAPI en 8765 solo para `/api/*`; la allowlist CORS se amplía para incluir `localhost:3000`. El montaje `StaticFiles` queda como código muerto en dev. | **Roto.** El `host_permissions` de la extensión debe ampliarse. |
 | **C — Híbrido por fases** | Fase 1: solo Tailwind 4 sobre vanilla JS. Fase 2: pre-renderizado de Next.js hacia `web/dist/`. Fase 3: hidratación incremental de React tras un feature flag. Fase 4: retirada de vanilla. | Único origen durante todo el proceso; el montaje `web/dist/*` se mantiene compatible. | **Preservado durante todo el proceso.** |
 
@@ -87,7 +87,7 @@ tres aproximaciones viables:
   `["http://localhost:8765/*"]` en este cambio.
 - La lógica de backend (`api/server.py`, SQLite/WAL, flujo de
   materialización, defensa SSRF en `save-url`) **no se reescribe**,
-  pero el montaje de activos estáticos (`api/server.py:1847`) y
+  pero el montaje de activos estáticos (`api/server.py:1815`) y
   cualquier middleware de FastAPI estrictamente necesario para
   cablear la aproximación elegida SÍ está dentro del alcance.
 
@@ -96,7 +96,10 @@ ni C. La aproximación seleccionada se registra como decisión
 finalizada en `design.md` §1 una vez que las fases spec/design
 produzcan evidencia concreta (tamaño de bundle, perfil de
 hidratación, paridad Playwright). Las restricciones duras
-anteriores son innegociables.
+anteriores son innegociables. **Decisión de frontera G1** (FastAPI
+único origen en `127.0.0.1:8765`; `/api/*` y
+`extension/manifest.json::host_permissions` sin cambios) registrada
+en `design.md::§1`; vincula cada Aproximación.
 
 ### Fuera de Alcance
 
@@ -139,7 +142,7 @@ estos innegociables:
   `host_permissions` de la extensión, sin integración con
   `make api`, sin artefacto de release).
 - **Sin cambios en consumidores**: el montaje `StaticFiles` en
-  `api/server.py:1847`, los consumidores del contrato AC-21 de
+  `api/server.py:1815`, los consumidores del contrato AC-21 de
   motores de búsqueda y las rutas de activación de UI
   (singleton `state`, claves de `localStorage`) quedan intactos.
   La sonda no produce ninguna superficie visible para los
@@ -195,10 +198,9 @@ antes de finalizarla.
 
 ## Approach
 
-Next.js se utiliza como pre-renderizador de exportación estática
-(`next build` → `out/`). FastAPI conserva
-`app.mount("/", StaticFiles(...))` apuntando a `out/` en lugar
-de `web/`. Se preserva el contrato de puerto único. Tailwind 4
+La Aproximación (A / B / C) queda **bloqueada por evidencia** según
+`design.md::§1` (G2–G6); el default esperado es `next build` → `out/`
+servido por FastAPI en `127.0.0.1:8765`. Tailwind 4
 se entrega en la misma release mediante su configuración
 CSS-first (`@theme { … }`) que reemplaza a `tailwind.config.js`
 y al bloque `<style>` inline; los tokens `:root` ad hoc migran
@@ -227,7 +229,7 @@ escritura).
 | `web/index.css` | Modificado | Pasa a ser `src/app/globals.css`; el bloque `@theme` reemplaza a `tailwind.config.js`. |
 | `tailwind.config.js` | Eliminado | Configuración CSS-first de Tailwind 4 en `globals.css`. |
 | `package.json` | Modificado | Sube a `next@^16`, `react@^19`, `react-dom@^19`, `tailwindcss ^4.x`; elimina `autoprefixer`, `postcss`; añade `@tailwindcss/cli`, TypeScript `>=5.1.0`, `@types/*`. Añade `engines.node: ">=20.9.0"` y la versión de Node pineada en tiempo de desarrollo. |
-| `api/server.py:1847` (`app.mount("/", StaticFiles(...))`) | Modificado | La constante `WEB_DIR` se reorienta a la salida de Next.js elegida (`out/`, `web/dist/next-static/`, o equivalente) según la Aproximación decidida en `design.md` §1. Cualquier middleware nuevo estrictamente necesario para servir la salida elegida se añade aquí; los handlers de ruta no se reescriben. |
+| `api/server.py:1815` (`app.mount("/", StaticFiles(...))`) | Modificado | La constante `WEB_DIR` se reorienta a la salida de Next.js elegida (`out/`, `web/dist/next-static/`, o equivalente) según la Aproximación decidida en `design.md` §1. Cualquier middleware nuevo estrictamente necesario para servir la salida elegida se añade aquí; los handlers de ruta no se reescriben. |
 | `Makefile` | Modificado | `make api` primero construye Next.js (alias `make web`) y luego ejecuta uvicorn; `make smoke` mantiene la misma superficie. No se introduce un segundo puerto de servidor de desarrollo. |
 | `tests/test_smoke.py::test_search_engine_contract` | Modificado | Lee `src/data/search-engines.ts` solo si sdd-spec modifica AC-21; en caso contrario, el archivo mantiene la forma de `web/search_urls.js` bajo `src/data/`. |
 | `tests/test_e2e_file_explorer.py`, `tests/test_web_toggle.py` | Modificado | Selectores DOM actualizados al nuevo árbol de componentes; contrato de atributos `data-*` preservado. |
