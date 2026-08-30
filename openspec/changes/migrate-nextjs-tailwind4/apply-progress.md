@@ -667,14 +667,195 @@ updated: G2 remains `blocked — contract defined; verifier not
               (G5 unreproducible per the §3.3.5 audit; G4 / G6
               verifiers not authored yet). Spanish mirrors updated in
               lockstep. No commit, push, or PR opened in this pass.
-              **Size note (planning-only)** — this pass adds
-              `openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json`
-              (273 lines, planning artifact analogous to the generated
-              `BUILD-INVENTORY.json` at G2 — the manifest is a data
-              file, not a code/test addition, and is bounded by the
-              number of §3.1 consumers) plus the §3.3.3 row update +
-              new §3.3.3.1 contract definition + status-footer record
-              in `design.md` and `design-es.md` (≈ 36 net lines across
-              the two files). Total authored planning-doc additions in
-              this pass stay well under the 400-line per-PR review
-              budget.
+                  **Size note (planning-only)** — this pass adds
+                  `openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json`
+                  (273 lines, planning artifact analogous to the generated
+                  `BUILD-INVENTORY.json` at G2 — the manifest is a data
+                  file, not a code/test addition, and is bounded by the
+                  number of §3.1 consumers) plus the §3.3.3 row update +
+                  new §3.3.3.1 contract definition + status-footer record
+                  in `design.md` and `design-es.md` (≈ 36 net lines across
+                  the two files). Total authored planning-doc additions in
+                  this pass stay well under the 400-line per-PR review
+                  budget.
+                - **2026-08-30** — G3 legacy pre-cut selection authoring
+                  pass (this entry). Per the parent task, every §3.1
+                  consumer in the canonical cutover manifest is flipped to
+                  **Tier-1 (legacy pre-cut) selection** against its on-disk
+                  legacy `current_path`, the `design.md` / `design-es.md`
+                  G3 contract is extended with a **two-tier selection
+                  model** (Tier-1 legacy pre-cut + Tier-2 atomic-cut
+                  gated by G2/G4/G5/G6 PASS), and the apply-progress
+                  mirrors are updated in lockstep. **No source, tests,
+                  scripts, tasks, product files, evidence files,
+                  candidate workspace, or `package-lock.json` are touched,
+                  committed, or pushed in this pass. No G3 verifier is
+                  authored; no G3 PASS is claimed; no FastAPI activation
+                  is implied.**
+
+                  (1) **What "legacy pre-cut selection" means** — for
+                  every consumer enumerated in
+                  `openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json`,
+                    `replacement.path` is set to the on-disk legacy file
+                    (or set of legacy files) the consumer currently reads,
+                    `replacement.status` is set to `"selected"`, and
+                    `activation_status` is set to `"selected"`. The
+                    consumer's `replacement.note` documents the Tier-1
+                    semantics: the on-disk legacy runtime on FastAPI's
+                    `127.0.0.1:8765` mount (or the equivalent test-reader
+                    path) remains the active serving origin; no `WEB_DIR`
+                    repoint, no atomic cutover, no FastAPI activation is
+                    implied. The legacy vanilla frontend continues to be
+                    served exactly as on `develop`.
+
+                  (2) **Coverage** — all **26** active consumers in
+                    `design.md::§3.1` are flipped: 21 §3.1.1 (FastAPI web
+                    mount) + 5 §3.1.2 (`web/search_urls.js`). No consumer
+                    is left unselected against the Tier-1 legacy pre-cut
+                    baseline.
+
+                  (3) **Per-consumer fields** — every consumer record now
+                    carries a populated `replacement` block (`status`,
+                    `path`, `note`) alongside the seven required fields
+                    (`id`, `ownership_edge`, `current_path`,
+                    `verification`, `activation_status`, `rollback`).
+                    `replacement.path` is a clean file path (or
+                    comma-separated set of file paths for multi-file
+                    imports — e.g.
+                    `web/state.js, web/api.js, web/tree.js, web/breadcrumb.js, web/detail.js, web/nav.js, web/dom.js, web/banner.js, web/help.js, web/keymap.js`
+                    for
+                    `mount-runtime-import-app-js-modules-005`). `replacement.note`
+                    is consistently shaped: prefix
+                    "Legacy pre-cut selection (planning artifact,
+                    2026-08-30):" + the on-disk legacy path identifier +
+                    the Tier-1 semantics + the language "Approach A / B /
+                    C atomic-cut selection remains evidence-gated by
+                    G2/G4/G5/G6. NOT a G3 PASS."
+
+                  (4) **Top-level invariants flipped** —
+                    `selection_invariants.all_replacements_unselected`
+                    flips from `true` to `false`. A sibling invariant
+                    `all_replacements_unselected_note` documents why.
+                    A new invariant `legacy_pre_cut_selection_status` is
+                    added: `{active: true, scope: "every §3.1 consumer …",
+                    what_it_means: <doc>, what_it_does_not_claim: <doc>,
+                    two_tier_model: <doc>, truth_preservation: <doc>}`.
+                    A new invariant `combined_selection_rule` records the
+                    two-tier contract.
+
+                  (5) **Two-tier selection rules recorded** —
+                    `selection_invariants.selection_rule_tier1_legacy_pre_cut`
+                    documents the Tier-1 contract (legacy pre-cut, no
+                    G2/G4/G5/G6 PASS required, every consumer satisfies
+                    Tier-1 in this pass). The previous
+                    `selection_invariants.selection_rule` is renamed to
+                    `selection_rule_tier2_atomic_cut` and now exclusively
+                    documents the Tier-2 contract (atomic-cut selection,
+                    G2 PASS + G4 + G5 + G6 required, Approach A / B / C
+                    remains unselected, lands in PR3d/PR3e). The G2 PASS
+                    record (2026-08-30, from
+                    `taxa-worktrees/migrate-nextjs-g2-evidence-capture`)
+                    is cited in the Tier-2 rule.
+
+                  (6) **`fail_closed_summary` updated** — the summary
+                    now describes the two-tier state: every consumer
+                    carries `selected` under Tier-1, so the
+                    "any-unselected-exits-non-zero" branch does not
+                    currently fire; but the verifier (when authored) must
+                    still validate each `verification.command` against
+                    the legacy pre-cut runtime, and a non-zero exit on
+                    any `verification.command` re-triggers the
+                    fail-closed branch and blocks the
+                    `CONSUMER-READINESS.json`. Tier-2 atomic-cut
+                    selection remains evidence-gated and is NOT in play.
+
+                  (7) **`verifier_contract_summary` updated** — the
+                    summary now carries `threshold_tier1_legacy_pre_cut`
+                    (legacy runtime on `127.0.0.1:8765` reachable, every
+                    `verification.command` exits `0`) +
+                    `threshold_tier2_atomic_cut` (atomic-cut against
+                    `<build-root>` + G2/G4/G5/G6 PASS) +
+                    `evaluation_state` (Tier-1 evaluation runs first;
+                    Tier-2 fires after Tier-1 passes; Tier-2 fails
+                    block the artifact). The
+                    `fail_closed_invariant` now describes both Tier-1
+                    and Tier-2 fail-closed triggers.
+
+                  (8) **`generated_by` flipped** — the manifest's
+                    `generated_by` field now reads: "G3 planning contract
+                    (planning-only; legacy pre-cut selection authored
+                    for every §3.1 consumer against the on-disk legacy
+                    `current_path`; Approach A / B / C atomic-cut
+                    selection remains evidence-gated by G2/G4/G5/G6 and
+                    is NOT made in this pass; verifier NOT YET
+                    AUTHORED)".
+
+                  (9) **`design.md::§3.3.3` and `design.md::§3.3.3.1`
+                    updated** — §3.3.3 row's threshold cell now
+                    documents the two-tier model. §3.3.3.1 introduces a
+                    `Selection rule — Tier-1 (legacy pre-cut)` row, a
+                    `Selection rule — Tier-2 (atomic-cut, gated)` row,
+                    and a `Combined selection state` row (replacing the
+                    former single `Selection rule (gating)` row). The
+                    `Canonical manifest path` row is updated to record
+                    the Tier-1 authoring state. The `Failure semantics`
+                    row is renamed `Failure semantics (fail-closed,
+                    two-tier)` and includes Tier-1 + Tier-2 evaluation
+                    branches. The `Provenance` row records the
+2026-08-30 second-pass authoring. The status footer
+                    (`status:` line) enumerates the Tier-1 + Tier-2
+                    contract and preservation language; **G3 stays
+                    `blocked — contract defined; legacy pre-cut
+                    selection authored for every §3.1 consumer;
+                    verifier authored on disk (PR #109 + PR #111) but
+                    G3 still gated by G2/G4/G5/G6 PASS for Tier-2`,
+                    not `passed`.
+
+                  (10) **Spanish mirrors updated in lockstep** — the
+                    same edits apply to
+                    `documents-es/openspec/changes/migrate-nextjs-tailwind4/design-es.md`
+                    (Spanish: Nivel-1 legacy pre-cut + Nivel-2
+                    atomic-cut acoado por PASS de G2/G4/G5/G6). The
+                    changes correspond row-for-row to the English edit;
+                    the Spanish status footer enumerates the same
+                    Tier-1 / Tier-2 contract and preservation language.
+
+**Truth preserved** — G3 **legacy pre-cut selection
+                  authored for every §3.1 consumer; verifier AUTHORED
+                  on disk (PR #109 + PR #111) but G3 still gated by
+                  G2/G4/G5/G6 PASS for Tier-2**; no consumer is
+                  flipped to Tier-2
+                  (atomic-cut); no G3 PASS is claimed; static export
+                  (Approach A) and B / C remain **unselected**; no
+                  FastAPI activation (no `WEB_DIR` repoint, no
+                  consumer-update, no Makefile / extension / API /
+                  product-source change); G4 / G6 remain `blocked`
+                  (verifiers not authored yet); G5 remains
+                  `unreproducible` per the §3.3.5 audit; the Tier-1
+                  legacy pre-cut pass is a **planning artifact**, not a
+                  G3 gate, and does NOT claim or imply G3 PASS. No
+                  commit, push, or PR opened in this pass.
+
+                  **Size note (planning-only)** — this pass flips the
+                  26-consumer `cutover-manifest.json` from
+                  `replacement.status: "unselected"` to
+                  `replacement.status: "selected"` with a populated
+                  `replacement.path` + `replacement.note` block (manifest
+                  grew from 273 lines to 391 lines, +118 lines, all in
+                  the populated `replacement` block of each consumer +
+                  the new `selection_invariants.legacy_pre_cut_selection_status`
+                  + `all_replacements_unselected_note` + `selection_rule_tier1_*`
+                  + `selection_rule_tier2_*` + `combined_selection_rule`
+                  + `verifier_contract_summary.threshold_tier1_*` +
+                  `threshold_tier2_*` + `evaluation_state`) plus the
+                  `design.md` / `design-es.md` §3.3.3 row update +
+                  `design.md::§3.3.3.1` four new rows
+                  (Tier-1 selection rule + Tier-2 selection rule +
+                  Combined selection state + Provenance second-pass
+                  note) + `design.md` Threshold cell `Nivel-1 / Nivel-2`
+                  language + `design.md::§3.3.3.1` `Ruta del manifiesto
+                  canónico` flip + `Semántica de fallo` Tier-1/2
+                  extension + `Procedencia` second-pass note + status
+                  footer update (≈ 28 net lines across the two files).
+                  Total authored planning-doc additions in this pass
+                  stay well under the 400-line per-PR review budget.

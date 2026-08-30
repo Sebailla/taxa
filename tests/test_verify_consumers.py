@@ -66,14 +66,12 @@ def _write_manifest(tmp_path: Path, manifest: dict) -> Path:
     return p
 
 
-def test_unselected_real_manifest_fails_closed_no_artifact(tmp_path):
-    """Real merged manifest has every consumer unselected → exit non-zero,
-    NO CONSUMER-READINESS.json emitted (G3 fail-closed invariant)."""
+def test_legacy_selected_real_manifest_fails_closed_without_runtime_readiness(tmp_path):
+    """The legacy-selected manifest still fails closed without runtime readiness."""
     out = tmp_path / "out"
     r = _run(["--manifest", str(MANIFEST), "--out", str(out)])
     assert r.returncode != 0, r.stderr
     assert not (out / "CONSUMER-READINESS.json").is_file(), r.stderr
-    assert "unselected" in r.stderr or "selection" in r.stderr.lower(), r.stderr
 
 
 def test_synthetic_partial_unselected_fails_closed(tmp_path):

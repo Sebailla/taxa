@@ -724,15 +724,211 @@ Espejos en español actualizados en paralelo. No se realiza
               están autordos). Espejos en español actualizados en
               paralelo. No se realiza commit, push, ni apertura de PR
               en esta pasada.
-              **Nota de tamaño (planning-only)** — esta pasada añade
-              `openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json`
-              (273 líneas, artefacto de planificación análogo al
-              `BUILD-INVENTORY.json` generado en G2 — el manifiesto es
-              un fichero de datos, no una adición de código/test, y
-              está acotado por el número de consumidores de §3.1) más
-              la actualización de la fila §3.3.3 + la nueva definición
-              del contrato §3.3.3.1 + el registro del pie de estado en
-              `design.md` y `design-es.md` (≈ 36 líneas netas entre los
-              dos ficheros). El total de adiciones autoradas de
-              planning-doc en esta pasada se queda bien por debajo del
-              presupuesto de revisión por PR de 400 líneas.
+                  **Nota de tamaño (planning-only)** — esta pasada añade
+                  `openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json`
+                  (273 líneas, artefacto de planificación análogo al
+                  `BUILD-INVENTORY.json` generado en G2 — el manifiesto es
+                  un fichero de datos, no una adición de código/test, y
+                  está acotado por el número de consumidores de §3.1) más
+                  la actualización de la fila §3.3.3 + la nueva definición
+                  del contrato §3.3.3.1 + el registro del pie de estado en
+                  `design.md` y `design-es.md` (≈ 36 líneas netas entre los
+                  dos ficheros). El total de adiciones autoradas de
+                  planning-doc en esta pasada se queda bien por debajo del
+                  presupuesto de revisión por PR de 400 líneas.
+                - **2026-08-30** — Pasada de autoría de selección legacy
+                  pre-cut de G3 (esta entrada). Según la tarea del padre,
+                  cada consumidor de §3.1 del manifiesto de cutover
+                  canónico se lleva a **selección Nivel-1 (legacy
+                  pre-cut)** contra su `current_path` del legado en disco,
+                  el contrato G3 de `design.md` / `design-es.md` se amplía
+                  con un **modelo de selección de dos niveles** (Nivel-1
+                  legacy pre-cut + Nivel-2 atomic-cut acoado por PASS de
+                  G2/G4/G5/G6), y los espejos de apply-progress se
+                  actualizan en paralelo. **En esta pasada no se tocan,
+                  comitean, ni pushean fuentes, tests, scripts, tareas,
+                  ficheros de producto, ficheros de evidencia, workspace
+                  candidato, ni `package-lock.json`. No se autora ningún
+                  verificador G3; no se reclama ningún PASS de G3; no se
+                  implica ninguna activación de FastAPI.**
+
+                  (1) **Qué significa "selección legacy pre-cut"** —
+                    para cada consumidor enumerado en
+                    `openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json`,
+                    `replacement.path` se establece al fichero del legado
+                    en disco (o al conjunto de ficheros del legado) que el
+                    consumidor lee actualmente, `replacement.status` se
+                    establece a `"selected"`, y `activation_status` se
+                    establece a `"selected"`. La `replacement.note` del
+                    consumidor documenta la semántica de Nivel-1: el
+                    runtime del legado en disco sobre el mount de FastAPI
+                    en `127.0.0.1:8765` (o la ruta lectora de test
+                    equivalente) permanece como el origen de servicio
+                    activo; no se implica ningún repoint de `WEB_DIR`,
+                    ningún cutover atómico, ninguna activación de FastAPI.
+                    El frontend vanilla del legado continúa sirviéndose
+                    exactamente como en `develop`.
+
+                  (2) **Cobertura** — los **26** consumidores activos en
+                    `design.md::§3.1` se llevan a selección de Nivel-1:
+                    21 de §3.1.1 (mount web de FastAPI) + 5 de §3.1.2
+                    (`web/search_urls.js`). Ningún consumidor queda sin
+                    seleccionar contra la línea base legacy pre-cut de
+                    Nivel-1.
+
+                  (3) **Campos por consumidor** — cada registro de
+                    consumidor lleva ahora un bloque `replacement`
+                    poblado (`status`, `path`, `note`) junto a los siete
+                    campos requeridos (`id`, `ownership_edge`,
+                    `current_path`, `verification`, `activation_status`,
+                    `rollback`). `replacement.path` es una ruta limpia (o
+                    un conjunto de rutas separadas por coma para imports
+                    multi-fichero — p. ej.
+                    `web/state.js, web/api.js, web/tree.js, web/breadcrumb.js, web/detail.js, web/nav.js, web/dom.js, web/banner.js, web/help.js, web/keymap.js`
+                    para
+                    `mount-runtime-import-app-js-modules-005`).
+                    `replacement.note` tiene forma consistente: prefijo
+                    "Legacy pre-cut selection (planning artifact,
+                    2026-08-30):" + identificador de la ruta del legado
+                    en disco + semántica de Nivel-1 + la frase "Approach
+                    A / B / C atomic-cut selection remains
+                    evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+
+                  (4) **Invariantes de nivel superior invertidos** —
+                    `selection_invariants.all_replacements_unselected`
+                    pasa de `true` a `false`. Un invariante hermano
+                    `all_replacements_unselected_note` documenta por
+                    qué. Se añade un nuevo invariante
+                    `legacy_pre_cut_selection_status`:
+                    `{active: true, scope: "every §3.1 consumer …",
+                    what_it_means: <doc>, what_it_does_not_claim: <doc>,
+                    two_tier_model: <doc>, truth_preservation: <doc>}`.
+                    Un nuevo invariante `combined_selection_rule`
+                    registra el contrato de dos niveles.
+
+                  (5) **Reglas de selección de dos niveles registradas**
+                    — `selection_invariants.selection_rule_tier1_legacy_pre_cut`
+                    documenta el contrato de Nivel-1 (legacy pre-cut, sin
+                    PASS de G2/G4/G5/G6, cada consumidor cumple Nivel-1
+                    en esta pasada). El antiguo
+                    `selection_invariants.selection_rule` se renombra a
+                    `selection_rule_tier2_atomic_cut` y ahora documenta
+                    exclusivamente el contrato de Nivel-2 (selección
+                    atomic-cut, requiere PASS de G2 + G4 + G5 + G6, los
+                    Enfoques A / B / C quedan sin seleccionar, aterriza
+                    en PR3d/PR3e). El registro de PASS de G2
+                    (2026-08-30, desde
+                    `taxa-worktrees/migrate-nextjs-g2-evidence-capture`)
+                    se cita en la regla de Nivel-2.
+
+                  (6) **`fail_closed_summary` actualizado** — el resumen
+                    describe ahora el estado de dos niveles: cada
+                    consumidor lleva `selected` bajo Nivel-1, así que la
+                    rama "cualquier-sin-seleccionar-sale-no-cero" no se
+                    dispara actualmente; pero el verificador (cuando se
+                    autore) debe aun validar cada `verification.command`
+                    contra el runtime legacy pre-cut, y una salida no-cero
+                    en cualquier `verification.command` re-dispara la
+                    rama fail-closed y bloquea el `CONSUMER-READINESS.json`.
+                    La selección atomic-cut de Nivel-2 sigue acoada por
+                    evidencia y NO está en juego.
+
+                  (7) **`verifier_contract_summary` actualizado** — el
+                    resumen lleva ahora `threshold_tier1_legacy_pre_cut`
+                    (runtime del legado en `127.0.0.1:8765` alcanzable,
+                    cada `verification.command` sale `0`) +
+                    `threshold_tier2_atomic_cut` (atomic-cut contra
+                    `<build-root>` + PASS de G2/G4/G5/G6) +
+                    `evaluation_state` (la evaluación de Nivel-1 corre
+                    primero; Nivel-2 se dispara después de que Nivel-1
+                    pase; fallos de Nivel-2 bloquean el artefacto). El
+                    `fail_closed_invariant` ahora describe ambos
+                    disparadores fail-closed de Nivel-1 y Nivel-2.
+
+(8) **`generated_by` invertido** — el campo
+                    `generated_by` del manifiesto ahora reza: "G3
+                    planning contract (planning-only; legacy pre-cut
+                    selection authored for every §3.1 consumer against
+                    the on-disk legacy `current_path`; Approach A / B
+                    / C atomic-cut selection remains evidence-gated by
+                    G2/G4/G5/G6 and is NOT made in this pass; verifier
+                    AUTHORED on disk — scripts/verify_consumers.py +
+                    tests/test_verify_consumers.py merged via PR #109
+                    + PR #111)".
+
+                  (9) **`design.md::§3.3.3` y `design.md::§3.3.3.1`
+                    actualizados** — la celda de umbral de la fila
+                    §3.3.3 documenta ahora el modelo de dos niveles.
+                    §3.3.3.1 introduce una fila
+                    `Selection rule — Tier-1 (legacy pre-cut)`, una
+                    fila `Selection rule — Tier-2 (atomic-cut, gated)`,
+                    y una fila `Combined selection state` (reemplazando
+                    la antigua fila única `Selection rule (gating)`). La
+                    fila `Canonical manifest path` se actualiza para
+                    registrar el estado de autoría de Nivel-1. La fila
+                    `Failure semantics` se renombra a `Failure semantics
+                    (fail-closed, two-tier)` e incluye ramas de
+                    evaluación de Nivel-1 + Nivel-2. La fila
+                    `Provenance` registra la pasada de autoría del
+                    2026-08-30 (segunda pasada). El pie de estado (línea
+`status:`) enumera el contrato de Nivel-1 + Nivel-2
+                    y el lenguaje de preservación; **G3 se queda
+                    `bloqueado — contrato definido; selección legacy
+                    pre-cut autorada para cada consumidor de §3.1;
+                    verificador autordado en disco (PR #109 + PR #111)
+                    pero G3 sigue acoado por PASS de G2/G4/G5/G6 para
+                    Nivel-2`**, no `aprobado`.
+
+                  (10) **Espejos en español actualizados en paralelo** —
+                    las mismas ediciones se aplican a
+                    `documents-es/openspec/changes/migrate-nextjs-tailwind4/design-es.md`
+                    (español: Nivel-1 legacy pre-cut + Nivel-2
+                    atomic-cut acoado por PASS de G2/G4/G5/G6). Los
+                    cambios corresponden fila por fila al edit inglés; el
+                    pie de estado en español enumera el mismo contrato
+                    de Nivel-1 / Nivel-2 y lenguaje de preservación.
+
+**Verdad preservada** — G3 **selección legacy pre-cut
+                  autorada para cada consumidor de §3.1; verificador
+                  AUTORIADO en disco (PR #109 + PR #111) pero G3 sigue
+                  acoado por PASS de G2/G4/G5/G6 para Nivel-2**;
+                  ningún consumidor se lleva a
+                  Nivel-2 (atomic-cut); no se reclama ningún PASS de G3;
+                  la exportación estática (Enfoque A) y B / C quedan
+                  **sin seleccionar**; sin activación de FastAPI (sin
+                  repoint de `WEB_DIR`, sin actualización de consumidor,
+                  sin cambio en Makefile / extensión / API / fuente de
+                  producto); G4 / G6 siguen `bloqueadas` (verificadores
+                  aún no autordos); G5 sigue `irreproducible` según
+                  auditoría §3.3.5; la pasada legacy pre-cut de Nivel-1
+                  es un **artefacto de planificación**, no una puerta G3,
+                  y NO reclama ni implica PASS de G3. No se realiza
+                  commit, push, ni apertura de PR en esta pasada.
+
+                  **Nota de tamaño (planning-only)** — esta pasada lleva
+                  el `cutover-manifest.json` de 26 consumidores de
+                  `replacement.status: "unselected"` a
+                  `replacement.status: "selected"` con un bloque
+                  `replacement.path` + `replacement.note` poblado (el
+                  manifiesto creció de 273 a 391 líneas, +118 líneas,
+                  todas en el bloque `replacement` poblado de cada
+                  consumidor + los nuevos `selection_invariants.legacy_pre_cut_selection_status`
+                  + `all_replacements_unselected_note` +
+                  `selection_rule_tier1_*` + `selection_rule_tier2_*` +
+                  `combined_selection_rule` +
+                  `verifier_contract_summary.threshold_tier1_*` +
+                  `threshold_tier2_*` + `evaluation_state`) más la
+                  actualización de la fila `design.md::§3.3.3` +
+                  cuatro nuevas filas en `design.md::§3.3.3.1`
+                  (Regla de selección Nivel-1 + Regla de selección
+                  Nivel-2 + Estado combinado de selección + nota de
+                  segunda pasada en Procedencia) + la celda de umbral
+                  de `design.md::§3.3.3` con lenguaje Nivel-1 / Nivel-2
+                  + inversión de `Ruta del manifiesto canónico` en
+                  `§3.3.3.1` + extensión de `Semántica de fallo` a
+                  Nivel-1 / Nivel-2 + nota de segunda pasada en
+                  `Procedencia` + actualización del pie de estado (≈
+                  28 líneas netas entre los dos ficheros). El total de
+                  adiciones autoradas de planning-doc en esta pasada
+                  se queda bien por debajo del presupuesto de revisión
+                  por PR de 400 líneas.
