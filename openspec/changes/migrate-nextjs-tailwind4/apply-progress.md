@@ -436,3 +436,60 @@ updated: G2 remains `blocked — contract defined; verifier not
         tests / scripts / candidate workspace / package-lock /
         evidence files touched. Spanish mirrors updated in lockstep. No
         commit or push performed in this pass.
+        - **2026-08-30** — G2 output-contract correction pass (one explicit
+          maintainer decision applied to `design.md::§3.3.2.1`; this entry).
+          Per the parent task, the canonical G2 contract is corrected to
+          reflect the **verified Next.js 16.3.3 / Turbopack clean build**
+          output layout (CSS under `out/_next/static/chunks/**`, flat JS
+          chunks under `out/_next/static/chunks/**` with no
+          `chunks/app/` subdirectory, and `build-manifest.json` staged /
+          required while `app-build-manifest.json` is optional and never a
+          missing-class failure). G2 **remains `blocked — contract defined;
+          verifier not implemented`**, not `passed` (no G2 verifier is
+          authored in this pass, no gate passes, no source / tests /
+          scripts / candidate workspace / package-lock / evidence files /
+          Next 16 candidate build artifact is touched; the build-output
+          realities are implementation findings, not assumptions).
+          (4) **Next.js 16 / Turbopack output-contract correction** —
+          recorded in `design.md::§3.3.2.1` against the verified clean
+          `next build` output layout:
+          - (4.a) **CSS class** — the required CSS application-route class
+            is **one-or-more non-empty `*.css` files anywhere under
+            `<candidate-root>/out/_next/static/chunks/**`** (CSS bundles
+            are co-located with JS chunks), **not** `out/_next/static/css/`
+            (no separate CSS directory is required or asserted).
+          - (4.b) **JS class** — the required JS application-route class
+            is **one-or-more non-empty `*.js` files anywhere under
+            `<candidate-root>/out/_next/static/chunks/**`**; the contract
+            carries **no `chunks/app/` subdirectory requirement** (Next.js
+            16 / Turbopack emits flat JS chunks).
+          - (4.c) **Manifest staging semantics** — only
+            `<candidate-root>/.next/build-manifest.json` →
+            `<candidate-root>/out/.next/build-manifest.json` is
+            **required** (its absence from the build output is a
+            missing-class failure);
+            `<candidate-root>/.next/app-build-manifest.json` →
+            `<candidate-root>/out/.next/app-build-manifest.json` is
+            **optional and never a missing-class failure** — the verifier
+            attempts the copy only when the source manifest exists,
+            records `staged` / `not_emitted` in `assets[]`, and never fails
+            on its absence (the verified clean Next 16.3.3 / Turbopack
+            build emits only `build-manifest.json`).
+          Recorded in `design.md::§3.3.2.1` by updating the `Required asset
+          classes (application-route)`, `Post-build manifest staging
+          (atomic)`, `Inventory schema & location`, `Failure semantics`,
+          and `Verification boundary (strict-TDD G2 verifier preconditions)`
+          rows; the `Verification boundary` row additionally asserts that
+          the strict-TDD G2 verifier MUST NOT require a
+          `_next/static/css/` directory or a `_next/static/chunks/app/`
+          subdirectory. The `Failure semantics` row adds branch (b′) for
+          optional `app-build-manifest.json` absence (`not_emitted` is
+          **never** a failure) and tightens branch (b) to required
+          `build-manifest.json` only. The status footer in `design.md`
+          (and its Spanish mirror) is updated to enumerate the **four**
+          corrections; the G2 / G5 / PR3e blocking language is preserved
+          verbatim. Spanish mirrors updated in lockstep. No boundary
+          selected, no gate passing, no cutover manifest, no G2 verifier
+          authored, no source / tests / scripts / candidate workspace /
+          package-lock / evidence files / Next 16 candidate build artifact
+          touched. No commit or push performed in this pass.
