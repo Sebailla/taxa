@@ -326,12 +326,17 @@ superficie de PR 2a en esta rebanada.
 
 ## §1 Decisión de frontera de responsabilidad del servidor (Next.js ↔ FastAPI)
 
-**Estado: Abierta / Basada-en-evidencia.**
+**Estado: Decisión de frontera G1 registrada; la selección de
+Enfoque (A / B / C) sigue bloqueada por evidencia G2–G6 (§3.3).**
 
-La decisión entre el Enfoque A (exportación estática de `next build`
-bajo FastAPI), el Enfoque B (servidor de dev Next.js completo en un
-segundo puerto) y el Enfoque C (híbrido por fases) **no** queda
-finalizada en esta rebanada de PR 2a. Según
+Esta entrada registra la **decisión de frontera G1** seleccionada
+por el mantenedor: **FastAPI se mantiene como único origen
+desplegado en `127.0.0.1:8765`**, con las rutas, métodos, formas,
+status y headers de `/api/*` sin cambios, y
+`extension/manifest.json::host_permissions` quedando en
+`["http://localhost:8765/*"]`. G1 es una decisión de frontera, no
+una selección de Enfoque; la elección de Enfoque (A / B / C) sigue
+bloqueada por G2–G6 (§3.3). Según
 `specs/modular-architecture/spec.md` regla 7:
 
 > el enfoque elegido se registra en `design.md::§1 Decision`
@@ -344,53 +349,116 @@ Esta entrada **cita
 `openspec/changes/migrate-nextjs-tailwind4/specs/modular-architecture/spec.md`
 como autoridad arquitectónica** para las restricciones del monolito
 modular (reglas 1–5) y confirma que **no se ha identificado ningún
-conflicto** entre los candidatos de §1 y cualquier regla del spec
-en este punto. Las reglas 1, 2, 3, 5 son neutras respecto al
-framework y restringen los tres enfoques por igual; la regla 4 (el
-dominio permanece libre de framework / I/O) restringe los tres
-enfoques por igual; la regla 6 exige explícitamente que todo
-enfoque respete las reglas 1–5; la regla 7 es esta misma entrada.
+conflicto** entre la frontera G1 y cualquier regla del spec. Las
+reglas 1, 2, 3, 5 son neutras respecto al framework y restringen
+todo Enfoque por igual; la regla 4 (el dominio permanece libre de
+framework / I/O) restringe todo Enfoque por igual; la regla 6
+exige explícitamente que todo Enfoque respete las reglas 1–5; la
+regla 7 es esta misma entrada.
 
-### Evidencia requerida para cerrar §1
+### Decisión G1: invariantes de FastAPI como único origen (registradas)
 
-La Decisión §1 se actualizará una vez que **toda** la siguiente
-evidencia esté en disco:
+| Invariante | Regla vinculante | Anclaje |
+|---|---|---|
+| Único proceso desplegado / único origen HTTP en `127.0.0.1:8765`. Un proceso FastAPI; sin segundo contenedor, grupo de procesos, servicio o puerto de servidor de desarrollo. | spec.md regla 1 | `api/server.py:1818–1820` (`uvicorn.run(app, host="127.0.0.1", port=8765, ...)`) |
+| Continuidad de `/api/*`: rutas, métodos, formas de request, formas de response, status codes y headers sin cambios. AC-21 (`tests/test_smoke.py:77 test_search_engine_contract`) puede leer desde una ruta nueva; la forma del contrato se mantiene idéntica. | propuesta §Fuera de Alcance | handlers `/api/*` existentes en `api/server.py` |
+| Continuidad de la extensión: `extension/manifest.json::host_permissions` queda en `["http://localhost:8765/*"]`; `content_scripts.matches` queda en `["http://localhost:8765/*"]`. Sin segundo origen, sin puerto nuevo. | spec.md regla 1 | `extension/manifest.json:13–15, :21` |
+| Cumplimiento del monolito modular: las reglas 1–7 de `specs/modular-architecture/spec.md` son vinculantes para el Enfoque elegido. | spec.md regla 6 | spec.md mismo |
 
-1. `web/dist/build-profile.json` de PR 1a.1 + PR 1a.2
-   (`scripts/emit_build_profile.mjs` + el test de esquema). Los
-   números `total_bytes` y `per_route_bytes` son la entrada de §1.
-2. Delta de Playwright + Lighthouse frente a la línea base legacy
-   sobre el fixture chromium de PR 1b.1
-   (`scripts/verify_chromium.py`) + PR 1b.2
-   (`tests/test_evidence_baseline.py`).
-3. Medición de coste de hidratación de PR 1b.3a +
-   `tests/test_hydration_timing.py` (PR 1b.3b): los números
-   `delta_server_to_tree_first_paint_ms` y `console_warnings` son
-   la entrada de §1.
+G1 registra estas invariantes. **No** selecciona un Enfoque, **no**
+afirma que una puerta de evidencia haya pasado y **no** afirma que
+exista evidencia de paridad o comparabilidad de rendimiento del
+legado en disco.
 
-### Fail-safe por defecto (si la evidencia lo soporta)
+### Ownership de HTML y de activos estáticos (registrado para G1)
 
-Si las tres mediciones anteriores muestran que la exportación
-estática de `next build` (Enfoque A) logra una regresión ≤ 0 %
-sobre el presupuesto de perf y satisface todas las reglas de
-`specs/modular-architecture/spec.md`, entonces **el Enfoque A es la
-decisión §1 por defecto** porque preserva el contrato de puerto
-único (propuesta §Incluido) y tiene el radio de impacto más
-pequeño. Cualquier otro resultado exige escalar de vuelta a la
-propuesta antes de que aterrice código alguno.
+- **Owner del HTML**: el `app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")` existente de FastAPI (en `api/server.py:1815`) sirve `/`, `index.html` y el fallback para navegación directa a rutas desconocidas.
+- **Owner de los activos estáticos**: el mismo montaje `StaticFiles` sirve cada `/_next/static/*`, `/assets/*`, archivo de fuente, bundle CSS e imagen. G1 **no** permite un segundo origen estático.
+- **Constante `WEB_DIR`**: `WEB_DIR = Path(__file__).parent.parent / "web"` en `api/server.py:54`. Reorientar `WEB_DIR` a una salida de build de Next.js (p. ej. `out/`, `web/dist/next-static/` o equivalente) es el único cambio permitido del montaje estático en este cambio.
+- **Un montaje, una reescritura**: `app.mount("/", StaticFiles(...))` sigue siendo el único montaje; el middleware estrictamente necesario para el Enfoque elegido (p. ej. SPA-fallback para deep links) se añade en `api/server.py` sin reescribir la signature del montaje.
+- **Bind de `uvicorn`**: `uvicorn.run(app, host="127.0.0.1", port=8765, ...)` es el único listener introducido por `make api`. G1 no abre un segundo puerto.
 
-### Por qué §1 queda abierta en PR 2a
+### Fallback de navegación directa (registrado para G1)
 
-PR 2a solo añade el **layout** del monolito modular; no corre
-`next build`, no emite `web/dist/build-profile.json`, no mide
-cronometraje de hidratación y no cambia el sitio de llamada
-`app.mount("/", StaticFiles(...))` de FastAPI. La decisión se
-difiere deliberadamente a PR 3, que es la primera rebanada donde el
-tooling de Next.js está en disco y `next build` puede correr. PR 2a
-deja §1 en el estado **Abierta / Basada-en-evidencia** registrado
-aquí para que el destino de la referencia de la regla 7 del spec
-exista desde el día en que aterriza PR 2a, aunque el contenido de
-la decisión llegue después.
+- El `StaticFiles(directory=str(WEB_DIR), html=True)` de FastAPI ya provee fallback de `index.html` para rutas desconocidas. La navegación directa a `/`, `/index.html` o cualquier ruta que el montaje no reconozca devuelve el shell SPA mediante ese fallback.
+- Los deep links (p. ej. `/taxon/{id}`, `/help`, `/settings`) resuelven a `index.html` mediante el fallback `html=True`; el router del lado cliente dentro de la SPA decide la ruta final. **No se requiere tabla de rutas del lado servidor** bajo G1.
+- El fallback forma parte del contrato `StaticFiles` de FastAPI; PR3 no introduce un mecanismo de fallback paralelo bajo G1. Si un Enfoque futuro (p. ej. Enfoque B) requiere fallback adicional, queda bloqueado por G3 (preparación de consumidores, §3.3.3).
+
+### Comportamiento ante arranque y fallo de build (registrado para G1)
+
+- **Un fallo de build NO debe caer silenciosamente al legado**. Si `next build` sale distinto de cero, `make api` DEBE salir distinto de cero y NO debe arrancar uvicorn. Los archivos vanilla del legado solo se alcanzan mediante un `git revert` explícito de la unidad de cutover (§"Unidad atómica de cutover y rollback" abajo), nunca mediante un modo degradado silencioso.
+- **Comprobación de runtime**: `scripts/check-runtime.mjs` (tarea 3.4 de PR 3) verifica `node --version >= 20.9.0` antes de que arranque uvicorn. Un fallo sale distinto de cero y aborta el target `make api`.
+- **Artefacto de build ausente**: `Makefile::api` invoca el paso de build antes de que uvicorn vincule el puerto. Si el artefacto de build de Next.js está ausente (clon limpio, sin `next build` ejecutado), el target del Makefile falla antes de que uvicorn vincule. Bajo G1 no existe una ruta de código implícita de "servir los archivos legacy".
+- **Supervisión de proceso**: uvicorn corre como el único proceso FastAPI. No hay un segundo watcher / supervisor de procesos que pueda cambiar al legado ante un fallo.
+- **Puerta de smoke**: `make smoke` (que llama a `tests/test_smoke.py`) devuelve la línea base previa a la migración (63 passed, 8 skipped) **antes** de que exista cualquier artefacto de build de Next.js; la puerta de smoke es independiente del cutover G1.
+
+### Manifiesto de consumidores activos afectados (registrado para G1)
+
+- El cutover atómico DEBE mover cada consumidor activo enumerado en `design.md::§3.1` (consumidores del mount web de FastAPI + consumidores de `web/search_urls.js`) en la misma unidad de release. **Ningún consumidor puede permanecer "activo" contra una ruta que el cutover pretende eliminar.**
+- `§3.1` es el inventario autorizado de consumidores activos; el futuro manifiesto coordinado de cutover (§3.4, entregable de PR3d) nombra una ruta de reemplazo y una ruta de verificación para cada consumidor.
+- **G1 no edita §3.1.** §3.1 ya enumera más de 20 consumidores activos repartidos entre `web/index.html`, `web/*.js`, los smoke tests, los tests de línea base de evidencia, los tests de build-profile, los tests de cronometraje de hidratación, el manifest de la extensión y `web/search_urls.js` + AC-21. G1 cita §3.1 como la lista vinculante y difiere la actualización del lado consumidor a la rebanada de planificación PR3d.
+
+### Unidad atómica de cutover y rollback (registrada para G1)
+
+- **Unidad de cutover (activación)**: PR3e cambia exactamente lo siguiente de forma atómica, en un único release:
+  1. La constante `WEB_DIR` en `api/server.py:54` (reorientada a la salida de build del Enfoque elegido).
+  2. Cada actualización de consumidor activo enumerada en `design.md::§3.1` (imports, ruta lectora AC-21, cada consumidor de test).
+  3. Los targets `make api` / `make web` del Makefile.
+  4. El propio artefacto de build (el directorio de salida de build del Enfoque elegido).
+- **Unidad de rollback (desactivación)**: `git revert` del commit de PR3e restaura los cuatro conjuntos juntos. G1 **no admite un revert parcial** — los reverts parciales dejan consumidores que referencian rutas eliminadas y rompen el shell SPA o AC-21.
+- **Límite de verificación**: tras el revert, `make smoke` vuelve a la línea base previa a la migración (63 passed, 8 skipped) y `curl http://127.0.0.1:8765/index.html` devuelve el shell vanilla. Sin regresión de AC-21; sin cambio en el manifest de la extensión; sin deriva del contrato `/api/*`.
+
+### Prerrequisitos antes de PR3b / G2 (registrados para G1)
+
+El trabajo de PR3b / G2 NO DEBE comenzar hasta que se satisfaga cada
+prerrequisito de abajo. La evidencia ausente, fallida, obsoleta
+(>7 días) o incomparable queda **bloqueada**, nunca aprobada.
+
+| Puerta | Productor / artefacto | Estado |
+|---|---|---|
+| G2 | `scripts/verify_build.py` + `BUILD-INVENTORY.json` | pendiente PR3b |
+| G3 | `scripts/verify_consumers.py` + `CONSUMER-READINESS.json` (cada consumidor de §3.1 nominado) | pendiente PR3d |
+| G4 | Harness de paridad Playwright + Lighthouse (línea base existente de `tests/test_smoke.py` 63 passed / 8 skipped preservada) | pendiente PR3d |
+| G5 | `scripts/measure_hydration.py` (PR 1b.3a, reconstrucción pendiente) + comparabilidad Lighthouse; línea base del legado **no** en disco | bloqueada hasta reconstrucción |
+| G6 | `scripts/rehearse_cutover.py` referenciando `design.md::§3.4` | pendiente PR3d |
+
+La sonda de exportación estática desechable (PRs #93–#97) sigue
+siendo solo de evidencia; sus artefactos son entradas para la
+evidencia G4 / G5, no un sustituto de una selección de Enfoque.
+**No se registra ninguna afirmación de paridad o comparabilidad de
+rendimiento del legado** en esta rebanada.
+
+### Evidencia requerida para cerrar la selección de Enfoque §1
+
+La selección de Enfoque (A, B o C) se registra aquí **solo** una vez
+que **toda** la siguiente evidencia esté en disco:
+
+1. `BUILD-INVENTORY.json` de PR3b (`scripts/verify_build.py`).
+2. `CONSUMER-READINESS.json` de PR3d (`scripts/verify_consumers.py`).
+3. Delta de Playwright + Lighthouse de PR3d contra la línea base del legado sobre el fixture chromium.
+4. Cronometraje de hidratación de `scripts/measure_hydration.py` (PR 1b.3a, reconstrucción pendiente) más comparabilidad con Lighthouse.
+5. `cutover-rehearsal.json` del dry-run de PR3d (`scripts/rehearse_cutover.py`).
+
+Hasta que las cinco estén en disco y pasen sus umbrales
+(§3.3.2–§3.3.6), la entrada §1 se mantiene en **G1 registrada;
+selección de Enfoque bloqueada por evidencia**, y `## §1 Enfoque:
+<A | B | C>` **no** se escribe. Si esas mediciones muestran que la
+exportación estática de `next build` (Enfoque A) logra una
+regresión ≤ 0 % sobre el presupuesto de perf (G5), preserva cada
+contrato de consumidor (G3), preserva paridad de comportamiento
+(G4), y el ensayo de cutover tiene éxito (G6), entonces **el
+Enfoque A es la selección de Enfoque §1 por defecto** porque
+preserva el contrato de puerto único (G1) y tiene el radio de
+impacto más pequeño. Cualquier otro resultado exige escalar de
+vuelta a la propuesta antes de que aterrice código alguno.
+**Este fail-safe por defecto es condicional a evidencia real; NO
+es una selección hecha en esta rebanada.**
+
+### Lo que esta entrada NO afirma
+
+- **No** afirma que el Enfoque A (exportación estática bajo FastAPI) esté seleccionado. El Enfoque A es uno de tres candidatos; la selección queda bloqueada por G2–G6.
+- **No** afirma que G1 "haya pasado". G1 es una decisión de frontera registrada por el diseño; las puertas de evidencia G2–G6 siguen bloqueadas.
+- **No** afirma que exista evidencia comparable de rendimiento o paridad del producto legacy, ni que el manifiesto de consumidores activos `§3.1` esté finalizado. El artefacto de línea base del legado `web/dist/evidence-baseline.json` estaba pendiente de reconstrucción en PR 1b.2 / 1b.3a / 1b.3b; la línea base de hidratación G5, el harness de paridad G4 y el manifiesto de cutover `§3.4` son entregables separados de PR3d.
 
 ---
 
@@ -456,17 +524,33 @@ de `package.json`.
 
 ## Preguntas abiertas
 
-- [ ] **§1 evidencia**: ver §1 arriba. Se cierra cuando las tres
-      mediciones (perfil de build, delta Playwright + Lighthouse,
-      cronometraje de hidratación) las produzcan los sub-PRs de
-      PR 1 y el Enfoque elegido se registre aquí como
-      `## §1 Decisión: <A | B | C>` con cita de vuelta a
+- [x] **§1 decisión de frontera G1**: registrada en §1 arriba (esta
+      rebanada). FastAPI se mantiene como único origen desplegado en
+      `127.0.0.1:8765`; `/api/*` y
+      `extension/manifest.json::host_permissions` quedan sin cambios;
+      el ownership de HTML / activos estáticos, el fallback de
+      navegación directa, el comportamiento ante arranque / fallo de
+      build, el manifiesto de consumidores activos afectados, la
+      unidad atómica de cutover / rollback y los prerrequisitos de
+      PR3b / G2 quedan definidos. **G1 es una decisión de frontera,
+      NO una selección de Enfoque** (ver §1 arriba, "Lo que esta
+      entrada NO afirma").
+- [ ] **§1 selección de Enfoque (G2–G6)**: sigue abierta. Se cierra
+      cuando las cinco mediciones (`BUILD-INVENTORY.json`,
+      `CONSUMER-READINESS.json`, delta de paridad Playwright +
+      Lighthouse, comparabilidad de hidratación,
+      `cutover-rehearsal.json`) las produzcan PR3b / PR3d y el
+      Enfoque elegido se registre aquí como `## §1 Enfoque: <A | B | C>`
+      con cita de vuelta a
       `openspec/changes/migrate-nextjs-tailwind4/specs/modular-architecture/spec.md`
       según la regla 7.
 - [ ] **Coste de hidratación en `taxonomy/tree`**: test RED en
       `tests/test_hydration_timing.py` (sin warnings `hydration`
       en consola bajo Playwright). Se cierra cuando la tarea 5.8
-      de PR 5 aterrice y el delta sea `≤ 0 %`.
+      de PR 5 aterrice y el delta sea `≤ 0 %`. La línea base de
+      rendimiento del producto legacy que alimenta esta puerta
+      **no** está en disco; la puerta queda bloqueada hasta que
+      los entregables de PR 1b.3a / 1b.3b se reconstruyan.
 - [ ] **Presupuesto de revisión (cerrado)**: el
       `apply-progress-es.md` §Contexto histórico de la propuesta
       estimaba ~1369 LoC para la unidad PR 2 original. La

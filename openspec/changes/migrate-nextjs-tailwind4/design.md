@@ -310,12 +310,16 @@ slice.
 
 ## §1 Server Responsibility Boundary Decision (Next.js ↔ FastAPI)
 
-**Status: Open / Evidence-gated.**
+**Status: G1 boundary decision recorded; Approach (A / B / C)
+selection remains evidence-gated by G2–G6 (§3.3).**
 
-The decision between Approach A (`next build` static export under
-FastAPI), Approach B (full Next.js dev server on a second port), and
-Approach C (phased hybrid) is **not** finalised in this PR 2a slice.
-Per `specs/modular-architecture/spec.md` rule 7:
+This entry records the **G1 boundary decision** selected by the
+maintainer: **FastAPI remains the sole deployed origin on
+`127.0.0.1:8765`**, with `/api/*` paths / methods / shapes / status
+/ headers unchanged, and `extension/manifest.json::host_permissions`
+staying at `["http://localhost:8765/*"]`. G1 is a boundary decision,
+not an Approach selection; Approach (A / B / C) choice remains gated
+by G2–G6 (§3.3). Per `specs/modular-architecture/spec.md` rule 7:
 
 > the chosen approach is recorded in `design.md::§1 Decision`
 > THEN the entry cites this spec by path as the architectural
@@ -323,52 +327,116 @@ Per `specs/modular-architecture/spec.md` rule 7:
 > AND if design sees a conflict with any rule here, it is raised back
 > to the proposal before implementation
 
-This entry **cites `openspec/changes/migrate-nextjs-tailwind4/specs/modular-architecture/spec.md` as the architectural authority**
-for the modular-monolith constraints (rules 1–5) and confirms that
-**no conflict** between the §1 candidates and any spec rule has been
-identified at this point. Rules 1, 2, 3, 5 are framework-neutral and
-constrain all three approaches equally; rule 4 (domain stays free of
-framework / I/O) constrains all three approaches equally; rule 6
-explicitly requires every approach to honour rules 1–5; rule 7 is
-this very entry.
+This entry **cites
+`openspec/changes/migrate-nextjs-tailwind4/specs/modular-architecture/spec.md`
+as the architectural authority** for the modular-monolith
+constraints (rules 1–5) and confirms that **no conflict** between
+the G1 boundary and any spec rule has been identified. Rules 1, 2,
+3, 5 are framework-neutral and constrain every Approach equally;
+rule 4 (domain stays free of framework / I/O) constrains every
+Approach equally; rule 6 explicitly requires every Approach to
+honour rules 1–5; rule 7 is this very entry.
 
-### Evidence required to close §1
+### G1 decision: FastAPI sole-origin invariants (recorded)
 
-The §1 Decision will be updated once **all** of the following
-evidence is on disk:
+| Invariant | Rule binding | Anchor |
+|---|---|---|
+| Sole deployed process / sole HTTP origin on `127.0.0.1:8765`. One FastAPI process; no second container, process group, service, or dev-server port. | spec.md rule 1 | `api/server.py:1818–1820` (`uvicorn.run(app, host="127.0.0.1", port=8765, ...)`) |
+| `/api/*` continuity: paths, methods, request shapes, response shapes, status codes, and headers are unchanged. AC-21 (`tests/test_smoke.py:77 test_search_engine_contract`) may read from a new path; the contract shape stays identical. | proposal §Out of Scope | existing `/api/*` handlers in `api/server.py` |
+| Extension continuity: `extension/manifest.json::host_permissions` stays at `["http://localhost:8765/*"]`; `content_scripts.matches` stays at `["http://localhost:8765/*"]`. No second origin, no new port. | spec.md rule 1 | `extension/manifest.json:13–15, :21` |
+| Modular-monolith compliance: rules 1–7 of `specs/modular-architecture/spec.md` are binding on the chosen Approach. | spec.md rule 6 | spec.md itself |
 
-1. `web/dist/build-profile.json` from PR 1a.1 + PR 1a.2
-   (`scripts/emit_build_profile.mjs` + the schema test). The
-   `total_bytes` and `per_route_bytes` numbers are the §1 input.
-2. Playwright + Lighthouse delta vs the legacy baseline on the
-   chromium fixture from PR 1b.1 (`scripts/verify_chromium.py`) +
-   PR 1b.2 (`tests/test_evidence_baseline.py`).
-3. Hydration-cost measurement from PR 1b.3a +
-   `tests/test_hydration_timing.py` (PR 1b.3b): the
-   `delta_server_to_tree_first_paint_ms` and `console_warnings`
-   numbers are the §1 input.
+G1 records these invariants. It does **not** select an Approach, does
+**not** claim an evidence gate has passed, and does **not** claim
+that legacy parity or performance comparability evidence exists on
+disk.
 
-### Default fail-safe (if evidence supports it)
+### HTML and static-asset ownership (recorded for G1)
 
-If the three measurements above show that the `next build` static
-export (Approach A) achieves ≤ 0 % regression on the perf budget and
-satisfies every rule in `specs/modular-architecture/spec.md`, then
-**Approach A is the default §1 decision** because it preserves the
-single-port contract (proposal §In Scope) and has the smallest blast
+- **HTML owner**: FastAPI's existing `app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")` (at `api/server.py:1815`) serves `/`, `index.html`, and the fallback for direct navigation to unknown routes.
+- **Static-asset owner**: The same `StaticFiles` mount serves every `/_next/static/*`, `/assets/*`, font file, CSS bundle, and image. **No second static origin** is permitted by G1.
+- **`WEB_DIR` constant**: `WEB_DIR = Path(__file__).parent.parent / "web"` at `api/server.py:54`. Repointing `WEB_DIR` to a Next.js build output (e.g. `out/`, `web/dist/next-static/`, or equivalent) is the only allowed static-mount change in this change.
+- **One mount, one rewrite**: `app.mount("/", StaticFiles(...))` stays the only mount; middleware strictly required for the chosen Approach (e.g. SPA-fallback for deep links) is added in `api/server.py` without rewriting the mount signature.
+- **`uvicorn` bind**: `uvicorn.run(app, host="127.0.0.1", port=8765, ...)` is the only listener introduced by `make api`. No second port is opened under G1.
+
+### Direct-navigation fallback (recorded for G1)
+
+- FastAPI's `StaticFiles(directory=str(WEB_DIR), html=True)` already provides `index.html` fallback for unknown paths. Direct navigation to `/`, `/index.html`, or any path the mount does not recognise returns the SPA shell via that fallback.
+- Deep links (e.g. `/taxon/{id}`, `/help`, `/settings`) resolve to `index.html` via the `html=True` fallback; the client-side router inside the SPA decides the final route. **No server-side route table is required** under G1.
+- The fallback is part of the FastAPI `StaticFiles` contract; PR3 does not introduce a parallel fallback mechanism under G1. If a future Approach (e.g. Approach B) needs additional fallback, it is gated by G3 (consumer readiness, §3.3.3).
+
+### Startup and build failure behavior (recorded for G1)
+
+- **Build failure must NOT silently fall back to legacy**. If `next build` exits non-zero, `make api` MUST exit non-zero and MUST NOT start uvicorn. The legacy vanilla files are reachable only via an explicit `git revert` of the cutover unit (§"Atomic cutover and rollback unit" below), never via a quiet degraded mode.
+- **Runtime check**: `scripts/check-runtime.mjs` (PR 3 task 3.4) verifies `node --version >= 20.9.0` before uvicorn starts. Failure exits non-zero and aborts the `make api` target.
+- **Missing build artifact**: `Makefile::api` invokes the build step before uvicorn binds the port. If the Next.js build artifact is absent (clean clone, no `next build` run), the Makefile target fails before uvicorn binds. There is no implicit "serve the legacy files" code path under G1.
+- **Process supervision**: uvicorn runs as the single FastAPI process. There is no second watcher / process supervisor that could swap to legacy on failure.
+- **Smoke gate**: `make smoke` (which calls `tests/test_smoke.py`) returns the pre-migration baseline (63 passed, 8 skipped) **before** any Next.js build artifact exists; the smoke gate is independent of the G1 cutover.
+
+### Affected active-consumer manifest (recorded for G1)
+
+- The atomic cutover MUST move every active consumer in `design.md::§3.1` (FastAPI web mount consumers + `web/search_urls.js` consumers) in the same release unit. **No consumer may remain "active" against a path the cutover intends to delete.**
+- `§3.1` is the authoritative active-consumer inventory; the future coordinated cutover manifest (§3.4, PR3d deliverable) names a replacement path and a verification path for every consumer.
+- **G1 does not edit §3.1.** §3.1 already enumerates 20+ active consumers across `web/index.html`, `web/*.js`, the smoke tests, the evidence-baseline tests, the build-profile tests, the hydration-timing tests, the extension manifest, and `web/search_urls.js` + AC-21. G1 cites §3.1 as the binding list and defers the consumer-side update to the PR3d planning slice.
+
+### Atomic cutover and rollback unit (recorded for G1)
+
+- **Cutover unit (activation)**: PR3e changes exactly the following atomically, in a single release:
+  1. `WEB_DIR` constant in `api/server.py:54` (repoint at the chosen Approach's build output).
+  2. Every active-consumer update enumerated in `design.md::§3.1` (imports, the AC-21 reader path, every test consumer).
+  3. The `make api` / `make web` Makefile targets.
+  4. The build artifact itself (the chosen Approach's build output directory).
+- **Rollback unit (deactivation)**: `git revert` of the PR3e commit restores all four sets together. **No subset revert is supported** under G1 — partial reverts leave consumers referencing deleted paths and break the SPA shell or AC-21.
+- **Verification boundary**: after revert, `make smoke` returns to the pre-migration baseline (63 passed, 8 skipped) and `curl http://127.0.0.1:8765/index.html` returns the vanilla shell. No AC-21 regression; no extension manifest change; no `/api/*` contract drift.
+
+### Prerequisites before PR3b / G2 (recorded for G1)
+
+PR3b / G2 work MUST NOT begin until every prerequisite below is
+satisfied. Absent, failed, stale (>7 days), or incomparable evidence
+is **blocked**, never success.
+
+| Gate | Producer / artifact | Status |
+|---|---|---|
+| G2 | `scripts/verify_build.py` + `BUILD-INVENTORY.json` | pending PR3b |
+| G3 | `scripts/verify_consumers.py` + `CONSUMER-READINESS.json` (every `§3.1` consumer named) | pending PR3d |
+| G4 | Playwright + Lighthouse parity harness (existing `tests/test_smoke.py` 63 passed / 8 skipped preserved) | pending PR3d |
+| G5 | `scripts/measure_hydration.py` (PR 1b.3a, reconstruction pending) + Lighthouse comparability; legacy baseline **not** on disk | blocked until reconstruction |
+| G6 | `scripts/rehearse_cutover.py` referencing `design.md::§3.4` | pending PR3d |
+
+The disposable static-export probe (PRs #93–#97) remains
+evidence-only; its artifacts are inputs to G4 / G5 evidence, not a
+substitute for an Approach selection. **No claim of legacy parity
+or performance comparability** is recorded in this slice.
+
+### Evidence required to close the §1 Approach selection
+
+The Approach selection (A, B, or C) is recorded here **only** once
+**all** of the following evidence is on disk:
+
+1. `BUILD-INVENTORY.json` from PR3b (`scripts/verify_build.py`).
+2. `CONSUMER-READINESS.json` from PR3d (`scripts/verify_consumers.py`).
+3. Playwright + Lighthouse delta from PR3d against the legacy baseline on the chromium fixture.
+4. Hydration timing from `scripts/measure_hydration.py` (PR 1b.3a, reconstruction pending) plus Lighthouse comparability.
+5. `cutover-rehearsal.json` from PR3d dry-run (`scripts/rehearse_cutover.py`).
+
+Until all five are on disk and pass their thresholds (§3.3.2–§3.3.6),
+the §1 entry stays at **G1 recorded; Approach selection
+evidence-gated**, and `## §1 Approach: <A | B | C>` is **not**
+written. If those measurements show that the `next build` static
+export (Approach A) achieves ≤ 0 % regression on the perf budget
+(G5), preserves every consumer contract (G3), preserves behaviour
+parity (G4), and the cutover rehearsal succeeds (G6), then
+**Approach A is the default §1 Approach selection** because it
+preserves the single-port contract (G1) and has the smallest blast
 radius. Any other outcome must escalate back to the proposal before
-any code lands.
+any code lands. **This default fail-safe is conditional on real
+evidence; it is NOT a selection made in this slice.**
 
-### Why §1 is open in PR 2a
+### What this entry does NOT claim
 
-PR 2a only adds the modular-monolith **layout**; it does not run
-`next build`, does not emit `web/dist/build-profile.json`, does not
-measure hydration timing, and does not change FastAPI's
-`app.mount("/", StaticFiles(...))` call site. The decision is
-deliberately deferred to PR 3, which is the first slice where the
-Next.js tooling is on disk and `next build` can run. PR 2a leaves
-§1 in the **Open / Evidence-gated** state recorded here so the
-spec rule 7 reference target exists from the day PR 2a lands, even
-though the decision content arrives later.
+- It does **not** claim Approach A (static export under FastAPI) is selected. Approach A is one of three candidates; selection is gated by G2–G6.
+- It does **not** claim G1 "passed". G1 is a boundary decision recorded by design; the evidence gates G2–G6 remain blocked.
+- It does **not** claim comparable legacy-product performance or parity evidence exists, nor that the `§3.1` active-consumer manifest is finalised. The legacy baseline artifact `web/dist/evidence-baseline.json` was reconstruction-pending in PR 1b.2 / 1b.3a / 1b.3b; the G5 hydration baseline, G4 parity harness, and `§3.4` cutover manifest are separate PR3d deliverables.
 
 ---
 
@@ -429,17 +497,28 @@ task 3.4 lands the actual `package.json` rewrite.
 
 ## Open Questions
 
-- [ ] **§1 evidence**: see §1 above. Closed when the three
-      measurements (build profile, Playwright + Lighthouse delta,
-      hydration timing) are produced by PR 1 sub-PRs and the chosen
-      Approach is recorded here as `## §1 Decision: <A | B | C>`
-      with a cite back to
+- [x] **§1 G1 boundary decision**: recorded in §1 above (this slice).
+      FastAPI remains the sole deployed origin on `127.0.0.1:8765`;
+      `/api/*` and `extension/manifest.json::host_permissions` are
+      unchanged; HTML / static-asset ownership, direct-navigation
+      fallback, startup / build-failure behavior, affected
+      active-consumer manifest, atomic cutover / rollback unit, and
+      PR3b / G2 prerequisites are defined. **G1 is a boundary
+      decision, NOT an Approach selection** (see §1 above, "What this
+      entry does NOT claim").
+- [ ] **§1 Approach selection (G2–G6)**: still open. Closed when the
+      five measurements (§1 "Evidence required to close the §1
+      Approach selection") are produced by PR3b / PR3d and the chosen
+      Approach is recorded here as `## §1 Approach: <A | B | C>` with
+      a cite back to
       `openspec/changes/migrate-nextjs-tailwind4/specs/modular-architecture/spec.md`
       per rule 7.
 - [ ] **Hydration cost on `taxonomy/tree`**: RED test in
       `tests/test_hydration_timing.py` (no console `hydration`
       warnings under Playwright). Closes when PR 5 task 5.8 lands
-      and the delta is `≤ 0 %`.
+      and the delta is `≤ 0 %`. The legacy-product performance
+      baseline that feeds this gate is **not** on disk; the gate is
+      blocked until the PR 1b.3a / 1b.3b deliverables reconstruct.
 - [ ] **Review budget (closed)**: the proposal's
       `apply-progress.md` §Historical context estimated ~1369 LoC for
       the original PR 2 unit. The PR 2a–2e repartition reduced the
