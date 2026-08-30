@@ -670,6 +670,7 @@ def test_fixture_web_root_isolated_port_avoids_8765_when_8765_in_use(
     blocker.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 0)
     out = tmp_path / "out"
     fixture_root = tmp_path / "fixture_web"
+    fixture_root.mkdir()
     try:
         try:
             blocker.bind(("127.0.0.1", 8765))
