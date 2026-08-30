@@ -2,10 +2,10 @@
   "$schema_version": "1.0.0",
   "change": "migrate-nextjs-tailwind4",
   "planning_artifact": "cutover-manifest",
-  "generated_by": "G3 planning contract (planning-only; all replacements unselected; fail-closed)",
-  "scope_intent": "PR3d planning slice; coordinated atomic cutover manifest for PR3e activation",
-  "anchor": "design.md::§3.1 (active-consumer inventory); spec.md rule 1 (single-origin); rule 7 (decision authority)",
-  "fail_closed_summary": "G3 verifier (scripts/verify_consumers.py, NOT YET AUTHORED) emits no valid CONSUMER-READINESS.json while ANY consumer has activation_status: unselected",
+  "generated_by": "G3 planning contract (planning-only; legacy pre-cut selection authored for every §3.1 consumer against the on-disk legacy `current_path`; Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6 and is NOT made in this pass; verifier AUTHORED on disk — scripts/verify_consumers.py + tests/test_verify_consumers.py merged via PR #109 + PR #111)",
+  "scope_intent": "PR3d planning slice; coordinated atomic cutover manifest for PR3e activation; this pass selects legacy pre-cut replacements for every enumerated consumer without selecting an Approach or claim of G3 PASS",
+  "anchor": "design.md::§3.1 (active-consumer inventory); design.md::§3.3.3.1 (G3 contract); spec.md rule 1 (single-origin); spec.md rule 7 (decision authority)",
+  "fail_closed_summary": "every §3.1 consumer carries `activation_status: selected` and `replacement.status: selected` against the on-disk legacy `current_path` (legacy pre-cut selection). The verifier (scripts/verify_consumers.py, AUTHORED on disk via PR #109 + PR #111) MUST exit non-zero AND emit no valid CONSUMER-READINESS.json while the legacy pre-cut runtime (FastAPI on 127.0.0.1:8765 serving the on-disk `web/`) fails to satisfy any consumer's `verification.command`. The Approach A / B / C atomic-cut pass remains a separate, evidence-gated selection — its prerequisites (G2 PASS + G4 PASS + G5 reproducible baseline + G6 dry-run success) are not yet closed. No silent fallback to legacy is permitted under any branch.",
   "edges": [
     {
       "id": "fastapi_web_mount",
@@ -25,250 +25,367 @@
       "id": "mount-runtime-html-root-001",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "web/index.html (browser/extension/curl GET / via StaticFiles html=True fallback)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "web/index.html",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/index.html` is identified as the pre-cut replacement — served by FastAPI's StaticFiles mount (api/server.py:1815) with `html=True` fallback on 127.0.0.1:8765. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/", "expect": "200" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores web/index.html + web/dist/tailwind.css + web/app.js + every §3.1.1 consumer atomically"
     },
     {
       "id": "mount-runtime-html-direct-002",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "web/index.html (browser/extension direct GET /index.html)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "web/index.html",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the same legacy `web/index.html` is the pre-cut replacement — direct `GET /index.html` reaches the file through the same StaticFiles mount. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/index.html", "expect": "200" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores web/index.html atomically with mount-runtime-html-root-001"
     },
     {
       "id": "mount-runtime-link-tag-css-003",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "web/dist/tailwind.css (loaded by web/index.html:13 <link rel=stylesheet>)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "web/dist/tailwind.css",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/dist/tailwind.css` (built by `make css` from the reverted `tailwind.config.js`) is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/dist/tailwind.css", "expect": "200" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> regenerates web/dist/tailwind.css from reverted tailwind.config.js via make css"
     },
     {
       "id": "mount-runtime-script-tag-app-004",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "web/app.js (loaded by web/index.html:2163 <script type=module>, sole direct script tag)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "web/app.js",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/app.js` is the pre-cut replacement — sole direct `<script type=\"module\">` tag in the index.html shell. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/app.js", "expect": "200" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores web/app.js atomically with every consumer in §3.1.1"
     },
     {
       "id": "mount-runtime-import-app-js-modules-005",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "web/{state,api,tree,breadcrumb,detail,nav,dom,banner,help,keymap}.js (imported by web/app.js:39-54)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "web/state.js, web/api.js, web/tree.js, web/breadcrumb.js, web/detail.js, web/nav.js, web/dom.js, web/banner.js, web/help.js, web/keymap.js",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the ten on-disk legacy module files listed in `web/app.js:39-54` are individually identified as the pre-cut replacement set (brace-expanded to ten discrete paths for verifier consumption). Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "for m in state api tree breadcrumb detail nav dom banner help keymap; do curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/$m.js; done", "expect": "200 for each" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores web/app.js + the 10 web/*.js modules atomically"
     },
     {
       "id": "mount-runtime-dynamic-import-app-js-settings-006",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "web/settings.js (dynamic-imported lazily by web/app.js:88 for settings panel)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "web/settings.js",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/settings.js` (lazy-loaded by `web/app.js:88`) is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/settings.js", "expect": "200" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores web/settings.js atomically"
     },
     {
       "id": "mount-runtime-import-nav-js-modules-007",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "web/{detail,search,tree,state,api,dom}.js (imported by web/nav.js:14-17)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "web/detail.js, web/search.js, web/tree.js, web/state.js, web/api.js, web/dom.js",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the six on-disk legacy module files listed in `web/nav.js:14-17` are individually identified as the pre-cut replacement set. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "for m in detail search tree state api dom; do curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/$m.js; done", "expect": "200 for each" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores web/nav.js + the 6 web/*.js modules atomically"
     },
     {
       "id": "mount-runtime-dynamic-import-nav-js-008",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "web/{settings,file_explorer}.js (dynamic-imported lazily by web/nav.js:252,295,308,331,685)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "web/settings.js, web/file_explorer.js",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the two on-disk legacy module files lazy-loaded by `web/nav.js` (`settings.js` and `file_explorer.js`) are individually identified as the pre-cut replacement set. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/file_explorer.js && curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/settings.js", "expect": "200 for each" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores web/nav.js + web/settings.js + web/file_explorer.js atomically"
     },
     {
       "id": "mount-runtime-import-breadcrumb-format-009",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "web/format.js (imported by web/breadcrumb.js:8 alongside dom.js + state.js)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "web/format.js",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/format.js` (one of three modules imported by `web/breadcrumb.js:8`, the others being `dom.js` and `state.js`) is the pre-cut replacement for this consumer's `format.js` slot. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/format.js", "expect": "200" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores web/format.js + web/breadcrumb.js atomically"
     },
     {
       "id": "mount-runtime-import-search-format-010",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "web/format.js (imported by web/search.js:7 alongside state.js + api.js + dom.js)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "web/format.js",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/format.js` (one of four modules imported by `web/search.js:7`, the others being `state.js`, `api.js`, and `dom.js`) is the pre-cut replacement for this consumer's `format.js` slot. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/format.js", "expect": "200" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores web/format.js + web/search.js atomically"
     },
     {
       "id": "mount-runtime-dynamic-import-detail-file-explorer-011",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "web/file_explorer.js (dynamic-imported lazily by web/detail.js:482 for file viewer)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "web/file_explorer.js",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/file_explorer.js` (lazy-loaded by `web/detail.js:482`) is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/file_explorer.js", "expect": "200" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores web/file_explorer.js + web/detail.js atomically"
     },
     {
       "id": "mount-runtime-import-file-explorer-file-viewer-012",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "web/file_viewer.js (imported by web/file_explorer.js:24 alongside format.js)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "web/file_viewer.js",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/file_viewer.js` (one of two modules imported by `web/file_explorer.js:24`, the other being `format.js`) is the pre-cut replacement for this consumer's `file_viewer.js` slot. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/file_viewer.js", "expect": "200" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores web/file_viewer.js + web/file_explorer.js atomically"
     },
     {
       "id": "mount-runtime-cdn-lib-pins-013",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "web/index.html:2180,2188,2194 (mammoth@1.8.0, xlsx@0.18.5, epubjs@0.3.93 CDN URLs loaded by web/file_viewer.js::loadScriptOnce)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "web/index.html:2180,2188,2194",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the three on-disk legacy CDN-pin lines in `web/index.html` (line 2180 → mammoth@1.8.0, line 2188 → xlsx@0.18.5, line 2194 → epubjs@0.3.93) are collectively identified as the pre-cut replacement for this consumer's three CDN pins. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "grep -nE 'mammoth@1\\.8\\.0|xlsx@0\\.18\\.5|epubjs@0\\.3\\.93' web/index.html", "expect": "three matches at lines 2180, 2188, 2194" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores the three CDN pin lines in web/index.html atomically"
     },
     {
       "id": "mount-test-smoke-static-index-014",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "tests/test_smoke.py:150 test_static_index_html_served (GET /index.html, asserts 200 + HTML)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "tests/test_smoke.py:150",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_smoke.py:150 test_static_index_html_served` reader (GET /index.html) is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "pytest tests/test_smoke.py::test_static_index_html_served -q", "expect": "1 passed" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores tests/test_smoke.py:150 to its pre-cut reader path"
     },
     {
       "id": "mount-test-smoke-static-app-js-015",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "tests/test_smoke.py:157 test_static_app_js_served (GET /app.js, asserts 200 + >=1000 bytes)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "tests/test_smoke.py:157",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_smoke.py:157 test_static_app_js_served` reader (GET /app.js) is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "pytest tests/test_smoke.py::test_static_app_js_served -q", "expect": "1 passed" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores tests/test_smoke.py:157 to its pre-cut reader path"
     },
     {
       "id": "mount-test-evidence-baseline-html-016",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "tests/test_evidence_baseline.py:276 test_legacy_html_present_and_nontrivial (reads WEB_DIR/index.html)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "tests/test_evidence_baseline.py:276",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_evidence_baseline.py:276 test_legacy_html_present_and_nontrivial` reader is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "pytest tests/test_evidence_baseline.py::test_legacy_html_present_and_nontrivial -q", "expect": "1 passed" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores the WEB_DIR/index.html reader at tests/test_evidence_baseline.py:276"
     },
     {
       "id": "mount-test-evidence-baseline-modules-017",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "tests/test_evidence_baseline.py:294 test_legacy_module_count_matches_exploration (reads WEB_DIR.glob('*.js'))",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "tests/test_evidence_baseline.py:294",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_evidence_baseline.py:294 test_legacy_module_count_matches_exploration` reader is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "pytest tests/test_evidence_baseline.py::test_legacy_module_count_matches_exploration -q", "expect": "1 passed" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores the WEB_DIR.glob('*.js') reader at tests/test_evidence_baseline.py:294"
     },
     {
       "id": "mount-test-evidence-baseline-source-size-018",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "tests/test_evidence_baseline.py:316 test_legacy_total_source_size_below_threshold (walks WEB_DIR bytes)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "tests/test_evidence_baseline.py:316",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_evidence_baseline.py:316 test_legacy_total_source_size_below_threshold` reader is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "pytest tests/test_evidence_baseline.py::test_legacy_total_source_size_below_threshold -q", "expect": "1 passed" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores the WEB_DIR bytes walker at tests/test_evidence_baseline.py:316"
     },
     {
       "id": "mount-test-build-profile-emit-019",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "tests/test_build_profile.py (e.g. test_emit_writes_profile_with_required_keys at line 110; reads web/dist/build-profile.json)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "tests/test_build_profile.py (e.g. test_emit_writes_profile_with_required_keys at line 110)",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_build_profile.py` reader of `web/dist/build-profile.json` is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "pytest tests/test_build_profile.py -q", "expect": "all passed" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores tests/test_build_profile.py reader path to web/dist/build-profile.json"
     },
     {
       "id": "mount-test-hydration-timing-measure-020",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "tests/test_hydration_timing.py (e.g. test_measure_hydration_exits_zero_on_valid_artifact at line 140; measures web/index.html server-shell first-paint)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "tests/test_hydration_timing.py (e.g. test_measure_hydration_exits_zero_on_valid_artifact at line 140)",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_hydration_timing.py` server-shell measurement against `web/index.html` is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "pytest tests/test_hydration_timing.py -q", "expect": "all passed" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores tests/test_hydration_timing.py server-shell measurement against web/index.html"
     },
     {
       "id": "mount-extension-host-permissions-021",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "extension/manifest.json:13-15 (host_permissions) + :21 (content_scripts.matches); Chrome content-script injection target = http://localhost:8765/*",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "extension/manifest.json:13-15, extension/manifest.json:21",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `extension/manifest.json` `host_permissions` (lines 13-15) and `content_scripts.matches` (line 21) pair pinning Chrome content-script injection to `http://localhost:8765/*` is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "grep -nE 'localhost:8765|127\\.0\\.0\\.1:8765' extension/manifest.json", "expect": "host_permissions:[\"http://localhost:8765/*\"] at lines 13-15 AND content_scripts.matches:[\"http://localhost:8765/*\"] at line 21" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores extension/manifest.json host_permissions + content_scripts.matches to http://localhost:8765/* unchanged"
     },
     {
       "id": "search-urls-runtime-import-detail-001",
       "ownership_edge": "web_search_urls_js",
       "current_path": "web/search_urls.js (SEARCH_ENGINES, CATEGORIES imported by web/detail.js:24)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "web/search_urls.js",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/search_urls.js` (exporting `SEARCH_ENGINES` and `CATEGORIES`) is the pre-cut replacement — imported by `web/detail.js:24`. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "grep -n 'SEARCH_ENGINES\\|CATEGORIES' web/detail.js | head -5", "expect": "matches at line 24 (import), 325 (Map), 332 (for-loop)" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores web/search_urls.js + the detail.js import statement atomically"
     },
     {
       "id": "search-urls-runtime-engine-by-key-002",
       "ownership_edge": "web_search_urls_js",
       "current_path": "web/search_urls.js (SEARCH_ENGINES used by web/detail.js:325 to build engineByKey Map)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "web/search_urls.js",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/search_urls.js` is the pre-cut replacement — `SEARCH_ENGINES` drives `engineByKey` Map construction at `web/detail.js:325`. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "sed -n '325p' web/detail.js", "expect": "new Map(SEARCH_ENGINES.map((e) => [e.key, e]))" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores web/search_urls.js + web/detail.js:325 atomically"
     },
     {
       "id": "search-urls-runtime-search-tab-ui-003",
       "ownership_edge": "web_search_urls_js",
       "current_path": "web/search_urls.js (SEARCH_ENGINES iterated by web/detail.js:332 to populate Search tab UI)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "web/search_urls.js",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/search_urls.js` is the pre-cut replacement — `SEARCH_ENGINES` is iterated at `web/detail.js:332` to populate the Search tab UI. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "sed -n '332p' web/detail.js", "expect": "for (const e of SEARCH_ENGINES) {" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores web/search_urls.js + web/detail.js:332 atomically"
     },
     {
       "id": "search-urls-test-ac21-contract-004",
       "ownership_edge": "web_search_urls_js",
       "current_path": "tests/test_smoke.py:77-100 AC-21 test_search_engine_contract (open('web/search_urls.js').read() + regex parse on {key, label, with_authorship})",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "tests/test_smoke.py:77-100",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy AC-21 `tests/test_smoke.py:77-100 test_search_engine_contract` reader (`open('web/search_urls.js').read()` + regex parse on `{key, label, with_authorship}`) is the pre-cut replacement — byte-shape contract preserved unchanged. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "pytest tests/test_smoke.py::test_search_engine_contract -q", "expect": "1 passed" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores the AC-21 open() reader at tests/test_smoke.py:77-100 to web/search_urls.js"
     },
     {
       "id": "search-urls-test-search-categories-005",
       "ownership_edge": "web_search_urls_js",
       "current_path": "tests/test_search_categories.py:141 (references CATEGORIES in web/search_urls.js; expected grouping: general, taxonomic, academic, multimedia, documents)",
-      "replacement": { "status": "unselected" },
+      "replacement": {
+        "status": "selected",
+        "path": "tests/test_search_categories.py:141",
+        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_search_categories.py:141` reader of `CATEGORIES` in `web/search_urls.js` (with the expected grouping `general`, `taxonomic`, `academic`, `multimedia`, `documents`) is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+      },
       "verification": { "command": "pytest tests/test_search_categories.py -q", "expect": "all passed" },
-      "activation_status": "unselected",
+      "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores the CATEGORIES reader at tests/test_search_categories.py:141"
     }
   ],
   "selection_invariants": {
     "approach_status": "no Approach (A | B | C) selected; static export remains unselected",
-    "all_replacements_unselected": true,
-    "fail_closed_semantics": "ANY consumer with activation_status: unselected OR replacement.status: unselected => G3 verifier (scripts/verify_consumers.py, NOT YET AUTHORED) MUST exit non-zero AND emit no valid CONSUMER-READINESS.json",
-    "atomic_cutover_invariant": "PR3e activates every consumer in this manifest in a single release; partial activation rejected; atomic boundary = (1) api/server.py:54 WEB_DIR repoint + (2) every active-consumer update enumerated in design.md::§3.1 + (3) Makefile api/web targets + (4) the chosen Approach build artifact",
-    "rollback_invariant": "git revert <pr3e-sha> restores every current_path simultaneously; partial revert rejected under G1",
-    "selection_rule": "to mark a consumer activation_status: selected, the manifest MUST name replacement.path + verification.command + verification.expect for the new path AND failing-test evidence for the new path MUST exist; selection is gated by G2-G6 evidence and recorded here only when those gates close"
+    "all_replacements_unselected": false,
+    "all_replacements_unselected_note": "every §3.1 consumer now carries `replacement.status: selected` against its on-disk legacy `current_path` (legacy pre-cut selection authored 2026-08-30). `all_replacements_unselected` is `false`; see also `legacy_pre_cut_selection_status` below — this is a planning artifact, not a G3 PASS.",
+    "legacy_pre_cut_selection_status": {
+      "active": true,
+      "scope": "every §3.1 consumer listed in `consumers[]` (26 entries: 21 in §3.1.1 FastAPI web mount + 5 in §3.1.2 web/search_urls.js)",
+      "what_it_means": "Each consumer's `replacement.path` and `activation_status` pin the on-disk legacy runtime that the consumer currently reads. No `WEB_DIR` repoint, no atomic cutover, no FastAPI activation is implied — the legacy vanilla frontend continues to be served by FastAPI on 127.0.0.1:8765 exactly as it is on `develop`. The verifier (AUTHORED on disk via PR #109 + PR #111; scripts/verify_consumers.py + tests/test_verify_consumers.py) validates the legacy pre-cut runtime against each consumer's `verification.command`; this is a pre-cut legacy-readiness contract, not a post-cut contract.",
+      "what_it_does_not_claim": "It does NOT claim any Approach A / B / C is selected; it does NOT claim G3 PASS; it does NOT claim a `CONSUMER-READINESS.json` was produced; it does NOT enable `make api` activation under Next.js; it does NOT relax G2/G4/G5/G6 blocking language; it does NOT commit or push any source / tests / scripts / config / Makefile / extension / API.",
+      "two_tier_model": "G3 selection is **two-tier**. (Tier-1) **Legacy pre-cut selection** does not require G2/G4/G5/G6 PASS and is recorded here for every consumer. (Tier-2) **Approach A atomic-cut selection** requires G2 (reproducible `BUILD-INVENTORY.json`) + G4 (Playwright + Lighthouse parity) + G5 (reproducible hydration baseline) + G6 (`cutover-rehearsal.json` dry-run success) AND is left for PR3d/PR3e; no consumer is flipped to Tier-2 in this planning pass.",
+      "truth_preservation": "G3 remains `blocked — contract defined; legacy pre-cut selection authored; verifier AUTHORED on disk (PR #109 + PR #111) but G3 still gated by G2/G4/G5/G6 PASS for Tier-2`, not `passed`. G2 PASS, G5 unreproducible, G4/G6 blocked, static-export-unselected, no-FastAPI-activation language is preserved verbatim."
+    },
+    "fail_closed_semantics": "ANY consumer with `activation_status: unselected` OR `replacement.status: unselected` => G3 verifier (scripts/verify_consumers.py, AUTHORED on disk via PR #109 + PR #111) MUST exit non-zero AND emit no valid CONSUMER-READINESS.json. With the Tier-1 legacy pre-cut pass authored for every consumer, the fail-closed branch currently does not apply — but the verifier MUST still validate each `verification.command` against the legacy pre-cut runtime on FastAPI; non-zero exits on any `verification.command` re-trigger the fail-closed branch and block the artifact. Tier-2 atomic-cut selection is not in play.",
+    "atomic_cutover_invariant": "PR3e activates every consumer in this manifest in a single release; partial activation rejected; atomic boundary = (1) api/server.py:54 WEB_DIR repoint + (2) every active-consumer update enumerated in design.md::§3.1 + (3) Makefile api/web targets + (4) the chosen Approach build artifact. This invariant remains binding for Tier-2 atomic-cut selection and is NOT triggered by the Tier-1 legacy pre-cut pass (no `WEB_DIR` repoint is implied).",
+    "rollback_invariant": "git revert <pr3e-sha> restores every current_path simultaneously; partial revert rejected under G1. This invariant remains binding for Tier-2 atomic-cut selection. Tier-1 legacy pre-cut selection does not change the rollback unit; rollback already restores every `current_path` (since `replacement.path` equals `current_path` in Tier-1).",
+    "selection_rule_tier1_legacy_pre_cut": "To flip a consumer to Tier-1 `selected (legacy pre-cut)` in this planning pass, the manifest MUST name `replacement.path` equal to or consistent with the on-disk legacy `current_path` AND `replacement.note` MUST document the legacy pre-cut semantics AND `verification.command` MUST point at the legacy runtime reachable on FastAPI's 127.0.0.1:8765 mount (or the equivalent file-reader path). NO G2/G4/G5/G6 PASS is required for Tier-1; Tier-1 is a documentation artifact, not an evidence gate. Every consumer in the current manifest satisfies Tier-1.",
+    "selection_rule_tier2_atomic_cut": "To flip a consumer to Tier-2 `selected (atomic-cut)`, the manifest MUST name `replacement.path` + `verification.command` + `verification.expect` for the **new** path AND failing-test evidence for the new path MUST exist AND G2 (`BUILD-INVENTORY.json` reproducible) + G4 (Playwright + Lighthouse parity) + G5 (reproducible hydration baseline) + G6 (`cutover-rehearsal.json` dry-run success) MUST all be `passed`. Static export (Approach A) and any other Approach (B / C) remain unselected until those gates close; no consumer is flipped to Tier-2 in this planning pass.",
+    "combined_selection_rule": "Tier-1 is recorded here for every consumer (legacy pre-cut selection). Tier-2 is gated by G2/G4/G5/G6 PASS and lands via PR3d/PR3e; the atomic-cut pass will replace (or augment) Tier-1 entries with new-path replacements inside the `replacement` block while preserving `id`, `current_path`, `verification`, and `rollback`."
   },
   "verifier_contract_summary": {
-    "producer": "scripts/verify_consumers.py (NOT YET AUTHORED — to land in PR3d)",
+    "producer": "scripts/verify_consumers.py (AUTHORED on disk — merged via PR #109 `test(g3): verify consumer readiness`; PR3d slice augmentation `--serve` / `--venv` / `--repo-root` merged via PR #111 `fix(g3): control readiness verification runtime`)",
     "command": "python scripts/verify_consumers.py --manifest openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json --out <build-root>",
     "artifact": "<build-root>/CONSUMER-READINESS.json",
-    "threshold": "every consumer.activation_status == 'selected' AND every consumer.replacement.status == 'selected' AND every consumer.verification.command exits 0 against the candidate build; otherwise verifier exits non-zero and emits no CONSUMER-READINESS.json",
-    "fail_closed_invariant": "verifier propagates non-zero exit to its caller; no silent fallback to legacy files is permitted under any branch"
+    "threshold_tier1_legacy_pre_cut": "every consumer `activation_status == 'selected'` AND every consumer `replacement.status == 'selected'` AND every consumer `replacement.path` matches the on-disk legacy `current_path` (or set of legacy paths) AND every consumer `verification.command` exits `0` against the legacy runtime (FastAPI on 127.0.0.1:8765 serving the on-disk `web/`). Tier-1 does not require a `BUILD-INVENTORY.json` from the G2 verifier; the G2 verifier's pass record (2026-08-30) is independent of Tier-1.",
+    "threshold_tier2_atomic_cut": "every consumer `activation_status == 'selected'` AND every consumer `replacement.status == 'selected'` AND every consumer `replacement.path` names the post-cut (Approach A) build artifact location AND every consumer `verification.command` exits `0` against `<build-root>` (the G2 candidate root) AND the G2 `BUILD-INVENTORY.json` exists with `activation_complete: true` AND G4 / G5 / G6 evidence is reproducible. Tier-2 is NOT evaluated in this planning pass.",
+    "evaluation_state": "Tier-1 selection is authored for every consumer; Tier-2 selection is gated by G2/G4/G5/G6 PASS. The verifier (AUTHORED on disk via PR #109 + PR #111) runs Tier-1 evaluation first (legacy pre-cut) then Tier-2 (atomic-cut) when the gates close.",
+    "fail_closed_invariant": "verifier propagates non-zero exit to its caller; no silent fallback to legacy files is permitted under any branch. Tier-1 evaluation failing (e.g., legacy `web/index.html` not reachable on 127.0.0.1:8765) blocks the `CONSUMER-READINESS.json`; Tier-2 evaluation failing (e.g., `BUILD-INVENTORY.json` missing or PARITY/HYDRATION/REHEARSAL gates not closed) also blocks the artifact."
   }
 }
