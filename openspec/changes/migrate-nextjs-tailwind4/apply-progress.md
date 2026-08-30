@@ -490,6 +490,82 @@ updated: G2 remains `blocked — contract defined; verifier not
           corrections; the G2 / G5 / PR3e blocking language is preserved
           verbatim. Spanish mirrors updated in lockstep. No boundary
           selected, no gate passing, no cutover manifest, no G2 verifier
-          authored, no source / tests / scripts / candidate workspace /
-          package-lock / evidence files / Next 16 candidate build artifact
-          touched. No commit or push performed in this pass.
+              authored, no source / tests / scripts / candidate workspace /
+              package-lock / evidence files / Next 16 candidate build artifact
+              touched. No commit or push performed in this pass.
+        - **2026-08-30** — G2 PASS record pass (this entry). Per the parent
+          task, the independently verified clean-run G2 evidence captured in
+          the dedicated worktree
+          `taxa-worktrees/migrate-nextjs-g2-evidence-capture` (off
+          `develop` at `a74289b`; PR106 learning entry already merged on
+          this base with **no contract change**) is recorded here and in
+          the `design.md` status footer; **no source, tests, scripts,
+          tasks, product files, evidence files, candidate workspace, or
+          `package-lock.json` are touched, committed, or pushed in this
+          pass.** G2 **passes** against the canonical contract defined in
+          `design.md::§3.3.2.1` (all **four** explicit maintainer
+          corrections honoured). Evidence summary:
+          - **Run timestamp** — build started
+            `2026-08-30T18:10:59.430633+00:00`, build finished
+            `2026-08-30T18:11:02.803400+00:00` (clean, ~3.4 s).
+          - **Node version** — `v26.8.1` (≥ `20.9.0` hard requirement).
+          - **Artifact location** —
+            `taxa-worktrees/migrate-nextjs-g2-evidence-capture/tools/g2-candidate/out/BUILD-INVENTORY.json`
+            (and `out/.next/build-manifest.json` for the staged manifest).
+            The captured workspace is **not** committed; only the path
+            and the inventory contents are referenced here.
+          - **Build command** (as recorded in the inventory
+            `build_command` field) —
+            `<candidate-root>/node_modules/.bin/next build` with
+            `cwd = <candidate-root>`; exit `0`.
+          - **Inventory classes present** (no `missing_classes`):
+            `application_route_html` ×1 (`out/index.html`),
+            `js_class` ×1 (one non-empty `*.js` under
+            `out/_next/static/chunks/**`), `css_class` ×1 (one non-empty
+            `*.css` under `out/_next/static/chunks/**`), `staged_manifest`
+            ×2 (required `build-manifest.json` `staged`, optional
+            `app-build-manifest.json` `not_emitted` — absence is **never**
+            a failure per the **four-correction** contract),
+            `error_pages` ×1 (`out/404.html` classified separately,
+            **not** promoted to `application_route_html`).
+          - **Staged build-manifest** —
+            `<candidate-root>/out/.next/build-manifest.json`,
+            **607 bytes**, sha256
+            `f52f7edd901e373a2a24a4ecf8ba61c96ad227093c6440dc4a3a6ca58a92f2a3`
+            (`staged`).
+          - **Optional app-build-manifest** — `not_emitted` (recorded,
+            **not** a missing-class failure).
+          - **Tests** — focused test `tests/test_verify_build.py` passes
+            **14 / 14** (12 functions + 2 parametrized expansions over
+            `(omit, label)`); focused test `tests/test_g2_candidate.py`
+            passes **34 / 34** (17 functions + parametrized expansions on
+            `(path)` and `(needle)`).
+          - **Build log** — `<candidate-root>/build.log` captured
+            (multi-lockfile warning present and **non-blocking** per the
+            canonical contract — the verifier's exit propagated cleanly
+            to `0`).
+          - **Risk note** — the parent task brief listed the staged
+            build-manifest sha256 prefix as `7ad2277db4ab4e80...`; the
+            **actual** captured sha256 is
+            `f52f7edd901e373a2a24a4ecf8ba61c96ad227093c6440dc4a3a6ca58a92f2a3`
+            (byte count matches at 607). The brief's hash prefix appears
+            to be a transcription error; the captured evidence above is
+            what is on disk and is recorded verbatim. No G2 gate
+            semantics depend on the hash prefix beyond
+            bytes-counted + sha256-stability assertions; the canonical
+            contract assertion is satisfied by the recorded sha256.
+          - **Truth preserved** — G2 **passes** (clean candidate build +
+            inventory reproducible, contract assertions all satisfied);
+            **G3, G4, G5, G6 remain blocked** (G5 unreproducible per the
+            §3.3.5 audit; G3 / G4 / G6 verifiers not authored yet);
+            **static export remains unselected** (no Approach A / B / C
+            chosen); **no FastAPI activation** (the candidate workspace
+            remains a self-contained, non-activation build root per the
+            canonical authorization in `design.md::§3.3.2.1` row 1).
+            The `status:` footer in `design.md` (and its Spanish mirror)
+            is updated to enumerate this G2 PASS record while preserving
+            verbatim the G3 / G4 / G5 / G6 / static-export / FastAPI
+            blocking language and the **four**-correction G2 contract.
+            The `design.md::§3.3.2.1` G2 contract body is **not**
+            changed in this pass. Spanish mirrors updated in lockstep.
+            No commit, push, or PR opened in this pass.

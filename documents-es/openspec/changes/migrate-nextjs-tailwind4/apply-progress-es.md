@@ -531,5 +531,87 @@ reconstrucción según `tasks.md` §Aviso de reconstrucción.
           aprobada, sin manifest de cutover, ningún verificador G2
           escrito, no se tocan fuente / tests / scripts / workspace
           candidato / package-lock / ficheros de evidencia / artefacto
-          de build candidato de Next 16. No se realiza commit ni push en
-          esta pasada.
+              de build candidato de Next 16. No se realiza commit ni push en
+              esta pasada.
+        - **2026-08-30** — Pasada de registro del PASS de G2 (esta entrada).
+          Según la tarea del padre, la evidencia verificada independientemente
+          del run limpio G2 capturada en el árbol de trabajo dedicado
+          `taxa-worktrees/migrate-nextjs-g2-evidence-capture` (sobre
+          `develop` en `a74289b`; la entrada de aprendizaje de PR106 ya
+          fusionada en esta base **sin cambio de contrato**) se registra
+          aquí y en el pie de estado de `design.md`; **no se tocan,
+          comitean, ni pushean fuente, tests, scripts, tasks, ficheros
+          de producto, ficheros de evidencia, workspace candidato, ni
+          `package-lock.json` en esta pasada.** G2 **pasa** contra el
+          contrato canónico definido en `design.md::§3.3.2.1` (se
+          honran las **cuatro** correcciones explícitas del mantenedor).
+          Resumen de evidencia:
+          - **Timestamp del run** — build iniciado
+            `2026-08-30T18:10:59.430633+00:00`, build finalizado
+            `2026-08-30T18:11:02.803400+00:00` (limpio, ~3,4 s).
+          - **Versión de Node** — `v26.8.1` (requisito duro ≥ `20.9.0`).
+          - **Ubicación del artefacto** —
+            `taxa-worktrees/migrate-nextjs-g2-evidence-capture/tools/g2-candidate/out/BUILD-INVENTORY.json`
+            (y `out/.next/build-manifest.json` para el manifiesto en
+            staging). El workspace capturado **no** se comitea; solo se
+            referencian aquí la ruta y el contenido del inventario.
+          - **Comando de build** (registrado en el campo
+            `build_command` del inventario) —
+            `<candidate-root>/node_modules/.bin/next build` con
+            `cwd = <candidate-root>`; exit `0`.
+          - **Clases presentes en el inventario** (sin
+            `missing_classes`): `application_route_html` ×1
+            (`out/index.html`), `js_class` ×1 (un `*.js` no vacío bajo
+            `out/_next/static/chunks/**`), `css_class` ×1 (un `*.css`
+            no vacío bajo `out/_next/static/chunks/**`),
+            `staged_manifest` ×2 (`build-manifest.json` requerido
+            `staged`, `app-build-manifest.json` opcional `not_emitted`
+            — la ausencia **nunca** es un fallo según el contrato de
+            **cuatro** correcciones), `error_pages` ×1 (`out/404.html`
+            clasificado por separado, **no** promovido a
+            `application_route_html`).
+          - **Build-manifest en staging** —
+            `<candidate-root>/out/.next/build-manifest.json`,
+            **607 bytes**, sha256
+            `f52f7edd901e373a2a24a4ecf8ba61c96ad227093c6440dc4a3a6ca58a92f2a3`
+            (`staged`).
+          - **App-build-manifest opcional** — `not_emitted` (registrado,
+            **no** es un fallo de clase faltante).
+          - **Tests** — el test enfocado `tests/test_verify_build.py`
+            pasa **14 / 14** (12 funciones + 2 expansiones
+            parametrizadas sobre `(omit, label)`); el test enfocado
+            `tests/test_g2_candidate.py` pasa **34 / 34** (17 funciones
+            + expansiones parametrizadas sobre `(path)` y `(needle)`).
+          - **Log de build** — `<candidate-root>/build.log` capturado
+            (presente la advertencia de múltiples lockfiles y **no es
+            bloqueante** según el contrato canónico — la salida del
+            verificador se propagó limpia a `0`).
+          - **Nota de riesgo** — la tarea breve del padre listó el
+            prefijo sha256 del build-manifest en staging como
+            `7ad2277db4ab4e80...`; el sha256 **real** capturado es
+            `f52f7edd901e373a2a24a4ecf8ba61c96ad227093c6440dc4a3a6ca58a92f2a3`
+            (el conteo de bytes coincide en 607). El prefijo de la
+            breve parece ser un error de transcripción; la evidencia
+            capturada arriba es lo que está en disco y se registra
+            verbatim. Ninguna semántica de la puerta G2 depende del
+            prefijo del hash más allá de las aserciones de
+            bytes-contados + estabilidad de sha256; la aserción del
+            contrato canónico se cumple con el sha256 registrado.
+          - **Verdad preservada** — G2 **pasa** (build limpio del
+            candidato + inventario reproducible, todas las aserciones
+            del contrato satisfechas); **G3, G4, G5, G6 siguen
+            bloqueadas** (G5 irreproducible según la auditoría §3.3.5;
+            los verificadores G3 / G4 / G6 aún no se escriben); **la
+            exportación estática sigue sin seleccionarse** (no se elige
+            ningún Enfoque A / B / C); **sin activación de FastAPI**
+            (el workspace candidato sigue como raíz de build
+            autocontenida sin activación según la autorización
+            canónica en `design.md::§3.3.2.1` fila 1). El pie `status:`
+            en `design.md` (y su espejo en español) se actualiza para
+            enumerar este registro de PASS de G2 preservando verbatim
+            el lenguaje de bloqueo G3 / G4 / G5 / G6 / exportación
+            estática / FastAPI y el contrato G2 de **cuatro**
+            correcciones. El cuerpo del contrato G2 en
+            `design.md::§3.3.2.1` **no** se modifica en esta pasada.
+            Espejos en español actualizados en paralelo. No se realiza
+            commit, push, ni apertura de PR en esta pasada.
