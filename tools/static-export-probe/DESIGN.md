@@ -79,6 +79,47 @@ controls, no data, and no persistence.
 
 ---
 
+## Implementation contract (narrow authorization)
+
+This amendment authorizes a tightly bounded implementation surface **only inside** `tools/static-export-probe/`. Nothing outside that directory gains any new source, test, configuration, build wiring, or artifact. All five non-negotiables above remain binding; this section narrows, broadens, and constrains them only where explicitly stated.
+
+### Authorized surfaces (probe-local only)
+
+| # | Surface | Location | Constraint |
+|---|---|---|---|
+| 1 | Probe `package.json` declaring Next 16 and React 19 dependencies | `tools/static-export-probe/package.json` | Scoped to probe; no workspace hoisting; no scripts that reach outside `tools/static-export-probe/`. |
+| 2 | Probe Next config (e.g. `next.config.*`) | `tools/static-export-probe/next.config.*` | Static export only; no `experimental` features that touch shared state. |
+| 3 | Probe app implementing the approved diagnostic shell | `tools/static-export-probe/app/**` | Conforms to the visual contract above; no product wiring; no consumer import. |
+| 4 | Capture script driving `next build` and Playwright timing | `tools/static-export-probe/scripts/capture.*` | Reads probe output only; writes artifacts only under `tools/static-export-probe/evidence/`. |
+
+Any file outside `tools/static-export-probe/` that needs configuration or wiring must be added to **Forbidden write paths** below, not assumed permitted.
+
+### Capture failure semantics
+
+The capture script MUST exit with a nonzero status and emit **no valid artifact** when either of the following is true:
+
+- `next build` cannot complete: dependency install fails, lockfile drift, build error, or any non-zero build exit.
+- Playwright timing is unavailable: browser does not launch, page load/hydration measurement times out, trace is missing, or timing capture returns no samples.
+
+A failed capture MUST NOT emit a placeholder artifact. Specifically: no `0`, `null`, `"unknown"`, `{}`, or proxy value may stand in for a real measurement. The only output on failure is a non-zero exit and a human-readable error log; any partial JSON/Markdown summary is invalid and must be deleted before the script exits.
+
+### Forbidden write paths
+
+In addition to all surfaces forbidden in **Out of scope** below, the following paths are explicitly forbidden for any write by the probe implementation, capture script, or build wiring:
+
+- `web/`, `api/`, `Makefile`, repo-root `package.json`, `extension/manifest.json`, `tests/`, `etl/`, `src/`, `openspec/`, `documents-es/`, and any path outside `tools/static-export-probe/` for source, test, config, lockfile, or build output.
+- `tools/static-export-probe/evidence/` may receive capture output **only** when the capture succeeds (see *Capture failure semantics*).
+
+### Deterministic install strategy
+
+The probe `package.json` MUST be paired with a committed lockfile (`package-lock.json`, `pnpm-lock.yaml`, or equivalent) under `tools/static-export-probe/`. The capture script MUST install via the deterministic command for that lockfile (`npm ci`, `pnpm install --frozen-lockfile`, or equivalent). Bare `npm install` / `pnpm install` without a lockfile is forbidden and MUST cause the capture script to exit nonzero before any build or measurement runs.
+
+### PR-split threshold
+
+A PR that ships the authorized implementation MUST be split into smaller pieces if its combined diff (probe sources, configs, scripts, lockfile, and any follow-on design amendment) would exceed 400 added lines. Splitting is a precondition for review, not a post-hoc cleanup.
+
+---
+
 ## Audit criteria (negative inventory + checklist)
 
 Run this checklist against the regenerated probe HTML / JSON. Every
