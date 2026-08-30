@@ -217,3 +217,190 @@ def test_synthetic_selected_emits_zero_temp_leftovers(tmp_path):
     temps = [p.name for p in out.rglob("*")
              if p.is_file() and p.name.startswith(".")]
     assert not temps, temps
+
+
+# ── G3 slice: venv-aware pytest command execution ─────────────────────
+def _write_fake_python(base: Path, name: str = "python") -> Path:
+    """Write a POSIX shell script that records its post-script argv to
+    the path stored in env var $RECORDER (JSON) and exits 0."""
+    base.mkdir(parents=True, exist_ok=True)
+    p = base / name
+    p.write_text(
+        "#!/bin/sh\n"
+        "RECORDER=\"$RECORDER\" exec python3 -c 'import json,os,sys; "
+        "json.dump(sys.argv[1:], open(os.environ[\"RECORDER\"], \"w\"))' \"$@\"\n"
+    )
+    p.chmod(0o755)
+    return p
+
+
+def test_venv_aware_pytest_uses_venv_python_when_provided(
+        tmp_path, monkeypatch):
+    """When `--venv <python>` is set, a verification.command starting with
+    the bare token `pytest` is rewritten to `<python> -m pytest ...` so
+    the project's venv python (not whatever `pytest` resolves to on PATH)
+    is the one that runs the test."""
+    recorder = tmp_path / "argv.json"
+    monkeypatch.setenv("RECORDER", str(recorder))
+    venv_python = _write_fake_python(tmp_path / "venv_bin")
+    out = tmp_path / "out"
+    cs = [_consumer(idx="py-1", cmd="pytest -q tests/foo.py")]
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    r = _run(["--manifest", str(mp), "--out", str(out),
+              "--venv", str(venv_python)])
+    assert r.returncode == 0, r.stderr
+    argv = json.loads(recorder.read_text())
+    # Recorder is invoked as: <python> -m pytest -q tests/foo.py
+    assert argv == ["-m", "pytest", "-q", "tests/foo.py"], argv
+
+
+def test_venv_aware_pytest_unchanged_when_venv_not_provided(tmp_path):
+    """Without `--venv`, the verifier does NOT rewrite `pytest` commands
+    (fail-closed: bare `pytest` on PATH may be wrong; venv-aware mode is
+    strictly opt-in via the flag)."""
+    out = tmp_path / "out"
+    cs = [_consumer(idx="py-1", cmd="pytest -q tests/foo.py")]
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    r = _run(["--manifest", str(mp), "--out", str(out)])
+    assert r.returncode != 0
+    assert not (out / "CONSUMER-READINESS.json").is_file()
+
+
+def test_venv_aware_pytest_does_not_rewrite_unrelated_prefix(tmp_path,
+                                                             monkeypatch):
+    """A command that merely contains `pytest` mid-string (e.g. the path
+    `tests/pytest_legacy`) is NOT rewritten. Only the bare leading token
+    `pytest` triggers the rewrite. Asserted by recording: if a rewrite
+    had fired, the fake python would be invoked and write the recorder;
+    since no rewrite happens, the recorder file MUST NOT exist."""
+    recorder = tmp_path / "argv.json"
+    monkeypatch.setenv("RECORDER", str(recorder))
+    venv_python = _write_fake_python(tmp_path / "venv_bin")
+    out = tmp_path / "out"
+    # Benign command that exits 0; contains `pytest` mid-string only.
+    cs = [_consumer(idx="py-1", cmd="echo tests/pytest_legacy_marker")]
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    r = _run(["--manifest", str(mp), "--out", str(out),
+              "--venv", str(venv_python)])
+    assert r.returncode == 0, r.stderr
+    assert not recorder.exists(), (
+f"recorder was written → a rewrite fired for an unrelated "
+f"command. Content: {recorder.read_text() if recorder.exists() else None!r}")
+
+
+# ── G3 slice: controlled local server lifecycle ───────────────────────
+def _run_in_process(argv, *, monkeypatch=None):
+    """Run verify_consumers.main() IN-PROCESS so monkeypatch on
+    LocalServer / subprocess survives. Returns (rc, stderr_text)."""
+    import scripts.verify_consumers as vc
+    import contextlib, io
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        rc = vc.main(argv)
+    return rc, err.getvalue()
+
+
+@pytest.fixture
+def fake_local_server(monkeypatch):
+    """Patch subprocess.Popen AND LocalServer._wait_ready so the
+    controlled lifecycle runs without spawning uvicorn. The returned
+    list is the sequence of FakeProc objects spawned (in-process)."""
+    spawned = []
+
+    class _FakeProc:
+        def __init__(self, args, **kw):
+            self.args = list(args)
+            self.terminated = False
+            self.killed = False
+            self.waits = 0
+            self.returncode = 0  # mimic successful exit
+            spawned.append(self)
+        def terminate(self): self.terminated = True
+        def kill(self): self.killed = True
+        def wait(self, timeout=None):
+            self.waits += 1; return self.returncode
+        def poll(self):
+                return self.returncode  # 3.14 subprocess.run uses poll() only
+        def communicate(self, input=None, timeout=None):
+            self.returncode = 0
+            return (b"", b"")
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc, tb): return False
+
+    import scripts.verify_consumers as vc
+    monkeypatch.setattr(vc.subprocess, "Popen", _FakeProc)
+    monkeypatch.setattr(vc.LocalServer, "_wait_ready", lambda self: True)
+    yield spawned
+
+
+def test_serve_flag_spawns_local_server_before_checks_and_terminates(
+        tmp_path, fake_local_server):
+    """With `--serve`, the verifier:
+      - spawns the local uvicorn server BEFORE any verification check,
+      - terminates it AFTER every check completes (in `finally`-equivalent
+        via LocalServer.__exit__).
+    The uvicorn command shape is python -m uvicorn api.server:app."""
+    out = tmp_path / "out"
+    cs = [_consumer(idx=f"a-{i}") for i in range(2)]
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    rc, err = _run_in_process(
+        ["--manifest", str(mp), "--out", str(out), "--serve"])
+    assert rc == 0, err
+    # Filter to uvicorn spawns (every check command also goes through the
+    # patched Popen; we only care about server spawns).
+    server_spawns = [p for p in fake_local_server
+                     if "uvicorn" in p.args]
+    assert len(server_spawns) == 1, server_spawns
+    proc = server_spawns[0]
+    assert proc.terminated, "server must be terminated on clean exit"
+    argv = proc.args
+    assert "uvicorn" in argv and "api.server:app" in argv, argv
+
+
+def test_serve_disabled_does_not_spawn_local_server(tmp_path,
+                                                   fake_local_server):
+    """Without `--serve`, the verifier MUST NOT spawn a local server
+    (controlled lifecycle is strictly opt-in)."""
+    out = tmp_path / "out"
+    cs = [_consumer(idx=f"a-{i}") for i in range(2)]
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    rc, err = _run_in_process(
+        ["--manifest", str(mp), "--out", str(out)])
+    assert rc == 0, err
+    server_spawns = [p for p in fake_local_server
+                     if "uvicorn" in p.args]
+    assert server_spawns == [], server_spawns
+
+
+def test_serve_flag_server_not_ready_exits_fail_closed(
+        tmp_path, monkeypatch):
+    """If the local server fails the healthcheck within the ready timeout,
+    the verifier exits non-zero (EXIT_SERVER) and emits NO artifact
+    (G3 fail-closed invariant preserved)."""
+    import scripts.verify_consumers as vc
+
+    class _FakeProc:
+        def __init__(self, args, **kw):
+            self.args = list(args)
+            self.returncode = 0
+        def terminate(self): pass
+        def kill(self): pass
+        def wait(self, timeout=None): return 0
+        def poll(self): return 0
+        def communicate(self, input=None, timeout=None):
+            self.returncode = 0
+            return (b"", b"")
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc, tb): return False
+
+    monkeypatch.setattr(vc.subprocess, "Popen", _FakeProc)
+    monkeypatch.setattr(vc.LocalServer, "_wait_ready", lambda self: False)
+
+    out = tmp_path / "out"
+    cs = [_consumer(idx="a-1")]
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    rc, err = _run_in_process(
+        ["--manifest", str(mp), "--out", str(out), "--serve"])
+    assert rc != 0, err
+    assert not (out / "CONSUMER-READINESS.json").is_file()
+    assert "ready" in err.lower(), err
