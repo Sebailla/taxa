@@ -468,3 +468,68 @@ reconstrucción según `tasks.md` §Aviso de reconstrucción.
           candidato / package-lock / ficheros de evidencia. Espejos
           en español actualizados en paralelo. No se realiza commit
           ni push en esta pasada.
+        - **2026-08-30** — Pasada de corrección del contrato de salida G2
+          (una decisión explícita del mantenedor aplicada a
+          `design.md::§3.3.2.1`; esta entrada). Según la tarea del padre,
+          el contrato G2 canónico se corrige para reflejar la disposición
+          de salida verificada del **build limpio de Next.js 16.3.3 /
+          Turbopack** (CSS bajo `out/_next/static/chunks/**`, chunks JS
+          planos bajo `out/_next/static/chunks/**` sin subdirectorio
+          `chunks/app/`, y `build-manifest.json` en staging / requerido
+          mientras que `app-build-manifest.json` es opcional y nunca un
+          fallo de clase faltante). G2 **sigue `bloqueado — contrato
+          definido; verificador no implementado`**, no `aprobado` (ningún
+          verificador G2 se escribe en esta pasada, ninguna puerta
+          aprueba, no se tocan fuente / tests / scripts / workspace
+          candidato / package-lock / ficheros de evidencia / artefacto de
+          build candidato de Next 16; las realidades de la salida del
+          build son hallazgos de implementación, no suposiciones).
+          (4) **Corrección del contrato de salida de Next.js 16 /
+          Turbopack** — registrada en `design.md::§3.3.2.1` contra la
+          disposición de salida del build limpio `next build` verificada:
+          - (4.a) **Clase CSS** — la clase CSS de ruta-de-aplicación
+            requerida es **uno-o-más ficheros `*.css` no vacíos en
+            cualquier punto bajo
+            `<candidate-root>/out/_next/static/chunks/**`** (los bundles
+            CSS están co-ubicados con los chunks JS), **no** bajo
+            `out/_next/static/css/` (no se requiere ni se aserta ningún
+            directorio CSS separado).
+          - (4.b) **Clase JS** — la clase JS de ruta-de-aplicación
+            requerida es **uno-o-más ficheros `*.js` no vacíos en
+            cualquier punto bajo
+            `<candidate-root>/out/_next/static/chunks/**`**; el contrato
+            lleva **sin requisito del subdirectorio `chunks/app/`**
+            (Next.js 16 / Turbopack emite chunks JS planos).
+          - (4.c) **Semántica del staging de manifiestos** — solo
+            `<candidate-root>/.next/build-manifest.json` →
+            `<candidate-root>/out/.next/build-manifest.json` es
+            **requerido** (su ausencia de la salida del build es un fallo
+            de clase faltante);
+            `<candidate-root>/.next/app-build-manifest.json` →
+            `<candidate-root>/out/.next/app-build-manifest.json` es
+            **opcional y nunca un fallo de clase faltante** — el
+            verificador intenta la copia solo cuando el manifiesto fuente
+            existe, registra `staged` / `not_emitted` en `assets[]`, y
+            nunca falla por su ausencia (el build limpio verificado de
+            Next 16.3.3 / Turbopack emite solo `build-manifest.json`).
+          Registrado en `design.md::§3.3.2.1` actualizando las filas
+          `Clases de activos requeridas (ruta-de-aplicación)`, `Staging
+          post-build de manifiestos (atómico)`, `Esquema y ubicación del
+          inventario`, `Semántica de fallo`, y `Frontera de verificación
+          (precondiciones del verificador strict-TDD G2)`; la fila
+          `Frontera de verificación` además aserta que el verificador
+          strict-TDD G2 NO DEBE requerir un directorio
+          `_next/static/css/` ni un subdirectorio
+          `_next/static/chunks/app/`. La fila `Semántica de fallo` añade
+          la rama (b′) para ausencia opcional de `app-build-manifest.json`
+          (`not_emitted` **nunca** es un fallo) y aprieta la rama (b) a
+          solo `build-manifest.json` requerido. El pie de estado en
+          `design.md` (y su espejo en español) se actualiza para enumerar
+          las **cuatro** correcciones; el lenguaje de bloqueo G2 / G5 /
+          PR3e se conserva verbatim. Espejos en español actualizados en
+          paralelo. Ninguna frontera seleccionada, ninguna puerta
+          aprobada, sin manifest de cutover, ningún verificador G2
+          escrito, no se tocan fuente / tests / scripts / workspace
+          candidato / package-lock / ficheros de evidencia / artefacto
+          de build candidato de Next 16. No se realiza commit ni push en
+          esta pasada.
