@@ -402,3 +402,292 @@ def test_serve_flag_server_not_ready_exits_fail_closed(
     assert rc != 0, err
     assert not (out / "CONSUMER-READINESS.json").is_file()
     assert "ready" in err.lower(), err
+
+
+# ── G3 slice: controlled fixture-serve on isolated port ───────────────
+# The G3 verifier's `--serve` mode (uvicorn + FastAPI on 8765) is the
+# production-runtime branch. The next G3 step is to additionally support
+# a controlled **fixture-serve** branch: spawn `python -m http.server`
+# against the merged self-contained fixture's `web/` directory on an
+# ISOLATED free port (auto-picked via OS), so verification commands can
+# be validated without touching the production FastAPI mount. The
+# fixture's legacy port (8765) is rewritten to the new isolated port
+# so manifest consumers continue to validate.
+
+
+def _capture_popen(monkeypatch):
+    """Install a Popen fake that records every spawn into a list. Used
+    by the fixture-serve tests so we can assert both the http.server
+    argv shape AND the verification-command rewriting in one shot."""
+    import scripts.verify_consumers as vc
+    captured = []
+
+    class _CaptureProc:
+        def __init__(self, args, **kw):
+            self.args = list(args)
+            self.returncode = 0
+            captured.append(self)
+        def terminate(self): pass
+        def kill(self): pass
+        def wait(self, timeout=None): return 0
+        def poll(self): return 0
+        def communicate(self, input=None, timeout=None):
+            self.returncode = 0
+            return (b"", b"")
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc, tb): return False
+
+    monkeypatch.setattr(vc.subprocess, "Popen", _CaptureProc)
+    monkeypatch.setattr(vc.LocalServer, "_wait_ready", lambda self: True)
+    return captured
+
+
+def test_fixture_web_root_spawns_python_http_server_not_uvicorn(
+        tmp_path, monkeypatch):
+    """With `--serve --fixture-web-root <dir>`, the controlled server is
+    `python -m http.server <port> --directory <dir>`, NOT uvicorn. The
+    new fixture-serve mode is wired in alongside the existing --serve
+    uvicorn path so neither branch regresses the other."""
+    out = tmp_path / "out"
+    fixture_root = tmp_path / "fixture_web"
+    fixture_root.mkdir()
+    cs = [_consumer(idx=f"a-{i}") for i in range(2)]
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    captured = _capture_popen(monkeypatch)
+    rc, err = _run_in_process(
+        ["--manifest", str(mp), "--out", str(out),
+         "--serve", "--fixture-web-root", str(fixture_root)])
+    assert rc == 0, err
+    http_servers = [p for p in captured if "http.server" in p.args]
+    assert len(http_servers) == 1, [p.args for p in captured]
+    argv = http_servers[0].args
+    # Shape: <py> -m http.server <port> --directory <root>
+    assert "-m" in argv and "http.server" in argv, argv
+    assert "--directory" in argv, argv
+    dir_idx = argv.index("--directory")
+    assert argv[dir_idx + 1] == str(fixture_root), argv
+    # Negative: NOT uvicorn (controlled fixture path is mutually exclusive
+    # with the FastAPI mount path).
+    assert "uvicorn" not in argv, argv
+
+
+def test_fixture_web_root_uses_isolated_free_port_not_8765(
+        tmp_path, monkeypatch):
+    """The fixture-serve mode MUST bind to an isolated free port picked
+    by the OS at probe time — NOT the legacy 8765. Asserted by: the
+    http.server argv's port token is a positive integer, and ':8765'
+    does not appear in the spawned argv."""
+    out = tmp_path / "out"
+    fixture_root = tmp_path / "fixture_web"
+    fixture_root.mkdir()
+    cs = [_consumer(idx="a-1")]
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    captured = _capture_popen(monkeypatch)
+    rc, err = _run_in_process(
+        ["--manifest", str(mp), "--out", str(out),
+         "--serve", "--fixture-web-root", str(fixture_root)])
+    assert rc == 0, err
+    http_servers = [p for p in captured if "http.server" in p.args]
+    assert len(http_servers) == 1
+    argv = http_servers[0].args
+    port_idx = argv.index("http.server") + 1
+    port_token = argv[port_idx]
+    assert port_token.isdigit(), f"port token not numeric: {port_token!r}"
+    assert int(port_token) > 0, port_token
+    assert int(port_token) <= 65535, port_token
+    # Critical: must NOT be the legacy 8765 (isolated port invariant).
+    assert "8765" not in argv, argv
+
+
+def test_fixture_web_root_healthcheck_uses_isolated_port_and_index(
+        tmp_path, monkeypatch):
+    """The healthcheck URL for the fixture-serve mode MUST use the
+    isolated port with `/index.html` (the fixture's known-good asset).
+    This is what `_wait_ready` polls before releasing the verifier."""
+    import scripts.verify_consumers as vc
+    captured = _capture_popen(monkeypatch)
+    seen = {}
+    def _capture(self):
+        seen["url"] = self.healthcheck
+        seen["port"] = self.port
+        return True
+    monkeypatch.setattr(vc.LocalServer, "_wait_ready", _capture)
+
+    out = tmp_path / "out"
+    fixture_root = tmp_path / "fixture_web"
+    fixture_root.mkdir()
+    cs = [_consumer(idx="a-1")]
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    rc, err = _run_in_process(
+        ["--manifest", str(mp), "--out", str(out),
+         "--serve", "--fixture-web-root", str(fixture_root)])
+    assert rc == 0, err
+    assert "url" in seen, "healthcheck never observed"
+    assert "port" in seen, "port never observed"
+    url = seen["url"]
+    port = seen["port"]
+    assert url == f"http://127.0.0.1:{port}/index.html", url
+    assert port != 8765, port
+    assert 0 < port <= 65535, port
+
+
+def test_fixture_web_root_rewrites_verification_commands_to_isolated_port(
+        tmp_path, monkeypatch):
+    """When fixture-serve picks an isolated port, the verifier MUST
+    rewrite each consumer's `verification.command` so the legacy
+    `:8765` URL targets the new port. Without rewriting, the curl
+    command would hit nothing and the check would fail spuriously.
+
+    Asserted by: a recorder captures the shell command actually run.
+    After rewriting, the URL says `127.0.0.1:<NEW_PORT>`, where
+    <NEW_PORT> matches the port captured in the http.server argv."""
+    out = tmp_path / "out"
+    fixture_root = tmp_path / "fixture_web"
+    fixture_root.mkdir()
+    legacy_cmd = ("curl -sS -o /dev/null -w '%{http_code}' "
+                  "http://127.0.0.1:8765/index.html")
+    cs = [_consumer(idx="legacy-1", cmd=legacy_cmd, expect="200")]
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    captured = _capture_popen(monkeypatch)
+    rc, err = _run_in_process(
+        ["--manifest", str(mp), "--out", str(out),
+         "--serve", "--fixture-web-root", str(fixture_root)])
+    assert rc == 0, err
+
+    # The new port is the token right after 'http.server' in argv.
+    http_servers = [p for p in captured if "http.server" in p.args]
+    assert len(http_servers) == 1
+    argv = http_servers[0].args
+    new_port = argv[argv.index("http.server") + 1]
+    assert new_port.isdigit() and new_port != "8765", argv
+
+    # Find the verification check spawn: shell command '/bin/sh -c <cmd>'.
+    check_spawns = [p for p in captured if p.args[:1] == ["/bin/sh"]]
+    assert len(check_spawns) == 1, [p.args for p in captured]
+    cmd = check_spawns[0].args[2]
+    # Original 8765 must be gone; new port must be present.
+    assert "127.0.0.1:8765" not in cmd, cmd
+    assert f"127.0.0.1:{new_port}/index.html" in cmd, cmd
+
+
+def test_fixture_web_root_missing_directory_fails_closed(
+        tmp_path, monkeypatch):
+    """If `--fixture-web-root <missing>` is provided, the verifier exits
+    non-zero (fail-closed) and emits no CONSUMER-READINESS.json. We must
+    not silently fall back to no-server or to a wrong directory."""
+    captured = _capture_popen(monkeypatch)
+    out = tmp_path / "out"
+    missing = tmp_path / "does_not_exist"
+    cs = [_consumer(idx="a-1")]
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    rc, err = _run_in_process(
+        ["--manifest", str(mp), "--out", str(out),
+         "--serve", "--fixture-web-root", str(missing)])
+    assert rc != 0, err
+    assert not (out / "CONSUMER-READINESS.json").is_file()
+    # No http.server spawn should have happened.
+    http_servers = [p for p in captured if "http.server" in p.args]
+    assert http_servers == [], [p.args for p in captured]
+    # Stderr must mention the missing fixture (failure message present).
+    assert ("fixture" in err.lower() or "does not exist" in err.lower()
+            or "not a directory" in err.lower()), err
+
+
+def test_fixture_web_root_without_serve_flag_does_not_spawn_server(
+        tmp_path, monkeypatch):
+    """`--fixture-web-root` without `--serve` is a no-op: the controlled
+    lifecycle remains strictly opt-in via `--serve`. No http.server
+    spawn, no port rewriting — the verifier behaves exactly as if
+    `--fixture-web-root` were absent (benign synthetic consumers pass,
+    http consumers would fail closed by their own logic)."""
+    out = tmp_path / "out"
+    fixture_root = tmp_path / "fixture_web"
+    fixture_root.mkdir()
+    cs = [_consumer(idx="a-1", cmd=":")]  # benign, no http needed
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    captured = _capture_popen(monkeypatch)
+    rc, err = _run_in_process(
+        ["--manifest", str(mp), "--out", str(out),
+         "--fixture-web-root", str(fixture_root)])
+    assert rc == 0, err
+    http_servers = [p for p in captured if "http.server" in p.args]
+    assert http_servers == [], [p.args for p in captured]
+
+
+def test_fixture_web_root_server_terminates_on_clean_exit(
+        tmp_path, monkeypatch):
+    """Triangulate: the fixture-serve process is terminated on context
+    exit (mirrors the existing uvicorn lifecycle). We track `terminate`
+    and `wait` calls via a custom proc subclass."""
+    import scripts.verify_consumers as vc
+    spawned = []
+
+    class _TrackProc:
+        def __init__(self, args, **kw):
+            self.args = list(args)
+            self.terminated = False
+            self.waited = False
+            spawned.append(self)
+        def terminate(self): self.terminated = True
+        def kill(self): pass
+        def wait(self, timeout=None):
+            self.waited = True; return 0
+        def poll(self): return 0
+        def communicate(self, input=None, timeout=None):
+            self.returncode = 0
+            return (b"", b"")
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc, tb): return False
+
+    monkeypatch.setattr(vc.subprocess, "Popen", _TrackProc)
+    monkeypatch.setattr(vc.LocalServer, "_wait_ready", lambda self: True)
+
+    out = tmp_path / "out"
+    fixture_root = tmp_path / "fixture_web"
+    fixture_root.mkdir()
+    cs = [_consumer(idx="a-1")]
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    rc, err = _run_in_process(
+        ["--manifest", str(mp), "--out", str(out),
+         "--serve", "--fixture-web-root", str(fixture_root)])
+    assert rc == 0, err
+    http_servers = [p for p in spawned if "http.server" in p.args]
+    assert len(http_servers) == 1, [p.args for p in spawned]
+    proc = http_servers[0]
+    assert proc.terminated, "fixture http.server must be terminated on clean exit"
+    assert proc.waited, "fixture http.server must be waited after terminate"
+
+
+def test_fixture_web_root_isolated_port_avoids_8765_when_8765_in_use(
+        tmp_path, monkeypatch):
+    """Triangulate: even when 8765 is already in use (synthetic: bind
+    it for the duration of the test), the fixture-serve mode MUST NOT
+    bind 8765. Asserted by: the picked port differs from 8765 AND the
+    verifier still passes (synthetic benign consumers)."""
+    import socket as _socket
+    captured = _capture_popen(monkeypatch)
+    blocker = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    blocker.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 0)
+    out = tmp_path / "out"
+    fixture_root = tmp_path / "fixture_web"
+    try:
+        try:
+            blocker.bind(("127.0.0.1", 8765))
+        except OSError:
+            pytest.skip("8765 unavailable in this environment "
+"(in use by another process); cannot assert "
+"the isolated-port invariant locally.")
+        blocker.listen(1)
+        cs = [_consumer(idx="a-1")]
+        mp = _write_manifest(tmp_path, _base_manifest(cs))
+        rc, err = _run_in_process(
+            ["--manifest", str(mp), "--out", str(out),
+             "--serve", "--fixture-web-root", str(fixture_root)])
+        assert rc == 0, err
+        http_servers = [p for p in captured if "http.server" in p.args]
+        assert len(http_servers) == 1
+        argv = http_servers[0].args
+        port = argv[argv.index("http.server") + 1]
+        assert port != "8765", argv
+    finally:
+        blocker.close()
