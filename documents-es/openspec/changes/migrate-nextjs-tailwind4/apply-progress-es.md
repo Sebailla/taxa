@@ -613,5 +613,126 @@ reconstrucción según `tasks.md` §Aviso de reconstrucción.
             estática / FastAPI y el contrato G2 de **cuatro**
             correcciones. El cuerpo del contrato G2 en
             `design.md::§3.3.2.1` **no** se modifica en esta pasada.
-            Espejos en español actualizados en paralelo. No se realiza
-            commit, push, ni apertura de PR en esta pasada.
+Espejos en español actualizados en paralelo. No se realiza
+                commit, push, ni apertura de PR en esta pasada.
+            - **2026-08-30** — Pasada de autoría del cutover-manifest de G3
+              (esta entrada). Según la tarea del padre, el manifiesto de
+              consumidores machine-readable canónico se añade en
+              `openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json`
+              y el contrato G3 canónico se define en
+              `design.md::§3.3.3.1` (con espejo fiel en español en
+              `design-es.md::§3.3.3.1`). **En esta pasada no se tocan,
+              comitean, ni pushean fuentes, tests, scripts, tareas,
+              ficheros de producto, ficheros de evidencia, workspace
+              candidato, ni `package-lock.json`.** G3 **contrato definido;
+              manifiesto autorado con cada consumidor de §3.1 sin
+              seleccionar; verificador no implementado** (en esta pasada
+              no se autora ningún verificador G3, ninguna puerta se
+              aprueba, ningún consumidor cambia a `selected`).
+              (1) **Ruta del manifiesto canónico** —
+                `openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json`.
+                Fuente única de verdad para cada consumidor activo en
+                `design.md::§3.1`.
+              (2) **Cobertura** — los **26** consumidores activos de
+                §3.1 se enumeran verbatim: **21** consumidores en §3.1.1
+                (mount web FastAPI: 2 lecturas HTML + 1 link CSS + 1
+                module-entry JS + 4 import ES + 3 dynamic import + 1 pin
+                CDN + 3 tests smoke/evidence-baseline + 2 tests
+                build-profile/hidratación + 1 pin extension-manifest +
+                3 tests evidence-baseline) + **5** consumidores en
+                §3.1.2 (`web/search_urls.js`: 3 usos runtime de
+                detail.js + 2 tests contractuales). Ningún consumidor se
+                colapsó ni se fusionó; los IDs se emitieron desde
+                namespaces `mount-` (21) y `search-urls-` (5) nuevos
+                siguiendo la convención `<edge-prefix>-<kind>-NNN`.
+              (3) **Campos por consumidor** — cada registro de consumidor
+                lleva los siete campos exigidos por el brief de la tarea:
+                `id`, `ownership_edge` (uno de `fastapi_web_mount`,
+                `web_search_urls_js`), `current_path`, `replacement`
+                (`{status: "unselected"}` para cada consumidor en esta
+                pasada), `verification` (`{command, expect}`),
+                `activation_status` (`"unselected"` para cada
+                consumidor), `rollback` (la sentencia exacta de
+                `git revert` que restaura `current_path`).
+              (4) **Forma de nivel superior** — el manifiesto lleva
+                también `$schema_version`, `change`, `planning_artifact`,
+                `generated_by`, `scope_intent`, `anchor`,
+                `fail_closed_summary`, `edges[]` (los dos bordes de
+                ownership con `id`, `label`, `anchor`,
+                `single_origin_contract`), `consumers[]`,
+                `selection_invariants` (`approach_status`,
+                `all_replacements_unselected`, `fail_closed_semantics`,
+                `atomic_cutover_invariant`, `rollback_invariant`,
+                `selection_rule`), y `verifier_contract_summary`
+                (productor, comando, artefacto, umbral,
+                `fail_closed_invariant`).
+              (5) **Invariante fail-closed** — cada consumidor en esta
+                pasada tiene `activation_status: unselected` y
+                `replacement.status: unselected`. El verificador G3
+                (`scripts/verify_consumers.py`, AÚN NO AUTORIADO — se
+                enviará en PR3d) DEBE salir no-cero Y no emitir ningún
+                `CONSUMER-READINESS.json` válido mientras CUALQUIER
+                consumidor esté sin seleccionar. El `fail_closed_summary`
+                del manifiesto y la fila `Semántica de fallo (fail-closed)`
+                de §3.3.3.1 enumeran esta invariante.
+              (6) **Cuerpo del contrato G3** — `design.md::§3.3.3.1`
+                (y el espejo fiel en español `design-es.md::§3.3.3.1`)
+                define la entrada canónica para el verificador strict-TDD
+                G3 en las filas: Ruta del manifiesto canónico; Forma de
+                nivel superior del manifiesto; Esquema del registro de
+                consumidor; Convención de ID estable; Unidad atómica de
+                cutover; Unidad de rollback; Semántica de fallo
+                (fail-closed); Esquema de `CONSUMER-READINESS.json`
+                (`manifest_path`, `manifest_sha256`, `node_version`,
+                `verified_at`, `exit_code`, `consumers[]`,
+                `unselected_count`, `failed_verifications[]`,
+                `activation_complete` — inválido cuando `activation_complete`
+                es `false` O `exit_code != 0` O `unselected_count > 0`
+                O existe cualquier entrada en `failed_verifications[]`;
+                el verificador escribe vía temp-file + rename);
+                Requisitos de fixtures de test (manifiesto canónico
+                como fixture red/green + fixtures parametrizados
+                `tmp_path` sobre los cuatro modos de fallo + fixture de
+                estabilidad SHA256 + fixture de invariante fail-closed);
+                Regla de selección (gating — requiere G2/G4/G5/G6 todos
+                `aprobados`); Procedencia.
+              (7) **Actualización de la fila §3.3.3 G3** — las celdas
+                productor / comando / artefacto / umbral en
+                `design.md::§3.3.3` (y `design-es.md::§3.3.3`) ahora
+                referencian la ruta canónica `cutover-manifest.json` en
+                lugar del placeholder previo `design.md::§3.4`.
+              (8) **Pie de estado** — el pie de `status:` en
+                `design.md` (y el espejo en español) se actualiza para
+                enumerar este registro de autoría del contrato /
+                manifiesto G3 preservando verbatim el registro de PASS
+                de G2, la disposición irreproducible de G5, el lenguaje
+                bloqueado de G4 / G6, el lenguaje de exportación
+                estática sin seleccionar, y el lenguaje de sin
+                activación de FastAPI.
+              **Verdad preservada** — G3 **contrato definido; manifiesto
+              autorado con cada consumidor de §3.1 sin seleccionar;
+              verificador no implementado** (ningún consumidor cambia a
+              `selected`, no se autora ningún verificador G3, ninguna
+              puerta se aprueba); **la exportación estática sigue sin
+              seleccionar** (no se elige Enfoque A / B / C); **sin
+              activación de FastAPI** (el `cutover-manifest.json` es un
+              artefacto puramente de planificación — sin repoint de
+              `WEB_DIR`, sin actualización de consumidor, sin cambio en
+              Makefile / extensión / API / fuente de producto); **G4,
+              G5, G6 siguen bloqueadas** (G5 irreproducible según la
+              auditoría §3.3.5; los verificadores de G4 / G6 aún no
+              están autordos). Espejos en español actualizados en
+              paralelo. No se realiza commit, push, ni apertura de PR
+              en esta pasada.
+              **Nota de tamaño (planning-only)** — esta pasada añade
+              `openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json`
+              (273 líneas, artefacto de planificación análogo al
+              `BUILD-INVENTORY.json` generado en G2 — el manifiesto es
+              un fichero de datos, no una adición de código/test, y
+              está acotado por el número de consumidores de §3.1) más
+              la actualización de la fila §3.3.3 + la nueva definición
+              del contrato §3.3.3.1 + el registro del pie de estado en
+              `design.md` y `design-es.md` (≈ 36 líneas netas entre los
+              dos ficheros). El total de adiciones autoradas de
+              planning-doc en esta pasada se queda bien por debajo del
+              presupuesto de revisión por PR de 400 líneas.
