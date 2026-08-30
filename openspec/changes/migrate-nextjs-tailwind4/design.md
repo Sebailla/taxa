@@ -636,6 +636,55 @@ evidence), it MUST:
 4. Pass G1 (this artifact, design-review minutes) before any
    PR3b/3c/3d/3e work begins.
 
+### §3.3 Evidence producers and thresholds
+
+Every gate has a named producer, an invocation command, an artifact path, and an acceptance threshold. **No gate is marked passing by this artifact.** Absent, failed, stale (>7 days), or incomparable evidence is **blocked**, never success. PR3a records the producer + command + artifact + threshold matrix below; PR3b–PR3e attach actual results.
+
+#### §3.3.2 G2 — foundation build
+
+| Field | Value |
+| --- | --- |
+| Producer | `scripts/verify_build.py` (NOT YET AUTHORED — to land in PR3b alongside the foundation) |
+| Command | `python scripts/verify_build.py --out <build-root> --node-min 20.9.0` |
+| Artifact | `<build-root>/BUILD-INVENTORY.json` + build log + `node --version` snapshot |
+| Threshold | (a) build command exits 0; (b) inventory lists every expected artifact (HTML entry, JS bundles, CSS, fonts); (c) Node version meets `≥20.9.0`; (d) build failure produces a non-zero exit and does **not** silently fall back to legacy |
+
+#### §3.3.3 G3 — consumer readiness
+
+| Field | Value |
+| --- | --- |
+| Producer | `scripts/verify_consumers.py` (NOT YET AUTHORED — to land in PR3d) |
+| Command | `python scripts/verify_consumers.py --map openspec/changes/migrate-nextjs-tailwind4/design.md::§3.1 --cut-manifest design.md::§3.4` |
+| Artifact | `<build-root>/CONSUMER-READINESS.json` |
+| Threshold | for every consumer listed in §3.1, the §3.4 manifest names the replacement path and a verification path; no §3.1 consumer remains "active" against a path that PR3e intends to delete |
+
+#### §3.3.4 G4 — behavior parity
+
+| Field | Value |
+| --- | --- |
+| Producer | Playwright + Lighthouse suite (NOT YET AUTHORED — to land in PR3d); existing `tests/test_smoke.py` (unchanged) |
+| Command | `make test && make parity` (proposed) |
+| Artifact | `parity-reports/<date>/{navigation,api,search,a11y,browser-state}.json` |
+| Threshold | navigation paths match legacy; `/api/*` matches legacy (existing tests green); AC-21 still passes against the post-cut reader location; accessibility ≥ legacy score; browser-state keys (`last-taxon-id`, `tree-source`, `selected-realm`, `version-banner-dismissed`) hydrate the replacement UI identically |
+
+#### §3.3.5 G5 — performance comparability
+
+| Field | Value |
+| --- | --- |
+| Producer | `scripts/measure_hydration.py` (PR 1b.3a deliverable — **reconstruction pending**, not delivered to `develop`) + Lighthouse |
+| Command | `python scripts/measure_hydration.py --baseline docs/baselines/legacy-web-2026-08-26.json --candidate <build-root> --iterations 10` |
+| Artifact | `parity-reports/<date>/hydration.json` |
+| Threshold | server-shell first-paint within ±10 % of legacy baseline; interaction latency (key tabs / search dropdown) within ±10 % of legacy baseline; bundle size within declared threshold (TBD; recorded at PR3b) |
+
+#### §3.3.6 G6 — cutover rehearsal
+
+| Field | Value |
+| --- | --- |
+| Producer | `scripts/rehearse_cutover.py` (NOT YET AUTHORED — to land in PR3d) |
+| Command | `python scripts/rehearse_cutover.py --manifest openspec/changes/migrate-nextjs-tailwind4/design.md::§3.4 --dry-run` |
+| Artifact | `parity-reports/<date>/cutover-rehearsal.json` |
+| Threshold | every path listed in §3.4 is verified by the rehearsal: mount path, served-artifact root, fallback behavior, every consumer-update, AC-21 reader path; dry-run matches the manifest exactly; rollback rehearsal restores the previous mount + canonical consumer graph |
+
 ---
 
-`status: complete (PR 2a slice; PR3a boundary scope planning appended — no boundary selected, no G2–G6 evidence, no cutover manifest yet)`
+`status: complete (PR 2a slice; PR3a boundary scope planning with G2–G6 evidence producer/threshold plan appended — no boundary selected, no gate passing, no cutover manifest yet)`
