@@ -1,0 +1,17 @@
+{
+  "name": "taxa-g2-candidate",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Disposable G2 candidate workspace — see openspec/changes/migrate-nextjs-tailwind4/design.md §3.3.2.1. Unreachable from production by design.",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "build": "next build"
+  },
+  "dependencies": {
+    "next": "16.3.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  }
+}

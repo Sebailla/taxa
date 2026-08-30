@@ -1,0 +1,8 @@
+/* Minimal global CSS for the G2 candidate. The contract requires that
+   the build emits at least one CSS bundle under
+   out/_next/static/css/. This file is imported by app/layout.js so
+   Next.js includes it in the static export. */
+
+:root { color-scheme: light; }
+html, body { margin: 0; padding: 0; background: #FFFFFF; color: #111111; }
+body { font-family: system-ui, sans-serif; }
