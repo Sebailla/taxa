@@ -1,0 +1,7 @@
+/* G3 legacy fixture — minimal non-empty CSS (required asset).
+   Mirrors the legacy web/dist/tailwind.css shape: the manifest's
+   `mount-runtime-link-tag-css-003` consumer requires this file to be
+   served at /dist/tailwind.css with non-trivial bytes. */
+body { font-family: system-ui, sans-serif; margin: 1rem; color: #111; background: #fff; }
+h1 { font-size: 1.5rem; margin: 0 0 0.5rem 0; font-weight: 600; }
+p  { margin: 0; line-height: 1.5; }
