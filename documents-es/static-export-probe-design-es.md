@@ -81,6 +81,47 @@ persistencia.
 
 ---
 
+## Contrato de implementación (autorización estrecha)
+
+Esta modificación autoriza una superficie de implementación delimitada **solo dentro** de `tools/static-export-probe/`. Nada fuera de ese directorio gana fuente, test, configuración, cableado de build o artefacto nuevo. Los cinco innegociables arriba siguen vigentes; esta sección los acota, amplía o restringe solo donde se indica explícitamente.
+
+### Superficies autorizadas (solo locales a la sonda)
+
+| # | Superficie | Ubicación | Restricción |
+|---|---|---|---|
+| 1 | `package.json` de la sonda con dependencias de Next 16 y React 19 | `tools/static-export-probe/package.json` | Limitado a la sonda; sin hoisting de workspace; sin scripts que salgan de `tools/static-export-probe/`. |
+| 2 | Configuración Next de la sonda (p. ej. `next.config.*`) | `tools/static-export-probe/next.config.*` | Solo exportación estática; sin `experimental` que toque estado compartido. |
+| 3 | App de la sonda que implementa el caparazón diagnóstico aprobado | `tools/static-export-probe/app/**` | Cumple el contrato visual arriba; sin cableado de producto; sin import de consumidor. |
+| 4 | Script de captura que ejecuta `next build` y timing de Playwright | `tools/static-export-probe/scripts/capture.*` | Lee solo la salida de la sonda; escribe artefactos solo bajo `tools/static-export-probe/evidence/`. |
+
+Cualquier archivo fuera de `tools/static-export-probe/` que requiera configuración o cableado debe añadirse a **Rutas de escritura prohibidas** abajo, no asumirse permitido.
+
+### Semántica de fallo de captura
+
+El script de captura DEBE salir con estado distinto de cero y emitir **ningún artefacto válido** cuando se cumpla cualquiera de estas condiciones:
+
+- `next build` no puede completar: instalación de dependencias falla, deriva del lockfile, error de build, o cualquier salida de build distinta de cero.
+- El timing de Playwright no está disponible: el navegador no arranca, la medición de carga/hidratación excede el tiempo, falta la traza, o la captura de timing no devuelve muestras.
+
+Una captura fallida NO DEBE emitir un artefacto marcador de posición. Específicamente: ningún `0`, `null`, `"unknown"`, `{}` o valor proxy puede sustituir a una medición real. La única salida en caso de fallo es una salida distinta de cero y un log de error legible; cualquier resumen parcial JSON/Markdown es inválido y debe borrarse antes de salir el script.
+
+### Rutas de escritura prohibidas
+
+Además de todas las superficies prohibidas en **Fuera de alcance** abajo, las siguientes rutas están explícitamente prohibidas para cualquier escritura por la implementación de la sonda, el script de captura o el cableado de build:
+
+- `web/`, `api/`, `Makefile`, `package.json` raíz del repo, `extension/manifest.json`, `tests/`, `etl/`, `src/`, `openspec/`, `documents-es/`, y cualquier ruta fuera de `tools/static-export-probe/` para fuente, test, configuración, lockfile o salida de build.
+- `tools/static-export-probe/evidence/` puede recibir salida de captura **solo** cuando la captura tenga éxito (ver *Semántica de fallo de captura*).
+
+### Estrategia de instalación determinista
+
+El `package.json` de la sonda DEBE ir acompañado de un lockfile versionado (`package-lock.json`, `pnpm-lock.yaml`, o equivalente) bajo `tools/static-export-probe/`. El script de captura DEBE instalar con el comando determinista correspondiente a ese lockfile (`npm ci`, `pnpm install --frozen-lockfile`, o equivalente). `npm install` / `pnpm install` sin lockfile está prohibido y DEBE provocar que el script de captura salga distinto de cero antes de cualquier build o medición.
+
+### Umbral de división de PR
+
+Un PR que envíe la implementación autorizada DEBE dividirse en piezas más pequeñas si su diff combinado (fuentes de la sonda, configuraciones, scripts, lockfile y cualquier modificación de diseño posterior) supera las 400 líneas añadidas. Dividir es precondición de revisión, no limpieza posterior.
+
+---
+
 ## Criterios de auditoría (inventario negativo + lista)
 
 Corra esta lista contra el HTML/JSON regenerado de la sonda. Cada
