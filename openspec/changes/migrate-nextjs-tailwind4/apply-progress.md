@@ -371,8 +371,68 @@ status preserved exactly as origin** (reconstruction pending,
           missing-proof inventory (capture command, log, environment,
           iteration count, raw Playwright, raw Lighthouse, delta row,
           CLI/schema match), and pins the closure path. Status footer
-          updated: G2 remains `blocked — contract defined; verifier not
-          implemented`; G5 remains `blocked — baseline not reproducible;
-          comparison not attempted`; PR3e activation still blocked until
-          G1–G6 close. Spanish mirrors updated in lockstep. No commit
-          or push performed in this pass.
+updated: G2 remains `blocked — contract defined; verifier not
+              implemented`; G5 remains `blocked — baseline not reproducible;
+              comparison not attempted`; PR3e activation still blocked until
+              G1–G6 close. Spanish mirrors updated in lockstep. No commit
+              or push performed in this pass.
+        - **2026-08-30** — G2 contract corrections pass (three explicit
+          maintainer decisions applied to `design.md::§3.3.2.1`; this
+          entry). Per the parent task, the canonical G2 contract is
+          corrected to record three explicit maintainer decisions while
+          **remaining `blocked — contract defined; verifier not
+          implemented`** (no G2 verifier is authored in this pass, no gate
+          passes, no source / tests / scripts / candidate workspace /
+          package-lock / evidence files are touched).
+          (1) **Size exception (generated file, conditional)** — a
+          `size:exception` applies **only** to
+          `tools/g2-candidate/package-lock.json`, and **only after**
+          `npm ci` exits 0 against the candidate's local
+          `tools/g2-candidate/package.json`. The exception is conditional
+          and void if `npm ci` fails (no `package-lock.json` is
+          committed). **No other generated file under `tools/g2-candidate/`
+          is excepted** from the per-PR review budget — every other
+          generated artifact (build output, manifests, logs, capture
+          artifacts, other lockfiles) is counted under the authored-lines
+          cap. Recorded in `design.md::§3.3.2.1` as a new
+          `Size exception (generated file, conditional)` table row.
+          (2) **Post-build manifest staging (atomic)** — the G2 verifier
+          MUST atomically copy the required Next manifests from
+          `<candidate-root>/.next/` into `<candidate-root>/out/.next/`
+          (specifically `<candidate-root>/.next/build-manifest.json` →
+          `<candidate-root>/out/.next/build-manifest.json` and
+          `<candidate-root>/.next/app-build-manifest.json` →
+          `<candidate-root>/out/.next/app-build-manifest.json`) before
+          inventory validation. The copy is all-or-nothing: any
+          individual copy failure aborts the staging step, removes any
+          partial staging, leaves **no** valid `BUILD-INVENTORY.json`
+          on disk, and propagates a non-zero exit. Missing source
+          manifests are also a staging failure. Recorded in
+          `design.md::§3.3.2.1` as a new `Post-build manifest staging
+          (atomic)` table row, and the `Failure semantics` and
+          `Inventory schema & location` rows are updated to enumerate
+          the staging failure branch.
+          (3) **HTML entry classification** — `index.html` is the **sole**
+          normal application-route HTML entry. `404.html` and `500.html`
+          are explicitly permitted error-page exemptions: if Next.js
+          emits them, the verifier records them under the **separate**
+          `error_pages` asset class — they are **not** promoted to
+          application-route entries, are **not** listed under `assets[]`
+          for the `application_route_html` class, and their absence is
+          **never** a missing-classes failure for the application-route
+          contract. Recorded in `design.md::§3.3.2.1` by splitting the
+          original `Required asset classes` row into a new
+          `Required asset classes (application-route)` row plus a new
+          `Error-page exemptions (classified separately)` row, and
+          updating the `Verification boundary` row to assert the
+          classification.
+        The `Verification boundary` and `Inventory schema & location`
+        rows are updated so the later strict-TDD G2 verifier must assert
+        the three corrections as preconditions. The status footer in
+        `design.md` (and its Spanish mirror) is updated to enumerate the
+        three corrections; the G2 / G5 / PR3e blocking language is
+        preserved verbatim. No boundary selected, no gate passing, no
+        cutover manifest, no G2 verifier authored, no source /
+        tests / scripts / candidate workspace / package-lock /
+        evidence files touched. Spanish mirrors updated in lockstep. No
+        commit or push performed in this pass.

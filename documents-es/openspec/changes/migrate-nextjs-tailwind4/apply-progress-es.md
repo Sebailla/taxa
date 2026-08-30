@@ -395,8 +395,76 @@ reconstrucción según `tasks.md` §Aviso de reconstrucción.
       entorno, número de iteraciones, Playwright crudo, Lighthouse
       crudo, fila de delta, coincidencia con CLI/esquema), y fija el
       camino de cierre. Pie de estado actualizado: G2 queda
-      `bloqueado — contrato definido; verificador no implementado`;
-      G5 queda `bloqueada — línea base no reproducible; comparación
-      no intentada`; la activación de PR3e sigue bloqueada hasta que
-      G1–G6 cierren. Espejos en español actualizados en paralelo.
-      No se realiza commit ni push en esta pasada.
+`bloqueado — contrato definido; verificador no implementado`;
+          G5 queda `bloqueada — línea base no reproducible; comparación
+          no intentada`; la activación de PR3e sigue bloqueada hasta que
+          G1–G6 cierren. Espejos en español actualizados en paralelo.
+          No se realiza commit ni push en esta pasada.
+        - **2026-08-30** — Pasada de correcciones del contrato G2 (tres
+          decisiones explícitas del mantenedor aplicadas a
+          `design.md::§3.3.2.1`; esta entrada). Según la tarea del padre,
+          el contrato G2 canónico se corrige para registrar tres
+          decisiones explícitas del mantenedor mientras **sigue
+          `bloqueado — contrato definido; verificador no implementado`**
+          (ningún verificador G2 se escribe en esta pasada, ninguna
+          puerta aprueba, no se tocan fuente / tests / scripts /
+          workspace candidato / package-lock / ficheros de evidencia).
+          (1) **Excepción de tamaño (fichero generado, condicional)** —
+          una `size:exception` se aplica **solo** a
+          `tools/g2-candidate/package-lock.json`, y **solo después**
+          de que `npm ci` salga 0 contra el
+          `tools/g2-candidate/package.json` local del candidato. La
+          excepción es condicional y nula si `npm ci` falla (no se
+          commitea ningún `package-lock.json`). **Ningún otro fichero
+          generado bajo `tools/g2-candidate/` queda exceptuado** del
+          presupuesto de revisión por PR — todo otro artefacto generado
+          (salida de build, manifiestos, logs, artefactos de captura,
+          otros lockfiles) cuenta bajo el tope de líneas autoradas.
+          Registrado en `design.md::§3.3.2.1` como nueva fila de tabla
+          `Excepción de tamaño (fichero generado, condicional)`.
+          (2) **Staging post-build de manifiestos (atómico)** — el
+          verificador G2 DEBE copiar atómicamente los manifiestos
+          requeridos de Next desde `<candidate-root>/.next/` a
+          `<candidate-root>/out/.next/` (concretamente
+          `<candidate-root>/.next/build-manifest.json` →
+          `<candidate-root>/out/.next/build-manifest.json` y
+          `<candidate-root>/.next/app-build-manifest.json` →
+          `<candidate-root>/out/.next/app-build-manifest.json`) antes de
+          la validación del inventario. La copia es todo-o-nada:
+          cualquier fallo individual de copia aborta el paso de
+          staging, retira cualquier staging parcial, **no** deja
+          ningún `BUILD-INVENTORY.json` válido en disco, y propaga
+          una salida no-cero. Manifiestos fuente ausentes también son
+          un fallo de staging. Registrado en `design.md::§3.3.2.1` como
+          nueva fila `Staging post-build de manifiestos (atómico)`,
+          y las filas `Semántica de fallo` y `Esquema y ubicación del
+          inventario` se actualizan para enumerar la rama de fallo de
+          staging.
+          (3) **Clasificación de entradas HTML** — `index.html` es la
+          **única** entrada HTML de ruta-de-aplicación normal.
+          `404.html` y `500.html` son exenciones de página de error
+          explícitamente permitidas: si Next.js las emite, el
+          verificador las registra bajo la clase de activo
+          **separada** `error_pages` — **no** se promueven a entradas
+          de ruta-de-aplicación, **no** se listan bajo `assets[]` para
+          la clase `application_route_html`, y su ausencia **nunca**
+          es un fallo de clases faltantes para el contrato de
+          ruta-de-aplicación. Registrado en `design.md::§3.3.2.1`
+          dividiendo la fila original `Clases de activos requeridas`
+          en una nueva fila `Clases de activos requeridas
+          (ruta-de-aplicación)` más una nueva fila `Exenciones de
+          página de error (clasificadas aparte)`, y actualizando la
+          fila `Frontera de verificación` para asertar la
+          clasificación.
+          Las filas `Frontera de verificación` y `Esquema y ubicación
+          del inventario` se actualizan para que el verificador
+          strict-TDD G2 posterior deba asertar las tres correcciones
+          como precondiciones. El pie de estado en `design.md` (y su
+          espejo en español) se actualiza para enumerar las tres
+          correcciones; el lenguaje de bloqueo G2 / G5 / PR3e se
+          conserva verbatim. Ninguna frontera seleccionada, ninguna
+          puerta aprobada, sin manifest de cutover, ningún verificador
+          G2 escrito, no se tocan fuente / tests / scripts / workspace
+          candidato / package-lock / ficheros de evidencia. Espejos
+          en español actualizados en paralelo. No se realiza commit
+          ni push en esta pasada.
