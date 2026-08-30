@@ -332,12 +332,47 @@ per `tasks.md` §Reconstruction Notice.
       named-slice boundary within the merged test file is not
       determinable from the commit boundary (the relevant commits
       added the test file whole, not split). **PR 3, PR 4, PR 5
-      status preserved exactly as origin** (reconstruction pending,
-      not yet authored). Totals updated; PR 2a / 2b / 2c "staged in
-      worktree" framing converted to past tense because those units
-      have since been delivered. PR 2e named-slice provenance
-      further uncertain because delivered size (320 LoC) exceeds the
-      176 LoC plan budget. PR 2a `size:exception` (409 / +9 / +2.3 %)
-      and PR 2b alias-form expansion notes retained verbatim. No
-      code or test changes; no commit / push performed in this pass.
-      Spanish mirror updated in lockstep.
+status preserved exactly as origin** (reconstruction pending,
+          not yet authored). Totals updated; PR 2a / 2b / 2c "staged in
+          worktree" framing converted to past tense because those units
+          have since been delivered. PR 2e named-slice provenance
+          further uncertain because delivered size (320 LoC) exceeds the
+          176 LoC plan budget. PR 2a `size:exception` (409 / +9 / +2.3 %)
+          and PR 2b alias-form expansion notes retained verbatim. No
+          code or test changes; no commit / push performed in this pass.
+          Spanish mirror updated in lockstep.
+        - **2026-08-30** — G2 / G5 docs-only reconciliation pass (this
+          entry). Per the parent task, the canonical planning artifacts
+          (`proposal.md`, `design.md`, `apply-progress.md`) and their
+          faithful Spanish mirrors (`proposal-es.md`, `design-es.md`,
+          `apply-progress-es.md`) are reconciled against the current
+          state. **No source, tests, scripts, tasks, product files,
+          evidence files, or `tools/g2-candidate/` workspace created.**
+          Authorizations from the parent task: (1) isolated non-activation
+          candidate workspace at `tools/g2-candidate/` is **authorized
+          but not created** in this pass — it must not wire FastAPI,
+          `web/`, CI, root `package.json`, `Makefile`, or
+          `extension/manifest.json`, and it does not select Approach
+          A / B / C or static export; (2) legacy audit disposition is
+          **unreproducible and not accepted for G5**. Concrete deltas:
+          (a) `design.md::§3.3.2.1` records the G2 contract (candidate
+          root `tools/g2-candidate/`, build command
+          `<candidate-root>/node_modules/.bin/next build`, output root
+          `<candidate-root>/out/`, asset classes, `BUILD-INVENTORY.json`
+          schema/location, Node `>= 20.9.0` requirement, failure
+          semantics without silent legacy fallback, and the strict-TDD
+          G2 verifier preconditions); (b) `design.md::§3.3.5` records
+          the G5 disposition as **unreproducible**, enumerates the
+          evidence files reviewed by name only
+          (`web/dist/evidence-baseline.json`,
+          `tests/test_evidence_baseline.py`,
+          `tools/static-export-probe/scripts/capture.mjs`,
+          `tools/static-export-probe/evidence/*.json`), lists the
+          missing-proof inventory (capture command, log, environment,
+          iteration count, raw Playwright, raw Lighthouse, delta row,
+          CLI/schema match), and pins the closure path. Status footer
+          updated: G2 remains `blocked — contract defined; verifier not
+          implemented`; G5 remains `blocked — baseline not reproducible;
+          comparison not attempted`; PR3e activation still blocked until
+          G1–G6 close. Spanish mirrors updated in lockstep. No commit
+          or push performed in this pass.
