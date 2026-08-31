@@ -540,7 +540,12 @@ def test_fixture_web_root_rewrites_verification_commands_to_isolated_port(
 
     Asserted by: a recorder captures the shell command actually run.
     After rewriting, the URL says `127.0.0.1:<NEW_PORT>`, where
-    <NEW_PORT> matches the port captured in the http.server argv."""
+    <NEW_PORT> matches the port captured in the http.server argv.
+
+    NOTE: HTTP-shape `expect` triggers wrapping through the controlled
+    HTTP-status verifier (PR3d slice); the wrapper passes the rewritten
+    URL as a quoted argument, so the new port URL is still observable
+    inside the captured shell command string."""
     out = tmp_path / "out"
     fixture_root = tmp_path / "fixture_web"
     fixture_root.mkdir()
@@ -551,7 +556,8 @@ def test_fixture_web_root_rewrites_verification_commands_to_isolated_port(
     captured = _capture_popen(monkeypatch)
     rc, err = _run_in_process(
         ["--manifest", str(mp), "--out", str(out),
-         "--serve", "--fixture-web-root", str(fixture_root)])
+         "--serve", "--fixture-web-root", str(fixture_root),
+         "--repo-root", str(REPO_ROOT)])
     assert rc == 0, err
 
     # The new port is the token right after 'http.server' in argv.
@@ -692,3 +698,174 @@ def test_fixture_web_root_isolated_port_avoids_8765_when_8765_in_use(
         assert port != "8765", argv
     finally:
         blocker.close()
+
+
+    # ── G3 slice: HTTP-shaped verification.expect enforcement ────────────
+# The verifier previously trusted `verification.command`'s shell exit
+# code alone — which is a bug because `curl -w '%{http_code}'` exits 0
+# even when the server returns 404 (the connection succeeded). The G3
+# manifest's `expect` field is HTTP-shaped (`"200"`, `"200 for each"`)
+# for every static-mount consumer; non-HTTP expects (`"ok"`,
+# `"1 passed"`, `"all passed"`) remain shell-exit-only. The verifier
+# MUST detect HTTP-shape expectations and route the check through the
+# controlled HTTP-status verifier (`tools/g3-legacy-fixture/scripts/
+# check_http_status.py`) so the actual status code is validated. Any
+# 404-vs-200 mismatch MUST fail-closed.
+
+def test_http_shaped_expect_wraps_command_with_check_http_status(
+        tmp_path, monkeypatch):
+    """When a consumer's `expect` matches HTTP-shape ('200'), the
+    verifier MUST route its `command` through the controlled
+    HTTP-status verifier script (not just trust the shell exit).
+    Asserted by: the actual shell command spawned contains the
+    check_http_status.py path AND the original curl command AND the
+    expected value `200`. Non-HTTP expectations ('ok') MUST NOT be
+    wrapped."""
+    captured = _capture_popen(monkeypatch)
+    out = tmp_path / "out"
+    legacy_cmd = ("curl -sS -o /dev/null -w '%{http_code}' "
+                  "http://127.0.0.1:8765/index.html")
+    cs = [_consumer(idx="http-1", cmd=legacy_cmd, expect="200"),
+          _consumer(idx="benign-1", cmd=":", expect="ok")]
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    # Point --repo-root at the actual repo so the controlled helper
+    # is discoverable (tmp_path is unrelated to the repo tree).
+    rc, err = _run_in_process(
+        ["--manifest", str(mp), "--out", str(out),
+         "--repo-root", str(REPO_ROOT)])
+    assert rc == 0, err
+    # Find the shell-spawned verification checks.
+    check_spawns = [p for p in captured if p.args[:1] == ["/bin/sh"]]
+    assert len(check_spawns) == 2, [p.args for p in captured]
+    wrapped = [s for s in check_spawns if "check_http_status" in s.args[2]]
+    assert len(wrapped) == 1, [s.args for s in check_spawns]
+    argv = wrapped[0].args[2]
+    # Wrapper passes the original curl command and the expected value.
+    assert "127.0.0.1:8765/index.html" in argv, argv
+    assert "'200'" in argv or " 200 " in argv or argv.endswith(" 200"), argv
+    # Negative: the benign consumer (expect='ok') is NOT wrapped.
+    benign = [s for s in check_spawns if "check_http_status" not in s.args[2]]
+    assert len(benign) == 1, [s.args for s in check_spawns]
+    assert benign[0].args[2] == ":", benign[0].args
+
+
+def test_http_shaped_expect_for_each_wraps_command_with_check_http_status(
+        tmp_path, monkeypatch):
+    """When `expect` is `'200 for each'` (loop-shape), the verifier
+    MUST route the command through the controlled HTTP-status
+    verifier so every emitted status code in the curl loop is
+    validated, not just the shell exit."""
+    captured = _capture_popen(monkeypatch)
+    out = tmp_path / "out"
+    loop_cmd = ("for m in state api; do "
+                "curl -sS -o /dev/null -w '%{http_code}' "
+                "http://127.0.0.1:8765/$m.js; done")
+    cs = [_consumer(idx="loop-1", cmd=loop_cmd, expect="200 for each")]
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    rc, err = _run_in_process(
+        ["--manifest", str(mp), "--out", str(out),
+         "--repo-root", str(REPO_ROOT)])
+    assert rc == 0, err
+    check_spawns = [p for p in captured if p.args[:1] == ["/bin/sh"]]
+    assert len(check_spawns) == 1
+    argv = check_spawns[0].args[2]
+    assert "check_http_status" in argv, argv
+    assert "for m in state api" in argv, argv
+    assert "'200 for each'" in argv or "200 for each" in argv, argv
+
+
+def test_http_shaped_expect_404_fail_closed(tmp_path, monkeypatch):
+    """FAIL-CLOSED — when the actual HTTP status does not match the
+    HTTP-shaped expectation, the controlled HTTP-status verifier exits
+    non-zero and the G3 verifier propagates that exit (no
+    CONSUMER-READINESS.json emitted).
+
+    Setup: stage a fake `check_http_status.py` under a synthetic
+    `tools/g3-legacy-fixture/scripts/` tree and point `--repo-root`
+    at the synthetic root. The fake script exits 3 unconditionally
+    (simulating a status mismatch). We deliberately do NOT patch
+    subprocess.Popen — the verifier MUST actually spawn the fake
+    script and observe its real non-zero exit code."""
+    # Stage a fake check_http_status.py in a path the verifier
+    # auto-discovers. We do this by writing into a fake
+    # `tools/g3-legacy-fixture/scripts/check_http_status.py` relative
+    # to a fake repo root.
+    fake_root = tmp_path / "fake_tools"
+    (fake_root / "tools" / "g3-legacy-fixture" / "scripts").mkdir(
+        parents=True, exist_ok=True)
+    fake_script = (fake_root / "tools" / "g3-legacy-fixture" / "scripts"
+                   / "check_http_status.py")
+    fake_script.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "sys.stderr.write('[fake] simulated 404 mismatch\\n')\n"
+        "sys.exit(3)\n"
+    )
+    fake_script.chmod(0o755)
+    out = tmp_path / "out"
+    legacy_cmd = ("curl -sS -o /dev/null -w '%{http_code}' "
+                  "http://127.0.0.1:8765/index.html")
+    cs = [_consumer(idx="mismatch-1", cmd=legacy_cmd, expect="200")]
+    m = _base_manifest(cs)
+    mp = fake_root / "manifest.json"
+    mp.write_text(json.dumps(m))
+    rc, err = _run_in_process(
+        ["--manifest", str(mp), "--out", str(out),
+         "--repo-root", str(fake_root)])
+    assert rc != 0, (rc, err)
+    assert not (out / "CONSUMER-READINESS.json").is_file()
+    # Stderr must mention the simulated mismatch (the controlled
+    # helper script was actually invoked AND its non-zero exit was
+    # surfaced back to the verifier's caller).
+    assert "mismatch" in err.lower(), err
+
+
+def test_non_http_expect_preserves_shell_exit_only(tmp_path, monkeypatch):
+    """Triangulate: when `expect` is non-HTTP-shape (`ok`, `1 passed`,
+    `all passed`, or arbitrary text), the verifier MUST NOT wrap the
+    command in check_http_status.py — shell exit code is the only
+    gate. This preserves the existing pytest/grep consumers which
+    rely on shell-only semantics."""
+    captured = _capture_popen(monkeypatch)
+    out = tmp_path / "out"
+    cs = [
+        _consumer(idx="benign-1", cmd=":", expect="ok"),
+        _consumer(idx="benign-2", cmd=":", expect="1 passed"),
+        _consumer(idx="benign-3", cmd=":", expect="all passed"),
+        _consumer(idx="benign-4", cmd=":",
+                  expect="three matches at lines 2180, 2188, 2194"),
+    ]
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    rc, err = _run_in_process(
+        ["--manifest", str(mp), "--out", str(out)])
+    assert rc == 0, err
+    check_spawns = [p for p in captured if p.args[:1] == ["/bin/sh"]]
+    assert len(check_spawns) == 4
+    # None of the non-HTTP consumers should have invoked the wrapper.
+    wrapped = [s for s in check_spawns
+               if "check_http_status" in s.args[2]]
+    assert wrapped == [], [s.args for s in wrapped]
+
+
+def test_http_shaped_expect_without_check_http_status_script_fails_closed(
+        tmp_path, monkeypatch):
+    """When `expect` is HTTP-shape but the controlled
+    check_http_status.py helper is NOT discoverable (no fixture
+    tools/, no opt-in override), the verifier MUST fail closed
+    instead of silently trusting the shell exit. This protects
+    against the original bug returning in any environment where the
+    helper is absent (e.g. a CI runner without the fixture tree)."""
+    import scripts.verify_consumers as vc
+    # Force find_check_http_status_script to return None.
+    monkeypatch.setattr(vc, "find_check_http_status_script",
+                        lambda rp: None)
+    out = tmp_path / "out"
+    legacy_cmd = ("curl -sS -o /dev/null -w '%{http_code}' "
+                  "http://127.0.0.1:8765/index.html")
+    cs = [_consumer(idx="orphan-1", cmd=legacy_cmd, expect="200")]
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    rc, err = _run_in_process(
+        ["--manifest", str(mp), "--out", str(out)])
+    assert rc != 0, err
+    assert not (out / "CONSUMER-READINESS.json").is_file()
+    assert "http-status" in err.lower() or "check_http_status" in err.lower(), err

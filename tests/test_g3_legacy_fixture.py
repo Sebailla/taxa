@@ -68,8 +68,12 @@ def _check(command: str, expected: str) -> subprocess.CompletedProcess:
                           capture_output=True, text=True, check=False)
 
 
-def _count(db, sql):  # helper: open, run COUNT, close
-    return sqlite3.connect(db).execute(sql).fetchone()[0]
+def _count(db, table):
+    if table not in {"taxon", "vernacular"}:
+        raise ValueError(f"unsupported fixture table: {table}")
+    return sqlite3.connect(db).execute(
+        f"SELECT COUNT(*) FROM {table}"
+    ).fetchone()[0]
 
 
 # ── DB fixture tests ─────────────────────────────────────────────────
@@ -78,8 +82,8 @@ def test_fixture_db_exists(seeded_db):
 
 
 def test_fixture_db_has_taxon_and_vernacular(seeded_db):
-    assert _count(seeded_db, "SELECT COUNT(*) FROM taxon") >= 1
-    assert _count(seeded_db, "SELECT COUNT(*) FROM vernacular") >= 1
+    assert _count(seeded_db, "taxon") >= 1
+    assert _count(seeded_db, "vernacular") >= 1
 
 
 def test_fixture_db_no_orphan_vernaculars(seeded_db):
@@ -177,3 +181,57 @@ def test_check_http_usage_error_on_wrong_arg_count():
     r = subprocess.run([sys.executable, str(CHECK_HTTP)],
                        capture_output=True, text=True, check=False)
     assert r.returncode != 0 and "usage" in r.stderr.lower(), r.stderr
+    # ── G3 slice: complete legacy fixture asset coverage ─────────────────
+    # The cutover-manifest's `verification.command` curl loop for the
+    # nav.js-imported modules (`mount-runtime-import-nav-js-modules-007`)
+    # names 6 modules: detail, search, tree, state, api, dom. The
+    # manifest additionally references 4 single-file consumers that
+    # require settings.js, file_explorer.js, format.js, file_viewer.js
+    # (consumers 006, 008, 009, 010, 011, 012). Together with the existing
+    # 10 app.js-imported modules, every legacy asset referenced by the
+    # manifest MUST be present in the fixture so the controlled verifier
+    # can pass when the legacy runtime is faithfully reproduced.
+LEGACY_NAVLESS_STUBS = (
+    "settings", "search", "file_explorer", "format", "file_viewer",
+)
+
+def test_fixture_serves_all_legacy_manifest_referenced_stubs(served_legacy):
+    """Every .js stub referenced by the manifest's HTTP-shaped
+    verification commands is served by the fixture at HTTP 200.
+    Catches a regression where the verifier would silently pass
+    because curl exits 0 even on 404."""
+    base = served_legacy
+    for stub in LEGACY_NAVLESS_STUBS:
+        with urllib.request.urlopen(f"{base}/{stub}.js", timeout=2) as r:
+            assert r.status == 200, f"{stub}.js not served (got {r.status})"
+
+def test_legacy_manifest_navjs_loop_validates_against_fixture(served_legacy):
+    """The cutover-manifest's nav.js-imported modules loop
+    (`for m in detail search tree state api dom; do curl ...`) MUST
+    pass end-to-end against the fixture (all 200s)."""
+    base = served_legacy
+    cmd = (f"for m in detail search tree state api dom; do "
+           f"curl -sS -o /dev/null -w '%{{http_code}}' {base}/$m.js; done")
+    assert _check(cmd, "200 for each").returncode == 0
+
+def test_legacy_manifest_combined_file_explorer_settings_validates(
+        served_legacy):
+    """The cutover-manifest's combined `curl ... && curl ...`
+    consumer (008: file_explorer.js + settings.js) MUST validate
+    end-to-end against the fixture."""
+    base = served_legacy
+    cmd = (f"curl -sS -o /dev/null -w '%{{http_code}}' "
+           f"{base}/file_explorer.js && "
+           f"curl -sS -o /dev/null -w '%{{http_code}}' {base}/settings.js")
+    assert _check(cmd, "200 for each").returncode == 0
+
+def test_legacy_manifest_single_file_assets_all_200(served_legacy):
+    """The cutover-manifest's single-file consumers (format.js x2,
+    file_explorer.js, file_viewer.js, settings.js) MUST all
+    validate end-to-end against the fixture."""
+    base = served_legacy
+    for stub in LEGACY_NAVLESS_STUBS:
+        r = _check(
+            f"curl -sS -o /dev/null -w '%{{http_code}}' {base}/{stub}.js",
+            "200")
+        assert r.returncode == 0, f"{stub}.js not 200: {r.stderr}"

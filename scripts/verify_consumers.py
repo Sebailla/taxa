@@ -28,6 +28,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import shlex
 import socket
 import subprocess
 import sys
@@ -109,6 +111,53 @@ def _validate_schema(manifest: dict) -> list[str]:
         if not isinstance(ver.get("expect"), str):
             errs.append(f"consumers[{i}] ({cid}) verification.expect must be string")
     return errs
+
+
+# ── HTTP-shape expectation helpers ─────────────────────────────────────
+# The G3 manifest's `verification.expect` carries two semantic classes:
+#   (1) HTTP-shape: pure 3-digit status code, optionally followed by
+#       ' for each' (e.g. "200", "200 for each") — produced by
+#       `curl -w '%{http_code}'` and a loop of curl calls. These MUST
+#       be validated against the actual emitted status codes (not just
+#       the shell exit code, which is always 0 when curl connected).
+#   (2) Non-HTTP-shape: arbitrary text ("ok", "1 passed", "all passed",
+#       grep output, sed output, etc.) — the verifier falls back to
+#       shell-exit-only validation (the existing behavior).
+_HTTP_STATUS_EXPECT_RE = re.compile(
+    r"^\s*\d{3}(\s+for\s+each)?\s*$")
+
+
+def is_http_status_expectation(expected: str) -> bool:
+    """Return True iff `expected` looks like an HTTP-status assertion
+    (3-digit code, optionally followed by ' for each'). The verifier
+    uses this gate to decide whether the consumer's command needs to
+    be routed through the controlled HTTP-status verifier helper
+    instead of trusting the shell exit code alone."""
+    return bool(_HTTP_STATUS_EXPECT_RE.match(expected.strip()))
+
+
+def find_check_http_status_script(repo_root: Path) -> Path | None:
+    """Return the absolute path to the controlled HTTP-status verifier
+    helper (`tools/g3-legacy-fixture/scripts/check_http_status.py`),
+    searching up from `repo_root`, else None. Read-only: the
+    verifier NEVER creates the file. Discovery walks up the directory
+    tree until it finds `tools/g3-legacy-fixture/scripts/check_http_status.py`
+    OR the filesystem root is reached. This matches how the fixture
+    tree is shipped in this repo and lets the verifier discover the
+    helper even when `--repo-root` resolves to a sub-directory (e.g.
+    the manifest's parent directory under
+    `openspec/changes/migrate-nextjs-tailwind4/`). When the helper is
+    absent (e.g. a CI runner without the fixture), the caller MUST
+    treat HTTP-shape expectations as fail-closed."""
+    cur = Path(repo_root).resolve()
+    while True:
+        cand = cur / "tools" / "g3-legacy-fixture" / "scripts" / "check_http_status.py"
+        if cand.is_file():
+            return cand
+        parent = cur.parent
+        if parent == cur:
+            return None
+        cur = parent
 
 
 def find_venv_python(repo_root: Path) -> Path | None:
@@ -317,7 +366,8 @@ def _run_check(cmd: str, timeout: int = 60) -> int:
 
 def _check_all(consumers: list[dict],
                *, venv_python: Path | None = None,
-               port_rewrite: tuple[int, int] | None = None
+               port_rewrite: tuple[int, int] | None = None,
+               check_http_script: Path | None = None,
                ) -> list[tuple[str, str]]:
     """Return [(id, reason)] for every consumer whose check failed.
 
@@ -329,24 +379,49 @@ def _check_all(consumers: list[dict],
     - `port_rewrite=(old, new)` set: literal `127.0.0.1:<old>` URLs in
       each command are rewritten to `127.0.0.1:<new>`. Used by the
       fixture-serve path to redirect manifest consumers from the
-      legacy 8765 to the isolated free port picked at server spawn."""
+      legacy 8765 to the isolated free port picked at server spawn.
+
+    HTTP-shape enforcement (fail-closed, see slice note at the top of
+    this module): when `verification.expect` matches HTTP-shape
+    (`"200"`, `"200 for each"`, etc.), the consumer's command is
+    routed through the controlled HTTP-status verifier
+    (`<check_http_script>`) so the actual emitted status code(s) are
+    validated. If `check_http_script is None` AND the expectation is
+    HTTP-shape, the consumer fails closed (the verifier NEVER silently
+    trusts the shell exit code for HTTP-shape expectations — that was
+    the original bug). Non-HTTP-shape expectations keep the existing
+    shell-exit-only semantics."""
     failures: list[tuple[str, str]] = []
     for c in consumers:
         if not isinstance(c, dict):
             continue
         ver = c.get("verification") or {}
         cmd = ver.get("command")
+        expected = ver.get("expect")
+        cid = str(c.get("id"))
         if not isinstance(cmd, str):
-            failures.append((str(c.get("id")), "verification.command not string"))
+            failures.append((cid, "verification.command not string"))
             continue
         if venv_python is not None:
             cmd = rewrite_pytest_for_venv(cmd, venv_python)
         if port_rewrite is not None:
             cmd = rewrite_command_port(cmd, port_rewrite[0], port_rewrite[1])
+        # HTTP-shape enforcement (PR3d fail-closed slice).
+        if isinstance(expected, str) and is_http_status_expectation(expected):
+            if check_http_script is None:
+                failures.append((cid,
+                    "HTTP-shape expect requires the controlled "
+                    "tools/g3-legacy-fixture/scripts/check_http_status.py "
+                    "helper (not discoverable; fail-closed to avoid "
+                    "silently trusting shell exit on a 404)"))
+                continue
+            cmd = (f'{shlex.quote(sys.executable)} '
+                   f'{shlex.quote(str(check_http_script))} '
+                   f'{shlex.quote(cmd)} '
+                   f'{shlex.quote(expected)}')
         rc = _run_check(cmd)
         if rc != 0:
-            failures.append((str(c.get("id")),
-                             f"verification.command exited {rc}"))
+            failures.append((cid, f"verification.command exited {rc}"))
     return failures
 
 
@@ -395,7 +470,10 @@ def main(argv=None) -> int:
         _log("verify_consumers",
              "usage: verify_consumers.py --manifest <path> --out <path> "
              "[--serve] [--fixture-web-root <dir>] [--venv <python>] "
-             "[--repo-root <dir>]")
+             "[--repo-root <dir>] "
+             "(HTTP-shape expects auto-route through "
+             "tools/g3-legacy-fixture/scripts/check_http_status.py "
+             "discovered at --repo-root; fail-closed if absent)")
         return EXIT_USAGE
     mp = Path(ns.manifest).resolve()
     out = Path(ns.out).resolve()
@@ -420,6 +498,13 @@ def main(argv=None) -> int:
                  else mp.parent)
     venv_python = (Path(ns.venv).resolve() if ns.venv
                    else find_venv_python(repo_root))
+
+    # Resolve the controlled HTTP-status verifier script. Auto-detected
+    # at `<repo_root>/tools/g3-legacy-fixture/scripts/check_http_status.py`
+    # (the fixture shipped in this repo). When NOT discoverable,
+    # HTTP-shape expectations in the manifest will fail-closed per the
+    # PR3d HTTP-shape enforcement slice.
+    check_http_script = find_check_http_status_script(repo_root)
 
     # Fixture-serve: opt-in via `--serve --fixture-web-root <dir>`.
     # `--fixture-web-root` alone (without `--serve`) is a SILENT no-op:
@@ -450,7 +535,8 @@ def main(argv=None) -> int:
                     and srv.port != legacy_port):
                 port_rewrite = (legacy_port, srv.port)
             failures = _check_all(consumers, venv_python=venv_python,
-                                   port_rewrite=port_rewrite)
+                                   port_rewrite=port_rewrite,
+                                   check_http_script=check_http_script)
     except RuntimeError as exc:
         _log("verify_consumers", f"server lifecycle error: {exc}")
         return EXIT_SERVER
