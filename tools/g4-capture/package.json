@@ -1,0 +1,16 @@
+{
+  "name": "@taxa/g4-capture",
+  "version": "0.1.0",
+  "private": true,
+  "description": "G4 capture producer (URL-parametrized; isolated pinned Node/Lighthouse workspace)",
+  "type": "module",
+  "engines": { "node": ">=20.0.0" },
+  "scripts": {
+    "capture": "node scripts/capture.mjs",
+    "capture:dry": "node scripts/capture.mjs --dry-run"
+  },
+  "dependencies": {
+    "lighthouse": "12.2.1",
+    "chrome-launcher": "1.2.1"
+  }
+}
