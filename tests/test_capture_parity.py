@@ -22,13 +22,17 @@ remains unselected.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import importlib
 import json
 import os
+import socket
 import sqlite3
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -46,6 +50,11 @@ SQLITE_MANIFEST = FIXTURES / "sqlite" / "MANIFEST.json"
 SQLITE_DB = FIXTURES / "sqlite" / "taxa-fixture.db"
 SQLITE_HASH = FIXTURES / "sqlite" / "taxa-fixture.db.sha256"
 CAPTURE_URL = "http://127.0.0.1:8765/index.html"
+# CANONICAL_PORT keeps module-level URL constants stable for non-server tests.
+# Tests that actually need a live server use the `g4_server` fixture, which
+# overrides this constant via `_capture_url()` so each test process gets a
+# distinct, OS-allocated port and cannot accidentally hit a stale listener.
+CANONICAL_PORT = 8765
 # Required taxon columns for API compatibility - mirrors the schema used by
 # tests/test_api_materialize.py + tests/test_api_file_explorer.py so the
 # minimal G4 fixture can be served through api.server without server-side
@@ -62,41 +71,74 @@ def _run(args, **kwargs):
     return subprocess.run(["node", str(SCRIPT), *args], capture_output=True, text=True, **kwargs)
 
 
+# Snapshot api.server module state BEFORE any test in this module imports
+# tools.g4-capture.scripts.g4_asgi (which mutates api.server.app.router.routes
+# at import time by inserting a /index.html corpus route). Without this snapshot
+# the launcher's mutation would leak into other test modules that import
+# api.server in the same pytest process. Captured eagerly at module load time
+# because g4_asgi imports api.server transitively the first time it's touched.
+from api import server as _api_server_snapshot
+_ORIGINAL_APP_ROUTES = list(_api_server_snapshot.app.router.routes)
+_ORIGINAL_DB_PATH = _api_server_snapshot.DB_PATH
+_ORIGINAL_RESEARCH_DIR = _api_server_snapshot.RESEARCH_DIR
+del _api_server_snapshot
+
+
 @pytest.fixture(scope="module", autouse=True)
 def _restore_api_server_paths():
     """Keep the launcher test's module-global rewiring inside this module."""
     from api import server
-
-    db_path, research_dir = server.DB_PATH, server.RESEARCH_DIR
     yield
-    server.DB_PATH, server.RESEARCH_DIR = db_path, research_dir
+    server.DB_PATH = _ORIGINAL_DB_PATH
+    server.RESEARCH_DIR = _ORIGINAL_RESEARCH_DIR
+    # Restore the routes that g4_asgi.py's import-time mutation may have added.
+    # We replace the entire list (not slice-assign) so any inserted corpus route
+    # is dropped even if a test re-imported g4_asgi after a prior teardown.
+    server.app.router.routes[:] = _ORIGINAL_APP_ROUTES
 
 
 def _run_capture_with_runner(tmp_path, *, synthetic_lhr=None, runner_throws=False,
-                              runner_invocation=None, dry_run=False):
+                              runner_invocation=None, dry_run=False,
+                              fetch_response=None, manifest_path=None):
     """Hermetic helper: write a Node wrapper that imports capture.mjs and calls
     it with an injected runner. Captures stdout/stderr/returncode. No real
     browser is launched; the runner is replaced by a closure over the supplied
-    `synthetic_lhr`. `runner_invocation` (if supplied) is a callable that
-    receives (lhr, args) and may record invocations for assertion.
+    `synthetic_lhr`. `fetch_response` defaults to the real corpus bytes with
+    status 200 so capture()'s pre-runner verification step succeeds.
+
+    `manifest_path` lets a test point the wrapper at a custom on-disk manifest
+    (e.g. one whose entry.expectedContentSha256 matches an intentionally mutated
+    body, so the SHA check passes and the DOM-marker check is the one that
+    fails). Defaults to the canonical CORPUS_MANIFEST.
     """
     out_dir = tmp_path / "out"
     invocation_log = tmp_path / "_invocations.json"
     log_literal = json.dumps(str(invocation_log))
+    manifest_path = manifest_path or CORPUS_MANIFEST
+    if fetch_response is None:
+        fetch_response = {
+            "status": 200,
+            "body_b64": base64.b64encode(CORPUS_INDEX.read_bytes()).decode("ascii"),
+        }
+    fetch_status = int(fetch_response["status"])
+    fetch_b64_lit = json.dumps(fetch_response["body_b64"])
     if runner_throws:
         runner_impl = "throw new Error('synthetic runner failure');"
     else:
         runner_impl = (
             f"const __lhr = {json.dumps(synthetic_lhr or {})};\n"
-            f"await __log({{ runnerArgs: __runnerArgs, args: __args }});\n"
+            f"await __log({{ runnerArgs: __runnerArgs }});\n"
             f"return __lhr;"
         )
     script = (
         "import { capture, readJson } from "
         + json.dumps("file://" + str(SCRIPT))
         + ";\n"
-        f"const manifest = await readJson({json.dumps(str(CORPUS_MANIFEST))});\n"
+        f"const manifest = await readJson({json.dumps(str(manifest_path))});\n"
         f"const __invocationLogPath = {log_literal};\n"
+        f"const __fetchStatus = {fetch_status};\n"
+        f"const __fetchBodyB64 = {fetch_b64_lit};\n"
+        "const __fetchBuf = new Uint8Array(Buffer.from(__fetchBodyB64, 'base64'));\n"
         "const __log = async (entry) => {\n"
         "  const fs = await import('node:fs/promises');\n"
         "  let arr = [];\n"
@@ -109,6 +151,12 @@ def _run_capture_with_runner(tmp_path, *, synthetic_lhr=None, runner_throws=Fals
         "  manifest,\n"
         f"  outDir: {json.dumps(str(out_dir))},\n"
         f"  dryRun: {'true' if dry_run else 'false'},\n"
+        "  fetchFn: async (__url) => ({\n"
+        "    status: __fetchStatus,\n"
+        "    async arrayBuffer() {\n"
+        "      return __fetchBuf.buffer.slice(__fetchBuf.byteOffset, __fetchBuf.byteOffset + __fetchBuf.byteLength);\n"
+        "    },\n"
+        "  }),\n"
         "  runLighthouse: async (__runnerArgs) => {\n"
         "    " + runner_impl + "\n"
         "  },\n"
@@ -183,10 +231,14 @@ def test_sqlite_manifest_db_and_hash_match():
 
 
 # ── End-to-end dry-run (no browser) ───────────────────────────────
-def test_capture_dry_run_writes_evidence_with_provenance(tmp_path):
+def test_capture_dry_run_writes_evidence_with_provenance(tmp_path, g4_server):
+    # capture-3 added a pre-runner verification step that fetches the
+    # target URL; the CLI therefore requires a live G4 server. The
+    # fixture yields (url, manifest_path) for the ephemeral-port run.
+    url, manifest_path = g4_server
     out = tmp_path / "out"
-    r = _run(["--url", "http://127.0.0.1:8765/index.html",
-              "--manifest", str(CORPUS_MANIFEST), "--out", str(out), "--dry-run"])
+    r = _run(["--url", url,
+              "--manifest", str(manifest_path), "--out", str(out), "--dry-run"])
     assert r.returncode == 0, r.stderr
     evidence = json.loads((out / "evidence.json").read_text())
     assert evidence["schema"] == "taxa.g4-capture.evidence/1"
@@ -194,7 +246,7 @@ def test_capture_dry_run_writes_evidence_with_provenance(tmp_path):
     assert p["schema"] == "taxa.g4-capture.provenance/1"
     assert p["nodeVersion"].startswith("v")
     snap = json.loads((out / "manifest.snapshot.json").read_text())
-    assert snap == json.loads(CORPUS_MANIFEST.read_text())
+    assert snap == json.loads(manifest_path.read_text())
 
 
 def test_capture_dry_run_rejects_url_not_in_manifest(tmp_path):
@@ -205,12 +257,13 @@ def test_capture_dry_run_rejects_url_not_in_manifest(tmp_path):
 
 
 # ── Triangulate: atomic-write + schema enforcement ─────────────────
-def test_atomic_write_replaces_existing_outdir(tmp_path):
+def test_atomic_write_replaces_existing_outdir(tmp_path, g4_server):
+    url, manifest_path = g4_server
     out = tmp_path / "out"
     out.mkdir()
     (out / "stale.txt").write_text("stale")
-    r = _run(["--url", "http://127.0.0.1:8765/index.html",
-              "--manifest", str(CORPUS_MANIFEST), "--out", str(out), "--dry-run"])
+    r = _run(["--url", url,
+              "--manifest", str(manifest_path), "--out", str(out), "--dry-run"])
     assert r.returncode == 0, r.stderr
     assert not (out / "stale.txt").exists(), "stale file must be replaced"
     assert (out / "evidence.json").is_file()
@@ -221,6 +274,8 @@ def test_validate_manifest_rejects_wrong_schema(tmp_path):
     bad.write_text(json.dumps({"schema": "wrong.schema/0", "entries": []}))
     r = _run(["--url", "http://127.0.0.1:8765/index.html",
               "--manifest", str(bad), "--out", str(tmp_path / "out"), "--dry-run"])
+    # Validation rejects the manifest before any URL fetch, so no live
+    # G4 server is needed.
     assert r.returncode != 0 and "schema mismatch" in r.stderr
 
 
@@ -400,14 +455,16 @@ def test_real_run_map_lhr_throws_on_non_object():
     )
 
 
-def test_cli_without_dry_run_fails_closed_until_real_runner_invoked(tmp_path):
+def test_cli_without_dry_run_fails_closed_until_real_runner_invoked(tmp_path, g4_server):
     """Capture-2 contract: when --dry-run is omitted, the CLI must invoke
-    the real chrome-launcher + lighthouse runner. In this hermetic test
-    (no browser available) the run is expected to fail closed with no
-    evidence.json published."""
+    the real chrome-launcher + lighthouse runner. With the live G4 server
+    in place, verifyTarget passes and the runner is the next step. In this
+    hermetic test (no browser available) the run is expected to fail
+    closed with no evidence.json published."""
+    url, manifest_path = g4_server
     out = tmp_path / "out"
-    r = _run(["--url", "http://127.0.0.1:8765/index.html",
-              "--manifest", str(CORPUS_MANIFEST), "--out", str(out)])
+    r = _run(["--url", url,
+              "--manifest", str(manifest_path), "--out", str(out)])
     # We do NOT require a real browser to be available; we only require
     # that no silent partial write happens. Either the run succeeds (a
     # real browser happened to be available, evidence.json MUST carry the
@@ -732,4 +789,439 @@ def test_g4_asgi_launcher_serves_domains_from_fixture_root():
     assert domains[0]["scientific_name"] == "Eukaryota"
     assert domains[0]["coldp_id"], (
         f"fixture root must carry coldp_id; got {domains[0]!r}"
+    )
+
+
+# ── G4 capture-3: target verification + rollback-safe atomicWrite +
+#    ASGI corpus isolation ──────────────────────────────────────
+# PR #124 follow-ups:
+#   1. The G4 ASGI launcher must serve the pinned corpus index.html at
+#      /index.html, never the mutable production web/index.html.
+#   2. capture() must verify the served bytes/sha256/DOM marker from
+#      the corpus manifest BEFORE the Lighthouse runner or atomicWrite.
+#   3. atomicWrite must use a rollback-safe sibling-backup strategy so
+#      a final-rename failure no longer destroys the prior outDir.
+
+
+def _free_port():
+    """Bind to port 0 to let the OS pick a free port, then release the
+    socket. A small race remains; the readiness loop below also probes
+    the HTTP body so it cannot falsely succeed against an unrelated
+    process that happens to own the port."""
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+@pytest.fixture
+def g4_server(monkeypatch, tmp_path):
+    """Spin up the G4 ASGI launcher on a dynamically-allocated 127.0.0.1
+    port. Yields ``(url, manifest_path)``; the manifest is a per-test copy
+    of the corpus manifest with the ephemeral-port URL rewritten into every
+    entry, so validateManifest accepts the URL. Readiness probes both the
+    TCP socket AND the response body so it cannot falsely succeed against
+    another process that happens to own the port.
+    """
+    import uvicorn
+    mod = importlib.import_module("tools.g4-capture.scripts.g4_asgi")
+    port = _free_port()
+    config = uvicorn.Config(mod.app, host="127.0.0.1", port=port, log_level="error")
+    server = uvicorn.Server(config)
+    t = threading.Thread(target=server.run, daemon=True)
+    t.start()
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.1) as s:
+                s.sendall(b"GET /index.html HTTP/1.0\r\nHost: localhost\r\n\r\n")
+                s.settimeout(0.5)
+                blob = b""
+                while len(blob) < 8192:
+                    chunk = s.recv(4096)
+                    if not chunk:
+                        break
+                    blob += chunk
+                if b"G4 capture corpus" in blob:
+                    break
+        except (OSError, socket.timeout):
+            pass
+        time.sleep(0.05)
+    else:
+        server.should_exit = True
+        t.join(timeout=2)
+        raise RuntimeError(
+            f"g4_server fixture: uvicorn did not serve G4 corpus on port {port} within 5s"
+        )
+    url = f"http://127.0.0.1:{port}/index.html"
+    manifest = json.loads(CORPUS_MANIFEST.read_text())
+    for entry in manifest["entries"]:
+        entry["url"] = url
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest))
+    monkeypatch.setattr("tests.test_capture_parity.CAPTURE_URL", url, raising=False)
+    try:
+        yield url, manifest_path
+    finally:
+        server.should_exit = True
+        t.join(timeout=5)
+
+
+# ── ASGI: /index.html serves the corpus, never production web/ ──
+def test_g4_asgi_serves_corpus_index_html_at_root_path():
+    """The launcher MUST serve tests/fixtures/g4/corpus/index.html at
+    /index.html — never the production web/index.html. Response bytes
+    must hash to the manifest-declared sha256 and must contain the
+    manifest-declared DOM marker. This is the integrity guard that
+    prevents product drift in web/ from contaminating capture evidence."""
+    entry = next(
+        e for e in json.loads(CORPUS_MANIFEST.read_text())["entries"]
+        if e["url"] == CAPTURE_URL
+    )
+    expected_sha = entry["expectedContentSha256"]
+    expected_marker = entry["expectedDOMMarker"]
+    from fastapi.testclient import TestClient
+    mod = importlib.import_module("tools.g4-capture.scripts.g4_asgi")
+    r = TestClient(mod.app).get("/index.html")
+    assert r.status_code == 200
+    assert r.headers.get("content-type", "").startswith("text/html")
+    assert hashlib.sha256(r.content).hexdigest() == expected_sha
+    assert expected_marker in r.text
+    # Catches "fell through to StaticFiles mount" regressions: if production
+    # web/index.html exists and differs from the corpus, it MUST NOT have
+    # been served.
+    prod_index = REPO_ROOT / "web" / "index.html"
+    if prod_index.is_file() and hashlib.sha256(prod_index.read_bytes()).hexdigest() != expected_sha:
+        assert r.content != prod_index.read_bytes()
+
+
+# ── capture(): target verification before runner / atomicWrite ──
+# Three failure modes are exercised via the corpus manifest contract:
+#   - entry.expectedStatus        (HTTP status)
+#   - entry.expectedContentSha256 (raw response bytes sha256)
+#   - entry.expectedDOMMarker     (literal substring of the body)
+#
+# The `marker` mode is special: the SHA check runs before the marker check,
+# so to reach the marker branch we serve mutated bytes AND patch the
+# manifest entry's `expectedContentSha256` to match the mutated bytes. The
+# SHA check then passes and the marker check fires.
+_CORPUS_BYTES = CORPUS_INDEX.read_bytes()
+_CORPUS_MARKER = b'g4-probe-marker'  # raw substring (no quotes); marker attr has the wrapper
+
+def _bad_fetch_response(mode, *, marker_strip_bytes=None):
+    """Return a fetch_response dict that fails verification in the
+    given mode. Used to exercise the three pre-runner guards.
+
+    `marker_strip_bytes` (used by the "marker" mode) is the bytes that
+    were mutated out of the response body so the caller can patch the
+    manifest's expectedContentSha256 to match.
+    """
+    b64 = lambda b: base64.b64encode(b).decode("ascii")  # noqa: E731
+    if mode == "status":
+        return {"status": 500, "body_b64": b64(_CORPUS_BYTES), "mutated_bytes": _CORPUS_BYTES}
+    if mode == "sha":
+        mutated = bytearray(_CORPUS_BYTES)
+        mutated[-1] = (mutated[-1] + 1) & 0xFF
+        return {"status": 200, "body_b64": b64(bytes(mutated)), "mutated_bytes": bytes(mutated)}
+    if mode == "marker":
+        if marker_strip_bytes is None:
+                raise ValueError("marker mode requires marker_strip_bytes")
+        return {"status": 200, "body_b64": b64(marker_strip_bytes), "mutated_bytes": marker_strip_bytes}
+    raise ValueError(f"unknown mode: {mode}")
+
+
+def _patch_manifest_entry_for_mode(tmp_path, *, mutated_bytes):
+    """Write a manifest in tmp_path whose entry.expectedContentSha256 is the
+    SHA of `mutated_bytes` (everything else matches the corpus manifest).
+    Returns the path to the patched manifest. Used so the SHA check passes
+    and the next gate (status or marker) is the one that fails."""
+    manifest = json.loads(CORPUS_MANIFEST.read_text())
+    sha = hashlib.sha256(mutated_bytes).hexdigest()
+    for entry in manifest["entries"]:
+        if entry["url"] == CAPTURE_URL:
+            entry["expectedContentSha256"] = sha
+    path = tmp_path / "_patched_manifest.json"
+    path.write_text(json.dumps(manifest))
+    return path
+
+
+def _bad_for_mode(tmp_path, mode):
+    """Build a (fetch_response, manifest_path) pair that fails verification
+    in `mode`. The marker mode requires a custom manifest because the SHA
+    check runs first; we patch the SHA so the marker check fires instead."""
+    if mode == "marker":
+        stripped = _CORPUS_BYTES.replace(_CORPUS_MARKER, b"g4-prob-marker")
+        bad = _bad_fetch_response(mode, marker_strip_bytes=stripped)
+        manifest_path = _patch_manifest_entry_for_mode(
+            tmp_path, mutated_bytes=bad["mutated_bytes"],
+        )
+    else:
+        bad = _bad_fetch_response(mode)
+        manifest_path = None
+    return bad, manifest_path
+
+
+@pytest.mark.parametrize("mode", ["status", "sha", "marker"])
+def test_capture_verification_failure_prevents_runner_publication_and_preserves_outdir(
+    tmp_path, mode,
+):
+    """Pre-runner verification failure MUST (a) NOT invoke the runner,
+    (b) NOT publish evidence.json / manifest.snapshot.json, and (c) leave
+    any prior outDir intact (no evidence published, no .tmp-/.bak-
+    siblings left behind). Triangulate: marker mode reaches the DOM-marker
+    branch specifically."""
+    bad, manifest_path = _bad_for_mode(tmp_path, mode)
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    sentinel = json.dumps({"prior": "evidence", "kept": True})
+    (out_dir / "evidence.json").write_text(sentinel)
+    proc, _, invocations = _run_capture_with_runner(
+        tmp_path,
+        synthetic_lhr=SYNTHETIC_LHR,
+        dry_run=False,
+        fetch_response={"status": bad["status"], "body_b64": bad["body_b64"]},
+        manifest_path=manifest_path,
+    )
+    combined = (proc.stdout or "") + (proc.stderr or "")
+    assert proc.returncode != 0 and invocations == []
+    # No NEW evidence published: the prior sentinel file remains unchanged
+    # (and no manifest.snapshot.json was created from the failed capture).
+    assert (out_dir / "evidence.json").read_text() == sentinel
+    assert not (out_dir / "manifest.snapshot.json").exists()
+    siblings = [p for p in tmp_path.iterdir()
+if p.name.startswith(("out.tmp-", "out.bak-"))]
+    assert siblings == [], (
+        f"failure ({mode}) must not leave staging/backup siblings; "
+        f"found: {[str(s) for s in siblings]}"
+    )
+    assert "verifyTarget" in combined
+    if mode == "marker":
+        assert "DOM marker" in combined
+
+
+def test_capture_verification_runs_before_runner_on_success(tmp_path):
+    """Sanity: when verification succeeds (good fetch), the Lighthouse
+    runner IS invoked. This proves verification is a precondition, not
+    a replacement, for the runner — and that the runner receives the
+    manifestEntry that validation already accepted."""
+    proc, _, invocations = _run_capture_with_runner(
+        tmp_path, synthetic_lhr=SYNTHETIC_LHR, dry_run=False,
+        # default fetch_response (corpus bytes) — passes verification
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert len(invocations) == 1, (
+        f"runner must be invoked exactly once on success; got {len(invocations)}"
+    )
+    invocation = invocations[0]["runnerArgs"]
+    assert invocation["url"] == CAPTURE_URL
+    assert invocation["manifestEntry"]["url"] == CAPTURE_URL
+    # Evidence written as usual.
+    out_dir = tmp_path / "out"
+    assert (out_dir / "evidence.json").is_file()
+
+
+def test_capture_dry_run_still_verifies_target(tmp_path):
+    """Dry-run must also run the verification step — a malformed target
+    must NOT publish synthetic evidence either. The runner isn't called
+    in dry-run, but the verification still gates atomicWrite."""
+    out_dir = tmp_path / "out"
+    proc, _, _ = _run_capture_with_runner(
+        tmp_path,
+        dry_run=True,
+        fetch_response=_bad_fetch_response("status"),
+    )
+    assert proc.returncode != 0, (
+        f"dry-run verification failure must propagate; "
+        f"got stdout={proc.stdout!r} stderr={proc.stderr!r}"
+    )
+    assert not (out_dir / "evidence.json").exists()
+
+
+    # ── atomicWrite: rollback-safe sibling-backup strategy ──
+def _run_atomic_write(tmp_path, *, pre_create=False, fail_stage_rename=False):
+    """Generate and run a Node wrapper that calls `atomicWrite(outDir, ...)`.
+    When `pre_create` is True, outDir exists with a sentinel evidence.json.
+    When `fail_stage_rename` is True, the injected `rename` throws on the
+    tmp → outDir rename. The wrapper writes ``{err, renameCalls}`` JSON
+    to stdout (or `{}` on success). Returns (proc, out_dir)."""
+    out_dir = tmp_path / "out"
+    if pre_create:
+        out_dir.mkdir()
+        (out_dir / "evidence.json").write_text(json.dumps({"prior": True}))
+    fail_logic = (
+        "      if (src.startsWith(outDir + '.tmp-')) {\n"
+        "        throw new Error('simulated rename failure');\n"
+        "      }\n"
+    ) if fail_stage_rename else ""
+    script = (
+        "import { atomicWrite } from "
+        + json.dumps("file://" + str(SCRIPT))
+        + ";\n"
+        "import * as fs from 'node:fs';\n"
+        f"const outDir = {json.dumps(str(out_dir))};\n"
+        "let renameCalls = 0;\n"
+        "try {\n"
+        "  await atomicWrite(outDir, {'evidence.json': 'NEW'}, {\n"
+        "    rename: (src, dst) => {\n"
+        "      renameCalls++;\n"
+        + fail_logic +
+        "      fs.renameSync(src, dst);\n"
+        "    },\n"
+        "  });\n"
+        f"  process.stdout.write(JSON.stringify({{err: null, renameCalls}}));\n"
+        "} catch (e) {\n"
+        f"  process.stdout.write(JSON.stringify({{err: e.message, renameCalls}}));\n"
+        "}\n"
+    )
+    wrapper = tmp_path / "_atomic_wrapper.mjs"
+    wrapper.write_text(script)
+    proc = subprocess.run(
+        ["node", str(wrapper)], capture_output=True, text=True,
+        env={**os.environ, "NODE_NO_WARNINGS": "1"},
+    )
+    return proc, out_dir
+
+
+# ── atomicWrite scenarios (rollback-safe staged-rename) ──
+@pytest.mark.parametrize("pre_create,fail_stage", [
+    (True, True),    # failure: prior outDir exists, staged rename fails
+    (True, False),   # success: prior outDir exists, no leftover siblings
+    (False, False),  # success: fresh path, backup step is a no-op
+])
+def test_atomic_write_rollback_safe_scenarios(tmp_path, pre_create, fail_stage):
+    """atomicWrite MUST keep the prior outDir readable on failure, leave no
+    .tmp-/.bak- sibling behind across success OR failure, and skip the
+    backup step when no prior outDir exists. The three cases parametrize
+    the same node-wrapper helper."""
+    proc, out_dir = _run_atomic_write(
+        tmp_path, pre_create=pre_create, fail_stage_rename=fail_stage,
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    if fail_stage:
+        assert "simulated rename failure" in out["err"]
+        assert out["renameCalls"] >= 2  # backup-rename + failing staged-rename
+        assert json.loads((out_dir / "evidence.json").read_text()) == {"prior": True}, (
+            "prior evidence.json must be preserved on rollback"
+        )
+    else:
+        assert out["err"] is None
+        assert (out_dir / "evidence.json").read_text() == "NEW"
+    leftovers = [p for p in tmp_path.iterdir()
+                 if p.name.startswith(("out.tmp-", "out.bak-"))]
+    assert leftovers == [], (
+        f"atomicWrite must leave no staging/backup siblings; "
+        f"found: {[str(s) for s in leftovers]}"
+    )
+
+
+def test_capture_verification_failure_when_fetch_throws(tmp_path):
+    """Triangulate: verifyTarget must surface a fetch-level error
+    (e.g. server unreachable, DNS failure) as a verification failure so
+    the runner is not invoked. Production failure mode when the G4 server
+    is down."""
+    out_dir = tmp_path / "out"
+    wrapper = tmp_path / "_fetch_throws_wrapper.mjs"
+    wrapper.write_text(
+        "import { capture, readJson } from "
+        + json.dumps("file://" + str(SCRIPT))
+        + ";\n"
+        f"const manifest = await readJson({json.dumps(str(CORPUS_MANIFEST))});\n"
+        "let runnerCalled = false;\n"
+        "try {\n"
+        "  await capture({\n"
+        f"    url: {json.dumps(CAPTURE_URL)},\n"
+        "    manifest,\n"
+        f"    outDir: {json.dumps(str(out_dir))},\n"
+        "    dryRun: false,\n"
+        "    runLighthouse: async () => { runnerCalled = true; return {}; },\n"
+        "    fetchFn: async () => { throw new Error('ECONNREFUSED simulated'); },\n"
+        "  });\n"
+        "  process.exit(2);\n"
+        "} catch (e) {\n"
+        "  process.stdout.write(JSON.stringify({err: e.message, runnerCalled}));\n"
+        "}\n"
+    )
+    proc = subprocess.run(
+        ["node", str(wrapper)], capture_output=True, text=True,
+        env={**os.environ, "NODE_NO_WARNINGS": "1"},
+    )
+    out = json.loads(proc.stdout)
+    assert "verifyTarget" in out["err"] and "ECONNREFUSED simulated" in out["err"]
+    assert out["runnerCalled"] is False
+    assert not (out_dir / "evidence.json").exists()
+
+
+    # ── atomicWrite: path-traversal rejection ─────────────────────────
+def test_atomic_write_rejects_file_names_outside_staging(tmp_path):
+    """Security: atomicWrite must refuse to write a file whose name resolves
+    OUTSIDE the staging directory. Covers absolute names, parent-escape names,
+    and empty / non-string names. The original outDir MUST remain untouched
+    across all rejections."""
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    (out_dir / "evidence.json").write_text("prior")
+    bad_names = ["/etc/passwd", "../../escape.txt", ""]
+    wrapper = tmp_path / "_escape.mjs"
+    wrapper.write_text(
+        "import { atomicWrite } from "
+        + json.dumps("file://" + str(SCRIPT))
+        + ";\n"
+        f"const outDir = {json.dumps(str(out_dir))};\n"
+        f"const badNames = {json.dumps(bad_names)};\n"
+        "const results = [];\n"
+        "for (const badName of badNames) {\n"
+        "  try {\n"
+        "    await atomicWrite(outDir, {[badName]: 'x'});\n"
+        "    results.push({name: badName, threw: false});\n"
+        "  } catch (e) {\n"
+        "    results.push({name: badName, threw: true, err: e.message});\n"
+        "  }\n"
+        "}\n"
+        "process.stdout.write(JSON.stringify(results));\n"
+    )
+    proc = subprocess.run(
+        ["node", str(wrapper)], capture_output=True, text=True,
+        env={**os.environ, "NODE_NO_WARNINGS": "1"},
+    )
+    assert proc.returncode == 0, proc.stderr
+    results = json.loads(proc.stdout)
+    assert len(results) == len(bad_names)
+    for bad_name, result in zip(bad_names, results):
+        assert result["threw"], f"atomicWrite must reject {bad_name!r}; got {result!r}"
+        err = result["err"]
+        assert any(s in err for s in ("outside staging dir", "must be relative", "non-empty string")), (
+            f"{bad_name!r} must surface a path-traversal error; got {err!r}"
+        )
+    assert (out_dir / "evidence.json").read_text() == "prior"
+
+
+# ── validateManifest: required expectedDOMMarker ─────────────────
+def test_validate_manifest_rejects_empty_expected_dom_marker(tmp_path):
+    """Capture-integrity contract: every manifest entry must pin a non-empty
+    DOM marker. An empty marker would silently skip verifyTarget's check,
+    defeating the integrity guard, so validateManifest must refuse such a
+    manifest up front (and the CLI must propagate the failure)."""
+    manifest = json.loads(CORPUS_MANIFEST.read_text())
+    # Empty marker
+    manifest["entries"][0]["expectedDOMMarker"] = ""
+    bad = tmp_path / "empty_marker.json"
+    bad.write_text(json.dumps(manifest))
+    r = _run(["--url", CAPTURE_URL, "--manifest", str(bad),
+              "--out", str(tmp_path / "out"), "--dry-run"])
+    assert r.returncode != 0, (
+        f"validateManifest must reject an entry with empty expectedDOMMarker; "
+        f"got stdout={r.stdout!r} stderr={r.stderr!r}"
+    )
+    assert "expectedDOMMarker" in r.stderr or "DOM marker" in r.stderr, (
+        f"empty-marker rejection error must name the missing field; "
+        f"got stderr={r.stderr!r}"
+    )
+    # Missing key entirely (unrelated to empty string) is also rejected.
+    del manifest["entries"][0]["expectedDOMMarker"]
+    bad2 = tmp_path / "missing_marker.json"
+    bad2.write_text(json.dumps(manifest))
+    r2 = _run(["--url", CAPTURE_URL, "--manifest", str(bad2),
+               "--out", str(tmp_path / "out2"), "--dry-run"])
+    assert r2.returncode != 0, (
+        "validateManifest must reject an entry missing expectedDOMMarker"
     )
