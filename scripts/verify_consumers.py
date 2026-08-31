@@ -165,7 +165,7 @@ def find_venv_python(repo_root: Path) -> Path | None:
     `<repo_root>/.venv/Scripts/python.exe` (Windows), or None if absent.
     Read-only: the verifier NEVER creates a venv."""
     for sub, name in (("bin", "python"), ("Scripts", "python.exe")):
-        cand = (repo_root / ".venv" / sub / name).resolve()
+        cand = repo_root / ".venv" / sub / name
         if cand.is_file():
             return cand
     return None
@@ -496,7 +496,7 @@ def main(argv=None) -> int:
     # --repo-root, falling back to the manifest's parent directory).
     repo_root = (Path(ns.repo_root).resolve() if ns.repo_root
                  else mp.parent)
-    venv_python = (Path(ns.venv).resolve() if ns.venv
+    venv_python = (Path(ns.venv).expanduser() if ns.venv
                    else find_venv_python(repo_root))
 
     # Resolve the controlled HTTP-status verifier script. Auto-detected

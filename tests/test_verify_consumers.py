@@ -252,6 +252,15 @@ def test_venv_aware_pytest_uses_venv_python_when_provided(
     assert argv == ["-m", "pytest", "-q", "tests/foo.py"], argv
 
 
+def test_find_venv_python_preserves_symlink_path(tmp_path):
+    """A venv python may be a symlink; preserve it so Python keeps its venv."""
+    import scripts.verify_consumers as vc
+    target = _write_fake_python(tmp_path / "target")
+    link = tmp_path / ".venv" / "bin" / "python"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(target)
+    assert vc.find_venv_python(tmp_path) == link
+
 def test_venv_aware_pytest_unchanged_when_venv_not_provided(tmp_path):
     """Without `--venv`, the verifier does NOT rewrite `pytest` commands
     (fail-closed: bare `pytest` on PATH may be wrong; venv-aware mode is
