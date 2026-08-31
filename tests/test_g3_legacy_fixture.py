@@ -1,4 +1,4 @@
-"""Focused tests for the G3 legacy fixture (DB + tailwind + verifier).
+"""Focused tests for the G3 legacy fixture (DB + tailwind + verifier) + G5 markers.
 
 Scope (parent task — fixture only, no product behavior changes):
   - `tools/g3-legacy-fixture/taxa.db` — pre-seeded SQLite (taxon + vernacular).
@@ -8,12 +8,26 @@ Scope (parent task — fixture only, no product behavior changes):
     verifier that parses `curl -w '%{http_code}'` output and validates the
     captured status code(s) against the consumer's `verification.expect`
     value (fail-closed on mismatch; curl exit 0 ≠ HTTP 200).
+
+G5 slice (chain PR 1) — deterministic hydration-readiness markers:
+  - `web/index.html` carries four `data-testid` markers
+    (`g5-shell-ready`, `g5-tree-ready`, `g5-search-ready`,
+    `g5-keymap-ready`) as the deterministic contract for chain PR 2's
+    Playwright capture to consume.
+  - `web/app.js` flips `document.body.dataset.state` to
+    `g5-keymap-ready` once the boot sequence wires the keyboard handler.
+  - `web/tree.js` flips `#tree-view[data-state="ready"]` after the
+    placeholder is in the DOM.
+  The controlled FastAPI launcher that mounts the fixture is chain PR 2
+  territory (restored from a preserved external patch) and is exercised
+  by its own test module — not here.
 """
 from __future__ import annotations
 
+import html.parser
 import http.server
-import sqlite3
 import socket
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -181,6 +195,8 @@ def test_check_http_usage_error_on_wrong_arg_count():
     r = subprocess.run([sys.executable, str(CHECK_HTTP)],
                        capture_output=True, text=True, check=False)
     assert r.returncode != 0 and "usage" in r.stderr.lower(), r.stderr
+
+
     # ── G3 slice: complete legacy fixture asset coverage ─────────────────
     # The cutover-manifest's `verification.command` curl loop for the
     # nav.js-imported modules (`mount-runtime-import-nav-js-modules-007`)
@@ -205,6 +221,7 @@ def test_fixture_serves_all_legacy_manifest_referenced_stubs(served_legacy):
         with urllib.request.urlopen(f"{base}/{stub}.js", timeout=2) as r:
             assert r.status == 200, f"{stub}.js not served (got {r.status})"
 
+
 def test_legacy_manifest_navjs_loop_validates_against_fixture(served_legacy):
     """The cutover-manifest's nav.js-imported modules loop
     (`for m in detail search tree state api dom; do curl ...`) MUST
@@ -213,6 +230,7 @@ def test_legacy_manifest_navjs_loop_validates_against_fixture(served_legacy):
     cmd = (f"for m in detail search tree state api dom; do "
            f"curl -sS -o /dev/null -w '%{{http_code}}' {base}/$m.js; done")
     assert _check(cmd, "200 for each").returncode == 0
+
 
 def test_legacy_manifest_combined_file_explorer_settings_validates(
         served_legacy):
@@ -225,6 +243,7 @@ def test_legacy_manifest_combined_file_explorer_settings_validates(
            f"curl -sS -o /dev/null -w '%{{http_code}}' {base}/settings.js")
     assert _check(cmd, "200 for each").returncode == 0
 
+
 def test_legacy_manifest_single_file_assets_all_200(served_legacy):
     """The cutover-manifest's single-file consumers (format.js x2,
     file_explorer.js, file_viewer.js, settings.js) MUST all
@@ -235,3 +254,107 @@ def test_legacy_manifest_single_file_assets_all_200(served_legacy):
             f"curl -sS -o /dev/null -w '%{{http_code}}' {base}/{stub}.js",
             "200")
         assert r.returncode == 0, f"{stub}.js not 200: {r.stderr}"
+
+
+# ── G5 slice: deterministic hydration-readiness markers (chain PR 1) ──────
+# The G5 hydration baseline (design.md §3.3.5) needs deterministic markers
+# the chain PR 2 Playwright + Lighthouse capture can diff baseline-vs-candidate
+# against. This PR ships the markers themselves; the controlled FastAPI
+# launcher that mounts the fixture is chain PR 2 territory (restored from a
+# preserved external patch).
+G5_HYDRATION_MARKERS = (
+    "g5-shell-ready",
+    "g5-tree-ready",
+    "g5-keymap-ready",
+    "g5-search-ready",
+)
+
+
+def test_g5_index_html_has_all_hydration_readiness_markers():
+    """The fixture's index.html MUST carry `data-testid` markers for each
+    of the G5 hydration readiness signals. Chain PR 2 reads these markers
+    via Playwright; the marker names are the public contract."""
+    html = (FIXTURE / "web" / "index.html").read_text()
+    for marker in G5_HYDRATION_MARKERS:
+        assert f'data-testid="{marker}"' in html, (
+            f"index.html missing G5 hydration marker "
+            f"data-testid={marker!r}; chain PR 2 reads it via Playwright"
+        )
+
+
+class _HydrationMarkerFinder(html.parser.HTMLParser):
+    """Walk the parsed DOM and record per-element `data-testid` attrs.
+
+    Unlike a browser, html.parser does NOT dedupe duplicate attributes per
+    the HTML5 spec — it preserves every (name, value) pair it reads. That
+    is exactly what we want here: the regression guard below catches
+    source-level bugs where two data-testid attrs share one element (a
+    browser would silently keep only the first and break the all-four
+    marker contract for chain PR 2's capture)."""
+    def __init__(self):
+        super().__init__()
+        self.per_element_testids: list[tuple[str, list[str]]] = []
+        self.testids: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        values = [v for k, v in attrs if k == "data-testid" and v]
+        self.per_element_testids.append((tag, values))
+        self.testids.extend(values)
+
+
+def test_g5_index_html_hydration_markers_unique_in_parsed_dom():
+    """Regression guard: every G5 hydration-readiness `data-testid` MUST
+    be observable in the parsed DOM (visible to Playwright), AND no
+    element may carry more than one `data-testid` attribute.
+
+    Browsers drop subsequent duplicate attrs per HTML5 spec, so a fixture
+    that relies on duplicate attributes exposes only the first to
+    Playwright — silently breaking the all-four-marker contract. The
+    file-level substring check above cannot detect this masking; only
+    parsing the DOM can.
+
+    Historical regression: index.html originally carried both
+    `data-testid="g5-shell-ready"` and `data-testid="g5-keymap-ready"` on
+    `<body>`. The substring marker test passed, but Playwright only saw
+    the first attribute. This test catches that."""
+    html = (FIXTURE / "web" / "index.html").read_text()
+    finder = _HydrationMarkerFinder()
+    finder.feed(html)
+    for marker in G5_HYDRATION_MARKERS:
+        assert finder.testids.count(marker) == 1, (
+            f"data-testid={marker!r} must appear exactly once in the "
+            f"parsed DOM; got {finder.testids.count(marker)} "
+            f"(parsed markers: {finder.testids!r})"
+        )
+    duplicates = [
+        (tag, vals)
+        for tag, vals in finder.per_element_testids
+        if len(vals) > 1
+    ]
+    assert duplicates == [], (
+        "index.html has elements with duplicate data-testid attrs; "
+        "browsers keep only the first per HTML5 spec, which silently "
+        "disables the later marker for Playwright. Found: "
+        f"{duplicates!r}"
+    )
+
+
+def test_g5_app_js_wires_keymap_ready_state():
+    """app.js MUST register the G5 keymap-ready state on `document.body`
+    when the boot sequence wires the keyboard handler. Without this,
+    chain PR 2's Playwright capture cannot distinguish 'keymap wired'
+    from 'keymap pending'."""
+    src = (FIXTURE / "web" / "app.js").read_text()
+    assert "g5-keymap-ready" in src, (
+        "app.js must register a g5-keymap-ready state on document.body"
+    )
+
+
+def test_g5_tree_js_marks_tree_view_ready_after_render():
+    """tree.js MUST mark `#tree-view[data-state='ready']` after the
+    tree's first render. The marker is chain PR 2's signal for
+    'tree first-paint reached'."""
+    src = (FIXTURE / "web" / "tree.js").read_text()
+    assert "tree-view" in src and "ready" in src, (
+        "tree.js must wire the #tree-view data-state='ready' marker"
+    )
