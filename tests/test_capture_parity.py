@@ -62,6 +62,16 @@ def _run(args, **kwargs):
     return subprocess.run(["node", str(SCRIPT), *args], capture_output=True, text=True, **kwargs)
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _restore_api_server_paths():
+    """Keep the launcher test's module-global rewiring inside this module."""
+    from api import server
+
+    db_path, research_dir = server.DB_PATH, server.RESEARCH_DIR
+    yield
+    server.DB_PATH, server.RESEARCH_DIR = db_path, research_dir
+
+
 def _run_capture_with_runner(tmp_path, *, synthetic_lhr=None, runner_throws=False,
                               runner_invocation=None, dry_run=False):
     """Hermetic helper: write a Node wrapper that imports capture.mjs and calls
