@@ -1,0 +1,45 @@
+name: Documentation
+description: Propose a focused documentation update.
+title: "docs: "
+labels:
+  - documentation
+  - type:docs
+body:
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Identify the docs, pages, or sections this change touches.
+      placeholder: |
+        - docs/<file>.md
+        - <section or heading>
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: Explain why the doc change is needed and the audience it serves.
+    validations:
+      required: true
+
+  - type: textarea
+    id: change-summary
+    attributes:
+      label: Change summary
+      description: Describe what will be added, rewritten, or removed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation-plan
+    attributes:
+      label: Validation plan
+      description: Name the checks that prove the doc is accurate, consistent, and complete.
+      placeholder: |
+        - markdown / yaml lint (when applicable)
+        - link check
+        - review by a domain owner
+    validations:
+      required: true
