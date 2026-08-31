@@ -23,9 +23,12 @@ remains unselected.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import os
+import sqlite3
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -34,6 +37,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CAPTURE = REPO_ROOT / "tools" / "g4-capture"
 SCRIPT = CAPTURE / "scripts" / "capture.mjs"
+ASGI = CAPTURE / "scripts" / "g4_asgi.py"
 PKG = CAPTURE / "package.json"
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "g4"
 CORPUS_MANIFEST = FIXTURES / "corpus" / "manifest.json"
@@ -42,6 +46,16 @@ SQLITE_MANIFEST = FIXTURES / "sqlite" / "MANIFEST.json"
 SQLITE_DB = FIXTURES / "sqlite" / "taxa-fixture.db"
 SQLITE_HASH = FIXTURES / "sqlite" / "taxa-fixture.db.sha256"
 CAPTURE_URL = "http://127.0.0.1:8765/index.html"
+# Required taxon columns for API compatibility - mirrors the schema used by
+# tests/test_api_materialize.py + tests/test_api_file_explorer.py so the
+# minimal G4 fixture can be served through api.server without server-side
+# changes (api/server.py s _row_to_taxon reads every column in REQUIRED_TAXON_COLUMNS).
+REQUIRED_TAXON_COLUMNS: tuple[str, ...] = (
+    "id", "parent_id", "rank", "status", "scientific_name", "authorship",
+    "path", "species_count", "accepted_id", "is_extinct",
+    "coldp_id", "worms_id", "worms_parent_id",
+    "freshwater_id", "freshwater_parent_id",
+)
 
 
 def _run(args, **kwargs):
@@ -529,4 +543,183 @@ def test_map_lhr_run_warnings_sorted_deterministically_across_runs():
     assert r1 == r2 == '["a","b","c"]', (
         f"runWarnings must sort to the same order regardless of input order; "
         f"got {r1!r} vs {r2!r}"
+    )
+
+# ── Fixture SQLite: API-compatible columns + root coldp_id ───────────────
+# The G4 capture producer serves api.server in front of the fixture SQLite
+# (see test_g4_asgi_launcher_* below). api/server.py's _row_to_taxon reads
+# every column listed in REQUIRED_TAXON_COLUMNS, so the fixture MUST carry
+# each one (NULL where the fixture does not exercise that source). The root
+# row (Eukaryota) MUST have coldp_id set so /api/domains returns it.
+def _fixture_taxon_columns() -> set[str]:
+    conn = sqlite3.connect(SQLITE_DB)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(taxon)").fetchall()}
+    conn.close()
+    return cols
+
+
+def test_fixture_has_all_required_taxon_columns():
+    """All API-required taxon columns must exist on the fixture DB; missing
+    columns cause _row_to_taxon to raise sqlite3.OperationalError ('no such
+    column: ...') the first time the API touches a row."""
+    cols = _fixture_taxon_columns()
+    missing = [c for c in REQUIRED_TAXON_COLUMNS if c not in cols]
+    assert not missing, (
+        f"fixture taxon table is missing API-required columns {missing!r}; "
+        f"rebuild via tools/g4-capture/scripts/seed_fixture.py"
+    )
+
+
+def test_fixture_root_has_coldp_id():
+    """The root row (Eukaryota, id=1) must carry coldp_id so /api/domains'
+    WHERE clause (coldp_id IS NOT NULL OR worms_id=1 OR freshwater) returns
+    it as the sole top-level domain."""
+    conn = sqlite3.connect(SQLITE_DB)
+    row = conn.execute(
+        "SELECT id, scientific_name, coldp_id FROM taxon WHERE id = 1"
+    ).fetchone()
+    conn.close()
+    assert row is not None, "fixture root (id=1) missing"
+    assert row[1] == "Eukaryota", f"fixture root must be Eukaryota, got {row[1]!r}"
+    assert row[2] is not None and row[2] != "", (
+        f"fixture root must carry coldp_id so /api/domains returns it; got {row[2]!r}"
+    )
+
+
+# ── G4 ASGI launcher (controlled, minimal) ───────────────────────────────
+# The launcher imports api.server and rewires only DB_PATH + RESEARCH_DIR to
+# point at the G4-controlled fixture paths. All other api.server module
+# globals (WEB_DIR, route registrations, middleware, etc.) MUST stay as
+# api.server set them. The launcher is a hermetic test surface — production
+# is unchanged.
+def _import_g4_asgi():
+    """Import the G4 ASGI launcher fresh in a subprocess so api.server's
+    module state from previous tests cannot leak into the assertions below.
+    Returns (returncode, stdout, stderr)."""
+    py = sys.executable
+    probe = (
+        "import json, sys\n"
+        f"sys.path.insert(0, {json.dumps(str(REPO_ROOT))})\n"
+        "import api.server as srv\n"
+        "import importlib\n"
+        "mod = importlib.import_module('tools.g4-capture.scripts.g4_asgi')\n"
+        "out = {\n"
+        "  'db_path': str(srv.DB_PATH),\n"
+        "  'research_dir': str(srv.RESEARCH_DIR),\n"
+        "  'web_dir': str(srv.WEB_DIR),\n"
+        "  'app_is_srv_app': mod.app is srv.app,\n"
+        "}\n"
+        "sys.stdout.write(json.dumps(out))\n"
+    )
+    return subprocess.run([py, "-c", probe], capture_output=True, text=True)
+
+
+def test_g4_asgi_launcher_exists_and_imports():
+    """The launcher must exist at tools/g4-capture/scripts/g4_asgi.py and
+    be importable without errors (it imports api.server at module top — a
+    missing dependency or syntax error must surface here)."""
+    assert ASGI.is_file(), f"missing launcher: {ASGI}"
+    src = ASGI.read_text()
+    # The launcher must expose the ASGI app under the conventional `app` name
+    # so uvicorn `tools.g4-capture.scripts.g4_asgi:app` works.
+    assert "app" in src, "launcher must expose an ASGI app"
+    proc = subprocess.run(
+        [sys.executable, "-c",
+         f"import sys; sys.path.insert(0, {json.dumps(str(REPO_ROOT))});\n"
+         "import importlib;"
+         "mod = importlib.import_module('tools.g4-capture.scripts.g4_asgi');\n"
+         "assert mod.app is not None"],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, (
+        f"launcher must import cleanly; got stdout={proc.stdout!r} "
+        f"stderr={proc.stderr!r}"
+    )
+
+
+def test_g4_asgi_launcher_rewires_db_path_and_research_dir_only():
+    """The launcher MUST set api.server.DB_PATH and api.server.RESEARCH_DIR
+    to the G4 fixture paths and MUST leave other api.server module globals
+    (WEB_DIR) untouched. We probe via subprocess so api.server's in-process
+    state from earlier tests cannot mask a leak."""
+    proc = _import_g4_asgi()
+    assert proc.returncode == 0, (
+        f"subprocess failed; stderr={proc.stderr!r}"
+    )
+    out = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert out["db_path"] == str(SQLITE_DB), (
+        f"api.server.DB_PATH must point at the G4 fixture DB after import; "
+        f"got {out['db_path']!r}"
+    )
+    # RESEARCH_DIR is redirected away from the production ./Research path.
+    assert out["research_dir"] != str((REPO_ROOT / "Research").resolve()), (
+        f"api.server.RESEARCH_DIR must NOT point at production Research; "
+        f"got {out['research_dir']!r}"
+    )
+    assert "tests/fixtures/g4" in out["research_dir"] or out["research_dir"].endswith("g4"), (
+        f"api.server.RESEARCH_DIR must be under the G4 fixture tree; "
+        f"got {out['research_dir']!r}"
+    )
+    # WEB_DIR must NOT be touched — the launcher rewires only DB_PATH and
+    # RESEARCH_DIR. Anything else would mean api/server.py was implicitly
+    # modified, which the parent task forbids.
+    expected_web_dir = str((REPO_ROOT / "web").resolve())
+    assert out["web_dir"] == expected_web_dir, (
+        f"launcher must NOT modify api.server.WEB_DIR "
+        f"(production change forbidden); got {out['web_dir']!r}, want {expected_web_dir!r}"
+    )
+    # The re-exported `app` is the same FastAPI instance api.server built —
+    # the launcher does not construct a duplicate.
+    assert out["app_is_srv_app"] is True, (
+        "launcher must re-export api.server.app, not build a new FastAPI()"
+    )
+
+
+def test_g4_asgi_launcher_serves_health_endpoint():
+    """End-to-end: the launched app must serve /api/health against the
+    fixture DB without crashing. Health exercises the rewired DB_PATH (the
+    db() function reads DB_PATH at call time, so the launcher patch must
+    take effect when the app handles a request)."""
+    from fastapi.testclient import TestClient
+    # Import here so the test can run in isolation and the launcher's
+    # module-level api.server rewiring applies.
+    import importlib
+    mod = importlib.import_module("tools.g4-capture.scripts.g4_asgi")
+    client = TestClient(mod.app)
+    r = client.get("/api/health")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "ok"
+    # Stats come from the G4 fixture: 10 taxon + 8 vernacular rows.
+    assert body["taxa"] == 10, f"expected 10 fixture taxa, got {body['taxa']!r}"
+    assert body["vernaculars"] == 8, (
+        f"expected 8 fixture vernaculars, got {body['vernaculars']!r}"
+    )
+    # The launcher rewires DB_PATH; the health payload must reflect that,
+    # not the production data/db/taxa.db path.
+    assert body["db"] == str(SQLITE_DB), (
+        f"health.db must report the rewired fixture path; got {body['db']!r}"
+    )
+
+
+def test_g4_asgi_launcher_serves_domains_from_fixture_root():
+    """Triangulate: /api/domains must return the G4 fixture's root
+    (Eukaryota, coldp_id non-null) as the sole domain. This proves the
+    launcher wires through end-to-end (DB_PATH → db() → SELECT)."""
+    from fastapi.testclient import TestClient
+    import importlib
+    mod = importlib.import_module("tools.g4-capture.scripts.g4_asgi")
+    client = TestClient(mod.app)
+    r = client.get("/api/domains")
+    assert r.status_code == 200, r.text
+    domains = r.json()
+    assert isinstance(domains, list) and domains, (
+        f"fixture root must be returned by /api/domains; got {domains!r}"
+    )
+    assert len(domains) == 1, (
+        f"fixture has one coldp_id-rooted domain (Eukaryota); got {len(domains)}: {domains!r}"
+    )
+    assert domains[0]["scientific_name"] == "Eukaryota"
+    assert domains[0]["coldp_id"], (
+        f"fixture root must carry coldp_id; got {domains[0]!r}"
     )
