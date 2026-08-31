@@ -15,7 +15,8 @@ CREATE TABLE taxon (
     rank TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('accepted', 'synonym')),
     scientific_name TEXT NOT NULL, authorship TEXT, path TEXT, species_count INTEGER,
-    accepted_id INTEGER REFERENCES taxon(id), is_extinct INTEGER NOT NULL DEFAULT 0
+    accepted_id INTEGER REFERENCES taxon(id), is_extinct INTEGER NOT NULL DEFAULT 0,
+    coldp_id TEXT, worms_id TEXT, worms_parent_id TEXT, freshwater_id TEXT, freshwater_parent_id TEXT
 );
 CREATE TABLE vernacular (
     id INTEGER PRIMARY KEY,
@@ -67,6 +68,7 @@ def seed(db_path: Path) -> tuple[int, int]:
         cursor.execute(taxon_insert, row)
     for row in VERNACULAR_ROWS:
         cursor.execute(vernacular_insert, row)
+    cursor.execute("UPDATE taxon SET coldp_id = ? WHERE id = ?", ("Eukaryota", 1))
     conn.commit()
     n_t = conn.execute("SELECT COUNT(*) FROM taxon").fetchone()[0]
     n_v = conn.execute("SELECT COUNT(*) FROM vernacular").fetchone()[0]
