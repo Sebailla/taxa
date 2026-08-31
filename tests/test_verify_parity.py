@@ -21,6 +21,9 @@ SCRIPT = REPO_ROOT / "scripts" / "verify_parity.py"
 REPORT_NAMES = ("navigation", "api", "search", "a11y", "browser-state")
 AGGREGATE_NAME = "parity-aggregate.json"
 SCHEMA_VERSION = "1.0.0"
+REQUIRED_BROWSER_STATE_KEYS = frozenset({
+    "last-taxon-id", "tree-source", "selected-realm", "version-banner-dismissed",
+})
 
 
 def _run(argv, *, cwd=None):
@@ -38,16 +41,79 @@ def _days_ago_iso(days: float) -> str:
 
 
 def _minimal_payload(*, captured_at: str | None = None) -> dict:
-    """Header-only payload passing PR1's common-schema layer."""
+    """Header-only payload used by preflight + common-schema tests."""
     return {"schema_version": SCHEMA_VERSION,
             "captured_at": captured_at or _now_iso()}
 
 
-def _write_reports(root: Path) -> Path:
-    """Write the five minimal-header reports under ``root``."""
+def _navigation(*, captured_at: str | None = None,
+                paths: list[dict] | None = None) -> dict:
+    return {
+        **_minimal_payload(captured_at=captured_at),
+        "paths": paths if paths is not None else [
+            {"path": "/", "status": 200},
+            {"path": "/species", "status": 200},
+            {"path": "/api/health", "status": 200},
+        ],
+    }
+
+
+def _api(*, captured_at: str | None = None,
+         endpoints: list[dict] | None = None) -> dict:
+    return {
+        **_minimal_payload(captured_at=captured_at),
+        "endpoints": endpoints if endpoints is not None else [
+            {"path": "/api/health", "status": 200},
+            {"path": "/api/species", "status": 200},
+        ],
+    }
+
+
+def _search(*, captured_at: str | None = None,
+            queries: list[dict] | None = None) -> dict:
+    return {
+        **_minimal_payload(captured_at=captured_at),
+        "queries": queries if queries is not None else [
+            {"query": "trout", "result_count": 12},
+            {"query": "salmon", "result_count": 7},
+        ],
+    }
+
+
+def _a11y(*, captured_at: str | None = None, score: float = 92.0) -> dict:
+    return {**_minimal_payload(captured_at=captured_at), "score": score}
+
+
+def _browser_state(*, captured_at: str | None = None,
+                   keys: dict | None = None) -> dict:
+    return {
+        **_minimal_payload(captured_at=captured_at),
+        "keys": keys if keys is not None else {
+            "last-taxon-id": "tx-001",
+            "tree-source": "freshwater",
+            "selected-realm": "freshwater",
+            "version-banner-dismissed": True,
+        },
+    }
+
+
+def _write_reports(root: Path, overrides: dict | None = None) -> Path:
+    """Write all five reports under ``root``. Per-report overrides win.
+
+    ``overrides`` is keyed by report name (with hyphens).
+    """
     root.mkdir(parents=True, exist_ok=True)
+    overrides = overrides or {}
+    builders = {
+        "navigation": _navigation,
+        "api": _api,
+        "search": _search,
+        "a11y": _a11y,
+        "browser-state": _browser_state,
+    }
     for name in REPORT_NAMES:
-        (root / f"{name}.json").write_text(json.dumps(_minimal_payload()))
+        payload = overrides.get(name) or builders[name]()
+        (root / f"{name}.json").write_text(json.dumps(payload))
     return root
 
 
@@ -181,3 +247,120 @@ def test_missing_required_args_fails_usage(tmp_path):
     r = _run([])
     assert r.returncode != 0
     assert "usage" in (r.stderr + r.stdout).lower()
+
+
+def test_navigation_path_set_mismatch_fails_closed(tmp_path):
+    out = tmp_path / "out"
+    legacy = _write_reports(tmp_path / "legacy")
+    candidate_nav = _navigation(paths=[
+        {"path": "/", "status": 200},
+        # missing /species; added /extra
+        {"path": "/extra", "status": 200},
+        {"path": "/api/health", "status": 200},
+    ])
+    candidate = _write_reports(tmp_path / "candidate",
+                               overrides={"navigation": candidate_nav})
+    r = _run(["--legacy-dir", str(legacy), "--candidate-dir", str(candidate),
+              "--output", str(out)])
+    assert r.returncode != 0, r.stderr
+    assert not (out / AGGREGATE_NAME).is_file(), r.stderr
+    assert "navigation" in r.stderr, r.stderr
+
+
+def test_navigation_status_mismatch_fails_closed(tmp_path):
+    out = tmp_path / "out"
+    legacy = _write_reports(tmp_path / "legacy")
+    candidate_nav = _navigation(paths=[
+        {"path": "/", "status": 200},
+        {"path": "/species", "status": 500},   # regression
+        {"path": "/api/health", "status": 200},
+    ])
+    candidate = _write_reports(tmp_path / "candidate",
+                               overrides={"navigation": candidate_nav})
+    r = _run(["--legacy-dir", str(legacy), "--candidate-dir", str(candidate),
+              "--output", str(out)])
+    assert r.returncode != 0, r.stderr
+    assert not (out / AGGREGATE_NAME).is_file(), r.stderr
+
+
+def test_api_endpoint_mismatch_fails_closed(tmp_path):
+    out = tmp_path / "out"
+    legacy = _write_reports(tmp_path / "legacy")
+    candidate_api = _api(endpoints=[
+        {"path": "/api/health", "status": 200},
+        {"path": "/api/species", "status": 404},   # regression
+    ])
+    candidate = _write_reports(tmp_path / "candidate",
+                               overrides={"api": candidate_api})
+    r = _run(["--legacy-dir", str(legacy), "--candidate-dir", str(candidate),
+              "--output", str(out)])
+    assert r.returncode != 0, r.stderr
+    assert not (out / AGGREGATE_NAME).is_file(), r.stderr
+    assert "api" in r.stderr, r.stderr
+
+
+def test_search_query_count_mismatch_fails_closed(tmp_path):
+    out = tmp_path / "out"
+    legacy = _write_reports(tmp_path / "legacy")
+    candidate_search = _search(queries=[
+        {"query": "trout", "result_count": 12},
+        {"query": "salmon", "result_count": 0},   # regression: was 7
+    ])
+    candidate = _write_reports(tmp_path / "candidate",
+                               overrides={"search": candidate_search})
+    r = _run(["--legacy-dir", str(legacy), "--candidate-dir", str(candidate),
+              "--output", str(out)])
+    assert r.returncode != 0, r.stderr
+    assert not (out / AGGREGATE_NAME).is_file(), r.stderr
+
+
+def test_browser_state_key_set_mismatch_fails_closed(tmp_path):
+    out = tmp_path / "out"
+    legacy = _write_reports(tmp_path / "legacy")
+    candidate_bs = _browser_state(keys={
+        "last-taxon-id": "tx-001",
+        "tree-source": "freshwater",
+        "selected-realm": "freshwater",
+        # missing version-banner-dismissed
+    })
+    candidate = _write_reports(tmp_path / "candidate",
+                               overrides={"browser-state": candidate_bs})
+    r = _run(["--legacy-dir", str(legacy), "--candidate-dir", str(candidate),
+              "--output", str(out)])
+    assert r.returncode != 0, r.stderr
+    assert not (out / AGGREGATE_NAME).is_file(), r.stderr
+    assert "browser-state" in r.stderr, r.stderr
+
+
+def test_partial_pass_does_not_emit_aggregate(tmp_path):
+    """A single threshold failure MUST close the gate; no aggregate written."""
+    out = tmp_path / "out"
+    legacy = _write_reports(tmp_path / "legacy")
+    candidate = _write_reports(tmp_path / "candidate",
+                               overrides={"a11y": _a11y(score=80.0)})   # regression vs 92.0
+    r = _run(["--legacy-dir", str(legacy), "--candidate-dir", str(candidate),
+              "--output", str(out)])
+    assert r.returncode != 0
+    assert not (out / AGGREGATE_NAME).is_file(), r.stderr
+
+
+def test_multiple_reports_failing_aggregates_reasons(tmp_path):
+    """Simultaneous regressions in two reports must close the gate and
+    surface every reason in stderr; no aggregate is emitted."""
+    out = tmp_path / "out"
+    legacy = _write_reports(tmp_path / "legacy",
+                            overrides={"a11y": _a11y(score=95.0)})
+    candidate_bs = _browser_state(keys={
+        "last-taxon-id": "tx-001",
+        "tree-source": "marine",  # value drift
+        "selected-realm": "freshwater",
+        "version-banner-dismissed": True,
+    })
+    candidate = _write_reports(tmp_path / "candidate",
+                               overrides={"a11y": _a11y(score=70.0),
+                                          "browser-state": candidate_bs})
+    r = _run(["--legacy-dir", str(legacy), "--candidate-dir", str(candidate),
+              "--output", str(out)])
+    assert r.returncode != 0, r.stderr
+    assert not (out / AGGREGATE_NAME).is_file()
+    assert "a11y" in r.stderr and "browser-state" in r.stderr, r.stderr
