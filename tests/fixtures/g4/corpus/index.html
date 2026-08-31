@@ -1,0 +1,19 @@
+<!doctype html>
+<!--
+  G4 capture corpus — minimal deterministic HTML. NOT part of the product.
+  Mirrors the schema declared in tests/fixtures/g4/corpus/manifest.json
+  (entry.path=index.html; entry.expectedContentSha256 is pinned in the
+  manifest and verified by tests/test_capture_parity.py). Bytes must stay
+  deterministic: no timestamps, no generated ids.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>G4 capture corpus</title>
+</head>
+<body>
+  <h1>G4 capture corpus</h1>
+  <p>Disposable diagnostic artifact. Unreachable from production.</p>
+  <span data-testid="g4-probe-marker">static</span>
+</body>
+</html>

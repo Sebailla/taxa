@@ -1,0 +1,13 @@
+{
+  "schema": "taxa.g4-capture.manifest/1",
+  "description": "Deterministic HTML corpus for the G4 capture producer. Each entry pins a URL, the on-disk fixture path, and the expected sha256 of the bytes. The capture producer validates --url against this list and refuses URLs not declared here.",
+  "entries": [
+    {
+      "url": "http://127.0.0.1:8765/index.html",
+      "path": "index.html",
+      "expectedContentSha256": "bb1a2731f4ab7e710d7989c5d5bd17205154155cd18f08e3ffa245c4165ae401",
+      "expectedStatus": 200,
+      "expectedDOMMarker": "data-testid=\"g4-probe-marker\""
+    }
+  ]
+}

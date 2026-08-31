@@ -61,3 +61,12 @@ web/dist/
 # Impeccable design critiques + annotations — local-only notes produced by
 # the .impeccable/ CLI skill during UI review. Not part of the source tree.
 .impeccable/
+
+# G4 capture (slice 1) — isolated pinned Node/Lighthouse workspace. The
+# compiled `node_modules/` and atomic `out/` directories are local-only;
+# raw Lighthouse reports / logs under `parity-reports/` are unversioned by
+# contract. The versioned fixtures live under `tests/fixtures/g4/` and are
+# tracked normally.
+tools/g4-capture/node_modules/
+tools/g4-capture/out/
+parity-reports/

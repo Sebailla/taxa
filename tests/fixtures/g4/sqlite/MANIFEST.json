@@ -1,0 +1,8 @@
+{
+  "schema": "taxa.g4-capture.sqlite-manifest/1",
+  "description": "Versioned SQLite fixture for G4 capture. The .db is rebuilt deterministically by tools/g4-capture/scripts/seed_fixture.py; the expectedSha256 must match the on-disk bytes (verified by tests/test_capture_parity.py).",
+  "file": "taxa-fixture.db",
+  "expectedSha256": "dddb6bbf7546818bd8d68e32f9a0f3992ed0b2804804d2089dbbb7cdcf4c3bd5",
+  "tables": ["taxon", "vernacular"],
+  "rowCounts": { "taxon": 10, "vernacular": 8 }
+}
