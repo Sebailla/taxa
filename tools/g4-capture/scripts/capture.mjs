@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// tools/g4-capture/scripts/capture.mjs — G4 capture producer (slice 1 + capture-2).
+// tools/g4-capture/scripts/capture.mjs — G4 capture producer (slice 1 + capture-2 + capture-3).
 // URL-parametrized; isolated Node/Lighthouse workspace; no server startup;
 // no product changes. Atomic output to `out/`; provenance recorded; manifest
 // snapshot alongside evidence.
@@ -8,11 +8,18 @@
 //               with a fixed configuration/categories and a deterministic
 //               mapping from LHR to evidence; runner failure MUST NOT publish
 //               or replace the output directory (fail-closed).
+//   capture-3 — pre-runner verification of the target URL (status + raw
+//               sha256 + DOM marker from the corpus manifest) AND a
+//               rollback-safe atomicWrite that preserves the prior complete
+//               output via a sibling-backup strategy when the final rename
+//               fails. Verification failure prevents runner invocation and
+//               evidence publication; it applies to dry-run too.
 // See tools/g4-capture/README.md.
 
 import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import os from "node:os";
 
 const SCHEMA = "taxa.g4-capture.evidence/1";
@@ -108,6 +115,13 @@ export function validateManifest(manifest, url) {
     fail("manifest schema mismatch", { want: MANIFEST_SCHEMA });
   const entry = (manifest.entries ?? []).find((e) => e.url === url);
   if (!entry) fail("url not in manifest.entries", { url });
+  // Capture-integrity contract: every entry must pin a non-empty DOM marker.
+  // An empty marker would let verifyTarget silently skip the check and defeat
+  // the integrity guard, so we refuse the manifest up front.
+  const marker = entry.expectedDOMMarker;
+  if (typeof marker !== "string" || marker.length === 0) {
+    fail("manifest entry missing expectedDOMMarker", { url });
+  }
   return entry;
 }
 
@@ -240,25 +254,112 @@ export async function runLighthouse({ url } = {}) {
   }
 }
 
-export async function atomicWrite(outDir, files) {
-  // Atomic directory-rename. Write into a unique tmp dir, then rename onto
-  // outDir in a single syscall. On any failure the tmp dir is removed and
-  // outDir is left untouched (no partial state).
+// `verifyTarget()` re-fetches the capture URL and re-checks status, raw
+// response sha256, and a declared DOM marker against the corpus manifest.
+// Throws on any mismatch so the caller can fail closed BEFORE invoking the
+// Lighthouse runner or publishing evidence. `fetchFn` is injectable so
+// hermetic tests can exercise all failure modes without a live server.
+export async function verifyTarget({ url, entry, fetchFn = globalThis.fetch }) {
+  if (!entry || typeof entry !== "object") {
+    throw new Error("verifyTarget: entry required");
+  }
+  const expectedStatus = entry.expectedStatus ?? 200;
+  const expectedSha = entry.expectedContentSha256;
+  const expectedMarker = entry.expectedDOMMarker;
+  if (typeof expectedSha !== "string" || expectedSha.length === 0) {
+    throw new Error("verifyTarget: entry.expectedContentSha256 required (got empty)");
+  }
+  let response;
+  try {
+    response = await fetchFn(url);
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    throw new Error(`verifyTarget: fetch failed for ${url}: ${msg}`);
+  }
+  if (!response || typeof response.status !== "number") {
+    throw new Error(`verifyTarget: invalid response for ${url} (missing status)`);
+  }
+  if (response.status !== expectedStatus) {
+    throw new Error(`verifyTarget: status mismatch for ${url}: expected ${expectedStatus}, got ${response.status}`);
+  }
+  const buf = new Uint8Array(await response.arrayBuffer());
+  const sha = createHash("sha256").update(buf).digest("hex");
+  if (sha !== expectedSha) {
+    throw new Error(`verifyTarget: sha256 mismatch for ${url}: expected ${expectedSha}, got ${sha}`);
+  }
+  // validateManifest() already refuses an empty marker, so reaching this
+  // branch with `expectedMarker` falsy would mean the validator was
+  // bypassed. Defensive no-op in that case.
+  if (expectedMarker && !new TextDecoder("utf-8").decode(buf).includes(expectedMarker)) {
+    throw new Error(`verifyTarget: DOM marker ${JSON.stringify(expectedMarker)} not found in ${url}`);
+  }
+}
+
+
+// Reject any file name whose resolved path escapes the staging dir —
+// absolute paths and `../`-ladder names would otherwise let evidence files
+// be written outside `outDir` and breach the atomic-write contract.
+function _resolveUnderStaging(stagingRoot, name) {
+  if (!name || typeof name !== "string") {
+    throw new Error(`atomicWrite: file name must be a non-empty string`);
+  }
+  if (isAbsolute(name)) {
+    throw new Error(`atomicWrite: file name must be relative: ${JSON.stringify(name)}`);
+  }
+  const resolved = resolve(stagingRoot, name);
+  const rel = relative(stagingRoot, resolved);
+  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
+    throw new Error(`atomicWrite: file name ${JSON.stringify(name)} resolves outside staging dir`);
+  }
+  return resolved;
+}
+
+
+export async function atomicWrite(outDir, files, { rename = renameSync } = {}) {
+  // Rollback-safe staged-rename: relocate any existing `outDir` aside into a
+  // sibling backup, stage the new payload into a sibling tmp dir, then rename
+  // tmp → outDir. If the final rename fails, restore from the backup so the
+  // prior output stays readable. The earlier in-place `rmSync(outDir)` lost
+  // the prior output the moment a rename failed; this strategy keeps the
+  // evidence recoverable either in-place (success) or as a sibling (failure).
+  // `rename` is injectable so tests can simulate a failed final rename.
   const tmp = `${outDir}.tmp-${process.pid}-${Date.now()}`;
+  const backup = `${outDir}.bak-${process.pid}-${Date.now()}`;
+  let hadExisting = false;
+  if (existsSync(outDir)) {
+    rename(outDir, backup); // relocate prior output aside; fail-fast on error
+    hadExisting = true;
+  }
+  let staged = false;
   try {
     mkdirSync(tmp, { recursive: true });
     for (const [name, content] of Object.entries(files)) {
-      const p = resolve(tmp, name);
+      const p = _resolveUnderStaging(tmp, name);
       mkdirSync(dirname(p), { recursive: true });
       await writeFile(p, content, "utf8");
     }
-    if (existsSync(outDir)) rmSync(outDir, { recursive: true, force: true });
-    renameSync(tmp, outDir);
+    rename(tmp, outDir);
+    staged = true;
   } catch (err) {
+    // Failure path: restore the prior outDir from the backup so the
+    // original output remains readable. The backup sibling is the
+    // recovery artifact if the restore itself fails (we still throw the
+    // original error).
+    if (hadExisting) {
+      try {
+        if (existsSync(outDir)) rmSync(outDir, { recursive: true, force: true });
+        rename(backup, outDir);
+      } catch {}
+    }
     try {
-      rmSync(tmp, { recursive: true, force: true });
+      if (existsSync(tmp)) rmSync(tmp, { recursive: true, force: true });
     } catch {}
     throw err;
+  }
+  if (hadExisting && staged) {
+    try {
+      rmSync(backup, { recursive: true, force: true });
+    } catch {}
   }
 }
 
@@ -270,8 +371,16 @@ export async function capture({
   runLighthouse: runLighthouseFn,
   now = () => new Date().toISOString(),
   logger = log,
+  fetchFn = globalThis.fetch,
 }) {
   const entry = validateManifest(manifest, url);
+  // Pre-runner verification (capture-3): re-fetch the target URL and
+  // re-check status + raw sha256 + DOM marker against the corpus manifest
+  // BEFORE invoking the Lighthouse runner or publishing evidence. This is
+  // the integrity guard against a stale or drifting web/index.html — if
+  // any check fails, throws so the runner is NEVER invoked and atomicWrite
+  // is NEVER called. Applies to dry-run too.
+  await verifyTarget({ url, entry, fetchFn });
   // Real-run path (slice 2): the injected runner returns the raw LHR; we
   // map it deterministically before persistence. If the runner throws,
   // control never reaches `atomicWrite`, so the existing outDir (if any)
