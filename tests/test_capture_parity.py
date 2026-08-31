@@ -31,6 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CAPTURE = REPO_ROOT / "tools" / "g4-capture"
 SCRIPT = CAPTURE / "scripts" / "capture.mjs"
 PKG = CAPTURE / "package.json"
+LOCK = CAPTURE / "package-lock.json"
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "g4"
 CORPUS_MANIFEST = FIXTURES / "corpus" / "manifest.json"
 CORPUS_INDEX = FIXTURES / "corpus" / "index.html"
@@ -44,6 +45,12 @@ def _run(args, **kwargs):
 
 
 # ── Pinned workspace ──────────────────────────────────────────────
+def test_workspace_lockfile_pins_declared_dependencies():
+    lock = json.loads(LOCK.read_text())
+    root = lock["packages"][""]["dependencies"]
+    assert root == json.loads(PKG.read_text())["dependencies"]
+
+
 def test_pinned_dependencies_in_isolated_module():
     pkg = json.loads(PKG.read_text())
     deps = pkg.get("dependencies", {})
