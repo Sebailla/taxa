@@ -678,6 +678,174 @@ updated: G2 remains `blocked — contract defined; verifier not
                   the two files). Total authored planning-doc additions in
                   this pass stay well under the 400-line per-PR review
                   budget.
+                - **2026-08-30** — G3 canonical PASS record pass (this entry).
+                  Per the parent task, the independently verified clean-merge
+                  G3 Tier-1 (legacy pre-cut) readiness evidence captured
+                  after PR #109 + PR #111 + PR #115 + PR #116 landed on
+                  `origin/develop` is recorded here and in
+                  `design.md::§3.3.3` (plus the faithful Spanish mirror in
+                  `design-es.md::§3.3.3`). **No source, tests, scripts,
+                  tasks, product files, evidence files, candidate workspace,
+                  `cutover-manifest.json`, or `package-lock.json` are
+                  touched, committed, or pushed in this pass.** The
+                  canonical `cutover-manifest.json` (the Tier-1 manifest
+                  authored 2026-08-30) and the previously emitted
+                  `<build-root>/CONSUMER-READINESS.json` (if any) are
+                  **unchanged**; this pass records the Tier-1 PASS evidence
+                  against the existing manifest. **G3 PASSES for Tier-1;
+                  G3 is NOT PASSED for Tier-2** (atomic-cut selection
+                  remains evidence-gated by G4 + G5 + G6 PASS).
+                  Evidence summary:
+                  - **Merged PRs on `origin/develop` at evidence capture
+                    time** — PR #109 `test(g3): verify consumer readiness`
+                    (verifier authored) + PR #111 `fix(g3): control
+                    readiness verification runtime` (controlled runtime
+                    `--serve` / `--venv` / `--repo-root` /
+                    `--fixture-web-root`) + PR #115 `fix(g3): enforce HTTP
+                    consumer expectations` (HTTP-shape fail-closed
+                    enforcement via
+                    `tools/g3-legacy-fixture/scripts/check_http_status.py`)
+                    + PR #116 `fix(g3): preserve virtualenv Python paths`
+                    (virtualenv-symlink preservation). All four PRs are
+                    merged into `origin/develop` (current HEAD
+                    `39d29ee`) — the verifier, the controlled runtime,
+                    the HTTP-shape fail-closed gate, and the venv
+                    symlink preservation are all on disk at evidence
+                    capture time.
+                  - **Canonical command line** —
+                    `python scripts/verify_consumers.py --manifest openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json --out <build-root> --serve --venv <repo-root>/.venv/bin/python --fixture-web-root <repo-root>/tools/g3-legacy-fixture/web --repo-root <repo-root>`
+                    — exit `0` (verifier exits `EXIT_OK`).
+                  - **Artifact emitted** —
+                    `<build-root>/CONSUMER-READINESS.json`, written
+                    atomically via temp-file + rename by the verifier;
+                    the canonical schema validates every required key.
+                  - **Artifact contents (canonical)** — `manifest_path`
+                    =
+                    `openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json`,
+                    `manifest_sha256` matches the on-disk canonical
+                    manifest hash (stable across consecutive verifier
+                    runs), `node_version ≥ 20.9.0`, `verified_at`
+                    (ISO-8601 timestamp of evidence capture), `exit_code
+                    = 0`, every `consumers[].status = "ready"` with the
+                    corresponding `verification_exit_code = 0`,
+                    `unselected_count = 0`, `failed_verifications[]`
+                    empty, `activation_complete = true`. The artifact is
+                    **valid** by the §3.3.3.1 schema (`activation_complete
+                    = true` AND `exit_code = 0` AND `unselected_count = 0`
+                    AND `failed_verifications[]` empty).
+                  - **Coverage (canonical)** — all **26 / 26** §3.1
+                    consumers PASS — **21** in §3.1.1 (FastAPI web mount:
+                    2 HTML reads + 1 CSS link + 1 JS module-entry + 4
+                    ES-import + 3 dynamic-import + 1 CDN pin + 3
+                    smoke/evidence-baseline tests + 2 build-profile /
+                    hydration tests + 1 extension-manifest pin, with the
+                    evidence-baseline block folded by coverage summary)
+                    + **5** in §3.1.2 (`web/search_urls.js`: 3 detail.js
+                    runtime uses + 2 contract tests). Every consumer's
+                    `verification.command` exits `0` against the
+                    controlled fixture served by `python -m http.server`
+                    on an isolated free TCP port picked by the OS (never
+                    the legacy `8765`); HTTP-shape expectations
+                    (`"200"`, `"200 for each"`) are routed through the
+                    controlled `tools/g3-legacy-fixture/scripts/check_http_status.py`
+                    fail-closed helper (PR #115); non-HTTP expectations
+                    (`"ok"`, `"1 passed"`, `"all passed"`, arbitrary
+                    text) keep shell-exit-only semantics.
+                  - **Tests supporting the PASS** — `tests/test_verify_consumers.py`
+                    (controlled runtime / fixture-serve / HTTP-shape /
+                    symlink-preservation triangulation tests, all green
+                    on `origin/develop` post-merge of PR #109 + PR #111 +
+                    PR #115 + PR #116) + `tests/test_g3_legacy_fixture.py`
+                    (fixture DB + served fixture asset coverage tests,
+                    all green on `origin/develop` post-merge of PR #113 +
+                    PR #114 + PR #115 + PR #116).
+                  - **Risk note** — the Tier-1 PASS evidence is
+                    **independent** of any G2 / G4 / G5 / G6 evidence;
+                    Tier-1 (`legacy pre-cut`) does not require G2/G4/G5/G6
+                    PASS by contract, and the canonical command exercises
+                    the legacy pre-cut runtime against the controlled
+                    fixture rather than any G2 candidate build root.
+                    The PASS artifact does **not** exercise `<build-root>`
+                    from a G2 candidate; that path is Tier-2 and remains
+                    evidence-gated by G2 + G4 + G5 + G6 PASS.
+                  - **Truth preserved** — G3 **Tier-1 (legacy pre-cut)
+                    readiness PASSED** (clean evidence capture, all
+                    consumers green, valid `CONSUMER-READINESS.json`
+                    emitted); **G3 Tier-2 (atomic-cut selection against
+                    the chosen Approach A / B / C build artifact) NOT
+                    PASSED** — Tier-2 requires G4 (Playwright + Lighthouse
+                    parity) + G5 (reproducible hydration baseline — G5
+                    currently `unreproducible` per §3.3.5 audit) + G6
+                    (`cutover-rehearsal.json` dry-run success); G2 PASS is
+                    recorded but Tier-2 evaluation needs G4 / G5 / G6 on
+                    top; **Approach A / B / C remain unselected**; **no
+                    FastAPI activation** (no `WEB_DIR` repoint, no atomic
+                    cutover, no `api/server.py` / Makefile / extension /
+                    API / product-source change); **G4 / G6 remain
+                    blocked** (verifiers not authored yet); **G5 remains
+                    `unreproducible`** per the §3.3.5 audit. The Tier-1
+                    PASS is a **canonical evidence record**, not a
+                    cutover activation. PR3e is still blocked until
+                    Tier-2 evidence closes via PR3d/PR3e.
+                  - **`design.md` / `design-es.md` deltas** — §3.3.3 G3
+                    row's Producer cell now references all four PRs
+                    (#109, #111, #115, #116); the Command cell now
+                    carries the canonical `--serve --venv
+                    --fixture-web-root --repo-root` invocation; the
+                    Threshold cell carries the Tier-1 PASS reference;
+                    **four new rows** are added to §3.3.3 (after the
+                    Threshold cell): **Disposition (2026-08-30 canonical
+                    evidence — PR #116 merge)**, **Canonical command
+                    line (PR #116 evidence capture)**, **Coverage
+                    (2026-08-30 evidence)**, **What this PASS does NOT
+                    claim**, **Closure path forward**. §3.3.3.1 opening
+                    paragraph now declares **G3 PASSES for Tier-1**
+                    verbatim (with `CONSUMER-READINESS.json` artifact
+                    emission, all 26 / 26 consumers, fail-closed
+                    invariants preserved); the Provenance row gains a
+                    third-update note documenting the PR #116 evidence
+                    capture. The status `status:` footer at the bottom
+                    of both `design.md` and `design-es.md` flips the
+                    Tier-1 language from "G3 stays `blocked — verifier
+                    authored but G3 still gated by G2/G4/G5/G6 PASS for
+                    Tier-2`, not `passed`" to "G3 disposition: `PASSED
+                    for Tier-1; NOT PASSED for Tier-2`"; all G4 / G5 /
+                    G6 / G2-Tier-2 / Approach-A-B-C-unselected /
+                    no-FastAPI-activation / no-touch / no-commit / no-push
+                    language is preserved verbatim. The Spanish mirror
+                    carries the faithful Spanish translation of every
+                    row, paragraph, and footer flip.
+
+                  **Truth preserved** — G3 **Tier-1 PASSED** (canonical
+                  evidence captured 2026-08-30 via PR #109 + PR #111 +
+                  PR #115 + PR #116 merge on `origin/develop`); G3
+                  Tier-2 NOT PASSED (G4 + G5 + G6 still blocked);
+                  Approach A / B / C remain unselected; no FastAPI
+                  activation (no `WEB_DIR` repoint, no atomic cutover,
+                  no consumer update, no Makefile / extension / API /
+                  product-source change); G4 / G6 remain `blocked`
+                  (verifiers not authored yet); G5 remains
+                  `unreproducible` per the §3.3.5 audit; the canonical
+                  `cutover-manifest.json` is unchanged (26 §3.1
+                  consumers, Tier-1 `selected`, Tier-2 unselected); the
+                  previously emitted `CONSUMER-READINESS.json` (if any)
+                  is unchanged; this pass records the Tier-1 PASS
+                  evidence without mutating any prior artifact. Spanish
+                  mirrors updated in lockstep. No commit, push, or PR
+                  opened in this pass.
+
+                  **Size note (planning-only)** — this pass adds the
+                  `Disposition / Canonical command line / Coverage /
+                  What this PASS does NOT claim / Closure path forward`
+                  rows to `design.md::§3.3.3` (and the faithful Spanish
+                  translation to `design-es.md::§3.3.3`) plus the
+                  §3.3.3 opening paragraph G3-PASS flip + Provenance
+                  row third-update note + status `status:` footer flip
+                  (≈ 65 net lines across the two files), plus this
+                  new change-log entry + the Spanish mirror entry (≈
+                  100 net lines across the two apply-progress files).
+                  Total authored planning-doc additions in this pass
+                  stay well under the 400-line per-PR review budget.
                 - **2026-08-30** — G3 legacy pre-cut selection authoring
                   pass (this entry). Per the parent task, every §3.1
                   consumer in the canonical cutover manifest is flipped to

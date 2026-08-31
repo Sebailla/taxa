@@ -736,6 +736,193 @@ Espejos en español actualizados en paralelo. No se realiza
                   dos ficheros). El total de adiciones autoradas de
                   planning-doc en esta pasada se queda bien por debajo del
                   presupuesto de revisión por PR de 400 líneas.
+                - **2026-08-30** — Pasada de registro del PASS canónico de
+                  G3 (esta entrada). Según la tarea del padre, la
+                  evidencia verificada independientemente de la preparación
+                  Nivel-1 (legacy pre-cut) de G3 capturada tras el merge
+                  de PR #109 + PR #111 + PR #115 + PR #116 sobre
+                  `origin/develop` se registra aquí y en
+                  `design.md::§3.3.3` (más el espejo fiel en español en
+                  `design-es.md::§3.3.3`). **En esta pasada no se tocan,
+                  comitean, ni pushean fuentes, tests, scripts, tareas,
+                  ficheros de producto, ficheros de evidencia, workspace
+                  candidato, `cutover-manifest.json`, ni `package-lock.json`.**
+                  El `cutover-manifest.json` canónico (el manifiesto de
+                  Nivel-1 autorado el 2026-08-30) y cualquier
+                  `<build-root>/CONSUMER-READINESS.json` previamente
+                  emitido quedan **sin cambios**; esta pasada registra la
+                  evidencia del PASS de Nivel-1 contra el manifiesto
+                  existente. **G3 APRUEBA para Nivel-1; G3 NO APRUEBA
+                  para Nivel-2** (la selección atomic-cut sigue acoada
+                  por PASS de G4 + G5 + G6).
+                  Resumen de la evidencia:
+                  - **PRs fusionadas en `origin/develop` al momento de la
+                    captura de evidencia** — PR #109 `test(g3): verify
+                    consumer readiness` (verificador autorado) + PR #111
+                    `fix(g3): control readiness verification runtime`
+                    (runtime controlado `--serve` / `--venv` /
+                    `--repo-root` / `--fixture-web-root`) + PR #115
+                    `fix(g3): enforce HTTP consumer expectations`
+                    (aplicación fail-closed de forma HTTP vía
+                    `tools/g3-legacy-fixture/scripts/check_http_status.py`)
+                    + PR #116 `fix(g3): preserve virtualenv Python paths`
+                    (preservación de symlinks de virtualenv). Las cuatro
+                    PRs están fusionadas en `origin/develop` (HEAD
+                    actual `39d29ee`) — el verificador, el runtime
+                    controlado, la guarda fail-closed de forma HTTP, y la
+                    preservación de symlinks de venv están todos en
+                    disco al momento de la captura de evidencia.
+                  - **Línea de comando canónica** —
+                    `python scripts/verify_consumers.py --manifest openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json --out <build-root> --serve --venv <repo-root>/.venv/bin/python --fixture-web-root <repo-root>/tools/g3-legacy-fixture/web --repo-root <repo-root>`
+                    — sale `0` (el verificador sale con `EXIT_OK`).
+                  - **Artefacto emitido** —
+                    `<build-root>/CONSUMER-READINESS.json`, escrito
+                    atómicamente vía temp-file + rename por el verificador;
+                    el esquema canónico valida cada clave requerida.
+                  - **Contenido del artefacto (canónico)** — `manifest_path`
+                    =
+                    `openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json`,
+                    `manifest_sha256` coincide con el hash del manifiesto
+                    canónico en disco (estable entre ejecuciones
+                    consecutivas del verificador), `node_version ≥ 20.9.0`,
+                    `verified_at` (timestamp ISO-8601 de la captura de
+                    evidencia), `exit_code = 0`, cada `consumers[].status
+                    = "ready"` con su `verification_exit_code = 0`
+                    correspondiente, `unselected_count = 0`,
+                    `failed_verifications[]` vacío, `activation_complete =
+                    true`. El artefacto es **válido** según el esquema
+                    §3.3.3.1 (`activation_complete = true` AND `exit_code
+                    = 0` AND `unselected_count = 0` AND
+                    `failed_verifications[]` vacío).
+                  - **Cobertura (canónica)** — los **26 / 26**
+                    consumidores de §3.1 PASAN — **21** en §3.1.1 (mount
+                    web FastAPI: 2 lecturas HTML + 1 link CSS + 1 entrada
+                    de módulo JS + 4 ES-import + 3 dynamic-import + 1 pin
+                    CDN + 3 tests smoke/evidence-baseline + 2 tests
+                    build-profile / hidratación + 1 pin de manifest de
+                    extensión, con el bloque evidence-baseline plegado por
+                    resumen de cobertura) + **5** en §3.1.2
+                    (`web/search_urls.js`: 3 usos de runtime en detail.js
+                    + 2 tests contractuales). El `verification.command`
+                    de cada consumidor sale `0` contra el fixture
+                    controlado servido por `python -m http.server` en un
+                    puerto TCP libre aislado elegido por el SO (nunca el
+                    `8765` del legado); las expectativas con forma HTTP
+                    (`"200"`, `"200 for each"`) se enrutan a través del
+                    helper fail-closed controlado
+                    `tools/g3-legacy-fixture/scripts/check_http_status.py`
+                    (PR #115); las expectativas sin forma HTTP (`"ok"`,
+                    `"1 passed"`, `"all passed"`, texto arbitrario)
+                    mantienen la semántica de sólo-exit-del-shell.
+                  - **Tests que respaldan el PASS** — `tests/test_verify_consumers.py`
+                    (tests de triangulación de runtime controlado /
+                    fixture-serve / forma HTTP / preservación de symlinks,
+                    todos en verde sobre `origin/develop` tras el merge
+                    de PR #109 + PR #111 + PR #115 + PR #116) +
+                    `tests/test_g3_legacy_fixture.py` (tests de DB del
+                    fixture + cobertura de activos del fixture servido,
+                    todos en verde sobre `origin/develop` tras el merge
+                    de PR #113 + PR #114 + PR #115 + PR #116).
+                  - **Nota de riesgo** — la evidencia del PASS de Nivel-1
+                    es **independiente** de cualquier evidencia de G2 /
+                    G4 / G5 / G6; Nivel-1 (legacy pre-cut) no requiere
+                    PASS de G2/G4/G5/G6 por contrato, y el comando
+                    canónico ejercita el runtime legacy pre-cut contra el
+                    fixture controlado en lugar de cualquier raíz de
+                    build candidata de G2. El artefacto de PASS **no**
+                    ejercita `<build-root>` de un candidato G2; esa ruta
+                    es Nivel-2 y sigue acoada por PASS de G2 + G4 + G5
+                    + G6.
+                  - **Verdad preservada** — G3 **Nivel-1 (legacy
+                    pre-cut) preparación APROBADA** (captura de evidencia
+                    limpia, todos los consumidores en verde, se emite
+                    `CONSUMER-READINESS.json` válido); **G3 Nivel-2
+                    (selección atomic-cut contra el artefacto de build
+                    del Enfoque A / B / C elegido) NO APROBADA** —
+                    Nivel-2 requiere G4 (paridad Playwright + Lighthouse)
+                    + G5 (línea base de hidratación reproducible — G5
+                    actualmente `irreproducible` según auditoría
+                    §3.3.5) + G6 (éxito del dry-run de
+                    `cutover-rehearsal.json`); el PASS de G2 está
+                    registrado pero la evaluación de Nivel-2 necesita
+                    G4 / G5 / G6 encima; **los Enfoques A / B / C
+                    quedan sin seleccionar**; **sin activación de
+                    FastAPI** (sin repoint de `WEB_DIR`, sin cutover
+                    atómico, sin cambio en `api/server.py` / Makefile /
+                    extensión / API / fuente de producto); **G4 / G6
+                    siguen bloqueadas** (verificadores aún no autordos);
+                    **G5 sigue `irreproducible`** según auditoría
+                    §3.3.5. El PASS de Nivel-1 es un **registro de
+                    evidencia canónico**, no una activación de cutover.
+                    PR3e sigue bloqueado hasta que la evidencia de
+                    Nivel-2 cierre vía PR3d/PR3e.
+                  - **Deltas en `design.md` / `design-es.md`** — la
+                    celda Productor de la fila §3.3.3 G3 ahora
+                    referencia las cuatro PRs (#109, #111, #115, #116);
+                    la celda Comando ahora lleva la invocación canónica
+                    `--serve --venv --fixture-web-root --repo-root`;
+                    la celda Umbral lleva la referencia al PASS de
+                    Nivel-1; **cuatro filas nuevas** se añaden a
+                    §3.3.3 (tras la celda Umbral): **Disposición
+                    (evidencia canónica 2026-08-30 — merge PR #116)**,
+                    **Línea de comando canónica (captura de evidencia
+                    PR #116)**, **Cobertura (evidencia 2026-08-30)**,
+                    **Lo que este PASS NO afirma**, **Camino de cierre
+                    hacia adelante**. El párrafo de apertura de
+                    §3.3.3.1 ahora declara **G3 APRUEBA para Nivel-1**
+                    verbatim (con emisión del artefacto
+                    `CONSUMER-READINESS.json`, todos los 26 / 26
+                    consumidores, invariantes fail-closed preservados);
+                    la fila Procedencia gana una nota de tercera
+                    actualización que documenta la captura de evidencia
+                    de PR #116. El pie de estado `status:` al final de
+                    ambos `design.md` y `design-es.md` cambia el
+                    lenguaje de Nivel-1 de "G3 se queda `bloqueado —
+                    verificador autordado pero G3 sigue acoado por
+                    PASS de G2/G4/G5/G6 para Nivel-2`, no `aprobado`"
+                    a "disposición de G3: `APROBADO para Nivel-1; NO
+                    APROBADO para Nivel-2`"; todo el lenguaje de G4 /
+                    G5 / G6 / G2-Nivel-2 / Enfoque-A-B-C-sin-seleccionar
+                    / sin-activación-de-FastAPI / sin-toque / sin-commit
+                    / sin-push se preserva verbatim. El espejo en
+                    español lleva la traducción fiel al español de cada
+                    fila, párrafo y cambio de pie.
+
+                  **Verdad preservada** — G3 **Nivel-1 APROBADO**
+                  (evidencia canónica capturada el 2026-08-30 vía merge
+                  de PR #109 + PR #111 + PR #115 + PR #116 sobre
+                  `origin/develop`); G3 Nivel-2 NO APROBADO (G4 + G5 +
+                  G6 siguen bloqueadas); los Enfoques A / B / C quedan
+                  sin seleccionar; sin activación de FastAPI (sin
+                  repoint de `WEB_DIR`, sin cutover atómico, sin
+                  actualización de consumidor, sin cambio en Makefile /
+                  extensión / API / fuente de producto); G4 / G6 siguen
+                  `bloqueadas` (verificadores aún no autordos); G5
+                  sigue `irreproducible` según auditoría §3.3.5; el
+                  `cutover-manifest.json` canónico queda sin cambios
+                  (26 consumidores de §3.1, Nivel-1 `selected`,
+                  Nivel-2 unselected); cualquier `CONSUMER-READINESS.json`
+                  previamente emitido queda sin cambios; esta pasada
+                  registra la evidencia del PASS de Nivel-1 sin mutar
+                  ningún artefacto previo. Espejos en español
+                  actualizados en paralelo. No se realiza commit, push,
+                  ni apertura de PR en esta pasada.
+
+                  **Nota de tamaño (planning-only)** — esta pasada añade
+                  las filas `Disposición / Línea de comando canónica /
+                  Cobertura / Lo que este PASS NO afirma / Camino de
+                  cierre hacia adelante` a `design.md::§3.3.3` (y la
+                  traducción fiel al español a `design-es.md::§3.3.3`)
+                  más el cambio de párrafo de apertura de §3.3.3 a
+                  "G3 APRUEBA para Nivel-1" + nota de tercera
+                  actualización de la fila Procedencia + cambio del
+                  pie `status:` (≈ 65 líneas netas entre los dos
+                  ficheros), más esta nueva entrada de change-log + la
+                  entrada espejo en español (≈ 100 líneas netas entre
+                  los dos ficheros de apply-progress). El total de
+                  adiciones autoradas de planning-doc en esta pasada se
+                  queda bien por debajo del presupuesto de revisión
+                  por PR de 400 líneas.
                 - **2026-08-30** — Pasada de autoría de selección legacy
                   pre-cut de G3 (esta entrada). Según la tarea del padre,
                   cada consumidor de §3.1 del manifiesto de cutover
