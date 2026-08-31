@@ -4,6 +4,28 @@
   Mirrors the manifest's `mount-runtime-html-root-001` consumer shape:
     <link rel="stylesheet" href="dist/tailwind.css">
     <script type="module" src="app.js"></script>
+
+  G5 hydration-readiness markers (chain PR 1):
+    data-testid="g5-shell-ready"   — body, fires when DOM is parsed (static).
+    data-testid="g5-tree-ready"    — #tree-view placeholder; tree.js flips
+                                     `data-state="ready"` after first paint.
+    data-testid="g5-search-ready"  — #search input placeholder; search.js
+                                     flips `data-state="ready"` after binding.
+    data-testid="g5-keymap-ready"  — dedicated <span hidden> near the top
+                                     of body (its own element — body
+                                     already carries g5-shell-ready and
+                                     the HTML5 parser drops subsequent
+                                     duplicate attributes, so a second
+                                     data-testid on body would be silently
+                                     lost). app.js flips
+                                     `data-state="g5-keymap-ready"` on
+                                     body after the keyboard handler is
+                                     wired.
+
+  Chain PR 2 (out of scope here) reads these markers via Playwright to
+  record the hydration baseline. The markers themselves are deterministic
+  (no timestamps, no random ids) so a Playwright + Lighthouse capture
+  can diff baseline vs. candidate runs cleanly.
 -->
 <html lang="en">
 <head>
@@ -11,9 +33,22 @@
   <title>G3 Legacy Fixture (diagnostic only)</title>
   <link rel="stylesheet" href="dist/tailwind.css">
 </head>
-<body>
-  <h1>G3 legacy fixture</h1>
+<body data-testid="g5-shell-ready">
+      <!-- g5-keymap-ready marker (its own element so it does not collide
+           with the body-level g5-shell-ready — browsers drop subsequent
+           duplicate attributes per HTML5 spec). app.js still flips
+           data-state="g5-keymap-ready" on body after the keyboard handler
+           is wired. -->
+      <span data-testid="g5-keymap-ready" hidden></span>
+      <h1>G3 legacy fixture</h1>
   <p>Disposable diagnostic artifact. Unreachable from production.</p>
+  <!-- G5 hydration-readiness placeholders. tree.js / search.js flip the
+       matching `data-state` attribute to "ready" / "g5-keymap-ready" after
+       first paint / binding, so chain PR 2's Playwright capture can
+       observe the transition. -->
+  <div id="tree-view" data-testid="g5-tree-ready"></div>
+  <input id="search" data-testid="g5-search-ready" type="search"
+         placeholder="search" />
   <script type="module" src="app.js"></script>
 </body>
 </html>
