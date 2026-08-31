@@ -54,12 +54,19 @@ def seed(db_path: Path) -> tuple[int, int]:
     if db_path.exists(): db_path.unlink()
     conn = sqlite3.connect(db_path)
     conn.executescript(SCHEMA)
-    conn.executemany(
+    taxon_insert = (
         "INSERT INTO taxon (id, parent_id, rank, status, scientific_name, authorship) "
-        "VALUES (?, ?, ?, ?, ?, ?)", TAXON_ROWS)
-    conn.executemany(
+        "VALUES (?, ?, ?, ?, ?, ?)"
+    )
+    vernacular_insert = (
         "INSERT INTO vernacular (id, taxon_id, name, language, country) "
-        "VALUES (?, ?, ?, ?, ?)", VERNACULAR_ROWS)
+        "VALUES (?, ?, ?, ?, ?)"
+    )
+    cursor = conn.cursor()
+    for row in TAXON_ROWS:
+        cursor.execute(taxon_insert, row)
+    for row in VERNACULAR_ROWS:
+        cursor.execute(vernacular_insert, row)
     conn.commit()
     n_t = conn.execute("SELECT COUNT(*) FROM taxon").fetchone()[0]
     n_v = conn.execute("SELECT COUNT(*) FROM vernacular").fetchone()[0]
