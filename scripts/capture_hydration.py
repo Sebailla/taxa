@@ -10,7 +10,7 @@ emission, baseline/candidate comparison. Exit codes: 0/2/10.
 """
 from __future__ import annotations
 
-import argparse, datetime as _dt, hashlib, json, os, platform, re, shutil, sys, uuid
+import argparse, datetime as _dt, hashlib, json, os, platform, re, shutil, sys, time, uuid
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -19,7 +19,12 @@ SCHEMA = "taxa.g5-capture.legacy/1"
 PROVENANCE_SCHEMA = "taxa.g5-capture.legacy-provenance/1"
 PUBLICATION_SCHEMA = "taxa.g5-publication.evidence-manifest/1"
 ITERATIONS = 10
-DEFAULT_DOM_MARKER_SELECTOR = "#tree-view [data-taxon-id]"
+# G5 readiness contract: target the controlled G3 fixture's dynamic
+# readiness marker (`#tree-view[data-state="ready"]`) flipped by
+# `web/tree.js` after first paint. The legacy static selector
+# (`#tree-view [data-taxon-id]`) was used by the pre-G3 collector and
+# never matched the controlled runtime.
+DEFAULT_DOM_MARKER_SELECTOR = '#tree-view[data-state="ready"]'
 EXIT_OK, EXIT_USAGE, EXIT_FAILURE = 0, 2, 10
 
 
@@ -342,13 +347,21 @@ class PlaywrightBrowserAdapter:
                 " if(e.name==='first-contentful-paint')o.fcp=e.startTime;}"
                 "return o; }")
             try:
+                # Honest elapsed-readiness metric: wall-clock time the
+                # adapter waited for the G5 readiness marker
+                # (`#tree-view[data-state="ready"]`) to become visible
+                # after `goto`. Recorded inside the adapter boundary so
+                # the candidate-vs-baseline joiner can diff a real
+                # per-sample delta instead of a hard-coded 0.0.
+                _wait_t0 = time.monotonic()
                 page.wait_for_selector(dom_marker_selector, timeout=5000)
+                wait_ms = (time.monotonic() - _wait_t0) * 1000.0
                 loc = page.locator(dom_marker_selector)
                 cnt = loc.count()
                 dom = {"selector": dom_marker_selector, "found": bool(cnt),
                        "count": int(cnt),
                        "first_text": loc.first.inner_text() if cnt else None,
-                       "wait_ms": 0.0}
+                       "wait_ms": wait_ms}
             except Exception:
                 dom = {"selector": dom_marker_selector, "found": False,
                        "count": 0, "first_text": None, "wait_ms": -1.0}
