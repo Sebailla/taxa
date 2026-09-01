@@ -16,7 +16,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Protocol, Sequence
+from typing import Iterator, Optional, Protocol, Sequence
 LEGACY_ASGI_APP_TARGET = 'tools.g3-legacy-fixture.scripts.g5_legacy_asgi:app'
 DEFAULT_HEALTH_PATH = '/api/health'
 DEFAULT_HOST = '127.0.0.1'
@@ -154,3 +154,133 @@ def derive_legacy_hydration_metadata(samples: Sequence[dict], *, captured_at: st
         for msg in s.get('console', []):
             console_warnings.append({'sample': i, 'iteration': int(s.get('iteration', i)), **msg})
     return {'schema': LEGACY_HYDRATION_SCHEMA, 'captured_at': captured_at, 'build': 'legacy', 'route': route, 'server_shell': {'first_paint_ms': _median(fps), 'dom_content_loaded_ms': _median(dcls)}, 'client_render': {'tree_first_paint_ms': _median(fcps), 'tree_first_interactive_ms': _median(interactive)}, 'console_warnings': console_warnings, 'readiness_wait_ms': _median(waits)}
+
+
+# ============================================================================
+# G5 orchestration child B (composition) — injectable run function.
+# ============================================================================
+LEGACY_COMPOSITION_SCHEMA = 'taxa.g5-orchestrator.composition/1'
+LEGACY_PW_SCHEMA = 'taxa.g5-capture.legacy/1'
+LEGACY_LH_BRIDGE_SCHEMA = 'taxa.g5-raw-lhr.envelope/1'
+COMPOSITION_ITERATIONS = 10
+
+
+class PlaywrightCollector(Protocol):
+    """Injectable Playwright collector. Returns the PW envelope (schema
+    ``taxa.g5-capture.legacy/1``) with exactly ten samples."""
+    def __call__(self, *, target_url: str) -> dict: ...
+
+
+class LhrBridge(Protocol):
+    """Injectable Node-bridge subprocess seam. Returns ONE LHR envelope
+    (schema ``taxa.g5-raw-lhr.envelope/1``) per call."""
+    def __call__(self, url: str) -> dict: ...
+
+
+class ManifestSnapshotProvider(Protocol):
+    """Injectable G4 manifest snapshot provider. Returns ``schema`` + ``entries``."""
+    def __call__(self) -> dict: ...
+
+
+class EvidencePlanner(Protocol):
+    """Injectable pure planner. Defaults to ``scripts.capture_hydration.plan_evidence_publication``."""
+    def __call__(self, *, playwright_raws: Sequence[dict], lighthouse_raws: Sequence[dict],
+                 manifest_snapshot: dict, legacy_hydration_metadata: dict) -> dict: ...
+
+
+class EvidencePublisher(Protocol):
+    """Injectable atomic filesystem publisher (the SOLE writer). Defaults to
+    ``scripts.capture_hydration.publish_evidence_atomic``."""
+    def __call__(self, plan: dict, target_dir: Path) -> None: ...
+
+
+def _default_evidence_planner(*, playwright_raws, lighthouse_raws,
+                              manifest_snapshot, legacy_hydration_metadata):
+    from scripts import capture_hydration as _ch
+    return _ch.plan_evidence_publication(playwright_raws=playwright_raws, lighthouse_raws=lighthouse_raws,
+                                          manifest_snapshot=manifest_snapshot,
+                                          legacy_hydration_metadata=legacy_hydration_metadata)
+
+
+def _default_evidence_publisher(plan, target_dir):
+    from scripts import capture_hydration as _ch
+    return _ch.publish_evidence_atomic(plan, target_dir)
+
+
+def run_legacy_orchestration(
+        *,
+        host: str, port: int, cwd: Path, target_url: str, route: str, captured_at: str,
+        spawn: LifecycleSpawn, probe: HealthProbe,
+        collector: PlaywrightCollector, bridge: LhrBridge,
+        manifest_provider: ManifestSnapshotProvider, publisher_target_dir: Path,
+        planner: Optional[EvidencePlanner] = None, publisher: Optional[EvidencePublisher] = None,
+        iterations: int = COMPOSITION_ITERATIONS,
+        health_path: str = DEFAULT_HEALTH_PATH,
+        health_timeout_s: float = DEFAULT_HEALTH_TIMEOUT_S,
+        health_interval_s: float = DEFAULT_HEALTH_INTERVAL_S,
+        terminate_grace_s: float = DEFAULT_TERMINATE_GRACE_S,
+) -> dict:
+    """Compose the full G5 legacy-infrastructure pipeline against ONE identical
+    controlled URL. Order: spawn+health → 10 PW samples → derive hydration →
+    bridge ×10 → manifest snapshot → pure planner → atomic publisher. On any
+    failure (lifecycle, collector, bridge, schema, count, planner, publisher)
+    planning and publication are SKIPPED and the failure is recorded. The
+    lifecycle is ALWAYS reaped. No G5-pass / candidate verdict is emitted.
+    """
+    if iterations != COMPOSITION_ITERATIONS:
+        raise ValueError(f'iterations must be {COMPOSITION_ITERATIONS} (G5 contract); got {iterations!r}')
+    if not target_url:
+        raise ValueError('target_url must be a non-empty string')
+    actual_planner = planner or _default_evidence_planner
+    actual_publisher = publisher or _default_evidence_publisher
+    result = {'schema': LEGACY_COMPOSITION_SCHEMA, 'captured_at': captured_at, 'target_url': target_url,
+              'route': route, 'iterations': iterations, 'playwright_samples_count': 0,
+              'lighthouse_envelopes_count': 0, 'published': False, 'failure': None}
+    try:
+        with run_legacy_lifecycle(
+            spawn=spawn, probe=probe, host=host, port=port, cwd=cwd,
+            health_path=health_path, health_timeout_s=health_timeout_s,
+            health_interval_s=health_interval_s, terminate_grace_s=terminate_grace_s,
+):
+            pw_envelope = collector(target_url=target_url)
+            if pw_envelope.get('schema') != LEGACY_PW_SCHEMA:
+                result['failure'] = f'playwright envelope schema mismatch: expected {LEGACY_PW_SCHEMA!r}, got {pw_envelope.get("schema")!r}'
+                return result
+            pw_samples = pw_envelope.get('samples')
+            if not isinstance(pw_samples, list) or len(pw_samples) != COMPOSITION_ITERATIONS:
+                actual = (len(pw_samples) if isinstance(pw_samples, list)
+                          else f'non-list {type(pw_samples).__name__}')
+                result['failure'] = f'playwright samples count mismatch: expected {COMPOSITION_ITERATIONS}, got {actual}'
+                return result
+            result['playwright_samples_count'] = len(pw_samples)
+            result['playwright_provenance'] = pw_envelope.get('provenance')
+            hydration_meta = derive_legacy_hydration_metadata(
+                pw_samples, captured_at=captured_at, route=route)
+            result['hydration_metadata'] = hydration_meta
+            lh_envelopes: list[dict] = []
+            for _ in range(COMPOSITION_ITERATIONS):
+                env = bridge(target_url)
+                if env.get('schema') != LEGACY_LH_BRIDGE_SCHEMA:
+                    result['failure'] = f'bridge envelope schema mismatch: expected {LEGACY_LH_BRIDGE_SCHEMA!r}, got {env.get("schema")!r}'
+                    return result
+                if env.get('url') != target_url:
+                    result['failure'] = f'bridge envelope url mismatch: expected {target_url!r}, got {env.get("url")!r}'
+                    return result
+                if not isinstance(env.get('lhr'), dict):
+                    result['failure'] = (f'bridge envelope lhr is not a dict: {type(env.get("lhr")).__name__}')
+                    return result
+                lh_envelopes.append(env)
+            result['lighthouse_envelopes_count'] = len(lh_envelopes)
+            result['lighthouse_envelopes'] = lh_envelopes
+            result['lighthouse_provenance'] = [e.get('provenance') for e in lh_envelopes]
+            manifest_snapshot = manifest_provider()
+            plan = actual_planner(playwright_raws=pw_samples,
+                                  lighthouse_raws=[e['lhr'] for e in lh_envelopes],
+                                  manifest_snapshot=manifest_snapshot,
+                                  legacy_hydration_metadata=hydration_meta)
+            result['plan'] = plan
+            actual_publisher(plan, publisher_target_dir)
+            result['published'] = True
+    except Exception as e:
+        result['failure'] = f'{type(e).__name__}: {e}'
+    return result

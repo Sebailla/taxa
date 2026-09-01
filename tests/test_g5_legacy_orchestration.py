@@ -8,6 +8,15 @@ import scripts.orchestrate_g5_legacy as og
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / 'scripts' / 'orchestrate_g5_legacy.py'
 
+# Canonical schemas and ports used across composition tests.
+CONTROLLED_URL = 'http://127.0.0.1:8765/'
+PW_SCHEMA = 'taxa.g5-capture.legacy/1'
+LH_BRIDGE_SCHEMA = 'taxa.g5-raw-lhr.envelope/1'
+PUB_SCHEMA = 'taxa.g5-publication.evidence-manifest/1'
+MANIFEST_SCHEMA = 'taxa.g4-capture.manifest/1'
+PROVENANCE_PW_SCHEMA = 'taxa.g5-capture.legacy-provenance/1'
+PROVENANCE_LH_SCHEMA = 'taxa.g4-capture.provenance/1'
+
 class FakeProcess:
     """State: fresh → reap returns 0; stubborn raises TimeoutExpired
     until kill() resets to -9. Records every terminate/wait/kill call."""
@@ -175,3 +184,260 @@ def test_derive_preserves_negative_wait_ms_verbatim():
     meta = og.derive_legacy_hydration_metadata(samples, captured_at='2026-09-01T00:00:00Z', route='/')
     assert meta['readiness_wait_ms'] == 0.5
     assert meta['client_render']['tree_first_interactive_ms'] == 62.5
+
+# ===========================================================================
+# G5 composition child B — injectable run function composing lifecycle +
+# collector + Node LHR-bridge subprocess seam + metadata derivation + pure
+# planner + atomic publisher against ONE identical controlled URL. Always
+# reaps the lifecycle; skips plan/publish on any failure; publisher is the
+# SOLE filesystem writer. No G5-pass / candidate verdict. Fully hermetic.
+# ===========================================================================
+
+class _PhaseRecorder:
+    """Tiny mixin: appends ``(phase, *payload)`` to ``log`` when set."""
+    def __init__(self, *, log=None):
+        self.calls: list = []
+        self._log = log
+    def _phase(self, phase, *payload):
+        if self._log is not None:
+            self._log.append((phase, *payload))
+
+class _FakeCollector(_PhaseRecorder):
+    def __init__(self, *, envelope=None, raises=None, log=None):
+        super().__init__(log=log)
+        self.envelope_override = envelope
+        self.raises = raises
+    def __call__(self, *, target_url):
+        self.calls.append(target_url)
+        self._phase('collector', target_url)
+        if self.raises is not None:
+            raise self.raises
+        if self.envelope_override is not None:
+            return self.envelope_override
+        return {'schema': PW_SCHEMA, 'target_url': target_url, 'iterations': 10,
+                'samples': _ten_samples(),
+                'provenance': {'schema': PROVENANCE_PW_SCHEMA, 'chromium': {'version': 'fake-cr'},
+                               'playwright': {'version': 'fake-pw'},
+                               'target_url': target_url, 'iterations': 10}}
+
+class _FakeBridge(_PhaseRecorder):
+    def __init__(self, *, envelopes=None, raises=None, url_mismatch=False,
+                 schema_mismatch=False, bad_lhr=False, log=None):
+        super().__init__(log=log)
+        self.envelopes_override = envelopes
+        self.raises = raises
+        self.url_mismatch = url_mismatch
+        self.schema_mismatch = schema_mismatch
+        self.bad_lhr = bad_lhr
+    def __call__(self, url):
+        self.calls.append(url)
+        self._phase('bridge', url)
+        if self.raises is not None:
+            raise self.raises
+        i = len(self.calls) - 1
+        if self.envelopes_override is not None:
+            return self.envelopes_override[i]
+        u = url if not self.url_mismatch else 'http://wrong/'
+        lhr = 'not-a-dict' if self.bad_lhr else {'lighthouseVersion': '12.2.1', 'finalUrl': u, 'iterations': i}
+        return {'schema': 'wrong/1' if self.schema_mismatch else LH_BRIDGE_SCHEMA, 'url': u, 'lhr': lhr,
+                'provenance': {'schema': PROVENANCE_LH_SCHEMA, 'lighthouseVersion': '12.2.1'}}
+
+class _FakeManifestProvider(_PhaseRecorder):
+    def __init__(self, *, raises=None, log=None):
+        super().__init__(log=log)
+        self.snapshot = {'schema': MANIFEST_SCHEMA, 'entries': [{
+            'url': CONTROLLED_URL + 'index.html', 'path': 'index.html',
+            'expectedContentSha256': 'f' * 64, 'expectedStatus': 200,
+            'expectedDOMMarker': 'data-testid="g4-probe-marker"'}]}
+        self.raises = raises
+    def __call__(self):
+        self.calls.append(None)
+        self._phase('manifest', None)
+        if self.raises is not None:
+            raise self.raises
+        return self.snapshot
+
+class _FakePlanner(_PhaseRecorder):
+    def __init__(self, *, raises=None, log=None):
+        super().__init__(log=log)
+        self.plan = {'schema': PUB_SCHEMA, 'files': []}
+        self.raises = raises
+    def __call__(self, *, playwright_raws, lighthouse_raws, manifest_snapshot,
+                 legacy_hydration_metadata):
+        self.calls.append({'pw': list(playwright_raws), 'lh': list(lighthouse_raws),
+                           'ms': manifest_snapshot, 'hm': legacy_hydration_metadata})
+        self._phase('planner', len(playwright_raws), len(lighthouse_raws))
+        if self.raises is not None:
+            raise self.raises
+        return self.plan
+
+class _FakePublisher(_PhaseRecorder):
+    def __init__(self, *, raises=None, log=None):
+        super().__init__(log=log)
+        self.raises = raises
+    def __call__(self, plan, target_dir):
+        self.calls.append((plan, target_dir))
+        self._phase('publish', target_dir)
+        if self.raises is not None:
+            raise self.raises
+
+def _seams(*, raises_collector=None, raises_bridge=None, raises_manifest=None,
+           raises_planner=None, raises_publisher=None, pw_envelope=None, bridge_envelopes=None,
+           bridge_url_mismatch=False, bridge_schema_mismatch=False, bridge_bad_lhr=False,
+           probe_results=(True,), log=None):
+    return {'spawn': FakeSpawn(), 'probe': FakeProbe(results=list(probe_results)),
+            'collector': _FakeCollector(envelope=pw_envelope, raises=raises_collector, log=log),
+            'bridge': _FakeBridge(envelopes=bridge_envelopes, raises=raises_bridge,
+                                  url_mismatch=bridge_url_mismatch, schema_mismatch=bridge_schema_mismatch,
+                                  bad_lhr=bridge_bad_lhr, log=log),
+            'manifest_provider': _FakeManifestProvider(raises=raises_manifest, log=log),
+            'planner': _FakePlanner(raises=raises_planner, log=log),
+            'publisher': _FakePublisher(raises=raises_publisher, log=log)}
+
+
+def _run(seams, *, tmp_path, target_url=CONTROLLED_URL, route='/',
+         captured_at='2026-09-01T00:00:00Z', iterations=10, **kwargs):
+    return og.run_legacy_orchestration(
+        host='127.0.0.1', port=8765, cwd=REPO_ROOT, target_url=target_url, route=route, captured_at=captured_at,
+        spawn=seams['spawn'], probe=seams['probe'], collector=seams['collector'], bridge=seams['bridge'],
+        manifest_provider=seams['manifest_provider'], publisher_target_dir=tmp_path / 'evidence',
+        planner=seams['planner'], publisher=seams['publisher'], iterations=iterations,
+        health_interval_s=0.001, terminate_grace_s=0.05, **kwargs)
+
+
+def test_composition_module_surface_and_library_only():
+    for name in ('LEGACY_COMPOSITION_SCHEMA', 'LEGACY_PW_SCHEMA',
+                 'LEGACY_LH_BRIDGE_SCHEMA', 'COMPOSITION_ITERATIONS',
+                 'PlaywrightCollector', 'LhrBridge', 'ManifestSnapshotProvider',
+                 'EvidencePlanner', 'EvidencePublisher', 'run_legacy_orchestration'):
+        assert hasattr(og, name), f'missing public symbol: {name}'
+    assert og.LEGACY_COMPOSITION_SCHEMA == 'taxa.g5-orchestrator.composition/1'
+    assert og.LEGACY_PW_SCHEMA == PW_SCHEMA
+    assert og.LEGACY_LH_BRIDGE_SCHEMA == LH_BRIDGE_SCHEMA
+    assert og.COMPOSITION_ITERATIONS == 10
+    assert '__main__' not in SCRIPT.read_text(encoding='utf-8'), \
+        'composition child stays library-only (no CLI)'
+
+def test_composition_happy_path_full_ordering_and_identical_url(tmp_path):
+    log: list = []
+    seams = _seams(log=log)
+    result = _run(seams, tmp_path=tmp_path)
+    assert result['failure'] is None and result['published'] is True
+    assert result['playwright_samples_count'] == 10
+    assert result['lighthouse_envelopes_count'] == 10
+    # Identical controlled URL everywhere.
+    assert seams['collector'].calls == [CONTROLLED_URL]
+    assert seams['bridge'].calls == [CONTROLLED_URL] * 10
+    assert len(seams['manifest_provider'].calls) == 1
+    # Planner invoked once with all four canonical inputs.
+    assert len(seams['planner'].calls) == 1
+    pc = seams['planner'].calls[0]
+    assert len(pc['pw']) == 10 and len(pc['lh']) == 10
+    assert pc['ms']['schema'] == MANIFEST_SCHEMA
+    assert pc['hm']['schema'] == og.LEGACY_HYDRATION_SCHEMA
+    # Publisher invoked once with the planner's plan + target dir.
+    assert len(seams['publisher'].calls) == 1
+    pub_plan, pub_dir = seams['publisher'].calls[0]
+    assert pub_plan['schema'] == PUB_SCHEMA and pub_dir == tmp_path / 'evidence'
+    # Strict ordering: collector → bridge ×10 → manifest → planner → publish.
+    phases = [e[0] for e in log]
+    assert phases == (['collector'] + ['bridge'] * 10 + ['manifest', 'planner', 'publish'])
+    assert seams['spawn'].process.terminate_calls == [1]
+
+
+def test_composition_forwards_metadata_and_provenance(tmp_path):
+    seams = _seams()
+    result = _run(seams, tmp_path=tmp_path,
+                  captured_at='2026-09-01T12:34:56Z', route='/index.html')
+    pc = seams['planner'].calls[0]
+    for i, s in enumerate(pc['pw']):
+        assert s['iteration'] == i and 'captured_at' in s
+        for k in ('navigation', 'paint', 'dom_marker', 'console'):
+            assert k in s
+    assert len(pc['lh']) == 10 and all(isinstance(x, dict) for x in pc['lh'])
+    assert pc['hm']['captured_at'] == '2026-09-01T12:34:56Z'
+    assert pc['hm']['route'] == '/index.html' and pc['hm']['build'] == 'legacy'
+    assert result['playwright_provenance']['schema'] == PROVENANCE_PW_SCHEMA
+    assert len(result['lighthouse_provenance']) == 10
+    assert result['lighthouse_provenance'][0]['schema'] == PROVENANCE_LH_SCHEMA
+
+
+@pytest.mark.parametrize('failure_kw,failure_fragment', [
+    ({'raises_collector': RuntimeError('synthetic collector fail')}, 'collector fail'),
+    ({'raises_bridge': RuntimeError('synthetic bridge fail')}, 'bridge fail'),
+    ({'raises_manifest': RuntimeError('synthetic manifest fail')}, 'manifest fail'),
+    ({'pw_envelope': {'schema': 'wrong/1', 'samples': _ten_samples(), 'target_url': CONTROLLED_URL,
+                      'iterations': 10, 'provenance': {'schema': PROVENANCE_PW_SCHEMA}}},
+     'playwright envelope schema mismatch'),
+    ({'pw_envelope': {'schema': PW_SCHEMA, 'samples': _ten_samples()[:7], 'target_url': CONTROLLED_URL,
+                      'iterations': 7, 'provenance': {'schema': PROVENANCE_PW_SCHEMA}}},
+     'count mismatch'),
+    ({'bridge_schema_mismatch': True}, 'bridge envelope schema mismatch'),
+    ({'bridge_url_mismatch': True}, 'bridge envelope url mismatch'),
+])
+def test_composition_skips_planner_and_publisher_on_step_failure(
+        tmp_path, failure_kw, failure_fragment):
+    seams = _seams(**failure_kw)
+    result = _run(seams, tmp_path=tmp_path)
+    assert seams['planner'].calls == [] and seams['publisher'].calls == []
+    assert result['published'] is False
+    assert result['failure'] is not None and failure_fragment in result['failure']
+    assert seams['spawn'].process.terminate_calls == [1]
+
+
+@pytest.mark.parametrize('failure_kw,failure_fragment', [
+    ({'raises_planner': ValueError('synthetic planner fail')}, 'planner fail'),
+    ({'raises_publisher': OSError('synthetic publisher fail')}, 'publisher fail'),
+])
+def test_composition_skip_or_record_failure_at_writer(tmp_path, failure_kw, failure_fragment):
+    seams = _seams(**failure_kw)
+    result = _run(seams, tmp_path=tmp_path)
+    assert result['published'] is False
+    assert result['failure'] is not None and failure_fragment in result['failure']
+    assert seams['spawn'].process.terminate_calls == [1]
+    assert seams['planner'].calls
+    if 'publisher' in failure_fragment:
+        assert len(seams['publisher'].calls) == 1
+    else:
+        assert seams['publisher'].calls == []
+
+
+def test_composition_always_reaps_lifecycle_on_lifecycle_failure(tmp_path):
+    seams = _seams(probe_results=[False, False, False])
+    result = _run(seams, tmp_path=tmp_path, health_timeout_s=0.05)
+    assert seams['collector'].calls == seams['bridge'].calls == []
+    assert seams['planner'].calls == seams['publisher'].calls == []
+    assert result['published'] is False and result['failure'] is not None
+    assert seams['spawn'].process.terminate_calls == [1]
+
+
+def test_composition_rejects_non_ten_iterations_and_empty_url(tmp_path):
+    seams = _seams()
+    with pytest.raises(ValueError, match='10'):
+        _run(seams, tmp_path=tmp_path, iterations=5)
+    with pytest.raises(ValueError, match='target_url'):
+        _run(seams, tmp_path=tmp_path, target_url='')
+
+
+def test_composition_publisher_is_sole_writer_and_no_g5_pass_in_envelope(tmp_path):
+        seams = _seams()
+        before = {p.name for p in tmp_path.iterdir()}
+        result = _run(seams, tmp_path=tmp_path)
+        new_names = {p.name for p in tmp_path.iterdir()} - before
+        assert new_names == set(), f'composition leaked entries: {new_names!r}'
+        pub_plan, pub_dir = seams['publisher'].calls[0]
+        assert pub_dir == tmp_path / 'evidence' and pub_plan['schema'] == PUB_SCHEMA
+        for forbidden in ('passed', 'pass', 'candidate', 'verdict', 'approved',
+                          'equivalent', 'parity', 'comparison', 'winner',
+                          'baseline_diff'):
+            assert forbidden not in result
+        # Default planner seam resolves to ``scripts.capture_hydration`` at
+        # call-time (no top-level import keeps the composition child decoupled
+        # from the capture module's CLI surface).
+        import scripts.capture_hydration as ch
+        plan = og._default_evidence_planner(
+            playwright_raws=_ten_samples(), lighthouse_raws=[{'lighthouseVersion': '12.2.1'}] * 10,
+            manifest_snapshot={'schema': MANIFEST_SCHEMA, 'entries': []},
+            legacy_hydration_metadata={'captured_at': 't', 'build': 'legacy', 'route': '/',
+                                       'server_shell': {}, 'client_render': {}, 'console_warnings': []})
+        assert plan['schema'] == ch.PUBLICATION_SCHEMA
