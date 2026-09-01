@@ -1119,3 +1119,87 @@ Espejos en español actualizados en paralelo. No se realiza
                   adiciones autoradas de planning-doc en esta pasada
                   se queda bien por debajo del presupuesto de revisión
                   por PR de 400 líneas.
+- **2026-08-30** — Pasada de reconciliación provisional de G5 (esta
+  entrada). Según la tarea del padre, el contrato G5 canónico se
+  amplía con un **alcance provisional / sólo planificación** que
+  registra la disponibilidad de la infraestructura de captura G2 / G4
+  / G5 existente y define la **puerta de bundle** (total emitido JS
+  + CSS sin comprimir del candidato ≤ línea base del legado × 1,10),
+  sin promover ninguna puerta a PASS. **En esta pasada no se tocan,
+  comitean, ni pushean fuentes, tests, scripts, tareas, ficheros de
+  producto, ficheros de evidencia, workspace candidato, ni
+  `package-lock.json`.** Esta pasada es **solo evidencia de
+  infraestructura provisional**: **NO** acepta el producto migrado
+  final, **NO** selecciona Enfoque A / B / C, **NO** transfiere
+  ownership de FastAPI ni realiza un cutover, **NO** promueve G4 a
+  PASS, y **NO** promueve G6 a PASS.
+  (1) **Candidato G2 provisional** — `tools/g2-candidate/` es el
+    shell de diagnóstico G2 existente (raíz de build autorizada sin
+    activación según `design.md::§3.3.2.1` fila 1) y es el candidato
+    de la puerta de bundle. Es **provisional, sólo diagnóstico** — no
+    se selecciona Enfoque A / B / C, sin activación de FastAPI, sin
+    repoint de `WEB_DIR`.
+  (2) **Puerta de bundle (provisional, sólo planificación)** — la
+    línea de tamaño de bundle previamente TBD de la fila Umbral de G5
+    queda ahora definida como **total emitido JS + CSS sin comprimir
+    del candidato ≤ total JS + CSS sin comprimir de la línea base del
+    legado × 1,10** (≤ 10 % de delta sobre el peso combinado del
+    bundle sin comprimir). El 10 % de delta es una **puerta de
+    planificación provisional**; **NO** constituye selección de
+    Enfoque, activación de FastAPI, ni aceptación del producto
+    migrado.
+  (3) **Disponibilidad de infraestructura de captura** — existente en
+    disco para uso sólo de diagnóstico / captura (provisional):
+    `tools/g4-capture/` (árbol de captura G4 / G5 aterrizado vía PRs
+    #131–#140 sobre `docs/g5-provisional-candidate` en `3cee69b`:
+    fixture de hidratación controlado, precondiciones de captura,
+    muestras Playwright crudas, cargas Lighthouse crudas, publicación
+    atómica, latencia de preparación, puente raw→publicado, ciclo de
+    vida controlado del legado, orquestación de captura) +
+    `tools/g3-legacy-fixture/web/` +
+    `tools/g3-legacy-fixture/scripts/check_http_status.py` (fixture
+    controlado G3 + helper fail-closed de forma HTTP, PRs #113–#116)
+    + `tools/g2-candidate/` (shell de diagnóstico G2). Estas
+    herramientas están disponibles para captura diagnóstica pero
+    **ninguna de G2 Nivel-2, G3 Nivel-2, G4, G5, o G6 se promueve a
+    PASS**.
+  (4) **No-objetivos (alcance provisional)** — esta pasada NO: (i)
+    acepta el producto migrado final; (ii) selecciona Enfoque A / B /
+    C; (iii) transfiere ownership de FastAPI ni realiza un cutover;
+    (iv) promueve paridad de comportamiento de G4 a PASS; (v)
+    promueve ensayo de corte de G6 a PASS.
+  (5) **Deltas en `design.md` / `design-es.md`** — cuatro filas
+    nuevas añadidas a `§3.3.5` después de la fila `Camino de
+    cierre` existente: **Candidato G2 provisional (existente, sólo
+    diagnóstico)**, **Puerta de bundle (provisional, sólo
+    planificación)**, **Disponibilidad de infraestructura de captura
+    (existente, provisional)**, **No-objetivos (alcance
+    provisional)**. Las filas existentes `Disposición
+    (irreproducible)`, `Umbral`, y `Camino de cierre` se preservan
+    verbatim. El pie `status:` gana una cláusula final que registra
+    este alcance provisional preservando verbatim el registro PASS de
+    G2, el PASS de G3 Nivel-1, la disposición irreproducible de G5,
+    el lenguaje bloqueado de G4 / G6, el lenguaje de
+    Enfoque-A-B-C-sin-seleccionar, y el lenguaje de
+    sin-activación-de-FastAPI / sin-toque / sin-commit / sin-push.
+    El espejo en español lleva la traducción fiel de cada fila nueva
+    + cláusula del pie.
+  **Verdad preservada** — G5 **alcance provisional registrado**;
+  puerta de bundle definida como ≤ 10 % de delta sobre JS / CSS sin
+  comprimir; infraestructura de captura G2 / G4 / G5 **disponible
+  para uso diagnóstico** sin promover ninguna puerta a PASS; G2
+  Nivel-2 + G3 Nivel-2 + G4 + G5 + G6 siguen bloqueadas /
+  irreproducibles según auditorías previas; los Enfoques A / B / C
+  quedan sin seleccionar; sin activación de FastAPI; sin tocar
+  fuente / tests / scripts / config / Makefile / extensión / API /
+  fuente de producto, comiteado, o pusheado. Espejos en español
+  actualizados en paralelo. No se realiza commit, push, ni apertura
+  de PR en esta pasada.
+
+  **Nota de tamaño (planning-only)** — esta pasada añade 4 nuevas
+  filas a `design.md::§3.3.5` (el espejo en español refleja cada
+  fila) + una cláusula final al pie `status:` en ambos ficheros +
+  esta nueva entrada de change-log + la entrada espejo en español.
+  El total de adiciones autoradas de planning-doc en esta pasada se
+  queda bien por debajo del presupuesto de revisión por PR de 400
+  líneas.

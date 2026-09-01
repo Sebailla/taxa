@@ -1027,3 +1027,77 @@ updated: G2 remains `blocked — contract defined; verifier not
                   footer update (≈ 28 net lines across the two files).
                   Total authored planning-doc additions in this pass
                   stay well under the 400-line per-PR review budget.
+- **2026-08-30** — G5 provisional reconciliation pass (this entry).
+  Per the parent task, the canonical G5 contract is extended with a
+  **provisional / planning-only scope** that records the existing
+  G2 / G4 / G5 capture infrastructure availability and defines the
+  **bundle gate** (candidate total uncompressed emitted JS + CSS ≤
+  legacy baseline × 1.10), without promoting any gate to PASS.
+  **No source, tests, scripts, tasks, product files, evidence files,
+  candidate workspace, or `package-lock.json` are touched, committed,
+  or pushed in this pass.** This pass is **provisional infrastructure
+  evidence only**: it does **NOT** accept the final migrated product,
+  does **NOT** select Approach A / B / C, does **NOT** transfer
+  FastAPI ownership or perform a cutover, does **NOT** promote G4 to
+  PASS, and does **NOT** promote G6 to PASS.
+  (1) **Provisional G2 candidate** — `tools/g2-candidate/` is the
+    existing G2 diagnostic shell (authorized non-activation build root
+    per `design.md::§3.3.2.1` row 1) and is the candidate for the
+    bundle gate. It is **provisional, diagnostic only** — no Approach
+    A / B / C is selected, no FastAPI activation, no `WEB_DIR` repoint.
+  (2) **Bundle gate (provisional, planning-only)** — the
+    previously-TBD bundle-size line of the G5 Threshold row is now
+    defined as **candidate total uncompressed emitted JS + CSS ≤
+    legacy baseline total uncompressed JS + CSS × 1.10** (≤ 10 %
+    delta on the combined uncompressed bundle weight). The 10 % delta
+    is a **provisional planning gate**; it does **NOT** constitute
+    Approach selection, FastAPI activation, or migrated-product
+    acceptance.
+  (3) **Capture infrastructure availability** — existing on disk for
+    diagnostic / capture-only use (provisional): `tools/g4-capture/`
+    (G4 / G5 capture tree landed via PRs #131–#140 on
+    `docs/g5-provisional-candidate` at `3cee69b`: controlled hydration
+    fixture, capture preconditions, raw Playwright samples, raw
+    Lighthouse payloads, atomic publication, readiness latency,
+    raw→published bridge, controlled legacy lifecycle, capture
+    orchestration) + `tools/g3-legacy-fixture/web/` +
+    `tools/g3-legacy-fixture/scripts/check_http_status.py` (G3
+    controlled fixture + HTTP-shape fail-closed helper, PRs
+    #113–#116) + `tools/g2-candidate/` (G2 diagnostic shell). These
+    tools are available for diagnostic capture but **none of G2
+    Tier-2, G3 Tier-2, G4, G5, or G6 is promoted to PASS**.
+  (4) **Non-goals (provisional scope)** — this pass does NOT: (i)
+    accept the final migrated product; (ii) select Approach A / B /
+    C; (iii) transfer FastAPI ownership or perform a cutover; (iv)
+    promote G4 behavior parity to PASS; (v) promote G6 cutover
+    rehearsal to PASS.
+  (5) **`design.md` / `design-es.md` deltas** — four new rows
+    appended to `§3.3.5` after the existing `Closure path` row:
+    **Provisional G2 candidate (existing, diagnostic only)**,
+    **Bundle gate (provisional, planning-only)**, **Capture
+    infrastructure availability (existing, provisional)**,
+    **Non-goals (provisional scope)**. The existing
+    `Disposition (unreproducible)`, `Threshold`, and `Closure path`
+    rows are preserved verbatim. The `status:` footer gains a final
+    clause recording this provisional scope while preserving
+    verbatim the G2 PASS record, G3 Tier-1 PASS, G5 unreproducible
+    disposition, G4 / G6 blocked language, Approach-A-B-C-unselected
+    language, and no-FastAPI-activation / no-touch / no-commit /
+    no-push language. The Spanish mirror carries the faithful
+    translation of every new row + footer clause.
+  **Truth preserved** — G5 **provisional scope recorded**; bundle
+  gate defined as ≤ 10 % delta on uncompressed JS / CSS; G2 / G4 /
+  G5 capture infrastructure **available for diagnostic use** without
+  promoting any gate to PASS; G2 Tier-2 + G3 Tier-2 + G4 + G5 + G6
+  remain blocked / unreproducible per prior audits; Approach A / B
+  / C remain unselected; no FastAPI activation; no source / tests /
+  scripts / config / Makefile / extension / API / product-source
+  touched, committed, or pushed. Spanish mirrors updated in
+  lockstep. No commit, push, or PR opened in this pass.
+
+  **Size note (planning-only)** — this pass adds 4 new rows to
+  `design.md::§3.3.5` (Spanish mirror mirrors each row) + a final
+  clause to the `status:` footer in both files + this new
+  change-log entry + the Spanish mirror entry. Total authored
+  planning-doc additions in this pass stay well under the 400-line
+  per-PR review budget.
