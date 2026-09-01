@@ -14,6 +14,11 @@
 //               output via a sibling-backup strategy when the final rename
 //               fails. Verification failure prevents runner invocation and
 //               evidence publication; it applies to dry-run too.
+//   capture-5 — G5 raw-LHR seam: captureRawLhr() returns the unmodified raw
+//               LHR (identity) plus provenance for future G5 publishers.
+//               Validates URL + malformed runner output BEFORE returning.
+//               Non-dry capture() routes through this seam and forwards the
+//               manifest entry alongside the URL for G5 correlation.
 // See tools/g4-capture/README.md.
 
 import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
@@ -139,6 +144,40 @@ export function buildProvenance({
     capturedAt: new Date().toISOString(),
   };
 }
+
+// `captureRawLhr()` is the G5 raw-LHR seam: a no-I/O helper that drives an
+// injected runner, returns the unmodified raw LHR BY IDENTITY plus provenance
+// parsed from it, and rejects missing url / malformed runner output BEFORE
+// returning. The optional `manifestEntry` is forwarded to the runner by
+// reference (the seam does not inspect it) so future G5 publishers can
+// correlate raw LHRs with the corpus manifest entry that drove the capture.
+// Additive — the dry-run + G4 mapped evidence paths are untouched.
+export async function captureRawLhr({
+  url,
+  runLighthouse: runLighthouseFn,
+  manifestEntry,
+} = {}) {
+  if (!url || typeof url !== "string") {
+    throw new Error("captureRawLhr: url is required");
+  }
+  if (typeof runLighthouseFn !== "function") {
+    throw new Error("captureRawLhr: runLighthouse must be a function");
+  }
+  const lhr = await runLighthouseFn({ url, manifestEntry });
+  if (!lhr || typeof lhr !== "object" || Array.isArray(lhr)) {
+    throw new Error(
+      "captureRawLhr: runner returned malformed output (expected non-array object)",
+    );
+  }
+  const provenance = buildProvenance({
+    lighthouseVersion: lhr.lighthouseVersion ?? "unknown",
+    chromeVersion: lhr.userAgent
+      ? chromeVersionFromUserAgent(lhr.userAgent)
+      : "unknown",
+  });
+  return { lhr, provenance };
+}
+
 
 // ── Public slice-2 surface ─────────────────────────────────────────────
 
@@ -381,22 +420,32 @@ export async function capture({
   // any check fails, throws so the runner is NEVER invoked and atomicWrite
   // is NEVER called. Applies to dry-run too.
   await verifyTarget({ url, entry, fetchFn });
-  // Real-run path (slice 2): the injected runner returns the raw LHR; we
-  // map it deterministically before persistence. If the runner throws,
-  // control never reaches `atomicWrite`, so the existing outDir (if any)
-  // is left untouched and no evidence file is published.
-  const mapped = dryRun
-    ? syntheticLighthouseReport(url, entry.expectedContentSha256)
-    : mapLhr(await runLighthouseFn({ url, manifestEntry: entry }));
+  // Dry-run is unchanged. Non-dry routes through captureRawLhr which
+  // validates URL + raw output and returns LHR + provenance. Any throw
+  // means `atomicWrite` is never called, so the prior outDir stays intact.
+  let mapped, provenance;
+  if (dryRun) {
+    mapped = syntheticLighthouseReport(url, entry.expectedContentSha256);
+    provenance = buildProvenance({
+      lighthouseVersion: mapped.lighthouseVersion ?? "unknown",
+      chromeVersion: mapped.userAgent
+        ? chromeVersionFromUserAgent(mapped.userAgent)
+        : "unknown",
+    });
+  } else {
+    // Forward the validated manifest entry alongside the URL so the seam
+    // can hand it to the runner in a single call (no per-call wrapper).
+    const seam = await captureRawLhr({
+      url,
+      runLighthouse: runLighthouseFn,
+      manifestEntry: entry,
+    });
+    mapped = mapLhr(seam.lhr);
+    provenance = seam.provenance;
+  }
   // `manifestEntryHash` is preserved across both paths so downstream
   // verifiers can correlate evidence with the manifest snapshot.
   mapped.manifestEntryHash = entry.expectedContentSha256 ?? null;
-  const provenance = buildProvenance({
-    lighthouseVersion: mapped.lighthouseVersion ?? "unknown",
-    chromeVersion: mapped.userAgent
-      ? chromeVersionFromUserAgent(mapped.userAgent)
-      : "unknown",
-  });
   const evidence = {
     schema: SCHEMA,
     url,
