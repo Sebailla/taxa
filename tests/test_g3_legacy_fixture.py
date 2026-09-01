@@ -358,3 +358,205 @@ def test_g5_tree_js_marks_tree_view_ready_after_render():
     assert "tree-view" in src and "ready" in src, (
         "tree.js must wire the #tree-view data-state='ready' marker"
     )
+
+
+# ── G5 launcher (chain PR 1) ─────────────────────────────────────────────
+# The launcher (`tools/g3-legacy-fixture/scripts/g5_legacy_asgi.py`)
+# mounts the fixture in front of `api.server.app`, rewiring
+# `api.server.DB_PATH` to the fixture SQLite and prepending a
+# `Mount("/")` so fixture static wins over the production root mount.
+LAUNCHER_DIR = FIXTURE / "scripts"
+LAUNCHER_NAME = "g5_legacy_asgi"
+
+
+@pytest.fixture(scope="module")
+def launcher_module():
+    """Import the G5 launcher, snapshot+restore `api.server` state.
+
+    The launcher rewires `api.server.DB_PATH` and inserts a `Mount`
+    into `api.server.app.router.routes`. Without snapshot+restore,
+    those mutations leak into the next collected test module:
+    test_smoke's module-level `from api.server import DB_PATH`
+    captures the pristine reference at load time, so the stale
+    local `DB_PATH` (production path, not exists) lets
+    `test_health_endpoint_returns_503_without_db` skip its
+    DB-exists guard and fail the 503 expectation with the
+    fixture-backed 200.
+    """
+    launcher_dir = str(LAUNCHER_DIR.resolve())
+    if launcher_dir not in sys.path:
+        sys.path.insert(0, launcher_dir)
+    import importlib
+    import api.server as _srv
+    # Snapshot pristine state BEFORE the launcher's top-level code
+    # mutates anything. `original_routes` is a shallow list copy so
+    # the launcher's `_routes.insert(...)` doesn't mutate the snapshot.
+    original_db_path = _srv.DB_PATH
+    original_routes = list(_srv.app.router.routes)
+    mod = importlib.import_module(LAUNCHER_NAME)
+    yield mod
+    # Restore pristine state. `importlib.reload(...)` tests below
+    # may add multiple fixture Mounts; the snapshot is the pristine
+    # list captured above so a single assignment suffices.
+    _srv.DB_PATH = original_db_path
+    _srv.app.router.routes = original_routes
+
+
+@pytest.fixture(scope="module")
+def launcher_client(launcher_module):
+    from fastapi.testclient import TestClient
+    return TestClient(launcher_module.app)
+
+
+@pytest.mark.parametrize("case_id", [
+    "import_contract_is_api_server_app",
+    "web_dir_unchanged",
+    "index_html_is_fixture_bytes",
+    "api_health_uses_fixture_db",
+    "missing_static_returns_404",
+])
+def test_g5_launcher_contract(case_id, launcher_module, launcher_client):
+    """Compact contract block: the 5 launch-time guarantees chain PR 2
+    relies on (import contract, WEB_DIR preserved, fixture static wins,
+    /api/health reads fixture DB, missing static returns 404)."""
+    import api.server as srv
+    if case_id == "import_contract_is_api_server_app":
+        assert launcher_module.app is srv.app, (
+            f"launcher.app must be api.server.app "
+            f"(got {launcher_module.app!r})"
+        )
+    elif case_id == "web_dir_unchanged":
+        assert srv.WEB_DIR == REPO_ROOT / "web", (
+            f"api.server.WEB_DIR must be unchanged "
+            f"(got {srv.WEB_DIR}, expected {REPO_ROOT / 'web'})"
+        )
+        assert "g3-legacy-fixture" not in str(srv.WEB_DIR), (
+            f"api.server.WEB_DIR must not reference fixture path "
+            f"(got {srv.WEB_DIR})"
+        )
+    elif case_id == "index_html_is_fixture_bytes":
+        r = launcher_client.get("/index.html")
+        assert r.status_code == 200, r.status_code
+        assert b"G3 legacy fixture" in r.content, (
+            "/index.html must serve fixture bytes (G3 marker missing); "
+            "fixture mount is not winning over the production root mount"
+        )
+    elif case_id == "api_health_uses_fixture_db":
+        r = launcher_client.get("/api/health")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["db"].endswith("g3-legacy-fixture/taxa.db"), (
+            f"/api/health must read fixture DB; got db={body.get('db')!r}"
+        )
+    else:  # missing_static_returns_404
+        r = launcher_client.get("/not-in-fixture.html")
+        assert r.status_code == 404, (
+            f"missing static file must 404 (got {r.status_code})"
+        )
+
+
+@pytest.mark.parametrize("scenario", ["missing_db", "empty_db"])
+def test_g5_launcher_fails_when_db_missing_or_empty(
+        scenario, tmp_path, launcher_module):
+    """Fail-closed: the launcher's DB validator rejects a missing or
+    empty file with RuntimeError. The launcher's own import-time check
+    already passed (the real fixture DB exists), so we exercise the
+    validator with synthetic inputs here."""
+    target = tmp_path / "taxa.db"
+    if scenario == "empty_db":
+        target.write_bytes(b"")
+    with pytest.raises(RuntimeError, match="fail-closed"):
+        launcher_module._require_nonempty_file(target, "fixture DB")
+
+
+# ── G5 launcher: import-time fail-closed (not merely unit-call) ─────
+# The previous block proves the validators work as units. The tests
+# below prove the SAME validators are wired at module top-level
+# (executed at `import g5_legacy_asgi` time, not just callable). We
+# `importlib.reload` the launcher after monkey-patching one Path
+# method so the real FIXTURE_DB / FIXTURE_WEB look missing/empty;
+# reload re-runs top-level code → import-time check fires → RuntimeError.
+# The DB check fires FIRST, before DB rewire and Mount insert, so a
+# failed reload leaves `api.server.app.router.routes` unchanged.
+def test_g5_launcher_fails_closed_at_import_when_db_missing(
+        monkeypatch, launcher_module):
+    """Import-time: missing FIXTURE_DB → RuntimeError on module load.
+    Proves `_require_nonempty_file(FIXTURE_DB, ...)` is wired at top-level."""
+    import importlib
+    orig = Path.is_file
+    def fake(self):
+        if "g3-legacy-fixture/taxa.db" in str(self):
+            return False
+        return orig(self)
+    monkeypatch.setattr(Path, "is_file", fake)
+    with pytest.raises(RuntimeError, match="fail-closed"):
+        importlib.reload(launcher_module)
+
+
+def test_g5_launcher_fails_closed_at_import_when_db_empty(
+        monkeypatch, launcher_module):
+    """Import-time: empty FIXTURE_DB → RuntimeError on module load."""
+    import importlib
+    from types import SimpleNamespace
+    orig = Path.stat
+    def fake(self):
+        if "g3-legacy-fixture/taxa.db" in str(self):
+            return SimpleNamespace(st_size=0)
+        return orig(self)
+    monkeypatch.setattr(Path, "stat", fake)
+    with pytest.raises(RuntimeError, match="fail-closed"):
+        importlib.reload(launcher_module)
+
+
+def test_g5_launcher_fails_closed_at_import_when_web_dir_missing(
+        monkeypatch, launcher_module):
+    """Import-time: missing FIXTURE_WEB → RuntimeError on module load.
+    Proves `_require_nonempty_dir(FIXTURE_WEB, ...)` is wired at top-level."""
+    import importlib
+    orig = Path.is_dir
+    def fake(self):
+        if "g3-legacy-fixture/web" in str(self):
+            return False
+        return orig(self)
+    monkeypatch.setattr(Path, "is_dir", fake)
+    with pytest.raises(RuntimeError, match="fail-closed"):
+        importlib.reload(launcher_module)
+
+
+def test_g5_launcher_fails_closed_at_import_when_web_dir_empty(
+        monkeypatch, launcher_module):
+    """Import-time: empty FIXTURE_WEB (dir exists but iterdir() == []) →
+    RuntimeError on module load."""
+    import importlib
+    orig = Path.iterdir
+    def fake(self):
+        if "g3-legacy-fixture/web" in str(self):
+            return iter([])
+        return orig(self)
+    monkeypatch.setattr(Path, "iterdir", fake)
+    with pytest.raises(RuntimeError, match="fail-closed"):
+        importlib.reload(launcher_module)
+
+
+def test_g5_launcher_no_route_pollution_after_failed_reload(
+        monkeypatch, launcher_module):
+    """Negative control: a failed import-time reload does NOT leave a
+    second fixture `Mount` in `api.server.app.router.routes`. The DB
+    check fires before the rewiring + insert, so the routes list stays
+    exactly the size of the pre-reload baseline. Catches a regression
+    where the check runs after the Mount insert."""
+    import importlib
+    orig = Path.is_file
+    def fake(self):
+        if "g3-legacy-fixture/taxa.db" in str(self):
+            return False
+        return orig(self)
+    monkeypatch.setattr(Path, "is_file", fake)
+    import api.server as srv
+    before = len(srv.app.router.routes)
+    with pytest.raises(RuntimeError, match="fail-closed"):
+        importlib.reload(launcher_module)
+    assert len(srv.app.router.routes) == before, (
+        f"failed reload must not duplicate the fixture mount; "
+        f"routes {before} → {len(srv.app.router.routes)}"
+    )
