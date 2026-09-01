@@ -11,6 +11,7 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -363,3 +364,162 @@ def test_publication_plan_canonical_json_roundtrips_and_serialisable():
             playwright_raws=bad, lighthouse_raws=inputs["lighthouse_raws"],
             manifest_snapshot=inputs["manifest_snapshot"],
             legacy_hydration_metadata=inputs["legacy_hydration_metadata"])
+# --- G5 publication child B (atomic filesystem publisher) -----------
+def _publisher_plan():
+    return ch.plan_evidence_publication(**_all_valid_inputs())
+
+def test_publish_happy_path_writes_files_and_validates_staged(tmp_path):
+    target = tmp_path / "out"
+    ch.publish_evidence_atomic(_publisher_plan(), target)
+    assert target.is_dir()
+    plan = _publisher_plan()
+    actual = sorted(str(p.relative_to(target))
+                    for p in target.rglob("*") if p.is_file())
+    assert actual == sorted(f["path"] for f in plan["files"])
+    for f in plan["files"]:
+        data = (target / f["path"]).read_bytes()
+        assert len(data) == f["bytes"]
+        assert hashlib.sha256(data).hexdigest() == f["sha256"]
+        assert data == f["canonical_json"].encode("utf-8")
+    leftovers = [p.name for p in tmp_path.iterdir() if p.name != "out"]
+    assert leftovers == [], f"unexpected residue: {leftovers}"
+
+def test_publish_replaces_existing_target_and_removes_backup(tmp_path):
+    target = tmp_path / "out"
+    target.mkdir()
+    (target / "stale.json").write_bytes(b'{"old": true}')
+    ch.publish_evidence_atomic(_publisher_plan(), target)
+    assert not (target / "stale.json").exists()
+    assert (target / "raw" / "playwright" / "iter-00.json").is_file()
+    assert (target / "raw" / "manifest-snapshot.json").is_file()
+    assert not (tmp_path / "out.bak").exists()
+
+def test_publish_write_seam_failure_preserves_prior_and_no_residue(tmp_path):
+    target = tmp_path / "out"
+    target.mkdir()
+    prior = b'{"prior": "untouched"}'
+    (target / "stale.json").write_bytes(prior)
+    state = {"calls": 0}
+    def flaky(path, data):
+        state["calls"] += 1
+        if state["calls"] == 1:
+            path.write_bytes(data); return
+        raise RuntimeError("synthetic write seam failure")
+    with pytest.raises(RuntimeError, match="synthetic write seam failure"):
+        ch.publish_evidence_atomic(_publisher_plan(), target, write_fn=flaky)
+    assert (target / "stale.json").read_bytes() == prior
+    assert sorted(p.name for p in target.iterdir()) == ["stale.json"]
+    leftovers = [p.name for p in tmp_path.iterdir() if p.name != "out"]
+    assert leftovers == [], f"unexpected residue: {leftovers}"
+
+def test_publish_validation_mismatch_preserves_prior_and_no_residue(tmp_path):
+    target = tmp_path / "out"
+    target.mkdir()
+    prior = b'{"prior": "untouched"}'
+    (target / "stale.json").write_bytes(prior)
+    def corrupting(path, data):
+        path.write_bytes(b"corrupted" * 5)
+    with pytest.raises(ValueError, match="sha256|bytes|path"):
+        ch.publish_evidence_atomic(_publisher_plan(), target, write_fn=corrupting)
+    assert (target / "stale.json").read_bytes() == prior
+    leftovers = [p.name for p in tmp_path.iterdir() if p.name != "out"]
+    assert leftovers == [], f"unexpected residue: {leftovers}"
+
+def test_publish_final_rename_failure_restores_prior_and_no_residue(tmp_path):
+    target = tmp_path / "out"
+    target.mkdir()
+    prior = b'{"prior": "untouched"}'
+    (target / "stale.json").write_bytes(prior)
+    real_replace = os.replace
+    def selective(src, dst):
+        if src.name.startswith("out.staging-"):
+            raise OSError("synthetic final-rename failure")
+        return real_replace(src, dst)
+    with pytest.raises(OSError, match="synthetic final-rename failure"):
+        ch.publish_evidence_atomic(_publisher_plan(), target, rename_fn=selective)
+    assert (target / "stale.json").read_bytes() == prior
+    assert sorted(p.name for p in target.iterdir()) == ["stale.json"]
+    leftovers = [p.name for p in tmp_path.iterdir() if p.name != "out"]
+    assert leftovers == [], f"unexpected residue: {leftovers}"
+
+def test_publish_final_rename_and_restore_failure_leaves_backup_residue(tmp_path):
+    target = tmp_path / "out"
+    target.mkdir()
+    prior = b'{"prior": "untouched"}'
+    (target / "stale.json").write_bytes(prior)
+    def allow_backup_only(src, dst):
+        if src.name.startswith("out.staging-") or src.name.endswith(".bak"):
+            raise OSError(f"synthetic rename failure on {src.name}->{dst.name}")
+        return os.replace(src, dst)
+    with pytest.raises(OSError, match="synthetic rename failure"):
+        ch.publish_evidence_atomic(_publisher_plan(), target,
+                                   rename_fn=allow_backup_only)
+    backup = tmp_path / "out.bak"
+    assert backup.is_dir()
+    assert (backup / "stale.json").read_bytes() == prior
+    leftovers = [p.name for p in tmp_path.iterdir()
+                 if p.name not in ("out", "out.bak")]
+    assert leftovers == [], f"unexpected non-backup residue: {leftovers}"
+
+def test_publish_rejects_bad_plan_schema_and_paths_before_io(tmp_path):
+    target = tmp_path / "out"
+    valid = _publisher_plan()
+    with pytest.raises(ValueError, match="schema"):
+        ch.publish_evidence_atomic({**valid, "schema": "wrong/1"}, target)
+    with pytest.raises(ValueError, match="files"):
+        bad = {**valid}; bad.pop("files")
+        ch.publish_evidence_atomic(bad, target)
+    bad_files = list(valid["files"])
+    bad_files[0] = {**bad_files[0], "path": "/abs/file.json"}
+    with pytest.raises(ValueError, match="relative|path"):
+        ch.publish_evidence_atomic({**valid, "files": bad_files}, target)
+    bad_files = list(valid["files"])
+    bad_files[0] = {**bad_files[0], "path": "../escape.json"}
+    with pytest.raises(ValueError, match=r"\.\."):
+        ch.publish_evidence_atomic({**valid, "files": bad_files}, target)
+    bad_files = list(valid["files"]) + [dict(valid["files"][0])]
+    with pytest.raises(ValueError, match="duplicate"):
+        ch.publish_evidence_atomic({**valid, "files": bad_files}, target)
+    bad_files = list(valid["files"])
+    bad_files[0] = {**bad_files[0], "sha256": "not-hex"}
+    with pytest.raises(ValueError, match="sha256"):
+        ch.publish_evidence_atomic({**valid, "files": bad_files}, target)
+    assert not target.exists()
+
+def test_publish_rejects_existing_file_target(tmp_path):
+    target = tmp_path / "out"
+    target.write_bytes(b"not a directory")
+    with pytest.raises(ValueError, match="file|directory"):
+        ch.publish_evidence_atomic(_publisher_plan(), target)
+    assert target.read_bytes() == b"not a directory"
+
+def test_publish_rejects_orphan_backup_left_by_prior_failure(tmp_path):
+    target = tmp_path / "out"
+    target.mkdir()
+    prior = b'{"prior": "untouched"}'
+    (target / "stale.json").write_bytes(prior)
+    orphan = tmp_path / "out.bak"
+    orphan.mkdir()
+    (orphan / "human-recovery-marker.txt").write_bytes(b"RECOVER ME")
+    with pytest.raises((ValueError, FileExistsError), match="backup"):
+        ch.publish_evidence_atomic(_publisher_plan(), target)
+    assert (target / "stale.json").read_bytes() == prior
+    assert (orphan / "human-recovery-marker.txt").read_bytes() == b"RECOVER ME"
+    leftovers = [p.name for p in tmp_path.iterdir() if p.name not in ("out", "out.bak")]
+    assert leftovers == [], f"unexpected residue: {leftovers}"
+
+def test_publish_validation_catches_extra_files_in_staging(tmp_path):
+    target = tmp_path / "out"
+    target.mkdir()
+    prior = b'{"prior": "untouched"}'
+    (target / "stale.json").write_bytes(prior)
+    plan = _publisher_plan()
+    def sneaky(path, data):
+        path.write_bytes(data)
+        if path.name == "iter-09.json":
+            (path.parent / "extra-unplanned.json").write_bytes(b"unplanned")
+    with pytest.raises(ValueError, match="path"):
+        ch.publish_evidence_atomic(plan, target, write_fn=sneaky)
+    assert (target / "stale.json").read_bytes() == prior
+    leftovers = [p.name for p in tmp_path.iterdir() if p.name != "out"]
+    assert leftovers == [], f"unexpected residue: {leftovers}"

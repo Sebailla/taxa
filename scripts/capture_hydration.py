@@ -10,7 +10,7 @@ emission, baseline/candidate comparison. Exit codes: 0/2/10.
 """
 from __future__ import annotations
 
-import argparse, datetime as _dt, hashlib, json, os, platform, sys
+import argparse, datetime as _dt, hashlib, json, os, platform, re, shutil, sys, uuid
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -153,6 +153,137 @@ def plan_evidence_publication(
     files.append(_plan_entry("legacy_hydration", "raw/legacy-hydration.json",
                              legacy_hydration_metadata))
     return {"schema": PUBLICATION_SCHEMA, "files": files}
+
+
+# --- G5 publication child B (atomic filesystem publisher) -------------
+_PUBLISH_BACKUP_SUFFIX = ".bak"
+
+
+def _safe_rmtree(path: Path) -> None:
+    shutil.rmtree(path, ignore_errors=True)
+
+
+def _default_publish_write_bytes(path: Path, data: bytes) -> None:
+    path.write_bytes(data)
+
+
+def publish_evidence_atomic(
+    plan: dict, target_dir,
+    *, write_fn=None, rename_fn=None, backup_suffix: str = _PUBLISH_BACKUP_SUFFIX,
+):
+    """Publish a G5 evidence plan atomically to ``target_dir``.
+
+    Validates the plan shape, stages files into a sibling staging
+    directory, recomputes/validates staged sha256/size/path-set against
+    the plan, then atomically swaps the staging directory onto
+    ``target_dir`` with backup/restore semantics.
+
+    Failure contract: any failure during staging, validation, or the
+    final rename preserves the prior ``target_dir`` byte-for-byte and
+    leaves no tmp/bak residue, EXCEPT when restoration of the prior
+    output itself fails — in that case the backup is left on disk for
+    human recovery and the exception propagates.
+    """
+    target = Path(target_dir)
+    files = _validate_publication_plan(plan)
+    _require(not target.is_file(),
+             f"target_dir must not be an existing file: {target}")
+    actual_write = write_fn or _default_publish_write_bytes
+    actual_rename = rename_fn or os.replace
+    staging = _stage_and_validate_publish(target, files, actual_write)
+    backup: Path | None = None
+    if target.is_dir():
+        backup = target.with_name(target.name + backup_suffix)
+        if backup.exists():
+            _safe_rmtree(staging)
+            raise FileExistsError(f"backup path already exists: {backup}")
+        try:
+            actual_rename(target, backup)
+        except Exception:
+            _safe_rmtree(staging)
+            raise
+    try:
+        actual_rename(staging, target)
+    except Exception:
+        _safe_rmtree(staging)
+        if backup is not None:
+            try:
+                actual_rename(backup, target)
+            except Exception:
+                raise  # leave backup residue for human recovery
+            backup = None  # restored successfully; nothing to clean later
+        raise
+    if backup is not None:
+        try:
+            if backup.is_dir():
+                shutil.rmtree(backup)
+            else:
+                backup.unlink()
+        except OSError:
+            pass
+
+
+def _stage_and_validate_publish(target: Path, files: list, write_fn) -> Path:
+    staging = target.with_name(
+        target.name + f".staging-{os.getpid()}-{uuid.uuid4().hex[:12]}")
+    _safe_rmtree(staging)
+    staging.mkdir(exist_ok=False)
+    try:
+        for f in files:
+            dest = staging / f["path"]
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            write_fn(dest, f["canonical_json"].encode("utf-8"))
+        _validate_publish_staging(staging, files)
+    except Exception:
+        _safe_rmtree(staging)
+        raise
+    return staging
+
+
+def _validate_publication_plan(plan) -> list:
+    _require(isinstance(plan, dict),
+             f"plan must be a dict; got {type(plan).__name__}")
+    _require(plan.get("schema") == PUBLICATION_SCHEMA,
+             f"plan.schema must be {PUBLICATION_SCHEMA}; got {plan.get('schema')!r}")
+    files = plan.get("files")
+    _require(isinstance(files, list) and files,
+             f"plan.files must be a non-empty list; got {type(files).__name__}")
+    sha_re = re.compile(r"[0-9a-f]{64}")
+    seen: set = set()
+    for i, f in enumerate(files):
+        _require(isinstance(f, dict),
+                 f"plan.files[{i}] must be a dict; got {type(f).__name__}")
+        for key in ("kind", "path", "bytes", "sha256", "canonical_json"):
+            _require(key in f, f"plan.files[{i}] missing required key {key!r}")
+        path = f["path"]
+        _require(isinstance(path, str) and path and not path.startswith("/"),
+                 f"plan.files[{i}].path must be a non-empty relative string")
+        _require(".." not in Path(path).parts,
+                 f"plan.files[{i}].path must not contain '..' segments: {path!r}")
+        _require(isinstance(f["bytes"], int) and f["bytes"] >= 0,
+                 f"plan.files[{i}].bytes must be a non-negative int; got {f['bytes']!r}")
+        _require(isinstance(f["sha256"], str) and sha_re.fullmatch(f["sha256"]),
+                 f"plan.files[{i}].sha256 must be a 64-char hex string; got {f['sha256']!r}")
+        _require(path not in seen,
+                 f"plan.files[{i}].path duplicates an earlier entry: {path!r}")
+        seen.add(path)
+    return files
+
+
+def _validate_publish_staging(staging: Path, files: list) -> None:
+    expected = {f["path"] for f in files}
+    actual = {str(p.relative_to(staging))
+              for p in staging.rglob("*") if p.is_file()}
+    _require(actual == expected,
+             f"staged path set mismatch; extra={actual - expected} "
+             f"missing={expected - actual}")
+    for f in files:
+        data = (staging / f["path"]).read_bytes()
+        _require(len(data) == f["bytes"],
+                 f"staged bytes mismatch for {f['path']!r}: "
+                 f"expected {f['bytes']}, got {len(data)}")
+        _require(hashlib.sha256(data).hexdigest() == f["sha256"],
+                 f"staged sha256 mismatch for {f['path']!r}")
 
 
 class PlaywrightBrowserAdapter:
