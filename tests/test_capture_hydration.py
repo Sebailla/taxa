@@ -28,27 +28,34 @@ TARGET_URL = "http://127.0.0.1:8765/"
 
 
 class FakeBrowserAdapter:
-    """Hermetic test double. Records `calls` for fail-closed assertions."""
-    def __init__(self, *, raise_on=None, raise_message="synthetic iteration failure"):
-        self._raise_on, self._raise_message = raise_on, raise_message
-        self.calls: list = []
-    def chromium_provenance(self):
-        return {"version": "fake-chromium-1.0", "executable_path": "/fake/chromium"}
-    def playwright_provenance(self):
-        return {"version": "fake-playwright-1.0"}
-    def run_iteration(self, *, target_url, dom_marker_selector, iteration_index):
-        self.calls.append((target_url, dom_marker_selector, iteration_index))
-        if self._raise_on is not None and (iteration_index + 1) == self._raise_on:
-            raise RuntimeError(self._raise_message)
-        return {
-            "iteration": iteration_index, "captured_at": "2026-01-01T00:00:00Z",
-            "navigation": {"response_start_ms": 0.0, "dom_content_loaded_ms": 0.0,
-                           "load_event_ms": 0.0, "redirect_count": 0, "status": 200},
-            "paint": {"first_paint_ms": 0.0, "first_contentful_paint_ms": 0.0},
-            "dom_marker": {"selector": dom_marker_selector, "found": True,
-                           "count": 1, "first_text": "x", "wait_ms": 0.0},
-            "console": [],
-        }
+        """Hermetic test double. Records `calls` for fail-closed assertions."""
+        def __init__(self, *, raise_on=None, raise_message="synthetic iteration failure",
+                     wait_ms: float = 0.0, found: bool = True, count: int = 1,
+                     first_text: str | None = "x"):
+            self._raise_on, self._raise_message = raise_on, raise_message
+            self._wait_ms: float = wait_ms
+            self._found: bool = found
+            self._count: int = count
+            self._first_text: str | None = first_text
+            self.calls: list = []
+        def chromium_provenance(self):
+            return {"version": "fake-chromium-1.0", "executable_path": "/fake/chromium"}
+        def playwright_provenance(self):
+            return {"version": "fake-playwright-1.0"}
+        def run_iteration(self, *, target_url, dom_marker_selector, iteration_index):
+            self.calls.append((target_url, dom_marker_selector, iteration_index))
+            if self._raise_on is not None and (iteration_index + 1) == self._raise_on:
+                raise RuntimeError(self._raise_message)
+            return {
+                "iteration": iteration_index, "captured_at": "2026-01-01T00:00:00Z",
+                "navigation": {"response_start_ms": 0.0, "dom_content_loaded_ms": 0.0,
+                               "load_event_ms": 0.0, "redirect_count": 0, "status": 200},
+                "paint": {"first_paint_ms": 0.0, "first_contentful_paint_ms": 0.0},
+                "dom_marker": {"selector": dom_marker_selector, "found": self._found,
+                               "count": self._count, "first_text": self._first_text,
+                               "wait_ms": self._wait_ms},
+                "console": [],
+            }
 
 
 def test_module_surface_constants_and_shebang():
@@ -195,6 +202,147 @@ def test_module_decoupled_from_launcher_lighthouse_and_parity_reports():
             f"must NOT import {mod} (publication is a later chain child)")
         assert "lighthouse" not in mod.lower(), (
             f"must NOT import {mod} (Lighthouse is a separate chain child)")
+
+
+def test_default_dom_marker_selector_matches_g3_fixture():
+    """G5 readiness contract: the raw collector's DEFAULT_DOM_MARKER_SELECTOR
+    MUST target the controlled G3 fixture's dynamic readiness marker —
+    `#tree-view[data-state="ready"]` — not the legacy static selector.
+    Without this pin the collector cannot observe the G3 fixture's
+    first-paint readiness flip emitted by `web/tree.js`."""
+    assert ch.DEFAULT_DOM_MARKER_SELECTOR == '#tree-view[data-state="ready"]', (
+        f"DEFAULT_DOM_MARKER_SELECTOR must match the G3 controlled fixture's "
+        f"dynamic readiness marker (#tree-view[data-state=\"ready\"]); "
+        f"got {ch.DEFAULT_DOM_MARKER_SELECTOR!r}"
+    )
+
+
+def test_collect_propagates_honest_elapsed_readiness_metric():
+    """G5 readiness metric preservation: the raw collector MUST forward
+    every adapter-provided `dom_marker.wait_ms` value verbatim into the
+    sample envelope. The metric is the analogue of 'hydration cost' —
+    how long the adapter waited for the readiness marker to become
+    visible. A hard-coded zero would silently disable the candidate-vs-
+    baseline delta the joiner relies on."""
+    adapter = FakeBrowserAdapter(wait_ms=17.5)
+    result = ch.collect_raw_samples(target_url=TARGET_URL, browser_adapter=adapter)
+    assert len(result["samples"]) == 10
+    for i, s in enumerate(result["samples"]):
+        assert isinstance(s["dom_marker"], dict)
+        assert s["dom_marker"]["wait_ms"] == 17.5, (
+            f"sample[{i}].dom_marker.wait_ms must be preserved verbatim; "
+            f"got {s['dom_marker']['wait_ms']!r}"
+        )
+
+
+def test_collect_missing_readiness_records_negative_one_and_not_found():
+    """G5 readiness missing/invalid behavior: when the adapter reports the
+    readiness marker was never observed, `wait_ms` MUST be -1.0 (the
+    sentinel) AND `found` MUST be False. The collector must NOT coerce
+    a missing marker into a zero or true — that would mask the failure
+    in the candidate-vs-baseline diff."""
+    adapter = FakeBrowserAdapter(wait_ms=-1.0, found=False, count=0,
+                                 first_text=None)
+    result = ch.collect_raw_samples(target_url=TARGET_URL, browser_adapter=adapter)
+    assert len(result["samples"]) == 10
+    for i, s in enumerate(result["samples"]):
+        assert s["dom_marker"]["wait_ms"] == -1.0, (
+            f"sample[{i}].dom_marker.wait_ms must be -1.0 when readiness "
+            f"is missing; got {s['dom_marker']['wait_ms']!r}"
+        )
+        assert s["dom_marker"]["found"] is False, (
+            f"sample[{i}].dom_marker.found must be False when readiness "
+            f"is missing; got {s['dom_marker']['found']!r}"
+        )
+        assert s["dom_marker"]["count"] == 0
+        assert s["dom_marker"]["first_text"] is None
+
+
+class _FakePlaywrightPage:
+    """Hermetic stand-in for a Playwright Page. The real adapter only
+    calls goto / evaluate / wait_for_selector / locator / on — these
+    stubs satisfy each call without touching a real Chromium."""
+    def __init__(self) -> None:
+        self.closed = False
+    def on(self, event, cb) -> None:  # console listener — no-op
+        pass
+    def goto(self, url, wait_until=None):
+        class _Resp:
+            status = 200
+        return _Resp()
+    def evaluate(self, expr):
+        if "navigation" in expr:
+            return {"rs": 0.0, "dcl": 0.0, "le": 0.0, "rc": 0}
+        if "paint" in expr:
+            return {}
+        return None
+    def wait_for_selector(self, selector, timeout=5000):
+        return None
+    def locator(self, selector):
+        # Mirrors Playwright's real API: `count()` is a METHOD and
+        # `first` is a PROPERTY (returns a sub-Locator). The adapter
+        # does `cnt = loc.count()` and `loc.first.inner_text()`. A
+        # method-style `first()` would skip the `.inner_text()` call
+        # and trip the inner except (wait_ms=-1.0).
+        class _First:
+            def inner_text(self_inner) -> str: return "x"
+        class _Loc:
+            def count(self_inner) -> int: return 1
+            @property
+            def first(self_inner) -> _First: return _First()
+        return _Loc()
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_real_adapter_derives_wait_ms_from_wall_clock_inside_boundary(monkeypatch):
+    """G5 readiness contract — REAL adapter: `wait_ms` MUST be derived
+    from wall-clock elapsed time across `wait_for_selector` INSIDE the
+    adapter boundary — not a hard-coded 0.0 literal. A regression that
+    reverts to a literal would silently disable the candidate-vs-baseline
+    delta.
+
+    Hermetic: stubs `_pw_obj()` to skip the Playwright import + feeds a
+    precise 17.5ms gap through `time.monotonic`. Asserts the resulting
+    `dom_marker.wait_ms` reflects that elapsed time. The error path
+    (timeout) is covered by the FakeBrowserAdapter test above."""
+    page = _FakePlaywrightPage()
+
+    class _FakeBrowser:
+        def new_page(self): return page
+        def close(self): page.close()
+    fake_browser = _FakeBrowser()
+
+    class _FakeChromium:
+        def launch(self, headless=True): return fake_browser
+        @property
+        def executable_path(self): return "/fake/chromium"
+
+    class _FakePW:
+        def __init__(self): self.chromium = _FakeChromium()
+    fake_pw = _FakePW()
+
+    adapter = ch.PlaywrightBrowserAdapter()
+    # Bypass the lazy `_pw_obj()` import — pretend Playwright is already loaded.
+    adapter._pw = fake_pw
+
+    # Feed a precise 17.5ms gap through `time.monotonic` (called twice:
+    # once before wait_for_selector, once after).
+    times = iter([1000.000, 1000.0175])
+    monkeypatch.setattr(ch.time, "monotonic", lambda: next(times))
+
+    result = adapter.run_iteration(
+        target_url="http://127.0.0.1:8765/",
+        dom_marker_selector='#tree-view[data-state="ready"]',
+        iteration_index=0)
+    assert result["dom_marker"]["wait_ms"] == pytest.approx(17.5), (
+        f"REAL adapter wait_ms must derive from wall-clock elapsed time; "
+        f"got {result['dom_marker']['wait_ms']!r} (expected ~17.5ms)"
+    )
+    assert result["dom_marker"]["found"] is True
+    assert result["dom_marker"]["count"] == 1
+    assert result["dom_marker"]["selector"] == '#tree-view[data-state="ready"]'
+    assert page.closed is True, "adapter MUST close the browser per iteration"
 
 
 # Child A — G5 evidence-manifest plan (deterministic, pure, no-I/O).
