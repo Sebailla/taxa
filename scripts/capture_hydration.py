@@ -10,13 +10,14 @@ emission, baseline/candidate comparison. Exit codes: 0/2/10.
 """
 from __future__ import annotations
 
-import argparse, datetime as _dt, json, os, platform, sys
+import argparse, datetime as _dt, hashlib, json, os, platform, sys
 from pathlib import Path
 from typing import Any, Protocol
 
 
 SCHEMA = "taxa.g5-capture.legacy/1"
 PROVENANCE_SCHEMA = "taxa.g5-capture.legacy-provenance/1"
+PUBLICATION_SCHEMA = "taxa.g5-publication.evidence-manifest/1"
 ITERATIONS = 10
 DEFAULT_DOM_MARKER_SELECTOR = "#tree-view [data-taxon-id]"
 EXIT_OK, EXIT_USAGE, EXIT_FAILURE = 0, 2, 10
@@ -79,6 +80,79 @@ def write_result(result: dict, out_path: Path) -> None:
     tmp = out_path.with_name(f"{out_path.name}.tmp-{os.getpid()}-{id(out_path)}")
     tmp.write_text(json.dumps(result, indent=2), encoding="utf-8")
     tmp.replace(out_path)
+
+
+# --- G5 publication child A (deterministic, pure, no-I/O plan) -----------
+def _plan_entry(kind, path, payload, iteration=None):
+    encoded = json.dumps(payload, indent=2, sort_keys=True,
+                         ensure_ascii=False).encode("utf-8")
+    entry = {"kind": kind, "path": path, "bytes": len(encoded),
+             "sha256": hashlib.sha256(encoded).hexdigest(),
+             "canonical_json": encoded.decode("utf-8")}
+    if iteration is not None:
+        entry["iteration"] = iteration
+    return entry
+
+
+def _require(cond, msg):
+    if not cond:
+        raise ValueError(msg)
+
+
+def _validate_raws(values, *, kind):
+    _require(isinstance(values, list),
+             f"{kind} raws must be a list; got {type(values).__name__}")
+    _require(len(values) == ITERATIONS,
+             f"{kind} raws must contain exactly {ITERATIONS} entries; got {len(values)}")
+    for i, v in enumerate(values):
+        _require(isinstance(v, dict),
+                 f"{kind} raws[{i}] must be a dict; got {type(v).__name__}")
+
+
+def _validate_manifest_snapshot(m):
+    _require(isinstance(m, dict), f"manifest_snapshot must be a dict; got {type(m).__name__}")
+    _require(isinstance(m.get("schema"), str), "manifest_snapshot.schema must be a string")
+    _require(isinstance(m.get("entries"), list), "manifest_snapshot.entries must be a list")
+
+
+_HYDRATION_KEYS = ("captured_at", "build", "route",
+                   "server_shell", "client_render", "console_warnings")
+_HYDRATION_TYPES = {"server_shell": dict, "client_render": dict, "console_warnings": list}
+
+
+def _validate_legacy_hydration(h):
+    _require(isinstance(h, dict),
+             f"legacy_hydration_metadata must be a dict; got {type(h).__name__}")
+    for key in _HYDRATION_KEYS:
+        _require(key in h, f"legacy_hydration_metadata missing required key {key!r}")
+    for key, typ in _HYDRATION_TYPES.items():
+        _require(isinstance(h[key], typ),
+                 f"legacy_hydration_metadata.{key} must be a {typ.__name__}")
+
+
+def plan_evidence_publication(
+    *, playwright_raws, lighthouse_raws,
+    manifest_snapshot, legacy_hydration_metadata,
+):
+    """Deterministic, pure, no-I/O plan for G5 evidence publication.
+
+    Accepts exactly 10 PW + 10 LH raws, a G4 manifest snapshot, and valid
+    legacy hydration metadata. Returns the canonical relative-path plan.
+    Does NOT touch the filesystem (child B executes the plan).
+    """
+    _validate_raws(playwright_raws, kind="playwright")
+    _validate_raws(lighthouse_raws, kind="lighthouse")
+    _validate_manifest_snapshot(manifest_snapshot)
+    _validate_legacy_hydration(legacy_hydration_metadata)
+    files = [_plan_entry("playwright", f"raw/playwright/iter-{i:02d}.json", s, i)
+             for i, s in enumerate(playwright_raws)]
+    files += [_plan_entry("lighthouse", f"raw/lighthouse/iter-{i:02d}.json", lhr, i)
+              for i, lhr in enumerate(lighthouse_raws)]
+    files.append(_plan_entry("manifest_snapshot", "raw/manifest-snapshot.json",
+                             manifest_snapshot))
+    files.append(_plan_entry("legacy_hydration", "raw/legacy-hydration.json",
+                             legacy_hydration_metadata))
+    return {"schema": PUBLICATION_SCHEMA, "files": files}
 
 
 class PlaywrightBrowserAdapter:
