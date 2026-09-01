@@ -49,6 +49,7 @@ Reference:
 """
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -62,6 +63,69 @@ REQUIRED_TOP_KEYS = (
     "client_render",
     "console_warnings",
 )
+
+
+# --- G5 CLI precondition contract (design.md §3.3.5) -----------------
+# This slice adds a fail-closed G5 CLI surface on top of the legacy
+# positional validator. Required flags: --baseline, --candidate,
+# --iterations 10 (all three must appear together). On any
+# precondition failure the script exits non-zero, emits no
+# comparison artifact, and never claims G5 pass. Capture, raw
+# evidence schema, and delta calculation land in later slices.
+G5_EXPECTED_ITERATIONS = 10
+EXIT_OK = 0
+EXIT_G5_PRECONDITION = 10
+G5_FLAGS = ("--baseline", "--candidate", "--iterations")
+
+
+def _is_g5_mode(argv: list[str]) -> bool:
+    for arg in argv[1:]:
+        if arg.startswith("--") and arg.split("=", 1)[0] in G5_FLAGS:
+            return True
+    return False
+
+
+def _fail_g5(msg: str) -> int:
+    sys.stderr.write(
+        f"[measure_hydration] G5 precondition failed: {msg}. "
+        f"No comparison artifact emitted; G5 not claimed as passed.\n"
+    )
+    return EXIT_G5_PRECONDITION
+
+
+def _run_g5(argv: list[str]) -> int:
+    """G5 CLI precondition validator (design.md §3.3.5)."""
+    parser = argparse.ArgumentParser(
+        prog="measure_hydration.py",
+        description=("G5 hydration-timing precondition contract "
+                     "(slice: fail-closed CLI surface only)."),
+    )
+    parser.add_argument("--baseline", required=True)
+    parser.add_argument("--candidate", required=True)
+    parser.add_argument("--iterations", required=True, type=int)
+    try:
+        args = parser.parse_args(argv[1:])
+    except SystemExit:
+        return _fail_g5("required G5 flag(s) missing or invalid")
+
+    if args.iterations != G5_EXPECTED_ITERATIONS:
+        return _fail_g5(
+            f"--iterations must be {G5_EXPECTED_ITERATIONS}; "
+            f"got {args.iterations}")
+    baseline = Path(args.baseline)
+    if not baseline.is_file():
+        return _fail_g5(f"--baseline file not found: {baseline}")
+    candidate = Path(args.candidate)
+    if not candidate.is_dir():
+        return _fail_g5(f"--candidate build root not found: {candidate}")
+    # Preconditions met — but this slice does NOT claim G5 pass.
+    # Capture and delta calculation land in later slices.
+    sys.stdout.write(
+        f"[measure_hydration] G5 preconditions passed: "
+        f"baseline={baseline}, candidate={candidate}, "
+        f"iterations={args.iterations}. "
+        f"G5 has not been claimed as passed in this slice.\n")
+    return EXIT_OK
 
 
 def _fail(msg: str, code: int = 1) -> int:
@@ -155,6 +219,8 @@ def _report(doc: dict) -> None:
 
 
 def main(argv: list[str]) -> int:
+    if _is_g5_mode(argv):
+        return _run_g5(argv)
     if len(argv) != 2:
         sys.stderr.write(
             "usage: measure_hydration.py <path-to-hydration.json>\n"

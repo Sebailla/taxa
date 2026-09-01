@@ -330,3 +330,185 @@ def test_measure_hydration_exits_nonzero_on_schema_violation(tmp_path: Path):
     assert "schema" in stderr or "missing" in stderr, (
         f"stderr should mention schema violation; got:\n{result.stderr}"
     )
+
+
+
+# ---------------------------------------------------------------------------
+# G5 CLI precondition contract (design.md §3.3.5)
+# ---------------------------------------------------------------------------
+# Required flags: --baseline, --candidate, --iterations 10 (all three
+# together). On any precondition failure the script exits non-zero,
+# emits no comparison artifact, and never claims G5 pass. Capture and
+# delta calculation land in later slices.
+G5_EXPECTED_ITERATIONS = 10
+
+
+@pytest.fixture()
+def g5_baseline_json(tmp_path: Path) -> Path:
+    p = tmp_path / "baseline.json"
+    p.write_text("{}\n", encoding="utf-8")
+    return p
+
+
+@pytest.fixture()
+def g5_candidate_root(tmp_path: Path) -> Path:
+    root = tmp_path / "candidate"
+    root.mkdir()
+    return root
+
+
+def _run_g5(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(SCRIPT), *args],
+        cwd=REPO_ROOT, capture_output=True, text=True, check=False)
+
+
+def _parity_reports_hydration() -> list[Path]:
+    base = REPO_ROOT / "parity-reports"
+    return sorted(base.rglob("hydration.json")) if base.exists() else []
+
+
+def test_g5_cli_requires_all_three_flags_together():
+    """Zero G5 flags must fail closed; no artifact; no G5 pass claim."""
+    before = _parity_reports_hydration()
+    result = _run_g5()
+    after = _parity_reports_hydration()
+    assert result.returncode != 0, f"expected non-zero; got {result.returncode}"
+    assert "g5 pass" not in (result.stdout + result.stderr).lower()
+    assert after == before, f"hydration artifact emitted: {after}"
+
+
+def test_g5_cli_iterations_must_equal_ten(
+    g5_baseline_json: Path, g5_candidate_root: Path,
+):
+    """--iterations must be exactly 10; any other value fails closed."""
+    before = _parity_reports_hydration()
+    result = _run_g5(
+        "--baseline", str(g5_baseline_json),
+        "--candidate", str(g5_candidate_root),
+        "--iterations", "5",
+    )
+    after = _parity_reports_hydration()
+    assert result.returncode != 0, f"expected non-zero; got {result.returncode}"
+    combined = (result.stdout + result.stderr).lower()
+    assert "10" in combined, f"must mention required iterations=10; got {combined!r}"
+    assert "g5 pass" not in combined
+    assert after == before, f"hydration artifact emitted: {after}"
+
+
+def test_g5_cli_baseline_must_exist(
+    g5_candidate_root: Path, tmp_path: Path,
+):
+    """--baseline must point at an existing file on disk."""
+    before = _parity_reports_hydration()
+    result = _run_g5(
+        "--baseline", str(tmp_path / "no-such-baseline.json"),
+        "--candidate", str(g5_candidate_root),
+        "--iterations", "10",
+    )
+    after = _parity_reports_hydration()
+    assert result.returncode != 0, f"expected non-zero; got {result.returncode}"
+    combined = (result.stdout + result.stderr).lower()
+    assert "baseline" in combined, f"must mention baseline; got {combined!r}"
+    assert "g5 pass" not in combined
+    assert after == before, f"hydration artifact emitted: {after}"
+
+
+def test_g5_cli_candidate_must_exist(
+    g5_baseline_json: Path, tmp_path: Path,
+):
+    """--candidate must point at an existing build-root directory."""
+    before = _parity_reports_hydration()
+    result = _run_g5(
+        "--baseline", str(g5_baseline_json),
+        "--candidate", str(tmp_path / "no-such-candidate"),
+        "--iterations", "10",
+    )
+    after = _parity_reports_hydration()
+    assert result.returncode != 0, f"expected non-zero; got {result.returncode}"
+    combined = (result.stdout + result.stderr).lower()
+    assert "candidate" in combined, f"must mention candidate; got {combined!r}"
+    assert "g5 pass" not in combined
+    assert after == before, f"hydration artifact emitted: {after}"
+
+
+def test_g5_cli_preconditions_pass_does_not_claim_g5_pass(
+    g5_baseline_json: Path, g5_candidate_root: Path,
+):
+    """TRIANGULATE: with all preconditions met, the slice must NOT claim
+    G5 pass and must NOT emit a comparison artifact.
+
+    The precondition slice only validates CLI surface; capture, raw
+    evidence schema, and delta calculation land in later slices.
+    """
+    before = _parity_reports_hydration()
+    result = _run_g5(
+        "--baseline", str(g5_baseline_json),
+        "--candidate", str(g5_candidate_root),
+        "--iterations", "10",
+    )
+    after = _parity_reports_hydration()
+    combined = (result.stdout + result.stderr).lower()
+    assert "g5 pass" not in combined, f"must not claim G5 pass; got {combined!r}"
+    assert after == before, f"hydration artifact emitted: {after}"
+
+
+# --- TRIANGULATE: invalid combinations of the G5 flag trio --------------
+def test_g5_cli_only_one_flag_fails_closed(
+    g5_baseline_json: Path, g5_candidate_root: Path,
+):
+    """TRIANGULATE: providing one of three G5 flags must fail closed
+    (not silently default to legacy mode or auto-fill the others)."""
+    before = _parity_reports_hydration()
+    result = _run_g5("--baseline", str(g5_baseline_json))
+    after = _parity_reports_hydration()
+    assert result.returncode != 0, f"single flag must fail closed; got {result.returncode}"
+    assert "g5 pass" not in (result.stdout + result.stderr).lower()
+    assert after == before, f"hydration artifact emitted: {after}"
+
+
+def test_g5_cli_two_of_three_flags_fails_closed(
+    g5_baseline_json: Path, g5_candidate_root: Path,
+):
+    """TRIANGULATE: two of three flags (missing --iterations) must fail
+    closed. The contract is that the three flags MUST appear together."""
+    before = _parity_reports_hydration()
+    result = _run_g5(
+        "--baseline", str(g5_baseline_json),
+        "--candidate", str(g5_candidate_root),
+    )
+    after = _parity_reports_hydration()
+    assert result.returncode != 0, f"two flags must fail closed; got {result.returncode}"
+    assert "g5 pass" not in (result.stdout + result.stderr).lower()
+    assert after == before, f"hydration artifact emitted: {after}"
+
+
+def test_g5_cli_baseline_must_be_file_not_directory(
+    g5_candidate_root: Path, tmp_path: Path,
+):
+    """TRIANGULATE: --baseline pointing at a directory (not a regular
+    file) must fail closed. The contract is baseline is a JSON file."""
+    baseline_dir = tmp_path / "baseline-is-a-dir"
+    baseline_dir.mkdir()
+    before = _parity_reports_hydration()
+    result = _run_g5(
+        "--baseline", str(baseline_dir),
+        "--candidate", str(g5_candidate_root),
+        "--iterations", "10",
+    )
+    after = _parity_reports_hydration()
+    assert result.returncode != 0, f"dir-as-baseline must fail closed; got {result.returncode}"
+    assert "g5 pass" not in (result.stdout + result.stderr).lower()
+    assert after == before, f"hydration artifact emitted: {after}"
+
+
+def test_g5_cli_legacy_positional_path_preserved(hydration_artifact: Path):
+    """TRIANGULATE: the legacy positional CLI path must remain intact
+    after the G5 slice is added. The script must still validate a
+    positional hydration JSON artifact and exit zero on a valid one.
+    """
+    result = _run_g5(str(hydration_artifact))
+    assert result.returncode == 0, (
+        f"legacy positional path broken by G5 slice; "
+        f"got exit={result.returncode}, stderr={result.stderr}"
+    )
