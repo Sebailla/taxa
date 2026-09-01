@@ -49,20 +49,64 @@ baseline-vs-candidate diffs stay clean.
 
 ### Out of scope (chain PR 2 owns these)
 
-- The controlled FastAPI launcher (`scripts/g5_legacy_asgi.py`).
 - The actual `scripts/measure_hydration.py` producer.
 - The Playwright + Lighthouse capture loop.
 - The `parity-reports/<date>/hydration.json` schema + writer.
 - The candidate-vs-baseline join + ±10% threshold assertion.
+
+## Slice 3 — Controlled FastAPI launcher (chain PR 2)
+
+The G5 launcher (`scripts/g5_legacy_asgi.py`) is a controlled ASGI app
+that mounts the fixture in front of `api.server.app` so chain PR 2's
+Playwright + Lighthouse capture can exercise a deterministic runtime
+without depending on production `web/` bytes. Run with
+`.venv/bin/uvicorn tools.g3-legacy-fixture.scripts.g5_legacy_asgi:app`.
+Three import-time steps:
+
+| Step | What | Why |
+|---|---|---|
+| 1. Fail-closed check | `_require_nonempty_file(FIXTURE_DB, ...)` + `_require_nonempty_dir(FIXTURE_WEB, ...)` raise `RuntimeError("fail-closed")` before any route work | A half-wired app must never reach uvicorn or the capture loop |
+| 2. DB rewire | `api.server.DB_PATH = FIXTURE_DB` (only) — `api.server.WEB_DIR` is intentionally left untouched | Every DB-backed endpoint (`/api/health`) reads fixture rows; the regression guard verifies `WEB_DIR` was never mutated |
+| 3. Fixture mount | Insert one `Mount("/", StaticFiles(...))` **just before** the production root mount | Starlette matches in registration order; placing the fixture mount before production `/` makes fixture bytes win for static paths while keeping every `/api/*` route reachable |
+
+### Failure modes (asserted by `tests/test_g3_legacy_fixture.py`)
+
+| Input | Outcome |
+|---|---|
+| `taxa.db` missing or empty | `RuntimeError("fail-closed: fixture DB ...")` raised at import time |
+| `web/` missing or empty | `RuntimeError("fail-closed: fixture web dir ...")` raised at import time |
+| `web/<path>` not in fixture | 404 (production `/` mount answers) |
+| `/api/health` | Reads `taxa.db` (10 `taxon` + 8 `vernacular` rows) |
+
+### Why insert before production mount (not at index 0)
+
+Inserting at index 0 would put the fixture `Mount("/")` ahead of every
+`APIRoute` in `api.server.app`. Starlette dispatches by registration
+order, so the catch-all `/` would win before `/api/health` reached its
+`APIRoute` — the launcher would silently 404 every API call. Inserting
+**just before** the production root mount (the last route in
+`api.server.app`) preserves every FastAPI `/api/*` route while still
+letting the fixture win for any static path the fixture serves.
+
+## Chain boundary
+
+| PR | Owns |
+|---|---|
+| Chain PR 1 | `web/index.html` + `web/app.js` + `web/tree.js` hydration-readiness markers + their regression tests |
+| 📍 Chain PR 2 (this) | `scripts/g5_legacy_asgi.py` launcher + launcher contract tests + this README update |
+| Chain PR 3 (later) | `scripts/measure_hydration.py` producer, Playwright + Lighthouse capture loop, `parity-reports/<date>/hydration.json` writer, candidate-vs-baseline ±10% assertion |
 
 ## Scope boundary
 
 - **In (G3)**: minimal DB + minimal `web/` + the controlled-verifier helper.
 - **In (G5 / chain PR 1)**: hydration-readiness markers in the fixture's
   HTML/JS + regression tests for them.
+- **In (G5 / chain PR 2)**: controlled FastAPI launcher + launcher
+  contract tests (`test_g5_launcher_contract`,
+  `test_g5_launcher_fails_*`).
 - **Out**: root `web/`, root `Makefile`, `extension/manifest.json`,
   product source, atomic cutover, Approach A / B / C selection,
-  controlled FastAPI launcher, Lighthouse / Playwright capture.
+  Lighthouse / Playwright capture.
 
 ## Rebuild & test
 

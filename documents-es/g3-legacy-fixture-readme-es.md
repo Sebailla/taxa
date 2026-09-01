@@ -52,11 +52,55 @@ del PR 2 de la cadena queden limpios.
 
 ### Fuera del alcance (el PR 2 de la cadena es responsable)
 
-- El lanzador FastAPI controlado (`scripts/g5_legacy_asgi.py`).
 - El productor real `scripts/measure_hydration.py`.
 - El bucle de captura con Playwright + Lighthouse.
 - El esquema + escritor de `parity-reports/<date>/hydration.json`.
 - La unión candidato-vs-línea-base + aserción del umbral ±10%.
+
+## Porción 3 — Lanzador FastAPI controlado (PR 2 de la cadena)
+
+El lanzador G5 (`scripts/g5_legacy_asgi.py`) es una aplicación ASGI
+controlada que monta la fixture delante de `api.server.app` para que
+el bucle de captura Playwright + Lighthouse del PR 2 de la cadena
+pueda ejercitar un entorno determinista sin depender de los bytes de
+`web/` de producción. Ejecútalo con
+`.venv/bin/uvicorn tools.g3-legacy-fixture.scripts.g5_legacy_asgi:app`.
+Tres pasos, todos al tiempo de importación del módulo:
+
+| Paso | Qué | Por qué |
+|---|---|---|
+| 1. Verificación cierre-fallido | `_require_nonempty_file(FIXTURE_DB, ...)` + `_require_nonempty_dir(FIXTURE_WEB, ...)` lanzan `RuntimeError("fail-closed")` antes de cualquier trabajo de rutas | Una aplicación a medio cablear nunca debe llegar a uvicorn ni al bucle de captura |
+| 2. Recableado de la BD | `api.server.DB_PATH = FIXTURE_DB` (solo) — `api.server.WEB_DIR` se deja intencionalmente intacto | Cada endpoint respaldado por BD (`/api/health`) lee filas de la fixture; el guardia de regresión verifica que `WEB_DIR` nunca se mutó |
+| 3. Montaje de la fixture | Inserta un `Mount("/", StaticFiles(...))` **justo antes** del montaje raíz de producción | Starlette empareja en orden de registro; colocar el montaje de la fixture antes de la `/` de producción hace que los bytes de la fixture ganen para rutas estáticas manteniendo cada ruta `/api/*` alcanzable |
+
+### Modos de fallo (verificados por `tests/test_g3_legacy_fixture.py`)
+
+| Entrada | Resultado |
+|---|---|
+| `taxa.db` ausente o vacío | `RuntimeError("fail-closed: fixture DB ...")` en tiempo de importación |
+| `web/` ausente o vacío | `RuntimeError("fail-closed: fixture web dir ...")` en tiempo de importación |
+| `web/<ruta>` no presente en la fixture | 404 (responde el montaje `/` de producción) |
+| `/api/health` | Lee `taxa.db` (10 filas `taxon` + 8 `vernacular`) |
+
+### Por qué insertar antes del montaje de producción (no en el índice 0)
+
+Insertar en el índice 0 pondría el `Mount("/")` de la fixture delante
+de cada `APIRoute` en `api.server.app`. Starlette despacha por orden
+de registro, así que el catch-all `/` ganaría antes de que
+`/api/health` alcanzase su `APIRoute` — el lanzador devolvería
+silenciosamente 404 para cada llamada a la API. Insertar **justo
+antes** del montaje raíz de producción (la última ruta en
+`api.server.app`) preserva cada ruta `/api/*` de FastAPI a la vez
+que permite que la fixture gane para cualquier ruta estática que
+sirva.
+
+## Frontera de la cadena
+
+| PR | Responsable de |
+|---|---|
+| PR 1 de la cadena | Marcadores de disponibilidad de hidratación en `web/index.html` + `web/app.js` + `web/tree.js` + sus pruebas de regresión |
+| 📍 PR 2 de la cadena (este) | Lanzador `scripts/g5_legacy_asgi.py` + pruebas de contrato del lanzador + esta actualización del README |
+| PR 3 de la cadena (posterior) | Productor `scripts/measure_hydration.py`, bucle de captura Playwright + Lighthouse, escritor `parity-reports/<date>/hydration.json`, aserción candidato-vs-línea-base ±10% |
 
 ## Frontera de alcance
 
@@ -65,9 +109,12 @@ del PR 2 de la cadena queden limpios.
 - **Dentro (G5 / PR 1 de la cadena)**: marcadores de disponibilidad de
   hidratación en el HTML/JS de la fixture + pruebas de regresión para
   los mismos.
+- **Dentro (G5 / PR 2 de la cadena)**: lanzador FastAPI controlado +
+  pruebas de contrato del lanzador (`test_g5_launcher_contract`,
+  `test_g5_launcher_fails_*`).
 - **Fuera**: `web/` raíz, `Makefile` raíz, `extension/manifest.json`,
   código fuente de producto, corte atómico, selección de Aproximación
-  A / B / C, lanzador FastAPI controlado, captura Lighthouse / Playwright.
+  A / B / C, captura Lighthouse / Playwright.
 
 ## Reconstrucción y prueba
 
