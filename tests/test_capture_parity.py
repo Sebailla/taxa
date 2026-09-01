@@ -1458,6 +1458,226 @@ def test_capture_malformed_runner_output_does_not_publish_or_replace_outdir(tmp_
     siblings = [p for p in tmp_path.iterdir()
                 if p.name.startswith(("out.tmp-", "out.bak-"))]
     assert siblings == [], (
-        f"malformed runner output must not leave staging/backup siblings; "
-        f"found: {[str(s) for s in siblings]}"
+            f"malformed runner output must not leave staging/backup siblings; "
+            f"found: {[str(s) for s in siblings]}"
+        )
+
+# ── G5 raw-LHR bridge (split child: Node raw-LHR bridge only) ────────────
+# Reuses captureRawLhr from capture.mjs; produces a single JSON envelope
+# (schema, url, lhr, provenance) and a one-shot CLI that accepts only --url.
+# No files written, no server started, no corpus validation, no Python,
+# no dependencies/lockfiles/docs touched, no G5 evidence comparison.
+BRIDGE = CAPTURE / "scripts" / "g5_raw_lhr_bridge.mjs"
+BRIDGE_URL = "http://bridge.example.test/"
+G5_BRIDGE_LHR = {
+    "finalUrl": BRIDGE_URL, "lighthouseVersion": "12.2.1",
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.71 Safari/537.36",
+    "fetchTime": "2025-01-01T00:00:00.000Z", "runWarnings": ["a warn", "b warn"],
+    "categories": {"performance": {"score": 0.95, "title": "Performance"}},
+    "audits": {"first-contentful-paint": {"id": "first-contentful-paint", "score": 0.9}},
+}
+
+
+def test_bridge_script_is_esm_library_with_canonical_exports():
+    """Bridge must be an ESM module exposing parseBridgeArgs, buildLhrEnvelope,
+    main — and must reuse captureRawLhr (no duplicated LHR validation)."""
+    assert BRIDGE.is_file(), f"missing: {BRIDGE}"
+    src = BRIDGE.read_text()
+    for sym in ("export function parseBridgeArgs", "export async function buildLhrEnvelope",
+                "export async function main"):
+        assert sym in src, f"missing export: {sym}"
+    assert "captureRawLhr" in src, "bridge must import captureRawLhr from capture.mjs"
+
+
+def test_bridge_envelope_returns_canonical_shape_with_lhr_by_identity():
+    """buildLhrEnvelope returns {schema, url, lhr (===), provenance}; the LHR
+    is passed through unchanged (no mapping, no warning sorting)."""
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e",
+         f"import {{ buildLhrEnvelope }} from 'file://{BRIDGE}';\n"
+         f"const lhr = {json.dumps(G5_BRIDGE_LHR)};\n"
+         f"let a = null;\n"
+         f"const env = await buildLhrEnvelope({{ url: {json.dumps(BRIDGE_URL)}, runLighthouse: async (x) => {{ a = x; return lhr; }} }});\n"
+         "process.stdout.write(JSON.stringify({"
+         "schema: env.schema, url: env.url, lhrIsLhr: env.lhr === lhr,"
+         " audits: Object.keys(env.lhr.audits||{}), warnings: env.lhr.runWarnings,"
+         " runnerUrl: a&&a.url, provSchema: env.provenance.schema,"
+         " provLh: env.provenance.lighthouseVersion, provCr: env.provenance.chromeVersion,"
+         " provNode: env.provenance.nodeVersion"
+         "}));"],
+        capture_output=True, text=True,
     )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["schema"] == "taxa.g5-raw-lhr.envelope/1"
+    assert out["url"] == BRIDGE_URL
+    assert out["lhrIsLhr"] is True, "envelope.lhr must be BY IDENTITY (===) to the runner's raw LHR"
+    assert out["audits"] == ["first-contentful-paint"]
+    assert out["warnings"] == ["a warn", "b warn"], "raw LHR must NOT be sorted by the bridge"
+    assert out["runnerUrl"] == BRIDGE_URL
+    assert out["provSchema"] == "taxa.g4-capture.provenance/1"
+    assert out["provLh"] == "12.2.1" and out["provCr"] == "120.0.6099.71"
+    assert out["provNode"].startswith("v")
+
+
+@pytest.mark.parametrize("argv,accepted,err_fragment", [
+    (["--url", BRIDGE_URL], True, ""),
+    ([], False, "missing --url"),
+    (["--url"], False, "--url"),
+    (["--url", ""], False, "--url"),
+    (["--url", "http://x", "--url", "http://y"], False, "--url"),
+    (["--unknown"], False, "unknown"),
+    (["--manifest", "/some/path"], False, "unknown"),
+    (["--dry-run"], False, "unknown"),
+])
+def test_bridge_parse_args(argv, accepted, err_fragment):
+    """parseBridgeArgs accepts ONLY --url; missing/empty/duplicate --url and
+    any other flag throw a deterministic error fragment. The happy path
+    returns {url: <url>}."""
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e",
+         f"import {{ parseBridgeArgs }} from 'file://{BRIDGE}';\n"
+         "try { process.stdout.write(JSON.stringify({ok: true, out: parseBridgeArgs("
+         + json.dumps(argv) + ")})); }"
+         " catch (e) { process.stdout.write(JSON.stringify({ok: false, err: e.message})); }"],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["ok"] is accepted, f"argv={argv}: expected accepted={accepted}, got {out!r}"
+    if accepted:
+        assert out["out"] == {"url": BRIDGE_URL}
+    else:
+        assert err_fragment.lower() in out["err"].lower(), (
+            f"argv={argv} error must mention {err_fragment!r}; got {out!r}"
+        )
+
+
+@pytest.mark.parametrize("mode", ["missing-url", "malformed-null", "malformed-array", "runner-throws"])
+def test_bridge_envelope_propagates_runner_errors(mode):
+    """buildLhrEnvelope propagates missing url, malformed runner output, and
+    runner throws BEFORE returning. URL validation short-circuits the runner."""
+    runner_expr = {
+        "missing-url": "async () => { rc = true; return {}; }",
+        "malformed-null": "async () => null",
+        "malformed-array": "async () => []",
+        "runner-throws": "async () => { throw new Error('synthetic runner failure'); }",
+    }[mode]
+    extra = "let rc = false; " if mode == "missing-url" else ""
+    rc_check = "JSON.stringify({err: e.message, rc})" if mode == "missing-url" else "JSON.stringify({err: e.message})"
+    # The `missing-url` parameterization must actually omit the URL field,
+    # mirroring the pre-existing raw-helper pattern (test_raw_lhr_capture_
+    # helper_rejects_invalid_inputs_before_returning). Without this the
+    # URL is always present and the runner-short-circuit assertion would
+    # be vacuously satisfied by URL presence, not URL validation.
+    url_field = f"url: {json.dumps(BRIDGE_URL)}, " if mode != "missing-url" else ""
+    script = (
+        f"import {{ buildLhrEnvelope }} from 'file://{BRIDGE}'; "
+        f"{extra}"
+        f"try {{ await buildLhrEnvelope({{ {url_field}runLighthouse: {runner_expr} }}); process.exit(2); }}"
+        f" catch (e) {{ process.stdout.write({rc_check}); }}"
+    )
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout.strip().splitlines()[-1])
+    if mode == "missing-url":
+        assert "url" in out["err"].lower()
+        assert out["rc"] is False, "missing-url must short-circuit the runner entirely"
+    elif mode == "runner-throws":
+        assert "synthetic runner failure" in out["err"], f"got {out!r}"
+    else:
+        assert "malformed" in out["err"].lower() or "non-array" in out["err"].lower()
+
+
+def test_bridge_does_not_write_files_or_use_g4_corpus(tmp_path):
+    """Bridge must NOT write files or import the G4 corpus surface
+    (validateManifest, verifyTarget, atomicWrite). Triangulate by
+    directory-entry diff + source-symbol grep."""
+    before = set(p.name for p in tmp_path.iterdir())
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e",
+         f"import {{ buildLhrEnvelope }} from 'file://{BRIDGE}';\n"
+         f"const env = await buildLhrEnvelope({{ url: {json.dumps(BRIDGE_URL)}, runLighthouse: async () => ({json.dumps(G5_BRIDGE_LHR)}) }});\n"
+         "process.stdout.write(env.schema);"],
+        capture_output=True, text=True, cwd=str(tmp_path),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == "taxa.g5-raw-lhr.envelope/1"
+    assert set(p.name for p in tmp_path.iterdir()) == before, (
+        f"bridge must NOT write files; before={before!r}"
+    )
+    src = BRIDGE.read_text()
+    for forbidden in ("validateManifest", "verifyTarget", "atomicWrite"):
+        assert forbidden not in src, f"bridge must not reference {forbidden}"
+
+
+def _bridge_cli_runner(tmp_path, runner_body):
+    """Inject runner into bridge CLI via subprocess wrapper that monkey-patches
+    process.exit + stderr.write so the bridge's exit code + stderr are observable."""
+    log = tmp_path / "_bridge_runner_log.json"
+    script = (
+        f"import {{ main }} from 'file://{BRIDGE}';\n"
+        "let exitCode = 0, stderrBuf = '';\n"
+        "const oE = process.exit, oS = process.stderr.write.bind(process.stderr);\n"
+        "process.exit = (c) => { exitCode = c; };\n"
+        "process.stderr.write = (s) => { stderrBuf += String(s); };\n"
+        f"const log = {json.dumps(str(log))};\n"
+        f"const runner = async (a) => {{ const fs = await import('node:fs/promises');"
+        f" let arr = []; try {{ arr = JSON.parse(await fs.readFile(log, 'utf8')); }} catch {{}};"
+        f" arr.push({{a}}); await fs.writeFile(log, JSON.stringify(arr)); return await eval('(' + {json.dumps(runner_body)} + ')()'); }};\n"
+        f"await main(['--url', {json.dumps(BRIDGE_URL)}], {{ runLighthouse: runner }});\n"
+        "process.exit = oE; process.stderr.write = oS;\n"
+        "oS(JSON.stringify({exitCode, stderr: stderrBuf}));"
+    )
+    (tmp_path / "_bridge_cli_wrapper.mjs").write_text(script)
+    return subprocess.run(["node", str(tmp_path / "_bridge_cli_wrapper.mjs")],
+                          capture_output=True, text=True,
+                          env={**os.environ, "NODE_NO_WARNINGS": "1"})
+
+
+def test_bridge_cli_emits_one_json_object_on_success(tmp_path):
+    """CLI emits EXACTLY one JSON object to stdout on success — envelope
+    shape preserved, exit code 0, runner invoked once with the URL."""
+    r = _bridge_cli_runner(tmp_path, f"async () => ({json.dumps(G5_BRIDGE_LHR)})")
+    assert r.returncode == 0, f"got stdout={r.stdout!r} stderr={r.stderr!r}"
+    lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
+    assert len(lines) == 1, f"got {len(lines)} lines: {lines!r}"
+    env = json.loads(lines[0])
+    assert env["schema"] == "taxa.g5-raw-lhr.envelope/1" and env["url"] == BRIDGE_URL
+    assert env["lhr"] == G5_BRIDGE_LHR
+    assert env["provenance"]["schema"] == "taxa.g4-capture.provenance/1"
+    assert env["provenance"]["lighthouseVersion"] == "12.2.1"
+    assert env["provenance"]["chromeVersion"] == "120.0.6099.71"
+    log = json.loads((tmp_path / "_bridge_runner_log.json").read_text())
+    assert len(log) == 1 and log[0]["a"]["url"] == BRIDGE_URL
+
+
+def test_bridge_cli_runner_failure_to_stderr_nonzero(tmp_path):
+    """Runner throws → CLI surfaces error to stderr + nonzero exit;
+    no JSON envelope on stdout."""
+    r = _bridge_cli_runner(tmp_path, "async () => { throw new Error('synthetic runner failure'); }")
+    captured = json.loads(r.stderr.strip().splitlines()[-1])
+    assert captured["exitCode"] != 0, f"got {captured!r}"
+    assert "synthetic runner failure" in captured["stderr"], f"got {captured!r}"
+    assert r.stdout.strip() == ""
+
+
+@pytest.mark.parametrize("argv,err_fragment", [
+    ([], "missing --url"),
+    (["--unknown-flag"], "unknown"),
+    (["--manifest", "/tmp/x.json"], "unknown"),
+    (["--dry-run"], "unknown"),
+])
+def test_bridge_cli_rejects_invalid_args_to_stderr_nonzero(argv, err_fragment):
+    """CLI: missing/unknown/G4-surface flags → stderr + nonzero exit;
+    runner is never called."""
+    r = subprocess.run(["node", str(BRIDGE), *argv], capture_output=True, text=True,
+                        env={**os.environ, "NODE_NO_WARNINGS": "1"})
+    assert r.returncode != 0, f"argv={argv}: stdout={r.stdout!r} stderr={r.stderr!r}"
+    assert err_fragment.lower() in r.stderr.lower(), (
+        f"argv={argv} stderr must mention {err_fragment!r}; got stderr={r.stderr!r}"
+    )
+    assert r.stdout.strip() == ""
