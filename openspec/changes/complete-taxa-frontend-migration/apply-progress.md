@@ -62,7 +62,7 @@
 
 | Sub-PR | Scope | LoC budget (authored) | Source files | Status |
 |--------|-------|-----------------------|--------------|--------|
-| PR 3a | **Toolchain bootstrap** (NEW position 1) | ~210 | `package.json` (modified, `next@^16` / `react@^19` / `react-dom@^19` / `tailwindcss@^4` / TS toolchain / `engines.node ">=20.9.0"` / `scripts.check-runtime` / `scripts.build:web`; legacy Tailwind 3.4 deps removed) + `scripts/check-runtime.mjs` (new, Node ≥ 20.9.0 enforcement) + `tsconfig.json` (new at repo root, base config + `@taxa/<capability>` path aliases) + `.nvmrc` (new, pin `20`) + `tests/test_toolchain_bootstrap.py` (new) + `tests/test_check_runtime.py` (new) | reconstruction pending |
+| PR 3a | **Toolchain bootstrap** (NEW position 1) | ~210 authored; user-approved generated-lockfile exception | `package.json` + regenerated `package-lock.json` (the exception is restricted to resolution changes required by this manifest, and both are reviewed together; `next@^16` / `react@^19` / `react-dom@^19` / `tailwindcss@^4` / TS toolchain / `engines.node ">=20.9.0"` / `scripts.check-runtime` / `scripts.build:web`; legacy Tailwind 3.4 deps removed) + `scripts/check-runtime.mjs` (new, Node ≥ 20.9.0 enforcement) + `tsconfig.json` (modified in place; the predecessor already exists at repo root; base config + `@taxa/<capability>` path aliases) + `.nvmrc` (new, pin `20`) + `tests/test_toolchain_bootstrap.py` (new) + `tests/test_check_runtime.py` (new) | reconstruction pending |
 | PR 3b | **App Router static export** (NEW position 2; was original 3a) | ~175 | `src/app/{layout,page}.tsx` (new) + `next.config.mjs` (new, `output: "export"` + `images.unoptimized: true` + `trailingSlash: false` + `reactStrictMode: true`) + `tests/test_app_shell_render.py` (new, reads `out/index.html` after `npx next build`) | reconstruction pending |
 | PR 3c | **Design tokens + Tailwind 4 `@theme`** (was original 3b; now position 3; depends on `tailwindcss@^4` from 3a) | ~230 | `src/app/globals.css` (new, `@import "tailwindcss"` + `@theme` + `@layer base`) + `src/modules/design-system/{infrastructure/index.ts,presentation/Icon.tsx,presentation/Button.tsx}` (new) + `tests/test_tailwind_4_parity.py` (new) + `tests/test_design_system_purity.py` (new) | reconstruction pending |
 | PR 3d | **Makefile/mount** (NEW position 4; fuses original 3c + 3d; depends on `next build` from 3b + Tailwind from 3c) | ~240 | `Makefile` (modified, `api:` target runs `check-runtime.mjs` → `npm ci` → `npm run build:web` → `uvicorn … --port 8765`; `make css` becomes no-op shim) + `api/server.py` (modified, 1-line delta at line 54, `WEB_DIR = Path(__file__).parent.parent / "out"`) + `src/data/search-engines.js` (new, byte copy of `web/search_urls.js` with `SEARCH_ENGINES` named export) + `tests/test_smoke.py` (modified, `open()` path update) + `tests/test_static_mount.py` (new) + `tests/test_make_api_build.py` (new) | reconstruction pending |
@@ -83,7 +83,7 @@ Phase 6 validation + 1 atomic cutover).
 
 **Total authored**: ~2,245 LoC across the 13 sub-PRs. Largest
 sub-PR is **5b** at ~360 LoC (under 400-line budget with -40
-LoC headroom; **no `size:exception` required**). Heaviest of
+LoC headroom). The sole `size:exception` is user-approved for PR 3a's regenerated `package-lock.json`; its authored work remains ≤400 and unrelated lockfile churn is rejected. Heaviest of
 the new re-scoped sub-PRs is **3d** at ~240 LoC (under 400-line
 budget with -160 LoC headroom).
 

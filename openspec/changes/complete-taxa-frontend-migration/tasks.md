@@ -86,7 +86,7 @@
 | Field | Value |
 |-------|-------|
 | Estimated changed lines | ~2,245 authored across 13 sub-PRs (toolchain bootstrap + App Router static export + Tailwind/tokens + Makefile/mount + 2 browser-state + 2 capability ports + e2e/delete-legacy + 3 Phase 6 validation + 1 atomic cutover) |
-| 400-line budget risk | Low (largest sub-PR is 5b at ~360 lines authored; the heaviest new split is 3d at ~240 lines authored; 11 / 13 sub-PRs ≤ 230 lines) |
+| 400-line budget risk | Low for authored work (largest is 5b at ~360 lines; 3d is ~240; 11 / 13 are ≤230). PR 3a has one user-approved exception for regenerated `package-lock.json` lines only; its authored source/test/config work remains ≤400 and no unrelated lockfile churn is allowed. |
 | Chained PRs recommended | **Yes** — 13 chained child PRs (~2,245 total authored lines ≫ 400, and the atomic cutover requires the feature to integrate before it reaches `develop`) |
 | Suggested split | PR 3a (toolchain bootstrap) → 3b (App Router static export) → 3c (Tailwind/tokens) → 3d (Makefile/mount) → 4a → 4b → 5a → 5b → 5c → Phase 6a (G5) → Phase 6b (G6) → Phase 6c (G4 measurement) → PR 3e (atomic cutover, gated) |
 | Delivery strategy | ask-on-risk (per preflight; Approach A already locked, no override open) |
@@ -96,7 +96,7 @@
 Decision needed before apply: No
 Chained PRs recommended: Yes
 Chain strategy: feature-branch-chain
-400-line budget risk: Low
+400-line budget risk: Low (PR 3a generated package-lock.json exception approved)
 ```
 
 ### Chain topology (Feature Branch Chain)
@@ -162,8 +162,10 @@ revision enforces)**:
   `tailwindcss`, `typescript`, `@types/react`, `@types/react-dom`,
   `@types/node` pinned; `engines.node ">=20.9.0"`; `scripts.check-runtime`
   and `scripts.build:web` scripts), `scripts/check-runtime.mjs`,
-  `tsconfig.json` (base config + `@taxa/<capability>` path aliases),
-  and `.nvmrc`. Verification: `npm ci` exits 0;
+  `tsconfig.json` (modified in place; the predecessor
+  already exists at repo root; base config + `@taxa/<capability>`
+  path aliases), and `.nvmrc`. Verification: `npm ci`
+  exits 0;
   `node scripts/check-runtime.mjs` exits 0 on Node ≥ 20.9.0,
   exits non-zero below; `npx tsc --noEmit` resolves every
   `@taxa/*` alias (against an empty alias map; subsequent PRs
@@ -308,7 +310,7 @@ in the corrected topology).
       `.nvmrc` exists and pins Node ≥ 20.9.0 (literal). The test
       MUST fail on a fresh repo clone (no `package.json` deps
       yet). <!-- sdd-owner: implementation -->
-- [ ] 3a.2 G — `package.json` (modified, ~50 LoC delta): bumps
+- [ ] 3a.2 G — `package.json` (modified, ~50 LoC delta) plus regenerated `package-lock.json` (the sole user-approved size exception; it must contain only resolution changes required by this manifest and be reviewed together with it): bumps
       `next`, `react`, `react-dom`, `tailwindcss` to the
       pinned major versions above; adds the TypeScript
       toolchain; removes the legacy `autoprefixer`, `postcss`,
@@ -323,7 +325,7 @@ in the corrected topology).
       the test asserts it); exits non-zero with a clear error
       naming the observed vs required Node version when below
       the floor; exits 0 on ≥ 20.9.0. <!-- sdd-owner: implementation -->
-- [ ] 3a.4 G — `tsconfig.json` (new at repo root, ~50 LoC):
+- [ ] 3a.4 G — `tsconfig.json` (modified in place; the predecessor already exists at repo root; ~50 LoC delta):
       base TypeScript config — `compilerOptions.target`,
       `module`, `moduleResolution`, `jsx`, `strict`,
       `noUncheckedIndexedAccess`, `paths` (the
@@ -374,7 +376,7 @@ in the corrected topology).
 
 | Task | Focused test command | Runtime harness | Rollback boundary |
 |------|----------------------|-----------------|-------------------|
-| 3a.1 | `.venv/bin/python3 -m pytest tests/test_toolchain_bootstrap.py -v` | `ls package.json scripts/check-runtime.mjs tsconfig.json .nvmrc` non-empty | `git revert <3a-sha>` removes `scripts/check-runtime.mjs`, `.nvmrc`, `tsconfig.json`, restores `package.json` to legacy deps; nothing else touched |
+| 3a.1 | `.venv/bin/python3 -m pytest tests/test_toolchain_bootstrap.py -v` | `ls package.json scripts/check-runtime.mjs tsconfig.json .nvmrc` non-empty | `git revert <3a-sha>` removes `scripts/check-runtime.mjs`, `.nvmrc`, restores `tsconfig.json` to its predecessor state, restores `package.json` and `package-lock.json` to legacy deps; nothing else touched |
 | 3a.2 | same | `node -e "const p=require('./package.json'); assert(p.engines.node === '>=20.9.0')"`; `npm ci` exit 0 | same |
 | 3a.3 | `.venv/bin/python3 -m pytest tests/test_check_runtime.py -v` | `node scripts/check-runtime.mjs` exit 0 on Node ≥ 20.9.0, exit 1 below | same |
 | 3a.4 | same as 3a.1 (alias assertions) | `npx tsc --noEmit` exit 0 against the (empty) `src/**` tree | same |

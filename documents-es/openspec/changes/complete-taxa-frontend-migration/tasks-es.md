@@ -105,7 +105,7 @@
 | Campo | Valor |
 |-------|-------|
 | Líneas modificadas estimadas | ~2.245 authored a través de 13 sub-PRs (bootstrap de toolchain + exportación estática del App Router + Tailwind/tokens + Makefile/mount + 2 browser-state + 2 puertos de capability + e2e/borrar-legacy + 3 validación Fase 6 + 1 cutover atómico) |
-| Riesgo de presupuesto de 400 líneas | Bajo (el sub-PR más grande es 5b a ~360 líneas authored; la división nueva más pesada es 3d a ~240 líneas authored; 11 / 13 sub-PRs ≤ 230 líneas) |
+| Riesgo de presupuesto de 400 líneas | Bajo para el trabajo authored (el mayor es 5b a ~360 líneas; 3d es ~240; 11 / 13 son ≤230). PR 3a tiene una excepción aprobada por el usuario únicamente para líneas regeneradas de `package-lock.json`; su trabajo authored de fuente/tests/config permanece ≤400 y no se permite churn de lockfile no relacionado. |
 | PRs encadenados recomendados | **Sí** — 13 PRs hijos encadenados (~2.245 líneas authored en total ≫ 400, y el cutover atómico exige que la feature se integre antes de llegar a `develop`) |
 | División sugerida | PR 3a (bootstrap de toolchain) → 3b (exportación estática del App Router) → 3c (Tailwind/tokens) → 3d (Makefile/mount) → 4a → 4b → 5a → 5b → 5c → Fase 6a (G5) → Fase 6b (G6) → Fase 6c (medición G4) → PR 3e (cutover atómico, con compuerta) |
 | Estrategia de entrega | ask-on-risk (según preflight; el Enfoque A ya está bloqueado, sin anulación abierta) |
@@ -115,7 +115,7 @@
 Decision needed before apply: No
 Chained PRs recommended: Yes
 Chain strategy: feature-branch-chain
-400-line budget risk: Low
+400-line budget risk: Low (PR 3a generated package-lock.json exception approved)
 ```
 
 ### Topología de la cadena (Feature Branch Chain)
@@ -186,7 +186,8 @@ correctiva del plan impone)**:
   `@types/react-dom`, `@types/node` pineados;
   `engines.node ">=20.9.0"`; scripts `check-runtime` y
   `build:web`), `scripts/check-runtime.mjs`,
-  `tsconfig.json` (config base + aliases de ruta
+  `tsconfig.json` (modificado en su lugar; el predecesor ya
+  existe en la raíz del repo; config base + aliases de ruta
   `@taxa/<capability>`) y `.nvmrc`. Verificación: `npm ci`
   exit 0; `node scripts/check-runtime.mjs` exit 0 en Node ≥
   20.9.0, exit distinto de cero abajo; `npx tsc --noEmit`
@@ -360,7 +361,7 @@ topología corregida).
       deps de `package.json` aún).
       <!-- sdd-owner: implementation -->
 - [ ] 3a.2 G — `package.json` (modificado, ~50 LoC de
-      delta): bumpea `next`, `react`, `react-dom`,
+      delta) más `package-lock.json` regenerado (la única excepción de tamaño aprobada por el usuario; debe contener únicamente cambios de resolución requeridos por este manifiesto y revisarse junto con él): bumpea `next`, `react`, `react-dom`,
       `tailwindcss` a las versiones mayores pineadas
       arriba; añade el toolchain de TypeScript; elimina los
       `autoprefixer`, `postcss`, `@tailwindcss/forms`
@@ -377,8 +378,9 @@ topología corregida).
       versión observada vs requerida de Node cuando está
       por debajo del piso; sale 0 en ≥ 20.9.0.
       <!-- sdd-owner: implementation -->
-- [ ] 3a.4 G — `tsconfig.json` (nuevo en la raíz del
-      repo, ~50 LoC): config base de TypeScript —
+- [ ] 3a.4 G — `tsconfig.json` (modificado en su lugar;
+      el predecesor ya existe en la raíz del repo;
+      ~50 LoC de delta): config base de TypeScript —
       `compilerOptions.target`, `module`, `moduleResolution`,
       `jsx`, `strict`, `noUncheckedIndexedAccess`, `paths`
       (los aliases `@taxa/<capability>` mapeados a
@@ -442,7 +444,7 @@ reversión)**:
 
 | Tarea | Comando de test enfocado | Harness de runtime | Frontera de reversión |
 |------|--------------------------|--------------------|------------------------|
-| 3a.1 | `.venv/bin/python3 -m pytest tests/test_toolchain_bootstrap.py -v` | `ls package.json scripts/check-runtime.mjs tsconfig.json .nvmrc` no vacío | `git revert <3a-sha>` elimina `scripts/check-runtime.mjs`, `.nvmrc`, `tsconfig.json`, restaura `package.json` a deps legacy; nada más tocado |
+| 3a.1 | `.venv/bin/python3 -m pytest tests/test_toolchain_bootstrap.py -v` | `ls package.json scripts/check-runtime.mjs tsconfig.json .nvmrc` no vacío | `git revert <3a-sha>` elimina `scripts/check-runtime.mjs`, `.nvmrc`, restaura `tsconfig.json` a su estado del predecesor, restaura `package.json` y `package-lock.json` a deps legacy; nada más tocado |
 | 3a.2 | mismo | `node -e "const p=require('./package.json'); assert(p.engines.node === '>=20.9.0')"`; `npm ci` exit 0 | mismo |
 | 3a.3 | `.venv/bin/python3 -m pytest tests/test_check_runtime.py -v` | `node scripts/check-runtime.mjs` exit 0 en Node ≥ 20.9.0, exit 1 abajo | mismo |
 | 3a.4 | mismo que 3a.1 (verificaciones de aliases) | `npx tsc --noEmit` exit 0 contra el árbol `src/**` (vacío) | mismo |

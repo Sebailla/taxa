@@ -222,6 +222,10 @@ La unidad de rollback es **`git revert <cutover-sha>`**. Restaura
   `web/dist/tailwind.css`, `tailwind.config.js`.
 - El `package.json` + `package-lock.json` legacy; `npm ci`
   reproduce el lock.
+- `tsconfig.json` revierte al scaffold de strict-mode + aliases
+  de ruta `@taxa/<capability>` del predecesor (el archivo ya
+  existía en la raíz del repo antes del PR 3a; la config
+  completa de Next.js / JSX / plugins se elimina en el rollback).
 - `api/server.py:54` revierte a
   `WEB_DIR = Path(__file__).parent.parent / "web"`.
 - El `Makefile::api` revierte a invocar `make css` antes de
@@ -438,7 +442,7 @@ líneas por sub-PR.
 
 | Posición | Sub-PR | Mapeo de tarea del predecesor | Alcance | Nuevo / preservado | Presupuesto LoC |
 | --- | --- | --- | --- | --- | --- |
-| 1 / 13 | PR 3a (bootstrap de toolchain) | NUEVO (absorbe parte de la tarea 3.4 original — reescritura de `package.json` + `scripts/check-runtime.mjs`) | Pines de deps de `package.json` (`next@^16`, `react@^19`, `react-dom@^19`, `tailwindcss@^4`, toolchain TS, `engines.node ">=20.9.0"`; elimina `autoprefixer` / `postcss` / `@tailwindcss/forms` legacy; scripts `check-runtime` y `build:web`) + `scripts/check-runtime.mjs` (nuevo, Node ≥ 20.9.0) + `tsconfig.json` (nuevo en la raíz del repo, config base + aliases de ruta `@taxa/<capability>`) + `.nvmrc` (nuevo, pin `20`) + `tests/test_toolchain_bootstrap.py` (nuevo) + `tests/test_check_runtime.py` (nuevo) | Nuevo | ~210 (≤ 400) |
+| 1 / 13 | PR 3a (bootstrap de toolchain) | NUEVO (absorbe parte de la tarea 3.4 original — reescritura de `package.json` + `scripts/check-runtime.mjs`) | Pines de deps de `package.json` (`next@^16`, `react@^19`, `react-dom@^19`, `tailwindcss@^4`, toolchain TS, `engines.node ">=20.9.0"`; elimina `autoprefixer` / `postcss` / `@tailwindcss/forms` legacy; scripts `check-runtime` y `build:web`) + `package-lock.json` regenerado (la única excepción de tamaño aprobada por el usuario; generado-only-resolution — contiene únicamente los cambios de resolución requeridos por este manifiesto; revisado junto con `package.json`; sin churn de lockfile no relacionado) + `scripts/check-runtime.mjs` (nuevo, Node ≥ 20.9.0) + `tsconfig.json` (modificado en su lugar; el predecesor ya creó el archivo en la raíz del repo en el PR 2a — PR 3a lo extiende con la config completa de Next.js / JSX / plugins y los aliases de ruta `@taxa/<capability>`; restaurado a su estado del predecesor en el rollback) + `.nvmrc` (nuevo, pin `20`) + `tests/test_toolchain_bootstrap.py` (nuevo) + `tests/test_check_runtime.py` (nuevo) | Nuevo | ~210 authored (≤ 400; la única `size:exception` es el `package-lock.json` regenerado; el trabajo authored de fuente/tests/config permanece ≤400) |
 | 2 / 13 | PR 3b (exportación estática del App Router) | tarea 3.1 (re-ambido) | `src/app/{layout,page}.tsx` + `next.config.mjs` + `tests/test_app_shell_render.py` (el testigo de `out/index.html` es satisfacible aquí porque el toolchain está en vivo) | Nuevo (re-ambido) | ~175 (≤ 400) |
 | 3 / 13 | PR 3c (Tailwind/tokens) | tarea 3.2 | `src/app/globals.css` (`@import "tailwindcss"` + `@theme` + `@layer base`) + `src/modules/design-system/{infrastructure/index.ts,presentation/Icon.tsx,presentation/Button.tsx}` + `tests/test_tailwind_4_parity.py` + `tests/test_design_system_purity.py` | Nuevo | ~230 (≤ 400) |
 | 4 / 13 | PR 3d (Makefile/mount) | tarea 3.4 (porción Makefile) + tarea 3.6 + 3.7 (repoint WEB_DIR + AC-21) | Reescritura de `Makefile::api` (corre `check-runtime.mjs` → `npm run build:web` → `uvicorn … --port 8765`; el `make css` legacy se vuelve shim no-op) + repoint de `api/server.py:54` WEB_DIR + `web/search_urls.js` → `src/data/search-engines.js` + actualización de `open()` de AC-21 + `tests/test_make_api_build.py` + `tests/test_static_mount.py` | Nuevo (fusionado) | ~240 (≤ 400) |
@@ -499,7 +503,8 @@ mismo aterriza después de las verificaciones de cierre).
 | `web/dist/tailwind.css` | Regenerado por el `make css` revertido tras el rollback; no parte del nuevo build | `web/dist/tailwind.css` |
 | `tailwind.config.js` | Borrado en la activación (PR 5c) | `tailwind.config.js` |
 | `package.json` | Modificado (PR 3a, bootstrap de toolchain) — `next@^16`, `react@^19`, `react-dom@^19`, `tailwindcss@^4`, toolchain TS, `engines.node ">=20.9.0"`; quita `autoprefixer`, `postcss`, `@tailwindcss/forms`; añade `scripts.check-runtime` y `scripts.build:web` | `package.json` |
-| `tsconfig.json` | Creado (PR 3a, bootstrap de toolchain) — config base + aliases de ruta `@taxa/<capability>` | `tsconfig.json` |
+| `package-lock.json` | Regenerado (PR 3a, bootstrap de toolchain) — única excepción de tamaño aprobada por el usuario; generado-only-resolution (sin contenido authored a mano); contiene únicamente los cambios de resolución requeridos por este manifiesto; revisado junto con `package.json`; sin churn de lockfile no relacionado | `package-lock.json` |
+| `tsconfig.json` | Modificado en su lugar (PR 3a, bootstrap de toolchain) — config completa de Next.js / JSX / plugins superpuesta sobre el scaffold de strict-mode + aliases de ruta `@taxa/<capability>` del predecesor (el predecesor ya creó el archivo en la raíz del repo en el PR 2a; restaurado a su estado del predecesor en el rollback) | `tsconfig.json` |
 | `.nvmrc` | Creado (PR 3a, bootstrap de toolchain) — pin `20` | `.nvmrc` |
 | `scripts/check-runtime.mjs` | Creado (PR 3a, bootstrap de toolchain) — aplicación de Node ≥ 20.9.0 | nuevo |
 | `tests/test_toolchain_bootstrap.py` | Creado (PR 3a, bootstrap de toolchain) — verifica deps, engines.node, scripts, aliases de ruta, .nvmrc | nuevo |
