@@ -44,6 +44,11 @@ Research/
 !openspec/changes/*/specs/research/
 !openspec/changes/archive/*/specs/research/
 !openspec/specs/research/
+# Spanish OpenSpec mirrors are human-readable artifacts and must track
+# their research capability specs alongside the English source.
+!documents-es/openspec/changes/*/specs/research/
+!documents-es/openspec/changes/archive/*/specs/research/
+!documents-es/openspec/specs/research/
 # PR 2a introduces a tracked capability module at `src/modules/research/`
 # (lowercase). Same case-insensitive collision on macOS would silently drop
 # the scaffold (`index.ts` barrel + 4 layer `.gitkeep` placeholders).
