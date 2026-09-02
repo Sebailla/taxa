@@ -169,6 +169,39 @@ authoritative.
 - [ ] **Browse flow** — domain → sub-tree → species row;
   breadcrumb updates; detail panel loads; URL reflects
   `<root>/<taxon>` per the legacy shape.
+- [ ] **Detail panel tab strip** — selecting any node (including
+  top-level domains) opens an inline contextual detail panel
+  with **three tabs in fixed order: `Overview`, `Search`,
+  `Folder`**. All three tabs are reachable from every selection;
+  `Overview` is **always available and always visible** per the
+  user-selected policy (no future state may gate `Overview`
+  behind a feature flag, a permission, or a taxon-shape check).
+- [ ] **`Overview` tab** — renders the selected taxon's metadata:
+  scientific name, accepted status, authorship, species count.
+  `Overview` is the default tab on a fresh selection.
+- [ ] **`Search` tab** — renders a categorized outbound-link list.
+  Categories render in fixed order: `General`, `Taxonomic`,
+  `Academic`, `Multimedia`, `Documents`. Each entry is an anchor
+  with `target="_blank"`, `rel="noopener noreferrer"`, and the
+  URL template resolved from the `SEARCH_ENGINES` literal.
+  **`Search` is a primary tab** (sibling of `Overview` and
+  `Folder`), NOT a secondary card list nested under
+  `Overview`.
+- [ ] **`Folder` tab** — per-taxon folder / materialize indicator;
+  separate from `Search`.
+- [ ] **`Search online` kebab action forces `Search` tab** —
+  invoking the `Search online` action from the per-row kebab
+  menu on **any** selection (including top-level taxa) MUST
+  activate the `Search` tab on the selected taxon, NOT
+  `Overview`. Current live behavior lands on `Overview` for
+  top-level taxa; this regression MUST be closed by the
+  apply phase.
+- [ ] **Header `Browser` tab is global** — `Browser` is the
+  **global Research / file explorer** surface; it is NOT a
+  detail-panel tab and is NOT taxon-scoped. Selecting a
+  taxon while `Browser` is active MUST NOT scope the file
+  explorer to that taxon; the explorer continues to show the
+  active research corpus.
 - [ ] **Search flow** — header search modal fires
   `GET /api/search?q=<q>`; results from all three sources (`col`,
   `worms`, `freshwater`) appear in the legacy result grouping.

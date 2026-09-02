@@ -68,8 +68,8 @@
 | PR 3d | **Makefile/mount** (NEW position 4; fuses original 3c + 3d; depends on `next build` from 3b + Tailwind from 3c) | ~240 | `Makefile` (modified, `api:` target runs `check-runtime.mjs` → `npm ci` → `npm run build:web` → `uvicorn … --port 8765`; `make css` becomes no-op shim) + `api/server.py` (modified, 1-line delta at line 54, `WEB_DIR = Path(__file__).parent.parent / "out"`) + `src/data/search-engines.js` (new, byte copy of `web/search_urls.js` with `SEARCH_ENGINES` named export) + `tests/test_smoke.py` (modified, `open()` path update) + `tests/test_static_mount.py` (new) + `tests/test_make_api_build.py` (new) | reconstruction pending |
 | PR 4a | Typed store + 4 read + 4 write (unchanged) | ~180 | `src/modules/browser-state/{domain/keys.ts,infrastructure/store.ts,index.ts}` (new) + `tests/test_browser_state_keys.py` (new) | reconstruction pending |
 | PR 4b | Hydration guard + Playwright zero-warnings (unchanged) | ~90 | `src/modules/app-shell/{presentation/AppShell.tsx,infrastructure/page-chrome.tsx}` (new) + `tests/test_hydration_console.py` (new, Playwright) | reconstruction pending |
-| PR 5a | Taxonomy module port (unchanged) | ~280 | `src/modules/taxonomy/{domain/taxon.ts,infrastructure/api.ts,application/useTaxonTree.ts,presentation/{Tree,DetailPanel,Breadcrumb}.tsx}` (new + extension) + `tests/test_taxonomy_infra.py` (new) | reconstruction pending |
-| PR 5b | Research module port + CDN pin (unchanged) | ~360 | `src/modules/research/{domain/{research-file,engine,file-node}.ts,infrastructure/{api,search-engines}.{ts,js},application/{useFileExplorer,useFileViewer}.ts,presentation/{FileExplorer,FileViewer,RawTableTreeTabs,MetaStrip,BreadcrumbPanel,Banners}.tsx}` (new) + `tests/test_research_infra.py` (new) | reconstruction pending |
+| PR 5a | Taxonomy module port (extended; absorbs DetailPanel tab strip + OverviewTab + Kebab Search-online force) | ~310 | `src/modules/taxonomy/{domain/taxon.ts,infrastructure/api.ts,application/useTaxonTree.ts,presentation/{Tree,DetailPanel,OverviewTab,Kebab,Breadcrumb}.tsx}` (new + extension; `DetailPanel` ships the three-tab strip `Overview` / `Search` / `Folder` per the verified UI surface, with `Overview` always available/visible) + `tests/test_taxonomy_infra.py` (new; includes the `Search online` → `Search` tab Playwright regression witness) | reconstruction pending |
+| PR 5b | Research module port + CDN pin (extended; absorbs SearchTab + FolderTab + SearchLinkList + header `Browser` tab re-anchoring as global Research) | ~395 | `src/modules/research/{domain/{research-file,engine,file-node}.ts,infrastructure/{api,search-engines}.{ts,js},application/{useFileExplorer,useFileViewer}.ts,presentation/{FileExplorer,FileViewer,RawTableTreeTabs,MetaStrip,BreadcrumbPanel,Banners,SearchLinkList,SearchTab,FolderTab}.tsx}` (new; `SearchTab` renders the five category sections `General` / `Taxonomic` / `Academic` / `Multimedia` / `Documents` in fixed order; `FolderTab` is a separate body; `SearchLinkList` maps each `Engine` to an anchor with `target="_blank"` + `rel="noopener noreferrer"`) + `src/modules/app-shell/infrastructure/page-chrome.tsx` (modified; header `Browser` tab re-anchored as global Research / file explorer, NOT taxon-scoped) + `tests/test_research_infra.py` (new; includes the categorized outbound-link list triangulation and the global-Browser witness) | reconstruction pending |
 | PR 5c | E2E selectors + `data-*` contract + delete legacy (unchanged) | ~200 | `tests/test_e2e_file_explorer.py` (modified, DOM selector update) + `tests/test_web_toggle.py` (modified, theme toggle update) + `tests/test_evidence_baseline.py` (modified, legacy roster assertion flips to "absent") + `web/{index.html,index.css}` deletion + `web/{app,state,api,tree,breadcrumb,detail,nav,dom,banner,help,keymap,settings,search,file_explorer,file_viewer,format,search_urls}.js` deletion (18 files) + `tailwind.config.js` deletion + `web/dist/tailwind.css` no longer tracked | reconstruction pending |
 | Phase 6a | G5 hydration baseline closure (unchanged) | ~50 (mostly measurement) | `scripts/reconstruct_hydration_baseline.py` (new) + `scripts/g5_close.sh` (new) + `web/dist/evidence-baseline.json` (regenerated, schema-pinned by `tests/test_hydration_timing.py`) + `apply-progress.md` §Change log delta | reconstruction pending (validation work after candidate path) |
 | Phase 6b | G6 cutover rehearsal (unchanged) | ~120 | `scripts/rehearse_cutover.py` (new) + `tests/test_rehearse_cutover.py` (new) + `openspec/changes/complete-taxa-frontend-migration/cutover-manifest.json` (working copy; predecessor copy stays byte-identical frozen) + `apply-progress.md` §Change log delta | reconstruction pending (validation work after candidate path) |
@@ -81,11 +81,20 @@ static export + 1 Tailwind/tokens + 1 Makefile/mount + 2
 browser-state + 2 capability ports + 1 e2e + delete legacy + 3
 Phase 6 validation + 1 atomic cutover).
 
-**Total authored**: ~2,245 LoC across the 13 sub-PRs. Largest
-sub-PR is **5b** at ~360 LoC (under 400-line budget with -40
-LoC headroom). The sole `size:exception` is user-approved for PR 3a's regenerated `package-lock.json`; its authored work remains ≤400 and unrelated lockfile churn is rejected. Heaviest of
-the new re-scoped sub-PRs is **3d** at ~240 LoC (under 400-line
-budget with -160 LoC headroom).
+**Total authored**: ~2,265 LoC across the 13 sub-PRs (Δ ≤ 20 LoC
+from the previous ~2,245 forecast; the new component split
+absorbs `DetailPanel` tab strip + `OverviewTab` + `Kebab` into
+PR 5a and `SearchTab` + `FolderTab` + `SearchLinkList` + the
+header `Browser` tab re-anchoring into PR 5b without duplicating
+production code). Largest sub-PR is **5b** at ~395 LoC (under
+400-line budget with -5 LoC headroom — **tight headroom**;
+maintainability is tracked; PR 5b stays inside the 400-line
+review budget but is the most pressure-loaded of the chain). The
+sole `size:exception` is user-approved for PR 3a's regenerated
+`package-lock.json`; its authored work remains ≤400 and unrelated
+lockfile churn is rejected. Heaviest of the new re-scoped
+sub-PRs is **3d** at ~240 LoC (under 400-line budget with -160
+LoC headroom).
 
 ### Reconstruction order (deterministic, sequential along the chain)
 
@@ -308,6 +317,112 @@ largest sub-PR is 5b at ~360 LoC, under 400-line budget).
 - No code committed, pushed, or applied. The apply worker
   reads this corrected plan when the next PR window opens.
 
+### 2026-09-02 — UI surface & tab-structure corrective revision (this entry)
+
+- **Source**: live browser inspection of
+  `http://127.0.0.1:8765/`. Verified current behavior
+  diverges from the per-domain spec narrative in two
+  ways that this entry corrects at the SDD level (per-
+  domain specs are out of scope for this revision;
+  high-level design/spec/tasks/apply-progress and the
+  faithful Spanish mirrors are updated).
+- **Verified UI surface (binding)**:
+  - Main surface: taxonomic tree (rows render
+    `rank / name / source / species-count` plus per-row
+    kebab).
+  - Selecting any node — including top-level domains
+    such as `Archaea` — opens an **inline contextual
+    detail panel** with an inline header and a tab
+    strip.
+  - **Three tabs in fixed order: `Overview`, `Search`,
+    `Folder`.** All three reachable from every
+    selection; **`Overview` is always available and
+    always visible** per the user-selected policy.
+  - `Overview` renders scientific name, accepted
+    status, authorship, species count.
+  - `Search` renders a categorized outbound-link list
+    (`General`, `Taxonomic`, `Academic`, `Multimedia`,
+    `Documents`) in fixed order. **`Search` is a
+    primary tab**, not a secondary card list.
+  - `Folder` is a separate body (per-taxon materialize
+    indicator).
+  - Header `Browser` tab is the **global Research /
+    file explorer** (NOT taxon-scoped).
+- **Observed inconsistency (regression to close)**: the
+  per-row `Search online` kebab action currently lands
+  on `Overview` for top-level taxa (and is silently
+  permitted to land on `Overview` for any selection
+  whose `state.activeTab[taxonId]` has not been
+  explicitly set). Its intended interaction MUST force
+  the `Search` tab active for **every** selection —
+  top-level or otherwise. The apply phase closes the
+  regression in PR 5a / PR 5b.
+- **Scope changes (binding)**:
+  - PR 5a extended: absorbs the `DetailPanel` tab
+    strip scaffolding (3-tab strip `Overview` /
+    `Search` / `Folder`), `OverviewTab` body, and
+    `Kebab` menu with the `Search online` action that
+    forces `Search`. Forecast: ~310 LoC (Δ ~+30 from
+    the previous ~280 forecast).
+  - PR 5b extended: absorbs `SearchTab` (categorized
+    outbound-link list in fixed order), `FolderTab`
+    (separate body), `SearchLinkList` presenter, and
+    the header `Browser` tab re-anchoring as global
+    Research / file explorer (NOT taxon-scoped).
+    Forecast: ~395 LoC (Δ ~+35 from the previous
+    ~360 forecast). Stays under the 400-line per-PR
+    review budget with **-5 LoC tight headroom**;
+    maintainability is tracked.
+  - **Total authored**: ~2,265 LoC across the 13
+    sub-PRs (Δ ≤ 20 LoC from the previous ~2,245
+    forecast; the new component split absorbs the
+    additional pieces without duplicating production
+    code).
+  - **13-child chain topology preserved**; no PR
+    position, dependency, or branch base changes.
+- **Code / commit / push / PR / chain-topology
+  constraints honored**:
+  - No code, commit, push, PR, or `git revert`
+    performed in this revision.
+  - No PR base changes; no chain reordering.
+  - Predecessor `migrate-nextjs-tailwind4/` stays
+    byte-identical frozen.
+- **Artifacts updated** (high-level only; per-domain
+  specs are out of scope):
+  - `openspec/changes/complete-taxa-frontend-migration/design.md`
+    — module ownership table updated to add
+    `OverviewTab`, `SearchTab`, `FolderTab`, `Kebab`,
+    `SearchLinkList`; new section "UI surface and tab
+    structure (verified current behavior)" pins the
+    binding contract; sub-PR slice table updated to
+    reflect PR 5a (~310 LoC) and PR 5b (~395 LoC);
+    affected files table updated; risks table updated
+    with two new entries.
+  - `openspec/changes/complete-taxa-frontend-migration/spec.md`
+    — functional parity section extended with seven
+    new acceptance criteria (Detail panel tab strip,
+    `Overview` tab, `Search` tab, `Folder` tab, `Search
+    online` kebab action forces `Search` tab, header
+    `Browser` tab is global).
+  - `openspec/changes/complete-taxa-frontend-migration/tasks.md`
+    — PR 5a extended with `OverviewTab`,
+    `DetailPanel` tab strip, `Kebab` `Search online`
+    force-Search contract, and a tab-strip Playwright
+    regression witness; PR 5b extended with `SearchTab`,
+    `FolderTab`, `SearchLinkList`, and the header
+    `Browser` tab re-anchoring; per-task evidence
+    tables updated.
+  - `openspec/changes/complete-taxa-frontend-migration/apply-progress.md`
+    — sub-PR table updated (PR 5a / PR 5b source files
+    columns); total authored forecast updated;
+    reconstruction order preserved; this change log
+    entry recorded.
+  - Spanish mirrors
+    `documents-es/openspec/changes/complete-taxa-frontend-migration/{design-es,spec-es,tasks-es,apply-progress-es}.md`
+    — faithful translations of the high-level updates
+    above; no extra content introduced; per-domain
+    specs remain out of scope.
+
 > (Subsequent per-sub-PR entries appended below by the apply
 > worker, one block per sub-PR merge.)
 
@@ -525,6 +640,22 @@ position 2 (now satisfiable), Tailwind/tokens at position 3,
 the Makefile/mount fused sub-PR at position 4, and the
 remaining sub-PRs in dependency-correct order at positions
 5–13. The 13-child count is preserved.
+
+**UI surface & tab-structure corrective revision applied
+2026-09-02**: the live browser inspection of
+`http://127.0.0.1:8765/` revealed a verified UI surface
+that diverges from the per-domain spec narrative. The
+high-level design/spec/tasks/apply-progress and the faithful
+Spanish mirrors were revised to pin the binding contract
+(Overview always available/visible; Search is a primary tab;
+Search online forces Search; Browser is global Research).
+Per-domain specs are out of scope for this revision. The
+13-child chain topology was preserved; no PR position,
+dependency, or branch base changed. The PR 5a and PR 5b
+forecasts moved to ~310 LoC and ~395 LoC respectively (the
+latter with tight -5 LoC headroom against the 400-line per-
+PR review budget); total authored is now ~2,265 LoC (Δ ≤ 20
+from the previous ~2,245 forecast).
 
 > **Footer (apply phase flips)**: G1: PASS recorded · G2:
 > PASS recorded · G3 Tier-1: PASS recorded · G3 Tier-2: NOT

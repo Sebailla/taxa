@@ -853,14 +853,36 @@ infrastructure,presentation}` + port de
 (lectura de estado segura de hidratación para
 `tree-source`).
 
+Este sub-PR también aterriza el **strip de pestañas del
+`DetailPanel`** (`Overview` / `Search` / `Folder`), el
+**cuerpo de la pestaña `Overview`**, y el **menú `Kebab`
+incluyendo la acción `Search online` que fuerza la pestaña
+`Search`** (cerrando la regresión actual en vivo donde los
+taxones de nivel superior aterrizan en `Overview` cuando se
+invoca `Search online`). El re-anclaje de la pestaña
+`Browser` del header (Research global / file explorer) y
+los cuerpos de `SearchTab` / `FolderTab` aterrizan en
+PR 5b para mantener el port de taxonomy enfocado en la
+superficie árbol-y-detalle; PR 5a solo es dueña del
+**andamiaje del strip de pestañas** más el **contrato de
+forzar `Search`** al que el `SearchTab` de PR 5b se enchufa.
+
 - [ ] 5a.1 R — `tests/test_taxonomy_infra.py` (nuevo):
       mockea `fetchTaxon`, `fetchChildren`,
       `fetchDomains`; verifica que la capa de aplicación
       expone solo view-models (sin JSON crudo en la capa
       de presentación); verifica que la forma de los
       tipos `Taxon`, `TaxonTree`, `Breadcrumb` coincide
-      con la capa de dominio `taxonomy`.
-      <!-- sdd-owner: implementation -->
+      con la capa de dominio `taxonomy`; verifica que el
+      strip de pestañas del `DetailPanel` expone tres
+      pestañas en orden fijo (`Overview`, `Search`,
+      `Folder`); verifica que `Overview` siempre está
+      disponible / siempre es visible según la política
+      seleccionada por el usuario; verifica que la
+      acción kebab `Search online` fuerza la pestaña
+      `Search` activa (NO `Overview`, ni siquiera para
+      taxones de nivel superior — cierra la regresión
+      actual en vivo). <!-- sdd-owner: implementation -->
 - [ ] 5a.2 G — `src/modules/taxonomy/domain/taxon.ts`
       (~60 LoC): tipos TS planos para `Taxon`, `TaxonTree`,
       `Breadcrumb`, `DomainId`; invariantes (caminador de
@@ -887,33 +909,75 @@ infrastructure,presentation}` + port de
       `domain` o `infrastructure`. <!-- sdd-owner: implementation -->
 - [ ] 5a.5 G —
       `src/modules/taxonomy/presentation/{Tree,
-      DetailPanel, Breadcrumb}.tsx` (~200 LoC
-      combinados): porta el layout de filas legacy de
-      `web/{tree,detail,breadcrumb}.js` (kebab por fila,
-      ícono de búsqueda por fila, indicador de materialize
-      por fila, familia monoespaciada del breadcrumb para
-      los segmentos de nombre científico). Cada atributo
+      DetailPanel, OverviewTab, Breadcrumb}.tsx`
+      (~220 LoC combinados): porta el layout de filas
+      legacy de `web/{tree,detail,breadcrumb}.js` (kebab
+      por fila, ícono de búsqueda por fila, indicador de
+      materialize por fila, familia monoespaciada del
+      breadcrumb para los segmentos de nombre científico)
+      **y envía el strip de pestañas del `DetailPanel`**.
+      El strip de pestañas renderiza **tres pestañas en
+      orden fijo: `Overview`, `Search`, `Folder`**, las
+      tres alcanzables desde cada selección; `Overview`
+      **siempre está disponible y siempre es visible**
+      según la política seleccionada por el usuario. El
+      componente `OverviewTab` renderiza el nombre
+      científico, el estado de aceptación, la autoría, el
+      conteo de especies. El `DetailPanel` exporta un
+      callback tipado de activación de pestañas que la
+      acción `Search online` del `Kebab` invoca para
+      forzar la pestaña `Search` activa. Cada atributo
       legacy `data-action="nav-tab"`, `data-path="<tab>"`,
       `data-theme` se preserva. <!-- sdd-owner: implementation -->
-- [ ] 5a.6 T — triangulación de
+- [ ] 5a.6 G — `src/modules/taxonomy/presentation/Kebab.tsx`
+      (~40 LoC): menú kebab por fila. Incluye la acción
+      `Search online` cableada para despachar el callback
+      de activación de pestañas que **fuerza la pestaña
+      `Search` activa** sobre el taxón seleccionado (NO
+      DEBE defaultear a `Overview`, ni siquiera para
+      taxones de nivel superior). La acción es el cierre
+      de la regresión actual en vivo donde `Search
+      online` sobre taxones de nivel superior aterriza en
+      `Overview`. <!-- sdd-owner: implementation -->
+- [ ] 5a.7 T — triangulación de
       `tests/test_taxonomy_infra.py`: parametriza sobre
       las tres fuentes (`col`, `worms`, `freshwater`);
       verifica que el toggle de tree-source re-renderiza
       el árbol con la fuente coincidente; verifica que el
       caminador del breadcrumb maneja taxones raíz (sin
       padre) y taxones huérfanos (padre faltante en la
-      fuente) sin lanzar excepciones.
+      fuente) sin lanzar excepciones; verifica que el
+      strip de pestañas del `DetailPanel` renderiza las
+      tres pestañas (`Overview`, `Search`, `Folder`) para
+      cada selección incluidos los taxones de nivel
+      superior; verifica que `Overview` siempre es
+      visible; verifica que la acción kebab `Search
+      online` fuerza la pestaña `Search` activa (cierra
+      la regresión actual). <!-- sdd-owner: implementation -->
+- [ ] 5a.8 T — extiende `tests/test_taxonomy_infra.py`
+      con un testigo Playwright del strip de pestañas:
+      carga el fixture de chromium, selecciona un taxón
+      de nivel superior (ej. `Archaea`), hace clic en la
+      acción kebab `Search online` por fila, verifica que
+      el strip de pestañas del panel de detalle muestra
+      ahora `Search` como pestaña activa (NO `Overview`).
+      El testigo es la guardia de regresión contra el
+      comportamiento actual en vivo.
       <!-- sdd-owner: implementation -->
-- [ ] 5a.7 Refactor — extrae el menú kebab por fila en
+- [ ] 5a.9 Refactor — extrae el menú kebab por fila en
       `<Kebab>`; reúsalo a través de `Tree` y
-      `DetailPanel`. <!-- sdd-owner: implementation -->
+      `DetailPanel`; colapsa el renderizado del strip de
+      pestañas del `DetailPanel` en una primitiva única
+      `<TabStrip tabs={["Overview", "Search", "Folder"]}
+      active={...} onChange={...} />` exportada desde
+      `src/modules/design-system/`. <!-- sdd-owner: implementation -->
 
 **Evidencia por tarea**:
 
 | Tarea | Comando de test enfocado | Harness de runtime | Frontera de reversión |
 |------|--------------------------|--------------------|------------------------|
-| 5a.1, 5a.6 | `.venv/bin/python3 -m pytest tests/test_taxonomy_infra.py -v` | `make api` arranca uvicorn; `curl /api/domains` devuelve la forma JSON | `git revert <5a-sha>` elimina `src/modules/taxonomy/**` (excepto `domain/taxon.ts` enviado por el predecesor PR 2d — ese se queda); nada más tocado |
-| 5a.2–5a.5 | mismo | `npx next build` exit 0; `npx tsc --noEmit` contra `src/modules/taxonomy/` | mismo |
+| 5a.1, 5a.7, 5a.8 | `.venv/bin/python3 -m pytest tests/test_taxonomy_infra.py -v` | `make api` arranca uvicorn; `curl /api/domains` devuelve la forma JSON; el testigo Playwright del strip de pestañas exit 0 | `git revert <5a-sha>` elimina `src/modules/taxonomy/**` (excepto `domain/taxon.ts` enviado por el predecesor PR 2d — ese se queda); nada más tocado |
+| 5a.2–5a.6, 5a.9 | mismo | `npx next build` exit 0; `npx tsc --noEmit` contra `src/modules/taxonomy/` | mismo |
 
 ## Fase 5b: Port del módulo research + pin CDN (PR 5b → rama del PR 5a)
 
@@ -922,11 +986,27 @@ Rebana las tareas 5.4 + 5.5 + 5.6 del predecesor
 infrastructure,presentation}` + port de
 `web/{file_explorer,file_viewer,format,keymap}.js` + pin
 CDN). Depende de PR 5a (flujos de lectura de estado de
-taxonomía compartidos con research) y PR 3d
+taxonomía compartidos con research y el andamiaje del
+strip de pestañas del `DetailPanel` al que se enchufa la
+acción `Search online`) y PR 3d
 (`src/data/search-engines.js` para el export nombrado
-`Engine`). Este es el sub-PR más grande a ~360 LoC; queda
-bajo el presupuesto de 400 líneas según `design.md`
-§"Sub-PR slice under Approach A".
+`Engine`). Este es el sub-PR más grande a ~395 LoC; queda
+bajo el presupuesto de 400 líneas según `design.md` §"Sub-
+PR slice under Approach A" con holgura ajustada — la
+mantenibilidad se rastrea y la frontera se mantiene dentro
+del presupuesto de revisión de 400 líneas por PR.
+
+Este sub-PR también aterriza el **cuerpo de `SearchTab`**
+(lista categorizada de enlaces salientes en orden fijo
+`General` / `Taxonomic` / `Academic` / `Multimedia` /
+`Documents`), el **cuerpo de `FolderTab`** (indicador de
+materialize por taxón; **separado** de `SearchTab`), el
+**presentador `SearchLinkList`** que mapea cada `Engine` a
+un anchor con `target="_blank"` y `rel="noopener
+noreferrer"`, y el **re-anclaje de la pestaña `Browser` del
+header como Research global / file explorer** (NO scoped
+por taxón; seleccionar un taxón mientras `Browser` está
+activo NO DEBE acotar el explorer a ese taxón).
 
 - [ ] 5b.1 R — `tests/test_research_infra.py` (nuevo):
       mockea `fetchFiles`, `fetchServe` contra
@@ -935,7 +1015,14 @@ bajo el presupuesto de 400 líneas según `design.md`
       DOCX / XLS / XLSX / EPUB) enruta al lazy loader
       correcto; verifica que las URLs CDN están fijadas a
       `mammoth@1.8.0`, `xlsx@0.18.5`,
-      `epubjs@0.3.93`. <!-- sdd-owner: implementation -->
+      `epubjs@0.3.93`; verifica que el `SearchTab`
+      renderiza las cinco secciones de categoría en orden
+      fijo (`General`, `Taxonomic`, `Academic`,
+      `Multimedia`, `Documents`); verifica que el
+      `FolderTab` es un cuerpo separado del `SearchTab`;
+      verifica que la pestaña `Browser` del header abre
+      el file explorer de Research global sin un filtro
+      `taxonId`. <!-- sdd-owner: implementation -->
 - [ ] 5b.2 G —
       `src/modules/research/domain/{research-file,
       engine, file-node}.ts` (~90 LoC combinados): tipos
@@ -969,9 +1056,10 @@ bajo el presupuesto de 400 líneas según `design.md`
 - [ ] 5b.6 G —
       `src/modules/research/presentation/{FileExplorer,
       FileViewer, RawTableTreeTabs, MetaStrip,
-      BreadcrumbPanel, Banners}.tsx` (~250 LoC
-      combinados): porta el layout de dos paneles legacy
-      de `web/{file_explorer,file_viewer,format,keymap}.js`;
+      BreadcrumbPanel, Banners, SearchLinkList,
+      SearchTab, FolderTab}.tsx` (~290 LoC combinados):
+      porta el layout de dos paneles legacy de
+      `web/{file_explorer,file_viewer,format,keymap}.js`;
       el strip Raw / Table / Tree; el meta strip
       `FORMAT | SIZE | ENCODING`; el despachador de
       nueve formatos con lazy loading fijado a CDN; los
@@ -981,8 +1069,28 @@ bajo el presupuesto de 400 líneas según `design.md`
       debounce, modos filter / highlight,
       `state.explorer.search.{query, mode, hideEmpty}`
       persistido); el reset de estado del explorador al
-      cambiar taxón. <!-- sdd-owner: implementation -->
-- [ ] 5b.7 T — triangulación de
+      cambiar taxón. El `SearchTab` renderiza las cinco
+      secciones de categoría (`General` / `Taxonomic` /
+      `Academic` / `Multimedia` / `Documents`) en orden
+      fijo; el presentador `SearchLinkList` mapea cada
+      `Engine` a un anchor con `target="_blank"` y
+      `rel="noopener noreferrer"`, resolviendo la
+      plantilla de URL desde `SEARCH_ENGINES`. El
+      `FolderTab` es un cuerpo separado (indicador de
+      materialize por taxón); NO DEBE ser un subconjunto
+      de `SearchTab`. <!-- sdd-owner: implementation -->
+- [ ] 5b.7 G —
+      `src/modules/app-shell/infrastructure/page-chrome.tsx`
+      (~30 LoC de delta): la pestaña `Browser` del header
+      se re-ancla como el **Research global / file
+      explorer** — abre el explorer sin un filtro
+      `taxonId`, y seleccionar un taxón mientras `Browser`
+      está activo NO DEBE acotar el explorer a ese taxón
+      (el explorer continúa mostrando el corpus de
+      investigación activo). El contrato de atributo
+      `data-path="browser"` y `data-action="nav-tab"` se
+      preserva. <!-- sdd-owner: implementation -->
+- [ ] 5b.8 T — triangulación de
       `tests/test_research_infra.py`: parametriza sobre
       los nueve formatos (PDF, HTML, TXT, MD, DOCX, XLS,
       XLSX, EPUB, más fallback DOC, más una extensión no
@@ -991,19 +1099,32 @@ bajo el presupuesto de 400 líneas según `design.md`
       que `Content-Type` coincide con la extensión del
       archivo; verifica que el meta strip renderiza el
       `FORMAT=<EXT> | SIZE=<bytes> | ENCODING=UTF-8`
-      coincidente. <!-- sdd-owner: implementation -->
-- [ ] 5b.8 Refactor — extrae el meta strip en un único
+      coincidente; verifica que las secciones de categoría
+      del `SearchTab` se renderizan en el orden fijo
+      (`General` / `Taxonomic` / `Academic` / `Multimedia`
+      / `Documents`); verifica que cada anchor de
+      `SearchLinkList` lleva `target="_blank"` y
+      `rel="noopener noreferrer"`; verifica que el
+      `FolderTab` se renderiza separado del `SearchTab`;
+      verifica que la pestaña `Browser` del header abre
+      el explorer de Research global sin un scope de
+      taxón. <!-- sdd-owner: implementation -->
+- [ ] 5b.9 Refactor — extrae el meta strip en un único
       componente `<MetaStrip format={…} size={…}
       encoding="UTF-8" />`; extrae el banner de fallo de
       CDN en `<BannerHost>` para que pueda reutilizarse
-      en `app-shell`. <!-- sdd-owner: implementation -->
+      en `app-shell`; colapsa el renderizado de categoría
+      del `SearchTab` en un presentador `<SearchLinkList>`
+      que toma el literal `SEARCH_ENGINES` y renderiza
+      las cinco secciones de categoría.
+      <!-- sdd-owner: implementation -->
 
 **Evidencia por tarea**:
 
 | Tarea | Comando de test enfocado | Harness de runtime | Frontera de reversión |
 |------|--------------------------|--------------------|------------------------|
-| 5b.1, 5b.7 | `.venv/bin/python3 -m pytest tests/test_research_infra.py -v` | `make api` arranca uvicorn; `curl /api/taxon/<id>/files` devuelve la forma JSON; las URLs CDN devuelven 200 | `git revert <5b-sha>` elimina `src/modules/research/**`; `src/data/search-engines.js` (Fase 3d) se queda |
-| 5b.2–5b.6, 5b.8 | mismo | `npx next build` exit 0; `npx tsc --noEmit` contra `src/modules/research/` | mismo |
+| 5b.1, 5b.8 | `.venv/bin/python3 -m pytest tests/test_research_infra.py -v` | `make api` arranca uvicorn; `curl /api/taxon/<id>/files` devuelve la forma JSON; las URLs CDN devuelven 200 | `git revert <5b-sha>` elimina `src/modules/research/**` y el delta de la pestaña `Browser` en `src/modules/app-shell/infrastructure/page-chrome.tsx`; `src/data/search-engines.js` (Fase 3d) se queda |
+| 5b.2–5b.7, 5b.9 | mismo | `npx next build` exit 0; `npx tsc --noEmit` contra `src/modules/research/` | mismo |
 
 ## Fase 5c: Selectores E2E + contrato `data-*` + borrar legacy (PR 5c → rama del PR 5b)
 

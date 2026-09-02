@@ -73,11 +73,11 @@ congelado.
 
 | Módulo | Domain | Application | Infrastructure | Presentation |
 | --- | --- | --- | --- | --- |
-| `taxonomy` | Tipos `Taxon` + invariantes | `useTaxonTree()`, `useTaxonDetail()`, walker de cadena de padres | `fetchTaxon`, `fetchChildren`, `fetchDomains` | `Tree`, `DetailPanel`, `Breadcrumb`, `DomainList` |
-| `research` | Tipos `ResearchFile`, `Engine`, `FileNode` | `useFileExplorer()`, `useFileViewer()`, despachador de formatos | `fetchFiles`, `fetchServe`, `loadScriptOnce` (cargador perezoso CDN), `search-engines.js` | `FileExplorer`, `FileViewer`, `RawTableTreeTabs`, `MetaStrip`, `BreadcrumbPanel`, `Banners` |
+| `taxonomy` | Tipos `Taxon` + invariantes | `useTaxonTree()`, `useTaxonDetail()`, walker de cadena de padres | `fetchTaxon`, `fetchChildren`, `fetchDomains` | `Tree`, `DetailPanel`, `OverviewTab`, `SearchTab`, `FolderTab`, `Breadcrumb`, `DomainList`, `Kebab` |
+| `research` | Tipos `ResearchFile`, `Engine`, `FileNode` | `useFileExplorer()`, `useFileViewer()`, despachador de formatos | `fetchFiles`, `fetchServe`, `loadScriptOnce` (cargador perezoso CDN), `search-engines.js` | `FileExplorer`, `FileViewer`, `RawTableTreeTabs`, `MetaStrip`, `BreadcrumbPanel`, `Banners`, `SearchLinkList` |
 | `design-system` | Tokens de tema (tipados) | — | `globals.css` (bloque `@theme` + `@layer base`), wire-up de `next/font` | `<Icon>`, `<Button>`, primitivas de layout |
 | `browser-state` | Tipos `LocalStorageKey`, defaults tipados, tipo de subscriber | — | `store.ts` (4 claves × {read, write}), adaptador `useSyncExternalStore` | — |
-| `app-shell` | — | Composición host `AppShell`, estado del shell de ruta | `src/app/page.tsx`, `src/app/layout.tsx`, `next.config.mjs` | `AppShell`, `<Header>`, `<Tabs>`, `<HelpShell>`, `<SettingsView>`, `<BannerHost>` |
+| `app-shell` | — | Composición host `AppShell`, estado del shell de ruta | `src/app/page.tsx`, `src/app/layout.tsx`, `next.config.mjs` | `AppShell`, `<Header>`, `<Tabs>` (Browser / Classification / Settings — Browser es el **Research global / file explorer**, NO scoped por taxón), `<HelpShell>`, `<SettingsView>`, `<BannerHost>` |
 
 ### Contrato de importación entre módulos (vinculante)
 
@@ -100,6 +100,55 @@ congelado.
   separado).
 - `tests/test_module_layers.py` (el predecesor PR 2a lo envía; este
   cambio no lo edita).
+
+### Superficie de UI y estructura de pestañas (comportamiento actual verificado)
+
+La UI de pantalla única se entrega con dos superficies de nivel
+superior (las `<Tabs>` del header y el árbol taxonómico más su
+panel de detalle) y el comportamiento verificado de cada una,
+capturado contra `http://127.0.0.1:8765/`:
+
+| Superficie | Ubicación | Comportamiento (vinculante) |
+| --- | --- | --- |
+| **Árbol taxonómico** | columna izquierda de `<main>` | Las filas del árbol renderizan `rank / name / source / species-count` más un menú kebab por fila. La selección de cualquier nodo — incluidos los dominios de nivel superior — abre el panel de detalle inline. |
+| **Panel de detalle** (por taxón seleccionado) | columna derecha de `<main>` | Panel contextual inline con un encabezado inline (rank + nombre científico) y un strip de pestañas. **Tres pestañas en este orden fijo: `Overview`, `Search`, `Folder`.** Las tres pestañas son alcanzables desde cualquier selección; **`Overview` siempre está disponible y siempre es visible** según la política seleccionada por el usuario (ningún estado futuro puede condicionar `Overview` a un feature flag, un permiso, o una verificación de forma del taxón). |
+| Pestaña `Overview` | cuerpo del panel de detalle | Renderiza los metadatos del taxón — nombre científico, estado de aceptación, autoría, conteo de especies. La pestaña por defecto en una selección fresca. |
+| Pestaña `Search` | cuerpo del panel de detalle | Una lista categorizada de enlaces salientes. Las categorías se renderizan en este orden fijo: `General`, `Taxonomic`, `Academic`, `Multimedia`, `Documents`. Cada entrada es un anchor (`<a>`) con `target="_blank"`, `rel="noopener noreferrer"`, y la plantilla de URL resuelta desde `SEARCH_ENGINES`. **`Search` es una pestaña primaria**, no una lista de tarjetas secundaria anidada bajo `Overview`. |
+| Pestaña `Folder` | cuerpo del panel de detalle | Indicador de carpeta / materialización por taxón; **separado de `Search`**. |
+| Pestaña `Browser` (header) | `<Tabs>` de `<Header>` | **Research global / file explorer** — abre el par carpeta recursiva / visor de archivos **sin** filtro `taxonId`; es la superficie de Research, no una superficie scoped por taxón. Seleccionar un taxón mientras se está en `Browser` **no** acota el file explorer a ese taxón; el explorer continúa mostrando el corpus de investigación activo. |
+| Acciones de kebab (por fila de árbol) | popover flotante anclado al glifo kebab | Incluye (a) "Search online", (b) affordance de materialize / open-folder, (c) otras affordances de fila de árbol preservadas del legacy. |
+
+#### Contrato vinculante del comportamiento de pestañas (aplica durante la fase de apply)
+
+- El strip de pestañas del panel de detalle renderiza **las tres
+  pestañas** para cada selección. `Overview` nunca se oculta
+  condicionalmente; la política seleccionada por el usuario de que
+  `Overview` siempre esté disponible / visible es vinculante y
+  anula cualquier cortocircuito por fuente (`col` / `worms` /
+  `freshwater`).
+- `Search` es una **pestaña primaria** (hermana de `Overview` y
+  `Folder`), no una lista de tarjetas secundaria anidada bajo
+  `Overview`. La categorización de las entradas de enlace
+  saliente (`General` / `Taxonomic` / `Academic` / `Multimedia`
+  / `Documents`) vive dentro del cuerpo de la pestaña `Search`.
+- La acción kebab "Search online" **fuerza la pestaña `Search`
+  activa** sobre el taxón seleccionado (NO debe defaultear a
+  `Overview`, ni siquiera para taxones de nivel superior). El
+  comportamiento actual en vivo aterriza en `Overview` para
+  taxones de nivel superior — esta es una regresión conocida que
+  la fase de apply DEBE cerrar; la interacción corregida es
+  "Search online" → pestaña `Search` para **cada** selección.
+- `Browser` (la pestaña del header) es el **Research global /
+  file explorer** y **no** es una tercera pestaña del panel de
+  detalle. Es la superficie de Research, independiente del taxón;
+  seleccionar un taxón mientras `Browser` está activo NO DEBE
+  acotar el explorer a ese taxón.
+- La topología de cadena de 13 hijos se preserva; la estructura
+  de pestañas y el comportamiento de forzar `Search` aterrizan
+  dentro de los sub-PRs PR 5a (port de taxonomy) y PR 5b (port
+  de research) existentes sin cambiar posiciones, dependencias,
+  o sobres de LoC que empujarían la cadena por encima del
+  presupuesto de 400 líneas por PR.
 
 ---
 
@@ -448,8 +497,8 @@ líneas por sub-PR.
 | 4 / 13 | PR 3d (Makefile/mount) | tarea 3.4 (porción Makefile) + tarea 3.6 + 3.7 (repoint WEB_DIR + AC-21) | Reescritura de `Makefile::api` (corre `check-runtime.mjs` → `npm run build:web` → `uvicorn … --port 8765`; el `make css` legacy se vuelve shim no-op) + repoint de `api/server.py:54` WEB_DIR + `web/search_urls.js` → `src/data/search-engines.js` + actualización de `open()` de AC-21 + `tests/test_make_api_build.py` + `tests/test_static_mount.py` | Nuevo (fusionado) | ~240 (≤ 400) |
 | 5 / 13 | PR 4a | tarea 4.1 + 4.2 | `src/modules/browser-state/{domain/keys.ts, infrastructure/store.ts, index.ts}` + 4 sitios de lectura + 4 de escritura dentro de `useEffect` | Nuevo | ~180 (≤ 400) |
 | 6 / 13 | PR 4b | tarea 4.3 + 4.4 | `useSyncExternalStore` detrás de flag `mounted` + aserción Playwright de cero warnings de hidratación | Nuevo | ~90 (≤ 400) |
-| 7 / 13 | PR 5a | tarea 5.1 + 5.2 + 5.3 | `src/modules/taxonomy/{domain,application,infrastructure,presentation}` + port de `web/{tree,detail,breadcrumb}.js` | Nuevo | ~280 (≤ 400) |
-| 8 / 13 | PR 5b | tarea 5.4 + 5.5 + 5.6 | `src/modules/research/{domain,application,infrastructure,presentation}` + port de `web/{file_explorer,file_viewer,format,keymap}.js` + pin CDN | Nuevo | ~360 (≤ 400) |
+| 7 / 13 | PR 5a | tarea 5.1 + 5.2 + 5.3 | `src/modules/taxonomy/{domain,application,infrastructure,presentation}` + port de `web/{tree,detail,breadcrumb}.js` + **strip de pestañas de `DetailPanel`** (`Overview` / `Search` / `Folder`, las tres siempre alcanzables; `Overview` siempre disponible según la política de usuario) + **`OverviewTab`** (nombre científico, estado de aceptación, autoría, conteo de especies) + **`Kebab`** con la acción `Search online` que **fuerza la pestaña `Search`** (cierra la regresión actual en vivo donde `Search online` aterriza en `Overview` para taxones de nivel superior) | Nuevo | ~310 (≤ 400) |
+| 8 / 13 | PR 5b | tarea 5.4 + 5.5 + 5.6 | `src/modules/research/{domain,application,infrastructure,presentation}` + port de `web/{file_explorer,file_viewer,format,keymap}.js` + pin CDN + **`SearchTab`** con lista categorizada de enlaces salientes (`General` / `Taxonomic` / `Academic` / `Multimedia` / `Documents`, orden fijo) + **`FolderTab`** (indicador de materialize por taxón; **separado** de `SearchTab`) + presentador **`SearchLinkList`** que mapea cada `Engine` a un anchor con `target="_blank"`, `rel="noopener noreferrer"` + **pestaña `Browser` del header re-anclada como Research global / file explorer** (NO scoped por taxón; seleccionar un taxón mientras `Browser` está activo NO DEBE acotar el explorer) | Nuevo | ~395 (≤ 400, holgura ajustada; mantenibilidad rastreada) |
 | 9 / 13 | PR 5c | tarea 5.7 + 5.8 + 5.9 | Actualizaciones de selectores Playwright + e2e + preservación del contrato `data-*` + borrar `web/*.{html,js,css}` + `tailwind.config.js` | Nuevo | ~200 (≤ 400) |
 | 10–12 / 13 | Fase 6a / 6b / 6c (validación) | NUEVO | Reconstrucción de baseline G5 / ensayo de cutover G6 / medición de paridad G4 Playwright + Lighthouse (trabajo de validación; sin código nuevo en `web/**`, handlers de ruta de `api/server.py`, ni `extension/**`) | Nuevo (medición) | ~190 + ~120 medición (≤ 400 cada uno) |
 | 13 / 13 | PR 3e (cutover) | unidad de cutover atómico | El release de los cuatro conjuntos + inversión del cutover-manifest a Tier-2 + reejecución del verificador G3 Tier-2 + inversiones del status-footer para el cierre de G4 / G5 / G6 | Atómico | ~120 (≤ 400) |
@@ -526,9 +575,9 @@ mismo aterriza después de las verificaciones de cierre).
 | `tests/test_browser_state_keys.py` | Creado (PR 4a) | nuevo |
 | `src/modules/app-shell/**` | Creado (PR 4b) — AppShell + page-chrome + guardia de hidratación | nuevos |
 | `tests/test_hydration_console.py` | Creado (PR 4b) | nuevo |
-| `src/modules/taxonomy/**` | Porteado (PR 5a) — port de `web/{tree,detail,breadcrumb}.js` a React | nuevos |
-| `tests/test_taxonomy_infra.py` | Creado (PR 5a) | nuevo |
-| `src/modules/research/**` | Porteado (PR 5b) — port de `web/{file_explorer,file_viewer,format,keymap}.js` + pin CDN | nuevos |
+| `src/modules/taxonomy/**` | Porteado (PR 5a) — port de `web/{tree,detail,breadcrumb}.js` a React + strip de pestañas de `DetailPanel` (`Overview` / `Search` / `Folder`, las tres siempre alcanzables; `Overview` siempre disponible según la política de usuario) + `OverviewTab` + menú `Kebab` con la acción `Search online` que fuerza la pestaña `Search` | nuevos |
+| `tests/test_taxonomy_infra.py` | Creado (PR 5a) — más aserciones para el strip de tres pestañas, el contrato `Overview`-siempre-visible, y la fuerza kebab `Search online` → pestaña `Search` (cierra la regresión actual en vivo donde taxones de nivel superior aterrizan en `Overview`) | nuevo |
+| `src/modules/research/**` | Porteado (PR 5b) — port de `web/{file_explorer,file_viewer,format,keymap}.js` + pin CDN + `SearchTab` con lista categorizada de enlaces salientes (`General` / `Taxonomic` / `Academic` / `Multimedia` / `Documents`) + `FolderTab` (separado) + presentador `SearchLinkList` + pestaña `Browser` del header re-anclada como Research global / file explorer (NO scoped por taxón) | nuevos |
 | `tests/test_research_infra.py` | Creado (PR 5b) | nuevo |
 | `tests/test_e2e_file_explorer.py` | Modificado (PR 5c) — selectores DOM actualizados; contrato `data-*` preservado | `tests/test_e2e_file_explorer.py` |
 | `tests/test_web_toggle.py` | Modificado (PR 5c) — toggle de tema persiste vía store tipado | `tests/test_web_toggle.py` |
@@ -578,6 +627,8 @@ mismo aterriza después de las verificaciones de cierre).
 | El tamaño del bundle de dependencias de Next.js + React regresiona el paint inicial | Baja | Perfil de `next build` capturado antes/después; muestra de Playwright + Lighthouse sobre el fixture chromium existente; ≤ 0 % de regresión es el criterio de éxito |
 | El contrato de puerto único se rompe si `host_permissions` de la extensión cambia accidentalmente | Baja | Regla dura en Makefile + check de humo en CI: `make api` solo enlaza 8765; ningún segundo origen añadido; `manifest.json` sin cambios en este cambio |
 | Los artefactos del predecesor derivan durante la fase de apply | Baja | Regla de CI / protección de rama: los PRs de este cambio NO DEBEN modificar `openspec/changes/migrate-nextjs-tailwind4/**`; hook de lint rechaza |
+| **Regresión de la estructura de pestañas del panel de detalle** (comportamiento actual en vivo): la acción kebab `Search online` aterriza en `Overview` en lugar de forzar `Search`, y `Browser` queda scoped al taxón seleccionado. | Media | El §"Superficie de UI y estructura de pestañas" del diseño ancla el contrato (Overview siempre disponible/visible; Search es una pestaña primaria; Search online → Search; Browser es Research global). Las tareas de PR 5a / PR 5b aseguran el comportamiento; el testigo Playwright en PR 5c cubre regresión. La interacción corregida cierra la regresión actual en la misma fase de apply que aterriza el cutover a React. |
+| `Search` se degrada de pestaña primaria a lista de tarjetas secundaria. | Media | El diseño ancla `Search` como hermana de `Overview` / `Folder` dentro del strip de pestañas del panel de detalle; la narrativa del spec por dominio se actualiza a través de esta revisión de diseño (solo a nivel alto — los specs por dominio están fuera del alcance de esta revisión). El testigo Playwright del strip de pestañas en PR 5c asegura tres hermanas en el orden legacy. |
 
 ---
 

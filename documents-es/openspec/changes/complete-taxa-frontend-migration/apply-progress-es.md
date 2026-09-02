@@ -77,8 +77,8 @@
 | PR 3d | **Makefile/mount** (NUEVA posición 4; fusiona 3c + 3d originales; depende de `next build` de 3b + Tailwind de 3c) | ~240 | `Makefile` (modificado, target `api:` ejecuta `check-runtime.mjs` → `npm ci` → `npm run build:web` → `uvicorn … --port 8765`; `make css` se vuelve shim no-op) + `api/server.py` (modificado, delta de 1 línea en línea 54, `WEB_DIR = Path(__file__).parent.parent / "out"`) + `src/data/search-engines.js` (nuevo, copia byte a byte de `web/search_urls.js` con export nombrado `SEARCH_ENGINES`) + `tests/test_smoke.py` (modificado, actualización de ruta `open()`) + `tests/test_static_mount.py` (nuevo) + `tests/test_make_api_build.py` (nuevo) | pendiente de reconstrucción |
 | PR 4a | Typed store + 4 lecturas + 4 escrituras (sin cambios) | ~180 | `src/modules/browser-state/{domain/keys.ts,infrastructure/store.ts,index.ts}` (nuevos) + `tests/test_browser_state_keys.py` (nuevo) | pendiente de reconstrucción |
 | PR 4b | Guardia de hidratación + cero warnings Playwright (sin cambios) | ~90 | `src/modules/app-shell/{presentation/AppShell.tsx,infrastructure/page-chrome.tsx}` (nuevos) + `tests/test_hydration_console.py` (nuevo, Playwright) | pendiente de reconstrucción |
-| PR 5a | Port del módulo taxonomy (sin cambios) | ~280 | `src/modules/taxonomy/{domain/taxon.ts,infrastructure/api.ts,application/useTaxonTree.ts,presentation/{Tree,DetailPanel,Breadcrumb}.tsx}` (nuevo + extensión) + `tests/test_taxonomy_infra.py` (nuevo) | pendiente de reconstrucción |
-| PR 5b | Port del módulo research + pin CDN (sin cambios) | ~360 | `src/modules/research/{domain/{research-file,engine,file-node}.ts,infrastructure/{api,search-engines}.{ts,js},application/{useFileExplorer,useFileViewer}.ts,presentation/{FileExplorer,FileViewer,RawTableTreeTabs,MetaStrip,BreadcrumbPanel,Banners}.tsx}` (nuevos) + `tests/test_research_infra.py` (nuevo) | pendiente de reconstrucción |
+| PR 5a | Port del módulo taxonomy (extendido; absorbe el strip de pestañas de DetailPanel + OverviewTab + Kebab Search-online fuerza) | ~310 | `src/modules/taxonomy/{domain/taxon.ts,infrastructure/api.ts,application/useTaxonTree.ts,presentation/{Tree,DetailPanel,OverviewTab,Kebab,Breadcrumb}.tsx}` (nuevo + extensión; `DetailPanel` envía el strip de tres pestañas `Overview` / `Search` / `Folder` según la superficie UI verificada, con `Overview` siempre disponible/visible) + `tests/test_taxonomy_infra.py` (nuevo; incluye el testigo de regresión Playwright `Search online` → pestaña `Search`) | pendiente de reconstrucción |
+| PR 5b | Port del módulo research + pin CDN (extendido; absorbe SearchTab + FolderTab + SearchLinkList + re-anclaje de la pestaña `Browser` del header como Research global) | ~395 | `src/modules/research/{domain/{research-file,engine,file-node}.ts,infrastructure/{api,search-engines}.{ts,js},application/{useFileExplorer,useFileViewer}.ts,presentation/{FileExplorer,FileViewer,RawTableTreeTabs,MetaStrip,BreadcrumbPanel,Banners,SearchLinkList,SearchTab,FolderTab}.tsx}` (nuevo; `SearchTab` renderiza las cinco secciones de categoría `General` / `Taxonomic` / `Academic` / `Multimedia` / `Documents` en orden fijo; `FolderTab` es un cuerpo separado; `SearchLinkList` mapea cada `Engine` a un anchor con `target="_blank"` + `rel="noopener noreferrer"`) + `src/modules/app-shell/infrastructure/page-chrome.tsx` (modificado; pestaña `Browser` del header re-anclada como Research global / file explorer, NO scoped por taxón) + `tests/test_research_infra.py` (nuevo; incluye la triangulación de la lista categorizada de enlaces salientes y el testigo de Browser-global) | pendiente de reconstrucción |
 | PR 5c | Selectores E2E + contrato `data-*` + borrar legacy (sin cambios) | ~200 | `tests/test_e2e_file_explorer.py` (modificado, actualización de selectores DOM) + `tests/test_web_toggle.py` (modificado, actualización de toggle de tema) + `tests/test_evidence_baseline.py` (modificado, aserción de roster legacy voltea a "ausente") + borrado de `web/{index.html,index.css}` + borrado de `web/{app,state,api,tree,breadcrumb,detail,nav,dom,banner,help,keymap,settings,search,file_explorer,file_viewer,format,search_urls}.js` (18 archivos) + borrado de `tailwind.config.js` + `web/dist/tailwind.css` ya no se rastrea | pendiente de reconstrucción |
 | Fase 6a | Cierre de baseline de hidratación G5 (sin cambios) | ~50 (mayormente medición) | `scripts/reconstruct_hydration_baseline.py` (nuevo) + `scripts/g5_close.sh` (nuevo) + `web/dist/evidence-baseline.json` (regenerado, esquema fijado por `tests/test_hydration_timing.py`) + delta de `apply-progress.md` §Registro de cambios | pendiente de reconstrucción (trabajo de validación tras camino candidato) |
 | Fase 6b | Ensayo de cutover G6 (sin cambios) | ~120 | `scripts/rehearse_cutover.py` (nuevo) + `tests/test_rehearse_cutover.py` (nuevo) + `openspec/changes/complete-taxa-frontend-migration/cutover-manifest.json` (copia de trabajo; la copia del predecesor queda byte-idéntica congelada) + delta de `apply-progress.md` §Registro de cambios | pendiente de reconstrucción (trabajo de validación tras camino candidato) |
@@ -91,11 +91,23 @@
 capability + 1 e2e + borrar legacy + 3 validación de Fase
 6 + 1 cutover atómico).
 
-**Total authored**: ~2.245 LoC a través de los 13
-sub-PRs. El sub-PR más grande es **5b** a ~360 LoC (bajo
-el presupuesto de 400 líneas con -40 LoC de holgura). La única `size:exception` está aprobada por el usuario para el `package-lock.json` regenerado de PR 3a; su trabajo authored permanece ≤400 y se rechaza churn de lockfile no relacionado. El más pesado de los
-sub-PRs re-ambidos es **3d** a ~240 LoC (bajo el
-presupuesto de 400 líneas con -160 LoC de holgura).
+**Total authored**: ~2.265 LoC a través de los 13
+sub-PRs (Δ ≤ 20 LoC del pronóstico previo de ~2.245; el
+nuevo split de componentes absorbe el strip de pestañas
+de `DetailPanel` + `OverviewTab` + `Kebab` en PR 5a y
+`SearchTab` + `FolderTab` + `SearchLinkList` + el re-
+anclaje de la pestaña `Browser` del header en PR 5b sin
+duplicar código de producción). El sub-PR más grande es
+**5b** a ~395 LoC (bajo el presupuesto de 400 líneas con
+**-5 LoC de holgura ajustada** — mantenibilidad
+rastreada; PR 5b queda dentro del presupuesto de revisión
+de 400 líneas pero es el más cargado de presión de la
+cadena). La única `size:exception` está aprobada por el
+usuario para el `package-lock.json` regenerado de PR 3a;
+su trabajo authored permanece ≤400 y se rechaza churn de
+lockfile no relacionado. El más pesado de los sub-PRs re-
+ambidos es **3d** a ~240 LoC (bajo el presupuesto de 400
+líneas con -160 LoC de holgura).
 
 ### Orden de reconstrucción (determinístico, secuencial a lo largo de la cadena)
 
@@ -349,6 +361,128 @@ líneas).
   de apply lee este plan corregido cuando se abra la
   siguiente ventana de PR.
 
+### 2026-09-02 — Revisión correctiva de superficie UI y estructura de pestañas (esta entrada)
+
+- **Fuente**: inspección en vivo del navegador de
+  `http://127.0.0.1:8765/`. El comportamiento actual
+  verificado diverge de la narrativa del spec por
+  dominio de dos maneras que esta entrada corrige a
+  nivel del SDD (los specs por dominio están fuera del
+  alcance de esta revisión; el diseño/spec/tareas/
+  apply-progress de alto nivel y los espejos fieles en
+  español se actualizan).
+- **Superficie UI verificada (vinculante)**:
+  - Superficie principal: árbol taxonómico (las
+    filas renderizan `rank / name / source /
+    species-count` más kebab por fila).
+  - Seleccionar cualquier nodo — incluidos los
+    dominios de nivel superior como `Archaea` —
+    abre un **panel de detalle contextual inline**
+    con un encabezado inline y un strip de pestañas.
+  - **Tres pestañas en orden fijo: `Overview`,
+    `Search`, `Folder`.** Las tres alcanzables desde
+    cada selección; **`Overview` siempre está
+    disponible y siempre es visible** según la
+    política seleccionada por el usuario.
+  - `Overview` renderiza el nombre científico, el
+    estado de aceptación, la autoría, el conteo de
+    especies.
+  - `Search` renderiza una lista categorizada de
+    enlaces salientes (`General`, `Taxonomic`,
+    `Academic`, `Multimedia`, `Documents`) en orden
+    fijo. **`Search` es una pestaña primaria**, no
+    una lista de tarjetas secundaria.
+  - `Folder` es un cuerpo separado (indicador de
+    materialize por taxón).
+  - La pestaña `Browser` del header es el **Research
+    global / file explorer** (NO scoped por taxón).
+- **Inconsistencia observada (regresión a cerrar)**:
+  la acción kebab `Search online` por fila
+  actualmente aterriza en `Overview` para taxones de
+  nivel superior (y se permite silenciosamente que
+  aterrice en `Overview` para cualquier selección
+  cuyo `state.activeTab[taxonId]` no haya sido
+  establecido explícitamente). Su interacción
+  intencionada DEBE forzar la pestaña `Search` activa
+  para **cada** selección — de nivel superior o no.
+  La fase de apply cierra la regresión en PR 5a /
+  PR 5b.
+- **Cambios de alcance (vinculantes)**:
+  - PR 5a extendido: absorbe el andamiaje del strip
+    de pestañas de `DetailPanel` (strip de 3 pestañas
+    `Overview` / `Search` / `Folder`), el cuerpo de
+    `OverviewTab`, y el menú `Kebab` con la acción
+    `Search online` que fuerza `Search`. Pronóstico:
+    ~310 LoC (Δ ~+30 del pronóstico previo de ~280).
+  - PR 5b extendido: absorbe `SearchTab` (lista
+    categorizada de enlaces salientes en orden
+    fijo), `FolderTab` (cuerpo separado),
+    presentador `SearchLinkList`, y el re-anclaje de
+    la pestaña `Browser` del header como Research
+    global / file explorer (NO scoped por taxón).
+    Pronóstico: ~395 LoC (Δ ~+35 del pronóstico
+    previo de ~360). Permanece bajo el presupuesto
+    de revisión de 400 líneas por PR con **-5 LoC de
+    holgura ajustada**; mantenibilidad rastreada.
+  - **Total authored**: ~2.265 LoC a través de los
+    13 sub-PRs (Δ ≤ 20 LoC del pronóstico previo de
+    ~2.245; el nuevo split de componentes absorbe
+    las piezas adicionales sin duplicar código de
+    producción).
+  - **Topología de cadena de 13 hijos preservada**;
+    sin cambios de posición, dependencia, o base de
+    rama de PR.
+- **Restricciones de código / commit / push / PR /
+  topología de cadena honradas**:
+  - Sin código, commit, push, PR, o `git revert`
+    realizado en esta revisión.
+  - Sin cambios de base de PR; sin reordenamiento
+    de cadena.
+  - El predecesor `migrate-nextjs-tailwind4/`
+    permanece byte-idéntico congelado.
+- **Artefactos actualizados** (solo a nivel alto; los
+  specs por dominio están fuera de alcance):
+  - `openspec/changes/complete-taxa-frontend-migration/design.md`
+    — tabla de propiedad de módulos actualizada para
+    añadir `OverviewTab`, `SearchTab`, `FolderTab`,
+    `Kebab`, `SearchLinkList`; nueva sección
+    "Superficie de UI y estructura de pestañas
+    (comportamiento actual verificado)" ancla el
+    contrato vinculante; tabla de rebanada de
+    sub-PRs actualizada para reflejar PR 5a (~310
+    LoC) y PR 5b (~395 LoC); tabla de archivos
+    afectados actualizada; tabla de riesgos
+    actualizada con dos nuevas entradas.
+  - `openspec/changes/complete-taxa-frontend-migration/spec.md`
+    — sección de paridad funcional extendida con
+    siete nuevos criterios de aceptación (strip de
+    pestañas del panel de detalle, pestaña
+    `Overview`, pestaña `Search`, pestaña `Folder`,
+    acción kebab `Search online` fuerza pestaña
+    `Search`, pestaña `Browser` del header es
+    global).
+  - `openspec/changes/complete-taxa-frontend-migration/tasks.md`
+    — PR 5a extendido con `OverviewTab`, strip de
+    pestañas de `DetailPanel`, contrato kebab
+    `Search online` fuerza `Search`, y un testigo
+    Playwright de regresión del strip de pestañas;
+    PR 5b extendido con `SearchTab`, `FolderTab`,
+    `SearchLinkList`, y re-anclaje de la pestaña
+    `Browser` del header; tablas de evidencia por
+    tarea actualizadas.
+  - `openspec/changes/complete-taxa-frontend-migration/apply-progress.md`
+    — tabla de sub-PR actualizada (columnas de
+    archivos fuente de PR 5a / PR 5b); pronóstico
+    total authored actualizado; orden de
+    reconstrucción preservado; esta entrada de
+    registro de cambios registrada.
+  - Espejos en español
+    `documents-es/openspec/changes/complete-taxa-frontend-migration/{design-es,spec-es,tasks-es,apply-progress-es}.md`
+    — traducciones fieles de las actualizaciones de
+    alto nivel de arriba; sin contenido extra
+    introducido; los specs por dominio permanecen
+    fuera de alcance.
+
 > (Entradas posteriores por sub-PR anexadas abajo por
 > el worker de apply, un bloque por fusión de sub-PR.)
 
@@ -594,6 +728,24 @@ satisfacible), Tailwind/tokens en la posición 3, el
 sub-PR Makefile/mount fusionado en la posición 4, y los
 sub-PRs restantes en orden de dependencia correcto en
 las posiciones 5–13. El conteo de 13 hijos se preserva.
+
+**Revisión correctiva de superficie UI y estructura de
+pestañas aplicada el 2026-09-02**: la inspección en vivo
+del navegador de `http://127.0.0.1:8765/` reveló una
+superficie UI verificada que diverge de la narrativa del
+spec por dominio. El diseño/spec/tareas/apply-progress
+de alto nivel y los espejos fieles en español se revisaron
+para anclar el contrato vinculante (Overview siempre
+disponible/visible; Search es una pestaña primaria; Search
+online fuerza Search; Browser es Research global). Los
+specs por dominio están fuera del alcance de esta
+revisión. La topología de cadena de 13 hijos se preservó;
+sin cambios de posición de PR, dependencia, o base de
+rama. Los pronósticos de PR 5a y PR 5b se movieron a ~310
+LoC y ~395 LoC respectivamente (este último con -5 LoC de
+holgura ajustada contra el presupuesto de revisión de 400
+líneas por PR); el total authored es ahora ~2.265 LoC
+(Δ ≤ 20 del pronóstico previo de ~2.245).
 
 > **Footer (flips de la fase de apply)**: G1: PASS
 > registrado · G2: PASS registrado · G3 Tier-1: PASS

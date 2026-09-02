@@ -184,6 +184,43 @@ son autoritativos.
 - [ ] **Flujo de navegación** — dominio → sub-árbol → fila de
   especie; el breadcrumb se actualiza; el panel de detalle
   carga; la URL refleja `<root>/<taxon>` según la forma legacy.
+- [ ] **Strip de pestañas del panel de detalle** — seleccionar
+  cualquier nodo (incluidos los dominios de nivel superior)
+  abre un panel de detalle contextual inline con **tres
+  pestañas en orden fijo: `Overview`, `Search`, `Folder`**.
+  Las tres pestañas son alcanzables desde cada selección;
+  `Overview` está **siempre disponible y siempre visible**
+  según la política seleccionada por el usuario (ningún estado
+  futuro puede condicionar `Overview` a un feature flag, un
+  permiso, o una verificación de forma del taxón).
+- [ ] **Pestaña `Overview`** — renderiza los metadatos del taxón
+  seleccionado: nombre científico, estado de aceptación,
+  autoría, conteo de especies. `Overview` es la pestaña por
+  defecto en una selección fresca.
+- [ ] **Pestaña `Search`** — renderiza una lista categorizada de
+  enlaces salientes. Las categorías se renderizan en orden
+  fijo: `General`, `Taxonomic`, `Academic`, `Multimedia`,
+  `Documents`. Cada entrada es un anchor con `target="_blank"`,
+  `rel="noopener noreferrer"`, y la plantilla de URL resuelta
+  desde el literal `SEARCH_ENGINES`. **`Search` es una
+  pestaña primaria** (hermana de `Overview` y `Folder`), NO
+  una lista de tarjetas secundaria anidada bajo `Overview`.
+- [ ] **Pestaña `Folder`** — indicador de carpeta / materialización
+  por taxón; separado de `Search`.
+- [ ] **La acción kebab `Search online` fuerza la pestaña
+  `Search`** — invocar la acción `Search online` desde el
+  menú kebab por fila sobre **cualquier** selección
+  (incluidos los taxones de nivel superior) DEBE activar la
+  pestaña `Search` sobre el taxón seleccionado, NO `Overview`.
+  El comportamiento actual en vivo aterriza en `Overview` para
+  taxones de nivel superior; esta regresión DEBE ser cerrada
+  por la fase de apply.
+- [ ] **La pestaña `Browser` del header es global** — `Browser` es
+  la superficie **Research global / file explorer**; NO es una
+  pestaña del panel de detalle y NO está scoped por taxón.
+  Seleccionar un taxón mientras `Browser` está activo NO DEBE
+  acotar el file explorer a ese taxón; el explorer continúa
+  mostrando el corpus de investigación activo.
 - [ ] **Flujo de búsqueda** — el modal de búsqueda del header
   dispara `GET /api/search?q=<q>`; los resultados de las tres
   fuentes (`col`, `worms`, `freshwater`) aparecen en la

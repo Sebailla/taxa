@@ -69,11 +69,11 @@ spec (rules 1–7) applies unchanged; the predecessor spec is frozen.
 
 | Module | Domain | Application | Infrastructure | Presentation |
 | --- | --- | --- | --- | --- |
-| `taxonomy` | `Taxon` types + invariants | `useTaxonTree()`, `useTaxonDetail()`, parent-chain walker | `fetchTaxon`, `fetchChildren`, `fetchDomains` | `Tree`, `DetailPanel`, `Breadcrumb`, `DomainList` |
-| `research` | `ResearchFile`, `Engine`, `FileNode` types | `useFileExplorer()`, `useFileViewer()`, format dispatcher | `fetchFiles`, `fetchServe`, `loadScriptOnce` (CDN lazy loader), `search-engines.js` | `FileExplorer`, `FileViewer`, `RawTableTreeTabs`, `MetaStrip`, `BreadcrumbPanel`, `Banners` |
+| `taxonomy` | `Taxon` types + invariants | `useTaxonTree()`, `useTaxonDetail()`, parent-chain walker | `fetchTaxon`, `fetchChildren`, `fetchDomains` | `Tree`, `DetailPanel`, `OverviewTab`, `SearchTab`, `FolderTab`, `Breadcrumb`, `DomainList`, `Kebab` |
+| `research` | `ResearchFile`, `Engine`, `FileNode` types | `useFileExplorer()`, `useFileViewer()`, format dispatcher | `fetchFiles`, `fetchServe`, `loadScriptOnce` (CDN lazy loader), `search-engines.js` | `FileExplorer`, `FileViewer`, `RawTableTreeTabs`, `MetaStrip`, `BreadcrumbPanel`, `Banners`, `SearchLinkList` |
 | `design-system` | Theme tokens (typed) | — | `globals.css` (`@theme` block + `@layer base`), `next/font` wire-up | `<Icon>`, `<Button>`, layout primitives |
 | `browser-state` | `LocalStorageKey` types, typed defaults, subscriber type | — | `store.ts` (4 keys × {read, write}), `useSyncExternalStore` adapter | — |
-| `app-shell` | — | `AppShell` host composition, route shell state | `src/app/page.tsx`, `src/app/layout.tsx`, `next.config.mjs` | `AppShell`, `<Header>`, `<Tabs>`, `<HelpShell>`, `<SettingsView>`, `<BannerHost>` |
+| `app-shell` | — | `AppShell` host composition, route shell state | `src/app/page.tsx`, `src/app/layout.tsx`, `next.config.mjs` | `AppShell`, `<Header>`, `<Tabs>` (Browser / Classification / Settings — Browser is **global Research / file explorer**, NOT taxon-scoped), `<HelpShell>`, `<SettingsView>`, `<BannerHost>` |
 
 ### Cross-module import contract (binding)
 
@@ -94,6 +94,51 @@ spec (rules 1–7) applies unchanged; the predecessor spec is frozen.
 - `extension/**` (Chrome extension parity is a separate change).
 - `tests/test_module_layers.py` (predecessor PR 2a ships; this change
   does not edit it).
+
+### UI surface and tab structure (verified current behavior)
+
+The single-screen UI ships with two top-level surfaces (the
+header `<Tabs>` and the taxonomic tree plus its detail panel)
+and the verified current behavior of each, captured against
+`http://127.0.0.1:8765/`:
+
+| Surface | Location | Behavior (binding) |
+| --- | --- | --- |
+| **Taxonomic tree** | `<main>` left column | Tree rows render `rank / name / source / species-count` plus a per-row kebab menu. Selection of any node — including top-level domains — opens the inline detail panel. |
+| **Detail panel** (per selected taxon) | `<main>` right column | Inline contextual panel with an inline header (rank + scientific name) and a tab strip. **Three tabs in this fixed order: `Overview`, `Search`, `Folder`.** All three tabs are reachable from any selection; **`Overview` is always available and always visible** per the user-selected policy (no future state is permitted to gate `Overview` behind a feature flag, a permission, or a taxon-shape check). |
+| `Overview` tab | Detail panel body | Renders the taxon's metadata — scientific name, accepted status, authorship, species count. The default tab on fresh selection. |
+| `Search` tab | Detail panel body | A categorized outbound-link list. Categories render in this fixed order: `General`, `Taxonomic`, `Academic`, `Multimedia`, `Documents`. Each entry is a single anchor (`<a>`) with `target="_blank"`, `rel="noopener noreferrer"`, and the URL template resolved from `SEARCH_ENGINES`. **`Search` is a primary tab, not a secondary card list** — it sits in the detail-panel tab strip, not below it. |
+| `Folder` tab | Detail panel body | Per-taxon folder / materialize indicator; **separate from `Search`**. |
+| `Browser` tab (header) | `<Header>` `<Tabs>` | **Global Research / file explorer** — opens the recursive folder tree / file viewer pair **without** a `taxonId` filter; it is the Research surface, not a taxon-scoped surface. Selecting a taxon while in `Browser` does **not** scope the file explorer to that taxon; the explorer continues to show the active research corpus. |
+| Kebab actions (per tree row) | Floating popover anchored to the kebab glyph | Includes (a) "Search online", (b) materialize / open-folder affordance, (c) other tree-row affordances preserved from legacy. |
+
+#### Binding tab-behavior contract (applies through apply phase)
+
+- The detail-panel tab strip renders **all three tabs** for every
+  selection. `Overview` is never conditionally hidden; the user-selected
+  policy that `Overview` is always available / visible is binding and
+  overrides any per-source (`col` / `worms` / `freshwater`)
+  short-circuit.
+- `Search` is a **primary tab** (sibling of `Overview` and `Folder`),
+  not a secondary card list nested under `Overview`. The
+  categorization of outbound-link entries (`General` /
+  `Taxonomic` / `Academic` / `Multimedia` / `Documents`) lives
+  inside the `Search` tab body.
+- The "Search online" kebab action **forces the `Search` tab active**
+  on the selected taxon (it MUST NOT default to `Overview`, even for
+  top-level taxa). Current live behavior lands on `Overview` for
+  top-level taxa — this is a known regression that the apply phase
+  MUST close; the corrected interaction is "Search online" →
+  `Search` tab for **every** selection.
+- `Browser` (the header tab) is the **global Research / file
+  explorer** and is **not** a third detail-panel tab. It is the
+  Research surface, taxon-independent; selecting a taxon while
+  `Browser` is active MUST NOT scope the explorer to that taxon.
+- The 13-child chain topology is preserved; the tab structure and
+  Search-force behavior land inside the existing PR 5a (taxonomy
+  port) and PR 5b (research port) sub-PRs without changing
+  positions, dependencies, or LoC envelopes that would push the
+  chain over the 400-line per-PR budget.
 
 ---
 
@@ -427,8 +472,8 @@ Approach A within the 400-line review budget per sub-PR.
 | 4 / 13 | PR 3d (Makefile/mount) | task 3.4 (Makefile portion) + task 3.6 + 3.7 (WEB_DIR repoint + AC-21) | `Makefile::api` rewrite (runs `check-runtime.mjs` → `npm run build:web` → `uvicorn … --port 8765`; legacy `make css` becomes no-op shim) + `api/server.py:54` WEB_DIR repoint + `web/search_urls.js` → `src/data/search-engines.js` + AC-21 `open()` update + `tests/test_make_api_build.py` + `tests/test_static_mount.py` | New (fused) | ~240 (≤ 400) |
 | 5 / 13 | PR 4a | task 4.1 + 4.2 | `src/modules/browser-state/{domain/keys.ts, infrastructure/store.ts, index.ts}` + 4 read + 4 write sites inside `useEffect` | New | ~180 (≤ 400) |
 | 6 / 13 | PR 4b | task 4.3 + 4.4 | `useSyncExternalStore` behind `mounted` flag + Playwright zero-hydration-warnings assertion | New | ~90 (≤ 400) |
-| 7 / 13 | PR 5a | task 5.1 + 5.2 + 5.3 | `src/modules/taxonomy/{domain,application,infrastructure,presentation}` + port `web/{tree,detail,breadcrumb}.js` | New | ~280 (≤ 400) |
-| 8 / 13 | PR 5b | task 5.4 + 5.5 + 5.6 | `src/modules/research/{domain,application,infrastructure,presentation}` + port `web/{file_explorer,file_viewer,format,keymap}.js` + CDN pin | New | ~360 (≤ 400) |
+| 7 / 13 | PR 5a | task 5.1 + 5.2 + 5.3 | `src/modules/taxonomy/{domain,application,infrastructure,presentation}` + port `web/{tree,detail,breadcrumb}.js` + **DetailPanel tab strip** (`Overview` / `Search` / `Folder`, all three always reachable; `Overview` always available per user policy) + **`OverviewTab`** (scientific name, accepted status, authorship, species count) + **`Kebab`** menu including `Search online` action that **forces the `Search` tab** (closes the current live regression where `Search online` lands on `Overview` for top-level taxa) | New | ~310 (≤ 400) |
+| 8 / 13 | PR 5b | task 5.4 + 5.5 + 5.6 | `src/modules/research/{domain,application,infrastructure,presentation}` + port `web/{file_explorer,file_viewer,format,keymap}.js` + CDN pin + **`SearchTab`** with categorized outbound-link list (`General` / `Taxonomic` / `Academic` / `Multimedia` / `Documents`, fixed order) + **`FolderTab`** (per-taxon materialize indicator; **separate** from `SearchTab`) + **`SearchLinkList`** presenter that maps each `Engine` to an anchor with `target="_blank"`, `rel="noopener noreferrer"` + **header `Browser` tab re-anchored as global Research / file explorer** (NOT taxon-scoped; selecting a taxon while `Browser` is active MUST NOT scope the explorer) | New | ~395 (≤ 400, tight headroom; maintainability tracked) |
 | 9 / 13 | PR 5c | task 5.7 + 5.8 + 5.9 | Playwright + e2e selector updates + `data-*` contract preservation + delete `web/*.{html,js,css}` + `tailwind.config.js` | New | ~200 (≤ 400) |
 | 10–12 / 13 | Phase 6a / 6b / 6c (validation) | NEW | G5 baseline reconstruction / G6 cutover rehearsal / G4 Playwright + Lighthouse parity measurement (validation work; no new `web/**` or `api/server.py` route handlers or `extension/**`) | New (measurement) | ~190 + ~120 measurement (≤ 400 each) |
 | 13 / 13 | PR 3e (cutover) | atomic cutover unit | The four-set release + cutover-manifest Tier-2 flip + G3 Tier-2 verifier rerun + status-footer flips for G4 / G5 / G6 closure | Atomic | ~120 (≤ 400) |
@@ -504,9 +549,9 @@ verifications).
 | `tests/test_browser_state_keys.py` | Created (PR 4a) | new |
 | `src/modules/app-shell/**` | Created (PR 4b) — AppShell + page-chrome + hydration guard | new |
 | `tests/test_hydration_console.py` | Created (PR 4b) | new |
-| `src/modules/taxonomy/**` | Ported (PR 5a) — port of `web/{tree,detail,breadcrumb}.js` to React | new |
-| `tests/test_taxonomy_infra.py` | Created (PR 5a) | new |
-| `src/modules/research/**` | Ported (PR 5b) — port of `web/{file_explorer,file_viewer,format,keymap}.js` + CDN pin | new |
+| `src/modules/taxonomy/**` | Ported (PR 5a) — port of `web/{tree,detail,breadcrumb}.js` to React + `DetailPanel` tab strip (`Overview` / `Search` / `Folder`, all three always reachable; `Overview` always available per user policy) + `OverviewTab` + `Kebab` menu with `Search online` action forcing the `Search` tab | new |
+| `tests/test_taxonomy_infra.py` | Created (PR 5a) — plus assertions for the three-tab strip, the `Overview`-always-visible contract, and the `Search online` → `Search` tab force (closes the current live regression where top-level taxa land on `Overview`) | new |
+| `src/modules/research/**` | Ported (PR 5b) — port of `web/{file_explorer,file_viewer,format,keymap}.js` + CDN pin + `SearchTab` with categorized outbound-link list (`General` / `Taxonomic` / `Academic` / `Multimedia` / `Documents`) + `FolderTab` (separate) + `SearchLinkList` presenter + header `Browser` tab re-anchored as global Research / file explorer (NOT taxon-scoped) | new |
 | `tests/test_research_infra.py` | Created (PR 5b) | new |
 | `tests/test_e2e_file_explorer.py` | Modified (PR 5c) — DOM selectors updated; `data-*` contract preserved | `tests/test_e2e_file_explorer.py` |
 | `tests/test_web_toggle.py` | Modified (PR 5c) — theme toggle persists via typed store | `tests/test_web_toggle.py` |
@@ -553,6 +598,8 @@ verifications).
 | Next.js + React dependency bundle size regresses initial paint | Low | `next build` profile captured before/after; Playwright + Lighthouse sample on the existing chromium fixture; ≤ 0 % regression is the success criterion |
 | Single-port contract breaks if extension's `host_permissions` change accidentally | Low | Hard rule in Makefile + CI smoke check: `make api` only binds 8765; no second origin added; `manifest.json` is unchanged in this change |
 | Predecessor artifacts drift during apply phase | Low | CI / branch-protection rule: this change's PRs MUST NOT modify `openspec/changes/migrate-nextjs-tailwind4/**`; lint hook rejects |
+| **Detail-panel tab structure regresses** (current live behavior): the `Search online` kebab action lands on `Overview` instead of forcing `Search`, and `Browser` is scoped to the selected taxon. | Medium | Design §"UI surface and tab structure" pins the contract (Overview always available/visible; Search is a primary tab; Search online → Search; Browser is global Research). PR 5a / PR 5b tasks assert the behavior; Playwright witness in PR 5c covers regression. The corrected interaction closes the current regression in the same apply phase that lands the React cutover. |
+| `Search` degrades from primary tab to secondary card list. | Medium | Design binds `Search` as a sibling of `Overview` / `Folder` inside the detail-panel tab strip; the per-domain spec narrative is updated through this design revision (high-level only — per-domain specs are not in scope of this revision). The tab-strip Playwright witness in PR 5c asserts three siblings in the legacy order. |
 
 ---
 
