@@ -394,31 +394,80 @@ the implementation happens during apply.
 
 ## Sub-PR slice under Approach A
 
-The predecessor's `tasks.md` enumerates 35 tasks across 14+ sub-PRs.
-This change re-slices them under Approach A within the 400-line
-review budget per sub-PR. The full per-task file lists live in
-`tasks.md`; the table below is the executive view.
+> **2026-09-02 — corrective plan revision**: the slice
+> table below replaces the original ordering after the
+> apply gate identified a dependency-order defect
+> (original PR 3a required `next build`/`out/index.html`
+> before the Next/React/Tailwind/TypeScript toolchain and
+> Node runtime contract existed; those landed in original
+> PR 3c). The corrected order installs the toolchain
+> first (position 1), demotes the App Router static
+> export to position 2 (now satisfiable), keeps
+> Tailwind/tokens at position 3, fuses the Makefile
+> rewrite with the `WEB_DIR` repoint + AC-21 into a
+> single sub-PR at position 4, and follows with state,
+> ports, e2e, validation, and the atomic cutover. The
+> 13-child count is preserved. The full per-task file
+> lists and the dependency-correctness rationale live in
+> `tasks.md`; this table is the executive view.
 
-| Sub-PR | Predecessor task | Scope | New / preserved | LoC budget |
-| --- | --- | --- | --- | --- |
-| PR 3a | task 3.1 | `src/app/{layout,page}.tsx` + `next.config.mjs` + TS / Next plugin config in `tsconfig.json` | New | ≤ 400 |
-| PR 3b | task 3.2 | `src/modules/design-system/infrastructure/globals.css` (`@import "tailwindcss"` + `@theme` + `@layer base`) | New | ≤ 400 |
-| PR 3c | task 3.4 | `Makefile::api` rewrite + `scripts/check-runtime.mjs` + `package.json` rewrite (deps + `engines.node`) | New | ≤ 400 |
-| PR 3d | task 3.6 + 3.7 | `api/server.py:54` WEB_DIR repoint + `web/search_urls.js` → `src/data/search-engines.js` + AC-21 `open()` update | New | ≤ 400 |
-| PR 4a | task 4.1 + 4.2 | `src/modules/browser-state/{store,keys,defaults}.ts` + 4 read + 4 write sites inside `useEffect` | New | ≤ 400 |
-| PR 4b | task 4.3 + 4.4 | `useSyncExternalStore` behind `mounted` flag + Playwright zero-hydration-warnings assertion | New | ≤ 400 |
-| PR 5a | task 5.1 + 5.2 + 5.3 | `src/modules/taxonomy/{domain,application,infrastructure,presentation}` + port `web/{tree,detail,breadcrumb}.js` | New | ≤ 400 |
-| PR 5b | task 5.4 + 5.5 + 5.6 | `src/modules/research/{domain,application,infrastructure,presentation}` + port `web/{file_explorer,file_viewer,format,keymap}.js` + CDN pin | New | ≤ 400 |
-| PR 5c | task 5.7 + 5.8 + 5.9 | Playwright + e2e selector updates + `data-*` contract preservation + delete `web/*.{html,js,css}` + `tailwind.config.js` | New | ≤ 400 |
-| PR 3e (cutover) | atomic cutover unit | The four-set release + cutover-manifest Tier-2 flip + G3 Tier-2 verifier rerun + status-footer flips for G4 / G5 / G6 closure | Atomic | ≤ 400 |
+The predecessor's `tasks.md` enumerated 35 tasks across
+14+ sub-PRs. The corrected chain re-slices them under
+Approach A within the 400-line review budget per sub-PR.
 
-The PR 3e cutover sub-PR ships **only when** all six gates are green;
-the apply worker is gated on the G4 / G5 / G6 closure sub-PRs (3e
-itself lands after the closure verifications).
+| Position | Sub-PR | Predecessor task mapping | Scope | New / preserved | LoC budget |
+| --- | --- | --- | --- | --- | --- |
+| 1 / 13 | PR 3a (toolchain bootstrap) | NEW (absorbs part of original task 3.4 — `package.json` rewrite + `scripts/check-runtime.mjs`) | `package.json` dep pins (`next@^16`, `react@^19`, `react-dom@^19`, `tailwindcss@^4`, TS toolchain, `engines.node ">=20.9.0"`; legacy `autoprefixer` / `postcss` / `@tailwindcss/forms` removed; scripts `check-runtime` and `build:web`) + `scripts/check-runtime.mjs` (new, Node ≥ 20.9.0 enforcement) + `tsconfig.json` (new at repo root, base config + `@taxa/<capability>` path aliases) + `.nvmrc` (new, pin `20`) + `tests/test_toolchain_bootstrap.py` (new) + `tests/test_check_runtime.py` (new) | New | ~210 (≤ 400) |
+| 2 / 13 | PR 3b (App Router static export) | task 3.1 (rescoped) | `src/app/{layout,page}.tsx` + `next.config.mjs` + `tests/test_app_shell_render.py` (the `out/index.html` witness is satisfiable here because the toolchain is live) | New (rescoped) | ~175 (≤ 400) |
+| 3 / 13 | PR 3c (Tailwind/tokens) | task 3.2 | `src/app/globals.css` (`@import "tailwindcss"` + `@theme` + `@layer base`) + `src/modules/design-system/{infrastructure/index.ts,presentation/Icon.tsx,presentation/Button.tsx}` + `tests/test_tailwind_4_parity.py` + `tests/test_design_system_purity.py` | New | ~230 (≤ 400) |
+| 4 / 13 | PR 3d (Makefile/mount) | task 3.4 (Makefile portion) + task 3.6 + 3.7 (WEB_DIR repoint + AC-21) | `Makefile::api` rewrite (runs `check-runtime.mjs` → `npm run build:web` → `uvicorn … --port 8765`; legacy `make css` becomes no-op shim) + `api/server.py:54` WEB_DIR repoint + `web/search_urls.js` → `src/data/search-engines.js` + AC-21 `open()` update + `tests/test_make_api_build.py` + `tests/test_static_mount.py` | New (fused) | ~240 (≤ 400) |
+| 5 / 13 | PR 4a | task 4.1 + 4.2 | `src/modules/browser-state/{domain/keys.ts, infrastructure/store.ts, index.ts}` + 4 read + 4 write sites inside `useEffect` | New | ~180 (≤ 400) |
+| 6 / 13 | PR 4b | task 4.3 + 4.4 | `useSyncExternalStore` behind `mounted` flag + Playwright zero-hydration-warnings assertion | New | ~90 (≤ 400) |
+| 7 / 13 | PR 5a | task 5.1 + 5.2 + 5.3 | `src/modules/taxonomy/{domain,application,infrastructure,presentation}` + port `web/{tree,detail,breadcrumb}.js` | New | ~280 (≤ 400) |
+| 8 / 13 | PR 5b | task 5.4 + 5.5 + 5.6 | `src/modules/research/{domain,application,infrastructure,presentation}` + port `web/{file_explorer,file_viewer,format,keymap}.js` + CDN pin | New | ~360 (≤ 400) |
+| 9 / 13 | PR 5c | task 5.7 + 5.8 + 5.9 | Playwright + e2e selector updates + `data-*` contract preservation + delete `web/*.{html,js,css}` + `tailwind.config.js` | New | ~200 (≤ 400) |
+| 10–12 / 13 | Phase 6a / 6b / 6c (validation) | NEW | G5 baseline reconstruction / G6 cutover rehearsal / G4 Playwright + Lighthouse parity measurement (validation work; no new `web/**` or `api/server.py` route handlers or `extension/**`) | New (measurement) | ~190 + ~120 measurement (≤ 400 each) |
+| 13 / 13 | PR 3e (cutover) | atomic cutover unit | The four-set release + cutover-manifest Tier-2 flip + G3 Tier-2 verifier rerun + status-footer flips for G4 / G5 / G6 closure | Atomic | ~120 (≤ 400) |
+
+### Dependency order (corrective plan revision contract)
+
+- **PR 3a — toolchain bootstrap**. Self-contained.
+- **PR 3b — App Router static export** depends on 3a
+  (deps installed + Node ≥ 20.9.0 contract).
+- **PR 3c — Tailwind/tokens** depends on 3a
+  (`tailwindcss@^4` installed).
+- **PR 3d — Makefile/mount** depends on 3b
+  (`next build` produces `out/index.html`) and 3c
+  (Tailwind flows through `next build`).
+- **PR 4a — typed store** depends on 3c (design-system
+  loaded).
+- **PR 4b — hydration guard** depends on 4a (store
+  available) and 3b (AppShell host + `mounted` flag
+  slot).
+- **PR 5a — taxonomy port** depends on 4b
+  (hydration-safe state read).
+- **PR 5b — research port + CDN pin** depends on 5a and
+  3d (`src/data/search-engines.js` for the `Engine`
+  named export).
+- **PR 5c — e2e + delete legacy** depends on 5b.
+- **PR 6a / 6b / 6c — validation** depends on 5c.
+- **PR 3e — atomic cutover** depends on all six gates
+  green.
+
+The PR 3e cutover sub-PR ships **only when** all six
+gates are green; the apply worker is gated on the G4 / G5
+/ G6 closure sub-PRs (3e itself lands after the closure
+verifications).
 
 ---
 
 ## Affected files (executive view)
+
+> **Corrective plan revision of 2026-09-02**: the PR
+> labels in this table reflect the reordered chain
+> (toolchain bootstrap at position 1, App Router static
+> export at position 2, Tailwind/tokens at position 3,
+> fused Makefile/mount at position 4).
 
 | Area | Action | Files |
 | --- | --- | --- |
@@ -427,26 +476,39 @@ itself lands after the closure verifications).
 | `web/index.css` | Deleted at activation (PR 5c) | `web/index.css` |
 | `web/dist/tailwind.css` | Regenerated by reverted `make css` after rollback; not part of new build | `web/dist/tailwind.css` |
 | `tailwind.config.js` | Deleted at activation (PR 5c) | `tailwind.config.js` |
-| `src/app/{layout,page}.tsx` | Created (PR 3a) | new |
-| `src/modules/**` | Populated (PR 3b + 4a/4b + 5a/5b) | new |
-| `src/data/search-engines.js` | Created (PR 3d) — replaces `web/search_urls.js` | new |
-| `src/app/globals.css` | Created (PR 3b) — Tailwind 4 `@theme` + `@layer base` | new |
-| `package.json` | Modified (PR 3c) — `next@^16`, `react@^19`, `react-dom@^19`, `tailwindcss@^4`, TS toolchain, `engines.node ">=20.9.0"`; removes `autoprefixer`, `postcss`, `@tailwindcss/forms` | `package.json` |
-| `api/server.py` | Modified (PR 3d) — `WEB_DIR` repoint at line 54 only; mount signature unchanged | `api/server.py` |
-| `Makefile` | Modified (PR 3c) — `api` target runs `npm run build:web` before uvicorn; legacy `make css` retired | `Makefile` |
-| `tests/test_tailwind_4_parity.py` | Created (PR 3b) | new |
-| `tests/test_make_api_build.py` | Created (PR 3c) | new |
-| `tests/test_static_mount.py` | Created (PR 3d) | new |
+| `package.json` | Modified (PR 3a, toolchain bootstrap) — `next@^16`, `react@^19`, `react-dom@^19`, `tailwindcss@^4`, TS toolchain, `engines.node ">=20.9.0"`; removes `autoprefixer`, `postcss`, `@tailwindcss/forms`; adds `scripts.check-runtime` and `scripts.build:web` | `package.json` |
+| `tsconfig.json` | Created (PR 3a, toolchain bootstrap) — base config + `@taxa/<capability>` path aliases | `tsconfig.json` |
+| `.nvmrc` | Created (PR 3a, toolchain bootstrap) — pin `20` | `.nvmrc` |
+| `scripts/check-runtime.mjs` | Created (PR 3a, toolchain bootstrap) — Node ≥ 20.9.0 enforcement | new |
+| `tests/test_toolchain_bootstrap.py` | Created (PR 3a, toolchain bootstrap) — verifies deps, engines.node, scripts, path aliases, .nvmrc | new |
+| `tests/test_check_runtime.py` | Created (PR 3a, toolchain bootstrap) — verifies the Node ≥ 20.9.0 floor exit codes | new |
+| `src/app/{layout,page}.tsx` | Created (PR 3b, App Router static export) | new |
+| `next.config.mjs` | Created (PR 3b, App Router static export) — `output: "export"`, `images.unoptimized: true`, `trailingSlash: false`, `reactStrictMode: true` | new |
+| `tests/test_app_shell_render.py` | Created (PR 3b, App Router static export) — reads `out/index.html` after `next build` | new |
+| `src/app/globals.css` | Created (PR 3c, Tailwind/tokens) — Tailwind 4 `@theme` + `@layer base` | new |
+| `src/modules/design-system/{infrastructure/index.ts, presentation/Icon.tsx, presentation/Button.tsx}` | Created (PR 3c, Tailwind/tokens) — design-system barrel | new |
+| `tests/test_tailwind_4_parity.py` | Created (PR 3c, Tailwind/tokens) | new |
+| `tests/test_design_system_purity.py` | Created (PR 3c, Tailwind/tokens) | new |
+| `Makefile` | Modified (PR 3d, Makefile/mount) — `api` target runs `check-runtime.mjs` → `npm run build:web` → uvicorn; legacy `make css` retired to no-op shim | `Makefile` |
+| `api/server.py` | Modified (PR 3d, Makefile/mount) — `WEB_DIR` repoint at line 54 only; mount signature unchanged | `api/server.py` |
+| `src/data/search-engines.js` | Created (PR 3d, Makefile/mount) — replaces `web/search_urls.js` with `SEARCH_ENGINES` named export | new |
+| `tests/test_make_api_build.py` | Created (PR 3d, Makefile/mount) — verifies Makefile run order and Node floor | new |
+| `tests/test_static_mount.py` | Created (PR 3d, Makefile/mount) — verifies `WEB_DIR` repoint and single-origin contract | new |
+| `tests/test_smoke.py::test_search_engine_contract` | Modified (PR 3d, Makefile/mount) — `open()` path updated if literal moved; byte shape preserved | `tests/test_smoke.py` |
+| `src/modules/browser-state/**` | Created (PR 4a) — typed store + 4 read + 4 write sites | new |
 | `tests/test_browser_state_keys.py` | Created (PR 4a) | new |
+| `src/modules/app-shell/**` | Created (PR 4b) — AppShell + page-chrome + hydration guard | new |
 | `tests/test_hydration_console.py` | Created (PR 4b) | new |
+| `src/modules/taxonomy/**` | Ported (PR 5a) — port of `web/{tree,detail,breadcrumb}.js` to React | new |
 | `tests/test_taxonomy_infra.py` | Created (PR 5a) | new |
+| `src/modules/research/**` | Ported (PR 5b) — port of `web/{file_explorer,file_viewer,format,keymap}.js` + CDN pin | new |
 | `tests/test_research_infra.py` | Created (PR 5b) | new |
 | `tests/test_e2e_file_explorer.py` | Modified (PR 5c) — DOM selectors updated; `data-*` contract preserved | `tests/test_e2e_file_explorer.py` |
 | `tests/test_web_toggle.py` | Modified (PR 5c) — theme toggle persists via typed store | `tests/test_web_toggle.py` |
-| `tests/test_smoke.py::test_search_engine_contract` | Modified (PR 3d) — `open()` path updated if literal moved; byte shape preserved | `tests/test_smoke.py` |
-| `scripts/check-runtime.mjs` | Created (PR 3c) — Node ≥ 20.9.0 enforcement | new |
-| `scripts/rehearse_cutover.py` | Created (PR 3e) — G6 dry-run | new |
-| `tests/test_rehearse_cutover.py` | Created (PR 3e) — parametrized fail-closed invariant | new |
+| `tests/test_evidence_baseline.py` | Modified (PR 5c) — legacy `web/*.js` roster assertion flips to "absent" | `tests/test_evidence_baseline.py` |
+| `scripts/reconstruct_hydration_baseline.py` + `scripts/g5_close.sh` | Created (Phase 6a) — G5 baseline closure | new |
+| `scripts/rehearse_cutover.py` + `tests/test_rehearse_cutover.py` | Created (Phase 6b) — G6 cutover rehearsal + parametrized fail-closed invariant | new |
+| `scripts/g4_measure.sh` + `out/g4-parity-report.json` | Created (Phase 6c) — G4 Playwright + Lighthouse parity measurement | new |
 | `extension/manifest.json` | **Unchanged** | `extension/manifest.json` |
 | `openspec/changes/migrate-nextjs-tailwind4/**` | **Unchanged (frozen)** | (frozen) |
 | `documents-es/openspec/changes/complete-taxa-frontend-migration/**` | Spanish mirror (this change) | `documents-es/openspec/changes/complete-taxa-frontend-migration/design-es.md` |
@@ -510,13 +572,16 @@ ships only when all six gates are green.
 
 ## Next step
 
-The **tasks phase** (sdd-tasks) reads this design plus the predecessor's
-`tasks.md`, `apply-progress.md`, and `cutover-manifest.json`, then
-authors the per-sub-PR file lists for the 10 sub-PRs above under
-Approach A within the 400-line review budget per sub-PR. The
-**apply phase** owns the G4 / G5 / G6 closure sub-PRs and the atomic
-cutover PR3e. The **archive phase** copies each per-domain spec
-verbatim into
+The **tasks phase** (sdd-tasks) reads this design plus the
+predecessor's `tasks.md`, `apply-progress.md`, and
+`cutover-manifest.json`, then authors the per-sub-PR file
+lists for the 13 sub-PRs above under Approach A within the
+400-line review budget per sub-PR (the corrective plan
+revision of 2026-09-02 reordered the slice and rescoped
+PRs 3a–3d so the toolchain bootstrap lands first). The
+**apply phase** owns the G4 / G5 / G6 closure sub-PRs and
+the atomic cutover PR3e. The **archive phase** copies each
+per-domain spec verbatim into
 `openspec/specs/{frontend-runtime,design-tokens,browser-state-hydration,frontend-bootstrap,research}/spec.md`
-and promotes the modular-architecture spec into the canonical specs
-tree.
+and promotes the modular-architecture spec into the
+canonical specs tree.
