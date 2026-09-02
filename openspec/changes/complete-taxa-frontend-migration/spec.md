@@ -391,6 +391,27 @@ following artifacts are imported as planning history:
   unchanged; the delta lives at
   `specs/research/spec.md` of this change)
 
+## Dependency-defect fix (2026-09-02)
+
+The PR-level scope reshuffle documented in
+`design.md::§"Sub-PR slice under Approach A"`,
+`tasks.md::§"Per-sub-PR dependency"`, and
+`apply-progress.md::§"Per-sub-PR dependency (corrective plan
+revision contract)"` closes a dependency defect the apply gate
+identified in PR 3b's original `src/app/layout.tsx` (which
+imported `@taxa/app-shell` — implemented in PR 4b — and
+`./globals.css` — implemented in PR 3c). PR 3b is rescoped to
+a self-contained App Router static-export bootstrap; the
+`import "./globals.css";` line moves into PR 3c; the
+`<AppShell>` integration moves into PR 4b. The 13-child chain
+topology, the test evidence (`out/index.html` / viewport /
+Raleway preload / hydration-zero-warnings), the per-domain
+acceptance criteria above, the backend contract, the
+validation gates recorded above, and the ≤ 400 authored lines
+per sub-PR budget are all preserved. Approach A, FastAPI/
+SQLite, the frozen predecessor, and the per-domain specs stay
+unchanged.
+
 ## Next step
 
 The **design phase** records the final approach decision (already

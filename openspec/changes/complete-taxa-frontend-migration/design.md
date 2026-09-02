@@ -460,6 +460,31 @@ the implementation happens during apply.
 > lists and the dependency-correctness rationale live in
 > `tasks.md`; this table is the executive view.
 
+> **2026-09-02 — dependency-defect fix (this revision)**.
+> The apply gate's pre-flight re-audit identified a
+> second dependency defect inside the corrected topology:
+> the PR 3b at position 2 imported `@taxa/app-shell` (a
+> module PR 4b ships at position 6/13 — *later* in the
+> chain) and `./globals.css` (a file PR 3c ships at
+> position 3/13 — *later* in the chain). At its
+> `next build` witness, neither target file existed yet.
+> The same audit flagged PR 3b.5's triangulation
+> assertion that the build output references the typed
+> store barrel path `@taxa/browser-state` — that barrel
+> file does not exist until PR 4a. **PR 3b is rescoped
+> to a self-contained App Router static-export
+> bootstrap**: minimal semantic placeholders that
+> import neither `@taxa/app-shell` nor `./globals.css`;
+> the `import "./globals.css";` line moves into PR 3c;
+> the `<AppShell>` integration into `src/app/{layout,
+> page}.tsx` moves into PR 4b. PR 3b.5's unsatisfiable
+> `@taxa/browser-state` reference is dropped. **The
+> 13-child topology and ordering are preserved**;
+> per-PR LoC budgets stay well under 400; **only the
+> prior PR 3a `package-lock.json` exception remains**.
+> Approach A, FastAPI/SQLite, the frozen predecessor,
+> and the per-domain specs stay unchanged.
+
 The predecessor's `tasks.md` enumerated 35 tasks across
 14+ sub-PRs. The corrected chain re-slices them under
 Approach A within the 400-line review budget per sub-PR.
@@ -467,32 +492,40 @@ Approach A within the 400-line review budget per sub-PR.
 | Position | Sub-PR | Predecessor task mapping | Scope | New / preserved | LoC budget |
 | --- | --- | --- | --- | --- | --- |
 | 1 / 13 | PR 3a (toolchain bootstrap) | NEW (absorbs part of original task 3.4 — `package.json` rewrite + `scripts/check-runtime.mjs`) | `package.json` dep pins (`next@^16`, `react@^19`, `react-dom@^19`, `tailwindcss@^4`, TS toolchain, `engines.node ">=20.9.0"`; legacy `autoprefixer` / `postcss` / `@tailwindcss/forms` removed; scripts `check-runtime` and `build:web`) + regenerated `package-lock.json` (the sole user-approved size exception; generated-resolution-only — contains only the resolution changes required by this manifest; reviewed together with `package.json`; no unrelated lockfile churn) + `scripts/check-runtime.mjs` (new, Node ≥ 20.9.0 enforcement) + `tsconfig.json` (modified in place; the predecessor already created the file at repo root in PR 2a — PR 3a extends it with the full Next.js / JSX / plugin config and the `@taxa/<capability>` path aliases; restored to its predecessor state on rollback) + `.nvmrc` (new, pin `20`) + `tests/test_toolchain_bootstrap.py` (new) + `tests/test_check_runtime.py` (new) | New | ~210 authored (≤ 400; the sole `size:exception` is the regenerated `package-lock.json`; authored source/test/config work stays ≤400) |
-| 2 / 13 | PR 3b (App Router static export) | task 3.1 (rescoped) | `src/app/{layout,page}.tsx` + `next.config.mjs` + `tests/test_app_shell_render.py` (the `out/index.html` witness is satisfiable here because the toolchain is live) | New (rescoped) | ~175 (≤ 400) |
-| 3 / 13 | PR 3c (Tailwind/tokens) | task 3.2 | `src/app/globals.css` (`@import "tailwindcss"` + `@theme` + `@layer base`) + `src/modules/design-system/{infrastructure/index.ts,presentation/Icon.tsx,presentation/Button.tsx}` + `tests/test_tailwind_4_parity.py` + `tests/test_design_system_purity.py` | New | ~230 (≤ 400) |
+| 2 / 13 | PR 3b (App Router static-export bootstrap, self-contained) | task 3.1 (rescoped) | `src/app/{layout,page}.tsx` (minimal semantic placeholder; **no AppShell, no globals.css import**) + `next.config.mjs` + `tests/test_app_shell_render.py` (the `out/index.html` / viewport / Raleway preload witness is satisfiable here because the toolchain is live **and** PR 3b imports nothing that 3c or 4b produce) | New (rescoped) | ~150 (≤ 400) |
+| 3 / 13 | PR 3c (Tailwind/tokens + `globals.css` import integration) | task 3.2 + 1-line integration | `src/app/globals.css` (`@import "tailwindcss"` + `@theme` + `@layer base`) + `import "./globals.css";` added to `src/app/layout.tsx` (the dependency-defect fix — 3c owns the file it imports) + `src/modules/design-system/{infrastructure/index.ts,presentation/Icon.tsx,presentation/Button.tsx}` + `tests/test_tailwind_4_parity.py` + `tests/test_design_system_purity.py` | New | ~232 (≤ 400) |
 | 4 / 13 | PR 3d (Makefile/mount) | task 3.4 (Makefile portion) + task 3.6 + 3.7 (WEB_DIR repoint + AC-21) | `Makefile::api` rewrite (runs `check-runtime.mjs` → `npm run build:web` → `uvicorn … --port 8765`; legacy `make css` becomes no-op shim) + `api/server.py:54` WEB_DIR repoint + `web/search_urls.js` → `src/data/search-engines.js` + AC-21 `open()` update + `tests/test_make_api_build.py` + `tests/test_static_mount.py` | New (fused) | ~240 (≤ 400) |
 | 5 / 13 | PR 4a | task 4.1 + 4.2 | `src/modules/browser-state/{domain/keys.ts, infrastructure/store.ts, index.ts}` + 4 read + 4 write sites inside `useEffect` | New | ~180 (≤ 400) |
-| 6 / 13 | PR 4b | task 4.3 + 4.4 | `useSyncExternalStore` behind `mounted` flag + Playwright zero-hydration-warnings assertion | New | ~90 (≤ 400) |
+| 6 / 13 | PR 4b (hydration guard + AppShell integration) | task 4.3 + 4.4 + AppShell integration seam | `useSyncExternalStore` behind `mounted` flag + Playwright zero-hydration-warnings assertion + `src/app/{layout,page}.tsx` modified to integrate `<AppShell>` from `@taxa/app-shell` (the dependency-defect fix — 4b owns both the AppShell module **and** the App Router host integration) | New | ~120 (≤ 400) |
 | 7 / 13 | PR 5a | task 5.1 + 5.2 + 5.3 | `src/modules/taxonomy/{domain,application,infrastructure,presentation}` + port `web/{tree,detail,breadcrumb}.js` + **DetailPanel tab strip** (`Overview` / `Search` / `Folder`, all three always reachable; `Overview` always available per user policy) + **`OverviewTab`** (scientific name, accepted status, authorship, species count) + **`Kebab`** menu including `Search online` action that **forces the `Search` tab** (closes the current live regression where `Search online` lands on `Overview` for top-level taxa) | New | ~310 (≤ 400) |
 | 8 / 13 | PR 5b | task 5.4 + 5.5 + 5.6 | `src/modules/research/{domain,application,infrastructure,presentation}` + port `web/{file_explorer,file_viewer,format,keymap}.js` + CDN pin + **`SearchTab`** with categorized outbound-link list (`General` / `Taxonomic` / `Academic` / `Multimedia` / `Documents`, fixed order) + **`FolderTab`** (per-taxon materialize indicator; **separate** from `SearchTab`) + **`SearchLinkList`** presenter that maps each `Engine` to an anchor with `target="_blank"`, `rel="noopener noreferrer"` + **header `Browser` tab re-anchored as global Research / file explorer** (NOT taxon-scoped; selecting a taxon while `Browser` is active MUST NOT scope the explorer) | New | ~395 (≤ 400, tight headroom; maintainability tracked) |
 | 9 / 13 | PR 5c | task 5.7 + 5.8 + 5.9 | Playwright + e2e selector updates + `data-*` contract preservation + delete `web/*.{html,js,css}` + `tailwind.config.js` | New | ~200 (≤ 400) |
 | 10–12 / 13 | Phase 6a / 6b / 6c (validation) | NEW | G5 baseline reconstruction / G6 cutover rehearsal / G4 Playwright + Lighthouse parity measurement (validation work; no new `web/**` or `api/server.py` route handlers or `extension/**`) | New (measurement) | ~190 + ~120 measurement (≤ 400 each) |
 | 13 / 13 | PR 3e (cutover) | atomic cutover unit | The four-set release + cutover-manifest Tier-2 flip + G3 Tier-2 verifier rerun + status-footer flips for G4 / G5 / G6 closure | Atomic | ~120 (≤ 400) |
 
-### Dependency order (corrective plan revision contract)
+### Dependency order (corrective plan revision + dependency-defect fix contract)
 
 - **PR 3a — toolchain bootstrap**. Self-contained.
-- **PR 3b — App Router static export** depends on 3a
-  (deps installed + Node ≥ 20.9.0 contract).
-- **PR 3c — Tailwind/tokens** depends on 3a
-  (`tailwindcss@^4` installed).
+- **PR 3b — App Router static-export bootstrap (self-contained)**
+  depends on 3a (deps installed + Node ≥ 20.9.0 contract).
+  Imports nothing that 3c or 4b produce.
+- **PR 3c — Tailwind/tokens + `globals.css` import integration**
+  depends on 3a (`tailwindcss@^4` installed) and **3b** (the
+  `src/app/layout.tsx` placeholder that PR 3c imports
+  `./globals.css` into — the dependency-defect fix moves the
+  import into the sub-PR that owns the file).
 - **PR 3d — Makefile/mount** depends on 3b
   (`next build` produces `out/index.html`) and 3c
   (Tailwind flows through `next build`).
 - **PR 4a — typed store** depends on 3c (design-system
   loaded).
-- **PR 4b — hydration guard** depends on 4a (store
-  available) and 3b (AppShell host + `mounted` flag
-  slot).
+- **PR 4b — hydration guard + AppShell integration** depends
+  on 4a (store available), **3b** (the
+  `src/app/{layout,page}.tsx` placeholders that PR 4b
+  integrates `<AppShell>` into — the dependency-defect fix
+  moves the AppShell integration into the sub-PR that owns the
+  `app-shell` module), and 3c (Tailwind 4 tokens flowing
+  through `next build`).
 - **PR 5a — taxonomy port** depends on 4b
   (hydration-safe state read).
 - **PR 5b — research port + CDN pin** depends on 5a and
@@ -532,10 +565,10 @@ verifications).
 | `scripts/check-runtime.mjs` | Created (PR 3a, toolchain bootstrap) — Node ≥ 20.9.0 enforcement | new |
 | `tests/test_toolchain_bootstrap.py` | Created (PR 3a, toolchain bootstrap) — verifies deps, engines.node, scripts, path aliases, .nvmrc | new |
 | `tests/test_check_runtime.py` | Created (PR 3a, toolchain bootstrap) — verifies the Node ≥ 20.9.0 floor exit codes | new |
-| `src/app/{layout,page}.tsx` | Created (PR 3b, App Router static export) | new |
+| `src/app/{layout,page}.tsx` | Created (PR 3b, App Router self-contained static-export bootstrap) — **minimal semantic placeholder body**; **does NOT mount `<AppShell>`** (lands in PR 4b) **and does NOT import `./globals.css`** (lands in PR 3c). PR 4b later modifies these to integrate `<AppShell>` from `@taxa/app-shell` | new (3b) + modified (4b) |
 | `next.config.mjs` | Created (PR 3b, App Router static export) — `output: "export"`, `images.unoptimized: true`, `trailingSlash: false`, `reactStrictMode: true` | new |
-| `tests/test_app_shell_render.py` | Created (PR 3b, App Router static export) — reads `out/index.html` after `next build` | new |
-| `src/app/globals.css` | Created (PR 3c, Tailwind/tokens) — Tailwind 4 `@theme` + `@layer base` | new |
+| `tests/test_app_shell_render.py` | Created (PR 3b, App Router static export) — reads `out/index.html` after `next build`; asserts viewport meta + Raleway preload + Raleway `.woff2` file in `out/_next/static/media/` | new |
+| `src/app/globals.css` | Created (PR 3c, Tailwind/tokens) — Tailwind 4 `@theme` + `@layer base`. PR 3c **also** adds `import "./globals.css";` to `src/app/layout.tsx` (the dependency-defect fix — the import lives with the file it imports) | new |
 | `src/modules/design-system/{infrastructure/index.ts, presentation/Icon.tsx, presentation/Button.tsx}` | Created (PR 3c, Tailwind/tokens) — design-system barrel | new |
 | `tests/test_tailwind_4_parity.py` | Created (PR 3c, Tailwind/tokens) | new |
 | `tests/test_design_system_purity.py` | Created (PR 3c, Tailwind/tokens) | new |
@@ -547,7 +580,7 @@ verifications).
 | `tests/test_smoke.py::test_search_engine_contract` | Modified (PR 3d, Makefile/mount) — `open()` path updated if literal moved; byte shape preserved | `tests/test_smoke.py` |
 | `src/modules/browser-state/**` | Created (PR 4a) — typed store + 4 read + 4 write sites | new |
 | `tests/test_browser_state_keys.py` | Created (PR 4a) | new |
-| `src/modules/app-shell/**` | Created (PR 4b) — AppShell + page-chrome + hydration guard | new |
+| `src/modules/app-shell/**` | Created (PR 4b) — AppShell + page-chrome + hydration guard. PR 4b **also** integrates `<AppShell>` from this module into `src/app/{layout,page}.tsx` (the dependency-defect fix — PR 4b owns both the AppShell module **and** the App Router host integration; PR 3b's placeholder layout/page is replaced by the integrated AppShell composition in 4b) | new |
 | `tests/test_hydration_console.py` | Created (PR 4b) | new |
 | `src/modules/taxonomy/**` | Ported (PR 5a) — port of `web/{tree,detail,breadcrumb}.js` to React + `DetailPanel` tab strip (`Overview` / `Search` / `Folder`, all three always reachable; `Overview` always available per user policy) + `OverviewTab` + `Kebab` menu with `Search online` action forcing the `Search` tab | new |
 | `tests/test_taxonomy_infra.py` | Created (PR 5a) — plus assertions for the three-tab strip, the `Overview`-always-visible contract, and the `Search online` → `Search` tab force (closes the current live regression where top-level taxa land on `Overview`) | new |

@@ -27,6 +27,40 @@
 > per-child test witnesses change. **Approach A, FastAPI/SQLite,
 > and the frozen predecessor remain unchanged.**
 
+> **2026-09-02 — dependency-defect fix (this revision)**. The apply
+> gate's pre-flight re-audit identified a second dependency
+> defect inside the corrected topology: PR 3b's
+> `src/app/layout.tsx` imported `@taxa/app-shell` (a module PR 4b
+> ships at position 6/13 — *later* in the chain) and
+> `./globals.css` (a file PR 3c ships at position 3/13 — *later*
+> in the chain). At its `next build` witness, neither target file
+> existed yet, so the witness was unsatisfiable. The same audit
+> flagged PR 3b.5's triangulation assertion that the generated
+> `out/_next/static/chunks/*.js` references the typed store barrel
+> path `@taxa/browser-state` — that barrel file does not exist
+> until PR 4a lands. **PR 3b is rescoped to a self-contained App
+> Router static-export bootstrap**: `src/app/{layout,page}.tsx`
+> become minimal semantic placeholders (Raleway preload only)
+> that import **neither** `@taxa/app-shell` **nor**
+> `./globals.css`; the `import "./globals.css";` line moves into
+> PR 3c (which already owns `globals.css`); the `<AppShell>`
+> integration into `src/app/layout.tsx` / `src/app/page.tsx`
+> moves into PR 4b (which already owns
+> `src/modules/app-shell/**`). PR 3b.5's unsatisfiable
+> `@taxa/browser-state` reference is dropped (the path-alias
+> contract is already verified by `tests/test_toolchain_bootstrap.py::3a.7`)
+> and replaced with the Raleway `.woff2` file assertion. **The
+> 13-child topology and ordering are preserved**; PR 3b's
+> `out/index.html` / viewport / Raleway preload test evidence
+> stays. Budgets are recalculated: PR 3b shrinks to ~150 LoC
+> (-25), PR 3c grows by ~2 LoC (1-line `globals.css` import),
+> PR 4b grows by ~30 LoC (AppShell integration seam); total
+> authored ~2,282 LoC across the 13 sub-PRs; each sub-PR stays
+> well under the 400-line review budget; **only the prior PR 3a
+> `package-lock.json` exception remains**. Approach A,
+> FastAPI/SQLite, the frozen predecessor, the per-domain specs,
+> and the validation gates stay unchanged.
+
 ## Scope boundary for this tasks file
 
 - **In scope**: every sub-PR under Approach A listed in `design.md`
@@ -64,31 +98,35 @@
   markers.
 - **Dependency-order contract**: no sub-PR may require a file that
   its predecessors have not yet produced. The corrected chain
-  enforces `toolchain bootstrap` → `App Router static export` →
-  `Tailwind/tokens` → `Makefile/mount` → `state` → `ports` →
-  `e2e` → `validation` → `atomic cutover`. PR 3a (toolchain
-  bootstrap) lands before any PR that calls `next build`; the App
-  Router static export depends on `next`, `react`, `react-dom`,
-  `typescript`, `tailwindcss` being installed and on the Node ≥
-  20.9.0 check existing; Tailwind/tokens depends on `tailwindcss@^4`
-  being installed; the Makefile rewrite depends on the toolchain
-  + Tailwind being installed so `npm run build:web` resolves; the
-  `WEB_DIR` repoint depends on `out/index.html` being produced by
-  the Makefile `api` target; the typed store + hydration guard
-  depend on App Router + Tailwind being live; the capability ports
-  depend on the typed store being live (for `tree-source` and
-  `last-taxon-id`); `e2e` updates depend on the capability ports;
-  Phase 6 validation depends on the complete candidate path; PR 3e
+  enforces `toolchain bootstrap` → `App Router self-contained
+  static-export bootstrap` → `Tailwind/tokens` → `Makefile/mount`
+  → `state` → `ports` → `e2e` → `validation` → `atomic cutover`.
+  PR 3a (toolchain bootstrap) lands before any PR that calls
+  `next build`; the App Router static-export bootstrap depends
+  on `next`, `react`, `react-dom`, `typescript`, `tailwindcss`
+  being installed and on the Node ≥ 20.9.0 check existing; PR 3b
+  does **not** import `@taxa/app-shell` (PR 4b) or `./globals.css`
+  (PR 3c) — both are dependency-defect closures; Tailwind/tokens
+  depends on `tailwindcss@^4` being installed **and** on the PR
+  3b layout.tsx it imports `./globals.css` into; the Makefile
+  rewrite depends on the toolchain + Tailwind being installed so
+  `npm run build:web` resolves; the `WEB_DIR` repoint depends on
+  `out/index.html` being produced by the Makefile `api` target;
+  the typed store + hydration guard depend on App Router +
+  Tailwind being live; the capability ports depend on the typed
+  store being live (for `tree-source` and `last-taxon-id`);
+  `e2e` updates depend on the capability ports; Phase 6
+  validation depends on the complete candidate path; PR 3e
   depends on all six gates being green.
 
 ## Review Workload Forecast
 
 | Field | Value |
 |-------|-------|
-| Estimated changed lines | ~2,245 authored across 13 sub-PRs (toolchain bootstrap + App Router static export + Tailwind/tokens + Makefile/mount + 2 browser-state + 2 capability ports + e2e/delete-legacy + 3 Phase 6 validation + 1 atomic cutover) |
-| 400-line budget risk | Low for authored work (largest is 5b at ~360 lines; 3d is ~240; 11 / 13 are ≤230). PR 3a has one user-approved exception for regenerated `package-lock.json` lines only; its authored source/test/config work remains ≤400 and no unrelated lockfile churn is allowed. |
-| Chained PRs recommended | **Yes** — 13 chained child PRs (~2,245 total authored lines ≫ 400, and the atomic cutover requires the feature to integrate before it reaches `develop`) |
-| Suggested split | PR 3a (toolchain bootstrap) → 3b (App Router static export) → 3c (Tailwind/tokens) → 3d (Makefile/mount) → 4a → 4b → 5a → 5b → 5c → Phase 6a (G5) → Phase 6b (G6) → Phase 6c (G4 measurement) → PR 3e (atomic cutover, gated) |
+| Estimated changed lines | ~2,282 authored across 13 sub-PRs (toolchain bootstrap + App Router self-contained bootstrap + Tailwind/tokens + Makefile/mount + 2 browser-state + 2 capability ports + e2e/delete-legacy + 3 Phase 6 validation + 1 atomic cutover). The dependency-defect fix reshuffles ~30 LoC between PR 3b (-25), PR 3c (+2), and PR 4b (+30) without changing the 13-child topology. |
+| 400-line budget risk | Low for authored work (largest is 5b at ~360 lines; 3d is ~240; 10 / 13 are ≤230). PR 3a has one user-approved exception for regenerated `package-lock.json` lines only; its authored source/test/config work remains ≤400 and no unrelated lockfile churn is allowed. |
+| Chained PRs recommended | **Yes** — 13 chained child PRs (~2,282 total authored lines ≫ 400, and the atomic cutover requires the feature to integrate before it reaches `develop`) |
+| Suggested split | PR 3a (toolchain bootstrap) → 3b (App Router self-contained static-export bootstrap) → 3c (Tailwind/tokens + `globals.css` import integration) → 3d (Makefile/mount) → 4a → 4b (hydration guard + AppShell integration) → 5a → 5b → 5c → Phase 6a (G5) → Phase 6b (G6) → Phase 6c (G4 measurement) → PR 3e (atomic cutover, gated) |
 | Delivery strategy | ask-on-risk (per preflight; Approach A already locked, no override open) |
 | Chain strategy | **feature-branch-chain** (user-selected). Tracker `docs/complete-taxa-frontend-migration-plan` is draft/no-merge and is the **only** PR targeting `develop`; child PR 3a targets the tracker; every later child targets its immediate predecessor branch. Supersedes the `AGENTS.md` §4 direct-to-`develop` default for this change. |
 
@@ -114,12 +152,31 @@ merges.**
 > was scheduled for position 3, AFTER the App Router witness had
 > to be green. The corrected topology moves the toolchain to
 > position 1, demotes the App Router witness to position 2 (now
-> satisfiable), keeps Tailwind/tokens at position 3 (depends on
-> Tailwind installed), fuses the Makefile rewrite with the
-> `WEB_DIR` repoint at position 4 (depends on `next build`
-> producing `out/`), then follows with state, ports, e2e, Phase 6
-> validation, and the atomic cutover. The 13-child count is
-> preserved.
+> satisfiable because the toolchain is live), keeps Tailwind/
+> tokens at position 3 (depends on Tailwind installed), fuses
+> the Makefile rewrite with the `WEB_DIR` repoint at position 4
+> (depends on `next build` producing `out/`), then follows with
+> state, ports, e2e, Phase 6 validation, and the atomic
+> cutover. The 13-child count is preserved.
+
+> **Dependency-defect fix (this revision)**. After the
+> reordering, the apply gate's pre-flight re-audit found a
+> second dependency defect inside the corrected topology: the
+> PR 3b at position 2 imported `@taxa/app-shell` (a module PR
+> 4b ships at position 6/13) and `./globals.css` (a file PR 3c
+> ships at position 3/13). At its `next build` witness, neither
+> target file existed yet. The same audit flagged PR 3b.5's
+> triangulation assertion that the build output references the
+> typed store barrel path `@taxa/browser-state` — that barrel
+> file does not exist until PR 4a. The fix rescopes PR 3b to a
+> self-contained App Router static-export bootstrap (minimal
+> semantic placeholders; no AppShell, no globals.css), moves
+> the `import "./globals.css";` line into PR 3c, and moves the
+> `<AppShell>` integration into PR 4b. PR 3b.5's unsatisfiable
+> `@taxa/browser-state` reference is dropped. The 13-child
+> topology and ordering stay unchanged; PR 3b's
+> `out/index.html` / viewport / Raleway preload test evidence
+> stays; per-PR LoC budgets stay well under 400.
 
 | Position | Sub-PR | Branch | Base (PR target) |
 |---|---|---|---|
@@ -144,7 +201,7 @@ develop
       ↑ PR 3a base: docs/complete-taxa-frontend-migration-plan
       └── feat/complete-taxa-frontend-migration-01-3a   ← toolchain bootstrap
            ↑ PR 3b base: …-01-3a
-           └── feat/complete-taxa-frontend-migration-02-3b   ← App Router static export
+           └── feat/complete-taxa-frontend-migration-02-3b   ← App Router static-export bootstrap (self-contained)
                 ↑ PR 3c base: …-02-3b
                 └── feat/complete-taxa-frontend-migration-03-3c   ← Tailwind/tokens
                      ↑ PR 3d base: …-03-3c
@@ -170,17 +227,28 @@ revision enforces)**:
   exits non-zero below; `npx tsc --noEmit` resolves every
   `@taxa/*` alias (against an empty alias map; subsequent PRs
   populate the modules).
-- **PR 3b — App Router static export**. Depends on **3a**: deps
-  installed + Node ≥ 20.9.0 contract. Produces
-  `src/app/{layout,page}.tsx`, `next.config.mjs`, and the
-  `tests/test_app_shell_render.py` witness that runs `npx next
-  build` and reads `out/index.html`. This witness is satisfiable
-  here because the toolchain is live; it could not be satisfied in
-  the original ordering because `npx next build` had no `next`
-  binary yet.
+- **PR 3b — App Router static-export bootstrap (self-contained)**.
+  Depends on **3a**: deps installed + Node ≥ 20.9.0 contract.
+  Imports **nothing** that PR 3c (3/13) or PR 4b (6/13) produce
+  — PR 3b cannot import `@taxa/app-shell` (PR 4b) or
+  `./globals.css` (PR 3c) because both targets land later in the
+  chain (this dependency defect is what the corrective revision
+  fixes). `src/app/{layout,page}.tsx` are minimal semantic
+  placeholders: layout.tsx hosts `<html>`/`<body>` with
+  `next/font/google` Raleway preload (the 3b.1 witness contract);
+  page.tsx renders a minimal `<main>` semantic placeholder, no
+  `"use client"` boundary (4b adds it). Produces
+  `next.config.mjs` and the `tests/test_app_shell_render.py`
+  witness that runs `npx next build` and reads `out/index.html`.
+  This witness is satisfiable here because the toolchain is live;
+  it could not be satisfied in the original ordering because
+  `npx next build` had no `next` binary yet.
 - **PR 3c — Tailwind/tokens**. Depends on **3a** (`tailwindcss@^4`
-  installed). Produces `src/app/globals.css` (Tailwind 4
-  `@import "tailwindcss"` + `@theme` + `@layer base`) and the
+  installed) and **3b** (the `src/app/layout.tsx` placeholder
+  that PR 3c imports `./globals.css` into). Produces
+  `src/app/globals.css` (Tailwind 4 `@import "tailwindcss"` +
+  `@theme` + `@layer base`), adds `import "./globals.css";` to
+  `src/app/layout.tsx` (1-line delta), and ships the
   `src/modules/design-system/{infrastructure/index.ts,
   presentation/Icon.tsx, presentation/Button.tsx}` barrel. The
   parity test enumerates legacy `:root` tokens and `var(--token)`
@@ -200,10 +268,19 @@ revision enforces)**:
 - **PR 4a — typed store**. Depends on **3c** (design-system module
   loaded); produces `src/modules/browser-state/**` typed store
   with four read + four write sites.
-- **PR 4b — hydration guard**. Depends on **4a** (store available)
-  and **3b** (`AppShell` host composition; hydration-safe
-  `mounted` flag). Produces `src/modules/app-shell/**` and the
-  Playwright zero-hydration-warnings witness.
+- **PR 4b — hydration guard + AppShell integration**. Depends on
+  **4a** (store available), **3b** (the
+  `src/app/{layout,page}.tsx` placeholders that PR 4b integrates
+  `<AppShell>` into), and **3c** (Tailwind 4 tokens flowing
+  through `next build`). Produces
+  `src/modules/app-shell/{presentation/AppShell.tsx,
+  infrastructure/page-chrome.tsx}` AND modifies
+  `src/app/layout.tsx` to
+  `import { AppShell } from "@taxa/app-shell"` and wrap the body
+  content in `<AppShell>`; integrates the hydration-safe
+  `mounted` flag and the `"use client"` boundary in
+  `src/app/page.tsx`. The Playwright zero-hydration-warnings
+  witness verifies the integrated AppShell.
 - **PR 5a — taxonomy port**. Depends on **4b** (hydration-safe
   state read for `tree-source`). Produces
   `src/modules/taxonomy/**` + the port of `web/{tree,
@@ -385,16 +462,23 @@ in the corrected topology).
 | 3a.7 | same as 3a.1 | same as 3a.1 | same |
 | 3a.8 | same as 3a.1 + 3a.3 | same as 3a.1 + 3a.3 | same |
 
-## Phase 3b: App Router static export (PR 3b → PR 3a branch)
+## Phase 3b: App Router static-export bootstrap (PR 3b → PR 3a branch)
 
 Slices predecessor task 3.1 (`src/app/{layout,page}.tsx` +
-`next.config.mjs`) into a PR whose `out/index.html` witness is
-satisfiable ONLY because the toolchain from PR 3a now exists.
-This is the resolution of the dependency-order defect: in the
-original ordering, this witness had no toolchain to satisfy it,
-so the sub-PR was unsatisfiable. With PR 3a as its base, PR 3b
-can run `npx next build` and assert the static export
-contract.
+`next.config.mjs`) into a **self-contained App Router
+static-export bootstrap** whose `out/index.html` witness is
+satisfiable ONLY because (a) the toolchain from PR 3a now
+exists **and** (b) PR 3b imports nothing that its successors
+produce. PR 3b does **not** import `@taxa/app-shell` (PR 4b
+ships it) or `./globals.css` (PR 3c ships it); the layout/page
+files render a minimal semantic placeholder body so `npx next
+build` succeeds. This is the resolution of the dependency-
+defect the corrective revision identifies: in the corrected
+topology (toolchain at position 1), PR 3b's witness had a
+toolchain but its imports still pointed at files that landed
+later in the chain (AppShell at 6/13, globals.css at 3/13).
+Rescoping 3b to a self-contained bootstrap closes the defect
+without changing the 13-child topology.
 
 - [ ] 3b.1 R — `tests/test_app_shell_render.py` (new): invokes
       `npx next build` in a `tmp_path` clone (or via subprocess
@@ -407,17 +491,23 @@ contract.
       asserts the markup contract. The test MUST fail on a
       fresh PR 3b branch (no `src/app/{layout,page}.tsx` yet).
       <!-- sdd-owner: implementation -->
-- [ ] 3b.2 G — `src/app/layout.tsx` (new, ~50 LoC): host
+- [ ] 3b.2 G — `src/app/layout.tsx` (new, ~40 LoC): host
       `<html>` / `<body>` shell, imports `next/font/google`
       for `Raleway`, `JetBrains Mono`, `Material Symbols
-      Outlined`, mounts the `<AppShell>` from
-      `@taxa/app-shell`. Imports `./globals.css` so Tailwind 4
-      utilities are available app-wide. <!-- sdd-owner: implementation -->
-- [ ] 3b.3 G — `src/app/page.tsx` (new, ~70 LoC): the
-      single-screen client entry — wraps `<AppShell>` behind a
-      `"use client"` boundary, initialises the `mounted` flag
-      for hydration safety (the slot is reserved here for use
-      in 4b, but no localStorage read happens until then).
+      Outlined`, renders a minimal semantic placeholder body
+      (e.g. a `<main><h1>Taxa</h1></main>` shell).
+      **Does NOT mount `<AppShell>`** (lands in PR 4b) **and
+      does NOT import `./globals.css`** (lands in PR 3c) —
+      PR 3b is self-contained so `npx next build` succeeds
+      at its position. <!-- sdd-owner: implementation -->
+- [ ] 3b.3 G — `src/app/page.tsx` (new, ~30 LoC): a minimal
+      semantic placeholder page (renders the placeholder
+      body inside `layout.tsx`'s `<body>`). **Does NOT wrap
+      `<AppShell>`** (lands in PR 4b) **and does NOT include
+      a `"use client"` boundary** (lands in PR 4b when the
+      AppShell needs it) — PR 3b is self-contained. The
+      AppShell integration in PR 4b replaces this
+      placeholder body with the full AppShell composition.
       <!-- sdd-owner: implementation -->
 - [ ] 3b.4 G — `next.config.mjs` (new, ~30 LoC): declares
       `output: "export"`, `images: { unoptimized: true }`,
@@ -430,18 +520,22 @@ contract.
       `src/app/page.tsx`; assert the `<body>` element on first
       paint does **not** carry a `data-theme` attribute (no
       localStorage read before hydration); assert the generated
-      `out/_next/static/chunks/*.js` includes a chunk that
-      references the typed store barrel path
-      `@taxa/browser-state` (no actual read yet — only the
-      import resolves, confirming the path-alias contract from
-      PR 3a's `tsconfig.json` is honoured at build time).
+      `out/_next/static/media/*.woff2` carries the Raleway
+      font file that `next/font/google` produced (the Raleway
+      preload pipeline is live end-to-end). The path-alias
+      contract from PR 3a is verified by
+      `tests/test_toolchain_bootstrap.py::3a.7` and need not
+      be re-verified here (PR 3b's imports resolve against
+      the empty alias map; the barrel files land in their
+      owning sub-PRs).
       <!-- sdd-owner: implementation -->
-- [ ] 3b.6 Refactor — collapse the page/layout pair into a
-      single `<AppShell>` import seam; ensure the Next.js
-      + Turbopack build completes in under the recorded
-      predecessor budget (no regression beyond the ≤ 0 %
-      parity requirement in `design.md` §"Parity / evidence
-      plan"). <!-- sdd-owner: implementation -->
+- [ ] 3b.6 Refactor — ensure the layout/page pair is the
+      minimum semantic placeholder needed to satisfy the
+      3b.1 / 3b.5 witness (Raleway preload only, no AppShell,
+      no globals.css); ensure the Next.js + Turbopack build
+      completes in under the recorded predecessor budget (no
+      regression beyond the ≤ 0 % parity requirement in
+      `design.md` §"Parity / evidence plan"). <!-- sdd-owner: implementation -->
 
 **Per-task evidence**:
 
@@ -452,14 +546,19 @@ contract.
 | 3b.4 | same | same | same |
 | 3b.6 | same | `npx tsc --noEmit` exit 0 against `src/` | same |
 
-## Phase 3c: Design tokens + Tailwind 4 `@theme` (PR 3c → PR 3b branch)
+## Phase 3c: Design tokens + Tailwind 4 `@theme` + `globals.css` import integration (PR 3c → PR 3b branch)
 
-Depends on PR 3a (`tailwindcss@^4` installed). Slices predecessor
-task 3.2 (`src/app/globals.css` with `@import "tailwindcss"` +
-`@theme` + `@layer base`) plus the design-system barrel the
-predecessor PR 2a scaffolded but did not populate. The
-`tests/test_tailwind_4_parity.py` enumeration test stays as the
-witness.
+Depends on PR 3a (`tailwindcss@^4` installed) and PR 3b (the
+`src/app/layout.tsx` placeholder that PR 3c imports
+`./globals.css` into). Slices predecessor task 3.2
+(`src/app/globals.css` with `@import "tailwindcss"` + `@theme`
++ `@layer base`) plus the design-system barrel the predecessor
+PR 2a scaffolded but did not populate. PR 3c also owns the
+1-line `import "./globals.css";` integration into
+`src/app/layout.tsx` — the dependency-defect fix moves the
+import from PR 3b (which cannot depend on PR 3c) into PR 3c
+(which produces the file). The `tests/test_tailwind_4_parity.py`
+enumeration test stays as the witness.
 
 - [ ] 3c.1 R — `tests/test_tailwind_4_parity.py` (new): reads
       `web/index.html` (legacy source) and asserts each
@@ -500,9 +599,20 @@ witness.
       `science_off`, `download`) plus `<Button>` layout
       primitive. <!-- sdd-owner: implementation -->
 - [ ] 3c.6 Refactor — strip any hex literals from `src/` outside
-      the design-system module; the grep guard goes into
-      `tests/test_design_system_purity.py` (parametrized).
-      <!-- sdd-owner: implementation -->
+          the design-system module; the grep guard goes into
+          `tests/test_design_system_purity.py` (parametrized).
+          <!-- sdd-owner: implementation -->
+    - [ ] 3c.7 G — `src/app/layout.tsx` (modified, 1-line delta):
+          add `import "./globals.css";` near the top so the
+          Tailwind 4 `@import "tailwindcss"` directives flow into
+          the Next.js build. PR 3c owns this import because it
+          owns `src/app/globals.css`; the dependency defect (PR
+          3b importing a file PR 3c ships) is closed here. The
+          existing 3c.4 T parity test
+          (`out/_next/static/chunks/*.css` carries the expected
+          declarations) is the regression witness that the
+          import wires `globals.css` into the build.
+          <!-- sdd-owner: implementation -->
 
 **Per-task evidence**:
 
@@ -511,6 +621,7 @@ witness.
 | 3c.1–3c.4 | `.venv/bin/python3 -m pytest tests/test_tailwind_4_parity.py -v` | `npx next build` exit 0; `out/_next/static/chunks/*.css` carries the expected declarations | `git revert <3c-sha>` removes `src/app/globals.css` and `src/modules/design-system/**`; Phase 3a + 3b untouched |
 | 3c.5 | same | `npx tsc --noEmit` against `src/modules/design-system/` | same |
 | 3c.6 | `.venv/bin/python3 -m pytest tests/test_design_system_purity.py -v` | same | same |
+| 3c.7 | `.venv/bin/python3 -m pytest tests/test_tailwind_4_parity.py -v` | `npx next build` exit 0; `out/_next/static/chunks/*.css` includes the Tailwind 4 utilities from `globals.css` (the `import "./globals.css";` line in layout.tsx makes the file flow into the build) | `git revert <3c-sha>` removes `src/app/globals.css` AND removes the `import "./globals.css";` line from `src/app/layout.tsx`; Phase 3a + 3b untouched |
 
 ## Phase 3d: Makefile rewrite + `WEB_DIR` repoint + AC-21 reader (PR 3d → PR 3c branch)
 
@@ -616,9 +727,10 @@ recipe step (the script itself was authored in PR 3a).
 Slices predecessor tasks 4.1 + 4.2
 (`src/modules/browser-state/{store,keys,defaults}.ts` + 4 read
 + 4 write sites inside `useEffect`). Depends on PR 3c
-(design-system module loaded) and PR 3d (`src/app/page.tsx`
-references `AppShell` from `@taxa/app-shell`, which imports the
-store barrel).
+(design-system module loaded). PR 4a does not import from
+`@taxa/app-shell` (that integration lives in PR 4b, where the
+AppShell module is composed into `src/app/{layout,page}.tsx`);
+PR 4a's typed store is consumed by PR 4b's AppShell.
 
 - [ ] 4a.1 R — `tests/test_browser_state_keys.py` (new): greps
       `src/modules/browser-state/**` and asserts exactly four
@@ -676,13 +788,18 @@ store barrel).
 | 4a.1, 4a.5 | `.venv/bin/python3 -m pytest tests/test_browser_state_keys.py -v` | `npx next build` exits 0; `out/_next/static/chunks/*.js` carries the typed store bundle | `git revert <4a-sha>` removes `src/modules/browser-state/**`; nothing else touched |
 | 4a.2–4a.4, 4a.6 | `.venv/bin/python3 -m pytest tests/test_browser_state_keys.py -v` | `npx tsc --noEmit` against `src/modules/browser-state/` | same |
 
-## Phase 4b: Hydration guard + Playwright zero-warnings test (PR 4b → PR 4a branch)
+## Phase 4b: Hydration guard + AppShell integration + Playwright zero-warnings test (PR 4b → PR 4a branch)
 
 Slices predecessor tasks 4.3 + 4.4 (`useSyncExternalStore`
 behind `mounted` flag + Playwright zero-hydration-warnings
-assertion). Depends on PR 4a (store available) and PR 3b
-(`AppShell` host composition; the hydration-safe `mounted`
-flag was reserved at `src/app/page.tsx` in 3b).
+assertion) plus the **AppShell integration into
+`src/app/{layout,page}.tsx`** (the dependency-defect fix that
+moves the AppShell wiring from PR 3b to PR 4b — PR 4b owns
+both the `src/modules/app-shell/**` module **and** the
+integration seam into the App Router host). Depends on PR 4a
+(store available), PR 3b (the `src/app/{layout,page}.tsx`
+placeholders that PR 4b integrates `<AppShell>` into), and
+PR 3c (Tailwind 4 tokens flowing through `next build`).
 
 - [ ] 4b.1 R — `tests/test_hydration_console.py` (new,
       Playwright): loads the chromium fixture against `make
@@ -718,11 +835,29 @@ flag was reserved at `src/app/page.tsx` in 3b).
       warning fires when the user toggles the theme between
       paints. <!-- sdd-owner: implementation -->
 - [ ] 4b.5 Refactor — extract the `mounted` flag into a
-      small `useMounted()` hook in
-      `src/modules/browser-state/` so the pattern is
-      reusable; reuse it in `AppShell.tsx` and any
-      descendant component that reads typed state.
-      <!-- sdd-owner: implementation -->
+          small `useMounted()` hook in
+          `src/modules/browser-state/` so the pattern is
+          reusable; reuse it in `AppShell.tsx` and any
+          descendant component that reads typed state.
+          <!-- sdd-owner: implementation -->
+    - [ ] 4b.6 G — `src/app/{layout,page}.tsx` (modified, ~10
+          LoC combined delta): integrate `<AppShell>` from
+          `@taxa/app-shell` into the App Router host.
+          `src/app/layout.tsx` adds
+          `import { AppShell } from "@taxa/app-shell";` and wraps
+          the placeholder body in `<AppShell>{children}</AppShell>`;
+          `src/app/page.tsx` adds the `"use client"` boundary
+          the AppShell needs (the AppShell module imports
+          `useSyncExternalStore` and `useEffect`). PR 4b owns
+          the integration because it owns
+          `src/modules/app-shell/**`; the dependency defect (PR
+          3b importing a module PR 4b ships) is closed here. The
+          existing 4b.1 R hydration-zero-warnings Playwright
+          witness is the regression guard for the integration
+          (the chromium fixture loads the integrated AppShell
+          and asserts zero hydration warnings after first paint
+          + rehydration cycle).
+          <!-- sdd-owner: implementation -->
 
 **Per-task evidence**:
 
@@ -731,6 +866,7 @@ flag was reserved at `src/app/page.tsx` in 3b).
 | 4b.1, 4b.4 | `.venv/bin/python3 -m pytest tests/test_hydration_console.py -v` | `make api` boots uvicorn; Playwright runs the chromium fixture end-to-end | `git revert <4b-sha>` removes `src/modules/app-shell/presentation/AppShell.tsx` and `infrastructure/page-chrome.tsx`; Phase 4a store stays |
 | 4b.2–4b.3 | same | `npx next build` exits 0; `npx tsc --noEmit` against `src/modules/app-shell/` | same |
 | 4b.5 | same | same | same |
+| 4b.6 | `.venv/bin/python3 -m pytest tests/test_hydration_console.py -v` | `npx next build` exit 0; `out/_next/static/chunks/*.js` references the `@taxa/app-shell` barrel; Playwright zero-hydration-warnings against the integrated AppShell | `git revert <4b-sha>` reverts the AppShell integration delta in `src/app/{layout,page}.tsx` AND removes `src/modules/app-shell/**`; Phase 4a store stays |
 
 ## Phase 5a: Taxonomy module port (PR 5a → PR 4b branch)
 
@@ -1374,15 +1510,25 @@ accidental edit before the PR can merge. There is no
 
 - **3a** ~210 LoC authored (toolchain bootstrap — `package.json`
   dep pins + `scripts/check-runtime.mjs` + `tsconfig.json` base
-  + `.nvmrc` + 2 new tests); **3b** ~175 (App Router entry —
-  `src/app/{layout,page}.tsx` + `next.config.mjs` +
-  `tests/test_app_shell_render.py`, now satisfiable because 3a
-  installed Next); **3c** ~230 (Tailwind tokens + design-system
-  barrel); **3d** ~240 (Makefile rewrite + `WEB_DIR` repoint +
-  AC-21 reader + 2 new tests, the heaviest of the new splits);
-  **4a** ~180; **4b** ~90; **5a** ~280; **5b** ~360; **5c**
+  + `.nvmrc` + 2 new tests); **3b** ~150 (App Router
+  static-export bootstrap, **self-contained** — minimal
+  semantic placeholder layout/page + `next.config.mjs` +
+  `tests/test_app_shell_render.py`; no AppShell mount, no
+  globals.css import; the dependency-defect fix); **3c** ~232
+  (Tailwind tokens + design-system barrel + 1-line
+  `import "./globals.css";` integration into `src/app/layout.tsx`;
+  the dependency-defect fix); **3d** ~240 (Makefile rewrite +
+  `WEB_DIR` repoint + AC-21 reader + 2 new tests, the heaviest
+  of the new splits); **4a** ~180; **4b** ~120 (hydration guard
+  + AppShell integration into `src/app/{layout,page}.tsx`; the
+  dependency-defect fix); **5a** ~280; **5b** ~360; **5c**
   ~200; **6a** ~50; **6b** ~120; **6c** ~20; **3e** ~120.
-  **Total**: ~2,245 LoC authored across 13 sub-PRs.
+  **Total**: ~2,282 LoC authored across 13 sub-PRs (Δ ~+37 LoC
+  from the previous ~2,245; the dependency-defect fix removes
+  ~25 LoC from PR 3b (no AppShell/globals.css wiring) and adds
+  ~30 LoC to PR 4b (AppShell integration seam) plus ~2 LoC to
+  PR 3c (`import "./globals.css";` line); each sub-PR stays
+  well under 400).
 - Largest sub-PR is **5b** at ~360 LoC authored, comfortably
   under the **400-line per-PR review budget** with -40 LoC
   (-10 %) headroom. **No `size:exception` required.**
@@ -1398,7 +1544,7 @@ accidental edit before the PR can merge. There is no
   three separate sub-PRs for review focus, each is also
   under.
 - **Chained PRs recommended: Yes** — each sub-PR fits the
-  per-PR budget on its own, but the ~2,245-line total and the
+  per-PR budget on its own, but the ~2,282-line total and the
   atomic cutover (the feature MUST integrate before it
   reaches `develop`) put this change in the Feature Branch
   Chain gate.
@@ -1416,12 +1562,19 @@ accidental edit before the PR can merge. There is no
 - **Delivery strategy: `ask-on-risk`** (per preflight; no risk
   flag is open — Approach A is FINAL, the predecessor is
   frozen, every sub-PR fits under 400 lines).
-- **Corrective plan revision overhead**: the reordering
-  absorbed the work originally attributed to PR 3a, PR 3b,
-  and PR 3c into the new positions 1, 2, 3, 4; the absolute
-  authored line count moved by ≤ 50 LoC (from ~2,225 to
-  ~2,245) because the new split moves some test wiring
-  between sub-PRs but does not duplicate production code.
+- **Corrective plan revision overhead**: the dependency-defect
+  fix rescopes PR 3b to a self-contained bootstrap, shifts the
+  `import "./globals.css";` wiring to PR 3c, and shifts the
+  `<AppShell>` integration to PR 4b. PR 3b loses ~25 LoC; PR
+  3c gains ~2 LoC; PR 4b gains ~30 LoC; total authored moves
+  by ~+37 LoC (from ~2,245 to ~2,282). The reorder + the
+  dependency-defect fix together still preserve the 400-line
+  per-PR budget on every sub-PR (only the prior PR 3a
+  `package-lock.json` exception remains). The previous
+  corrective reordering (toolchain bootstrap at position 1,
+  App Router static export at position 2, etc.) absorbed
+  ~40 LoC of toolchain work into PR 3a and kept the
+  13-child count unchanged.
 - **Risk / decision (if maintainer prefers a flatter chain)**:
   positions 1–2 (toolchain bootstrap + App Router static
   export) could collapse into a single sub-PR at ~385 LoC

@@ -421,6 +421,28 @@ siguientes artefactos se importan como historial de planificación:
   cambios; el delta vive en `specs/research/spec.md` de este
   cambio)
 
+## Corrección del defecto de dependencia (2026-09-02)
+
+El reordenamiento del ámbito a nivel de PR documentado en
+`design.md::§"Sub-PR slice under Approach A"`,
+`tasks.md::§"Dependencia por sub-PR"` y
+`apply-progress.md::§"Dependencia por sub-PR (contrato de la
+revisión correctiva del plan)"` cierra un defecto de dependencia
+que el portón de apply identificó en el
+`src/app/layout.tsx` original del PR 3b (que importaba
+`@taxa/app-shell` — implementado en el PR 4b — y
+`./globals.css` — implementado en el PR 3c). El PR 3b se
+re-ambia a un bootstrap autocontenido de exportación estática
+del App Router; la línea `import "./globals.css";` se mueve al
+PR 3c; la integración de `<AppShell>` se mueve al PR 4b. La
+topología de cadena de 13 hijos, la evidencia de prueba
+(`out/index.html` / viewport / preload Raleway / cero warnings
+de hidratación), los criterios de aceptación por dominio de
+arriba, el contrato del backend, las puertas de validación
+registradas arriba y el presupuesto de ≤ 400 líneas authored
+por sub-PR se preservan todos. El Enfoque A, FastAPI/SQLite, el
+predecesor congelado y los specs por dominio quedan sin cambios.
+
 ## Siguiente paso
 
 La **fase de design** registra la decisión final del enfoque

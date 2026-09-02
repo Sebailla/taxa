@@ -484,6 +484,34 @@ cierre; la implementación ocurre durante apply.
 > corrección de dependencias viven en `tasks.md`; esta
 > tabla es la vista ejecutiva.
 
+> **2026-09-02 — corrección del defecto de dependencia
+> (esta revisión)**. La re-auditoría de pre-flight del
+> portón de apply identificó un segundo defecto de
+> dependencia dentro de la topología corregida: el PR 3b
+> en la posición 2 importaba `@taxa/app-shell` (un módulo
+> que el PR 4b envía en la posición 6/13 — *más tarde* en
+> la cadena) y `./globals.css` (un archivo que el PR 3c
+> envía en la posición 3/13 — *más tarde* en la cadena).
+> En su testigo de `next build`, ninguno de los dos
+> archivos objetivo existía todavía. La misma auditoría
+> marcó la aserción de triangulación de PR 3b.5 que dice
+> que la salida de build referencia la ruta del barrel del
+> typed store `@taxa/browser-state` — ese archivo de barrel
+> no existe hasta que el PR 4a aterriza. **El PR 3b se
+> re-ambia a un bootstrap autocontenido de exportación
+> estática del App Router**: marcadores semánticos mínimos
+> que no importan ni `@taxa/app-shell` ni `./globals.css`;
+> la línea `import "./globals.css";` se mueve al PR 3c;
+> la integración de `<AppShell>` en
+> `src/app/{layout,page}.tsx` se mueve al PR 4b. La
+> referencia insatisfacible a `@taxa/browser-state` de
+> PR 3b.5 se elimina. **La topología y el orden de 13
+> hijos se preservan**; los presupuestos LoC por sub-PR
+> se quedan muy por debajo de 400; **solo permanece la
+> excepción previa de `package-lock.json` regenerado de
+> PR 3a**. El Enfoque A, FastAPI/SQLite, el predecesor
+> congelado y los specs por dominio quedan sin cambios.
+
 El `tasks.md` del predecesor enumeraba 35 tareas a través
 de 14+ sub-PRs. La cadena corregida las re-rebana bajo la
 Aproximación A dentro del presupuesto de revisión de 400
@@ -492,32 +520,42 @@ líneas por sub-PR.
 | Posición | Sub-PR | Mapeo de tarea del predecesor | Alcance | Nuevo / preservado | Presupuesto LoC |
 | --- | --- | --- | --- | --- | --- |
 | 1 / 13 | PR 3a (bootstrap de toolchain) | NUEVO (absorbe parte de la tarea 3.4 original — reescritura de `package.json` + `scripts/check-runtime.mjs`) | Pines de deps de `package.json` (`next@^16`, `react@^19`, `react-dom@^19`, `tailwindcss@^4`, toolchain TS, `engines.node ">=20.9.0"`; elimina `autoprefixer` / `postcss` / `@tailwindcss/forms` legacy; scripts `check-runtime` y `build:web`) + `package-lock.json` regenerado (la única excepción de tamaño aprobada por el usuario; generado-only-resolution — contiene únicamente los cambios de resolución requeridos por este manifiesto; revisado junto con `package.json`; sin churn de lockfile no relacionado) + `scripts/check-runtime.mjs` (nuevo, Node ≥ 20.9.0) + `tsconfig.json` (modificado en su lugar; el predecesor ya creó el archivo en la raíz del repo en el PR 2a — PR 3a lo extiende con la config completa de Next.js / JSX / plugins y los aliases de ruta `@taxa/<capability>`; restaurado a su estado del predecesor en el rollback) + `.nvmrc` (nuevo, pin `20`) + `tests/test_toolchain_bootstrap.py` (nuevo) + `tests/test_check_runtime.py` (nuevo) | Nuevo | ~210 authored (≤ 400; la única `size:exception` es el `package-lock.json` regenerado; el trabajo authored de fuente/tests/config permanece ≤400) |
-| 2 / 13 | PR 3b (exportación estática del App Router) | tarea 3.1 (re-ambido) | `src/app/{layout,page}.tsx` + `next.config.mjs` + `tests/test_app_shell_render.py` (el testigo de `out/index.html` es satisfacible aquí porque el toolchain está en vivo) | Nuevo (re-ambido) | ~175 (≤ 400) |
-| 3 / 13 | PR 3c (Tailwind/tokens) | tarea 3.2 | `src/app/globals.css` (`@import "tailwindcss"` + `@theme` + `@layer base`) + `src/modules/design-system/{infrastructure/index.ts,presentation/Icon.tsx,presentation/Button.tsx}` + `tests/test_tailwind_4_parity.py` + `tests/test_design_system_purity.py` | Nuevo | ~230 (≤ 400) |
+| 2 / 13 | PR 3b (bootstrap autocontenido de exportación estática del App Router) | tarea 3.1 (re-ambido) | `src/app/{layout,page}.tsx` (marcador semántico mínimo; **sin AppShell, sin import de `globals.css`**) + `next.config.mjs` + `tests/test_app_shell_render.py` (el testigo de `out/index.html` / viewport / preload Raleway es satisfacible aquí porque el toolchain está en vivo **y** el PR 3b no importa nada que el 3c o el 4b produzcan) | Nuevo (re-ambido) | ~150 (≤ 400) |
+| 3 / 13 | PR 3c (Tailwind/tokens + integración del import de `globals.css`) | tarea 3.2 + integración de 1 línea | `src/app/globals.css` (`@import "tailwindcss"` + `@theme` + `@layer base`) + `import "./globals.css";` añadido a `src/app/layout.tsx` (la corrección del defecto de dependencia — el 3c posee el archivo que importa) + `src/modules/design-system/{infrastructure/index.ts,presentation/Icon.tsx,presentation/Button.tsx}` + `tests/test_tailwind_4_parity.py` + `tests/test_design_system_purity.py` | Nuevo | ~232 (≤ 400) |
 | 4 / 13 | PR 3d (Makefile/mount) | tarea 3.4 (porción Makefile) + tarea 3.6 + 3.7 (repoint WEB_DIR + AC-21) | Reescritura de `Makefile::api` (corre `check-runtime.mjs` → `npm run build:web` → `uvicorn … --port 8765`; el `make css` legacy se vuelve shim no-op) + repoint de `api/server.py:54` WEB_DIR + `web/search_urls.js` → `src/data/search-engines.js` + actualización de `open()` de AC-21 + `tests/test_make_api_build.py` + `tests/test_static_mount.py` | Nuevo (fusionado) | ~240 (≤ 400) |
 | 5 / 13 | PR 4a | tarea 4.1 + 4.2 | `src/modules/browser-state/{domain/keys.ts, infrastructure/store.ts, index.ts}` + 4 sitios de lectura + 4 de escritura dentro de `useEffect` | Nuevo | ~180 (≤ 400) |
-| 6 / 13 | PR 4b | tarea 4.3 + 4.4 | `useSyncExternalStore` detrás de flag `mounted` + aserción Playwright de cero warnings de hidratación | Nuevo | ~90 (≤ 400) |
+| 6 / 13 | PR 4b (guardia de hidratación + integración de AppShell) | tarea 4.3 + 4.4 + costura de integración de AppShell | `useSyncExternalStore` detrás de flag `mounted` + aserción Playwright de cero warnings de hidratación + `src/app/{layout,page}.tsx` modificado para integrar `<AppShell>` desde `@taxa/app-shell` (la corrección del defecto de dependencia — el 4b posee tanto el módulo AppShell **como** la integración del host del App Router) | Nuevo | ~120 (≤ 400) |
 | 7 / 13 | PR 5a | tarea 5.1 + 5.2 + 5.3 | `src/modules/taxonomy/{domain,application,infrastructure,presentation}` + port de `web/{tree,detail,breadcrumb}.js` + **strip de pestañas de `DetailPanel`** (`Overview` / `Search` / `Folder`, las tres siempre alcanzables; `Overview` siempre disponible según la política de usuario) + **`OverviewTab`** (nombre científico, estado de aceptación, autoría, conteo de especies) + **`Kebab`** con la acción `Search online` que **fuerza la pestaña `Search`** (cierra la regresión actual en vivo donde `Search online` aterriza en `Overview` para taxones de nivel superior) | Nuevo | ~310 (≤ 400) |
 | 8 / 13 | PR 5b | tarea 5.4 + 5.5 + 5.6 | `src/modules/research/{domain,application,infrastructure,presentation}` + port de `web/{file_explorer,file_viewer,format,keymap}.js` + pin CDN + **`SearchTab`** con lista categorizada de enlaces salientes (`General` / `Taxonomic` / `Academic` / `Multimedia` / `Documents`, orden fijo) + **`FolderTab`** (indicador de materialize por taxón; **separado** de `SearchTab`) + presentador **`SearchLinkList`** que mapea cada `Engine` a un anchor con `target="_blank"`, `rel="noopener noreferrer"` + **pestaña `Browser` del header re-anclada como Research global / file explorer** (NO scoped por taxón; seleccionar un taxón mientras `Browser` está activo NO DEBE acotar el explorer) | Nuevo | ~395 (≤ 400, holgura ajustada; mantenibilidad rastreada) |
 | 9 / 13 | PR 5c | tarea 5.7 + 5.8 + 5.9 | Actualizaciones de selectores Playwright + e2e + preservación del contrato `data-*` + borrar `web/*.{html,js,css}` + `tailwind.config.js` | Nuevo | ~200 (≤ 400) |
 | 10–12 / 13 | Fase 6a / 6b / 6c (validación) | NUEVO | Reconstrucción de baseline G5 / ensayo de cutover G6 / medición de paridad G4 Playwright + Lighthouse (trabajo de validación; sin código nuevo en `web/**`, handlers de ruta de `api/server.py`, ni `extension/**`) | Nuevo (medición) | ~190 + ~120 medición (≤ 400 cada uno) |
 | 13 / 13 | PR 3e (cutover) | unidad de cutover atómico | El release de los cuatro conjuntos + inversión del cutover-manifest a Tier-2 + reejecución del verificador G3 Tier-2 + inversiones del status-footer para el cierre de G4 / G5 / G6 | Atómico | ~120 (≤ 400) |
 
-### Orden de dependencia (contrato de la revisión correctiva del plan)
+### Orden de dependencia (contrato de la revisión correctiva del plan + corrección del defecto de dependencia)
 
 - **PR 3a — bootstrap de toolchain**. Autocontenido.
-- **PR 3b — exportación estática del App Router** depende
-  de 3a (deps instaladas + contrato Node ≥ 20.9.0).
-- **PR 3c — Tailwind/tokens** depende de 3a
-  (`tailwindcss@^4` instalado).
+- **PR 3b — bootstrap autocontenido de exportación estática
+  del App Router** depende de 3a (deps instaladas + contrato
+  Node ≥ 20.9.0). No importa nada que el 3c o el 4b
+  produzcan.
+- **PR 3c — Tailwind/tokens + integración del import de
+  `globals.css`** depende de 3a (`tailwindcss@^4` instalado)
+  y de **3b** (el `src/app/layout.tsx` marcador en el que
+  el PR 3c importa `./globals.css` — la corrección del
+  defecto de dependencia mueve el import al sub-PR que posee
+  el archivo).
 - **PR 3d — Makefile/mount** depende de 3b
   (`next build` produce `out/index.html`) y de 3c
   (Tailwind fluye a través de `next build`).
 - **PR 4a — typed store** depende de 3c (design-system
   cargado).
-- **PR 4b — guardia de hidratación** depende de 4a
-  (store disponible) y de 3b (host AppShell + slot de
-  flag `mounted`).
+- **PR 4b — guardia de hidratación + integración de AppShell**
+  depende de 4a (store disponible), **3b** (los marcadores
+  `src/app/{layout,page}.tsx` en los que el PR 4b integra
+  `<AppShell>` — la corrección del defecto de dependencia
+  mueve la integración del AppShell al sub-PR que posee el
+  módulo `app-shell`), y 3c (los tokens de Tailwind 4 que
+  fluyen a través de `next build`).
 - **PR 5a — port de taxonomy** depende de 4b (lectura
   de estado segura de hidratación).
 - **PR 5b — port de research + pin CDN** depende de 5a
@@ -558,10 +596,10 @@ mismo aterriza después de las verificaciones de cierre).
 | `scripts/check-runtime.mjs` | Creado (PR 3a, bootstrap de toolchain) — aplicación de Node ≥ 20.9.0 | nuevo |
 | `tests/test_toolchain_bootstrap.py` | Creado (PR 3a, bootstrap de toolchain) — verifica deps, engines.node, scripts, aliases de ruta, .nvmrc | nuevo |
 | `tests/test_check_runtime.py` | Creado (PR 3a, bootstrap de toolchain) — verifica los códigos de salida del piso Node ≥ 20.9.0 | nuevo |
-| `src/app/{layout,page}.tsx` | Creados (PR 3b, exportación estática del App Router) | nuevos |
+| `src/app/{layout,page}.tsx` | Creados (PR 3b, bootstrap autocontenido de exportación estática del App Router) — **cuerpo marcador semántico mínimo**; **NO monta `<AppShell>`** (aterriza en PR 4b) **y NO importa `./globals.css`** (aterriza en PR 3c). PR 4b luego los modifica para integrar `<AppShell>` desde `@taxa/app-shell` | nuevos (3b) + modificados (4b) |
 | `next.config.mjs` | Creado (PR 3b, exportación estática del App Router) — `output: "export"`, `images.unoptimized: true`, `trailingSlash: false`, `reactStrictMode: true` | nuevo |
-| `tests/test_app_shell_render.py` | Creado (PR 3b, exportación estática del App Router) — lee `out/index.html` después de `next build` | nuevo |
-| `src/app/globals.css` | Creado (PR 3c, Tailwind/tokens) — Tailwind 4 `@theme` + `@layer base` | nuevo |
+| `tests/test_app_shell_render.py` | Creado (PR 3b, exportación estática del App Router) — lee `out/index.html` después de `next build`; verifica meta de viewport + preload Raleway + archivo Raleway `.woff2` en `out/_next/static/media/` | nuevo |
+| `src/app/globals.css` | Creado (PR 3c, Tailwind/tokens) — Tailwind 4 `@theme` + `@layer base`. PR 3c **también** añade `import "./globals.css";` a `src/app/layout.tsx` (la corrección del defecto de dependencia — el import vive con el archivo que importa) | nuevo |
 | `src/modules/design-system/{infrastructure/index.ts, presentation/Icon.tsx, presentation/Button.tsx}` | Creados (PR 3c, Tailwind/tokens) — barrel de design-system | nuevos |
 | `tests/test_tailwind_4_parity.py` | Creado (PR 3c, Tailwind/tokens) | nuevo |
 | `tests/test_design_system_purity.py` | Creado (PR 3c, Tailwind/tokens) | nuevo |
@@ -573,7 +611,7 @@ mismo aterriza después de las verificaciones de cierre).
 | `tests/test_smoke.py::test_search_engine_contract` | Modificado (PR 3d, Makefile/mount) — ruta de `open()` actualizada si el literal se movió; forma de bytes preservada | `tests/test_smoke.py` |
 | `src/modules/browser-state/**` | Creado (PR 4a) — typed store + 4 sitios de lectura + 4 de escritura | nuevos |
 | `tests/test_browser_state_keys.py` | Creado (PR 4a) | nuevo |
-| `src/modules/app-shell/**` | Creado (PR 4b) — AppShell + page-chrome + guardia de hidratación | nuevos |
+| `src/modules/app-shell/**` | Creado (PR 4b) — AppShell + page-chrome + guardia de hidratación. PR 4b **también** integra `<AppShell>` desde este módulo en `src/app/{layout,page}.tsx` (la corrección del defecto de dependencia — el PR 4b posee tanto el módulo AppShell **como** la integración del host del App Router; el layout/page marcador del PR 3b se reemplaza por la composición del AppShell integrada en 4b) | nuevos |
 | `tests/test_hydration_console.py` | Creado (PR 4b) | nuevo |
 | `src/modules/taxonomy/**` | Porteado (PR 5a) — port de `web/{tree,detail,breadcrumb}.js` a React + strip de pestañas de `DetailPanel` (`Overview` / `Search` / `Folder`, las tres siempre alcanzables; `Overview` siempre disponible según la política de usuario) + `OverviewTab` + menú `Kebab` con la acción `Search online` que fuerza la pestaña `Search` | nuevos |
 | `tests/test_taxonomy_infra.py` | Creado (PR 5a) — más aserciones para el strip de tres pestañas, el contrato `Overview`-siempre-visible, y la fuerza kebab `Search online` → pestaña `Search` (cierra la regresión actual en vivo donde taxones de nivel superior aterrizan en `Overview`) | nuevo |
