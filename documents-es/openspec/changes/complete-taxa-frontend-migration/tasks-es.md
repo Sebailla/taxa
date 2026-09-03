@@ -237,6 +237,40 @@
 > 3c-e) más el PR 3c-f no pueden colapsarse sin violar el
 > presupuesto de revisión de 400 líneas por sub-PR.**
 
+> **2026-09-03 — replan de mezcla de capas en 3c-e (revisión
+> correctiva del plan; sustituye únicamente al ámbito previo del
+> PR 3c-e)**. PR 3c-e según el re-ámbito previo (aliases de
+> utilidad + `@keyframes` restantes + `color-mix()` restantes
+> todo bajo `globals.css::@layer base`) mezclaba tres concerns
+> heterogéneos en una sola capa y arriesgaba filtrar reglas de
+> `color-mix()` a nivel de componente en 3c-e que pertenecen
+> legítimamente al testigo de paridad consolidado en el PR 3c-f.
+> El ámbito de 3c-e se **re-ambía otra vez**, manteniendo fija
+> la frontera de la rama 3c-e / 3c-f:
+>
+> - **PR 3c-e (posición 7/18; re-ambiado)** — aliases / clases
+>   de utilidad solo en `@layer components`; `@keyframes`
+>   restantes solo en `@layer base`; **ninguna regla de
+>   `color-mix()` de componente en 3c-e**. Los aliases
+>   `primary-fixed -> primary` y `on-primary-fixed ->
+>   on-primary` se preservan (la superficie legacy mapea sobre
+>   los tokens upstream `primary` / `on-primary` ya enviados
+>   por el PR 3c-a). El test acompañante
+>   `tests/test_tailwind_4_utilities.py` **reusa los guards de
+>   3c-d** (helpers de resolución de selectores + orden de
+>   fuente desde `tests/test_tailwind_4_base_resets.py`) en
+>   lugar de duplicarlos.
+> - **PR 3c-f (posición 8/18; sin cambios)** — el testigo
+>   parametrizado final de paridad es el único que posee
+>   **reglas de `color-mix()` de componente y la paridad
+>   completa** (ningún sub-PR anterior posee `color-mix()` de
+>   componente).
+>
+> Los números de rama / posición (3c-e 7/18 → 3c-f 8/18), el
+> presupuesto LoC (≤ 180 LoC), el par de ramas
+> `…-07-3c-e` / `…-08-3c-f` y la estrategia
+> feature-branch-chain quedan sin cambios.
+
 ## Frontera de alcance para este archivo de tareas
 
 - **En alcance**: cada sub-PR bajo el Enfoque A listado en
@@ -1302,14 +1336,14 @@ Posición 6/18 — alcance **reducido** (ver adenda correctiva 2026-09-02; el 3c
 
 **Evidencia**: `.venv/bin/python3 -m pytest tests/test_tailwind_4_base_resets.py -v`; runtime `npx next build` exit 0. **Reversión**: `git revert <3c-d-sha>`; Fases 3a + 3b + 3c-a + 3c-b + 3c-c intactas.
 
-## Fase 3c-e: Clases de utilidad + paridad de animación restante (PR 3c-e → rama del PR 3c-d, posición 7/18)
+## Fase 3c-e: Aliases/clases de utilidad + keyframes restantes (PR 3c-e → rama del PR 3c-d, posición 7/18)
 
-Posición 7/18 — hijo nuevo (rama `…-07-3c-e`, base `…-06-3c-d`). Depende de **3c-d**. Extiende `globals.css::@layer base` con la superficie de clases de utilidad (`bg-primary`, `text-on-surface`, `border-outline-variant`, `bg-surface-container-lowest`, `shadow-sm`, `rounded-r-md`, `bg-primary-fixed`, `text-on-primary-fixed`, …) y cualquier `@keyframes`/`color-mix()` restante que no estuviera en 3c-d. **Sin test de paridad.** Superficie de producción permitida: `src/app/globals.css` (~180 LoC). Superficie de test permitida: `tests/test_tailwind_4_utilities.py`.
+Posición 7/18 — hijo **re-ambiado** (ver replan de mezcla de capas 3c-e del 2026-09-03; rama `…-07-3c-e`, base `…-06-3c-d`). Depende de **3c-d**. Divide la superficie legacy de utilidad entre dos capas: aliases / clases de utilidad solo en `globals.css::@layer components` (`bg-primary`, `text-on-surface`, `border-outline-variant`, `bg-surface-container-lowest`, `shadow-sm`, `rounded-r-md`, `bg-primary-fixed`, `text-on-primary-fixed`, …) y `@keyframes` restantes solo en `globals.css::@layer base`. Los aliases `primary-fixed -> primary` y `on-primary-fixed -> on-primary` se preservan. **Ninguna regla de `color-mix()` de componente en 3c-e**; el PR 3c-f es el único que posee `color-mix()` de componente y la paridad completa. **Sin test de paridad.** Superficie de producción permitida: `src/app/globals.css` (~180 LoC repartidos entre aliases / clases en `@layer components` + las líneas de `@keyframes` restantes en `@layer base`). Superficie de test permitida: `tests/test_tailwind_4_utilities.py` (compacto; reusa los guards de 3c-d desde `tests/test_tailwind_4_base_resets.py`).
 
-- [ ] 3c-e.1 R — `tests/test_tailwind_4_utilities.py` (cada utilidad legacy resuelve)
-- [ ] 3c-e.2 G — adiciones de utilidades en `src/app/globals.css` (~180 LoC, orden de fuente)
-- [ ] 3c-e.3 T — triangulación (sin pérdida silenciosa de clases, presupuesto de bytes)
-- [ ] 3c-e.4 Refactor — alfabetizar
+- [ ] 3c-e.1 R — `tests/test_tailwind_4_utilities.py` (cada alias/clase de utilidad legacy resuelve; **reusa los guards de 3c-d** — helpers de resolución de selectores + orden de fuente importados desde `tests/test_tailwind_4_base_resets.py`; sin fixtures duplicados)
+- [ ] 3c-e.2 G — adiciones en `src/app/globals.css` (~180 LoC, orden de fuente): aliases / clases de utilidad bajo `@layer components` + `@keyframes` restantes bajo `@layer base`; preservar los aliases `primary-fixed -> primary` y `on-primary-fixed -> on-primary`
+- [ ] 3c-e.3 T — triangulación (sin pérdida silenciosa de clases, preservación de aliases, presupuesto de bytes, separación de capas — ningún selector `color-mix()` bajo ninguna capa en 3c-e)
+- [ ] 3c-e.4 Refactor — alfabetizar dentro de cada capa
 
 **Evidencia**: `.venv/bin/python3 -m pytest tests/test_tailwind_4_utilities.py -v`; runtime `npx next build` exit 0. **Reversión**: `git revert <3c-e-sha>`; Fases 3a + 3b + 3c-a + 3c-b + 3c-c + 3c-d intactas.
 
