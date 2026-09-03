@@ -157,6 +157,59 @@
 > predecessor, the per-domain specs, and the validation gates
 > stay unchanged.
 
+> **2026-09-02 — 3c-d unsatisfiability split (corrective plan
+> revision; supersedes the old monolithic PR 3c-d only)**. PR
+> 3c-d as previously rescoped (animations / utilities + final
+> parity test in one sub-PR) was **unsatisfiable**: three
+> heterogeneous concerns + a high-cardinality final-parity test
+> exceeded the 400-line per-PR budget. The CSS portion is
+> **re-split again into three sequential children**, each
+> ≤ 400 authored lines:
+>
+> - **PR 3c-d (6/18; narrowed)** — base / reset /
+>   state-affordances. Extends `globals.css::@layer base` with
+>   `@keyframes` (`spin`), `color-mix()` selectors,
+>   `body { overscroll-behavior: none; … }`, and
+>   `main > :first-child { margin-top: 0 !important; }`. **No
+>   utility classes, no parity test.** Allowed production:
+>   `src/app/globals.css`. Allowed test:
+>   `tests/test_tailwind_4_base_resets.py`.
+> - **PR 3c-e (7/18; new)** — utility-class + remaining
+>   animation parity. Extends `globals.css::@layer base` with
+>   the utility-class surface (`bg-primary`, `text-on-surface`,
+>   `border-outline-variant`, `bg-surface-container-lowest`,
+>   `shadow-sm`, `rounded-r-md`, `bg-primary-fixed`,
+>   `text-on-primary-fixed`, …) and any remaining `@keyframes`
+>   / `color-mix()`. **No parity test.** Allowed production:
+>   `src/app/globals.css`. Allowed test:
+>   `tests/test_tailwind_4_utilities.py`.
+> - **PR 3c-f (8/18; new; final consolidated parity test
+>   only)** — **no new `globals.css` code**. Final
+>   parametrized parity test
+>   `tests/test_tailwind_4_parity.py` consolidates the five
+>   prior focused tests (3c-a tokens / 3c-b taxonomy / 3c-c
+>   research / 3c-d base-resets / 3c-e utilities). **Final
+>   parity remains unchanged in contract; it belongs only to
+>   PR 3c-f.**
+>
+> **Deterministic renumbering (+2 shift)**: 3d 7→**9/18**;
+> 4a 8→**10/18**; 4b 9→**11/18**; 5a 10→**12/18**; 5b 11→**13/18**;
+> 5c 12→**14/18**; 6a (G5) 13→**15/18**; 6b (G6) 14→**16/18**;
+> 6c (G4) 15→**17/18**; 3e 16→**18/18**. 3a/3b/3c-a/3c-b/3c-c
+> stay; **3c-d stays at 6/18** (same branch, narrowed). New
+> branches: `…-07-3c-e` (base `…-06-3c-d`), `…-08-3c-f` (base
+> `…-07-3c-e`). **18-child count** replaces 16;
+> feature-branch-chain strategy and "tracker-only targeting
+> `develop`" contract hold. Per-sub-PR LoC budgets stay well
+> under 400; only the prior PR 3a `package-lock.json` exception
+> remains. Approach A, FastAPI/SQLite, the frozen predecessor,
+> G4 / G5 / G6 (now at 17/18, 15/18, 16/18), per-domain specs,
+> and validation gates stay unchanged. Merged PRs 3c-a/#147,
+> 3c-b/#148, 3c-c/#149 preserved unchanged. **The five CSS
+> children (3c-a / 3c-b / 3c-c / 3c-d / 3c-e) plus PR 3c-f
+> cannot collapse without violating the 400-line per-PR
+> review budget.**
+
 ## Scope boundary for this tasks file
 
 - **In scope**: every sub-PR under Approach A listed in `design.md`
@@ -1062,116 +1115,42 @@ the `:root` tokens which PR 3c-a owns).
 | 3c-c.2 | same | same | same |
 | 3c-c.4 | same | same | same |
 
-## Phase 3c-d: Animations / utilities + final parity (PR 3c-d → PR 3c-c branch)
+## Phase 3c-d: Base / reset / state-affordances (PR 3c-d → PR 3c-c branch, position 6/18)
 
-Position 6/16 — the **fourth and last new CSS child**. PR 3c-d
-extends `src/app/globals.css` (with the `@theme` block from
-PR 3c-a, the taxonomy `@layer components` block from PR 3c-b,
-and the research / chrome `@layer components` block from
-PR 3c-c) with the **final Tailwind 4 parity surface**:
-`@keyframes` (`spin`), the `color-mix()` selectors, the
-utility-class surface (`bg-primary`, `text-on-surface`,
-`border-outline-variant`, `bg-surface-container-lowest`,
-`shadow-sm`, `rounded-r-md`, `bg-primary-fixed`,
-`text-on-primary-fixed`, …), the
-`body { overscroll-behavior: none; … }` rule, and the
-`main > :first-child { margin-top: 0 !important; }` reset —
-all under `@layer base` in source order. Ships the **final
-parity test** `tests/test_tailwind_4_parity.py` (parametrized
-over every legacy `:root` token, every `var(--token)`
-reference, every legacy utility class, and every `@keyframes`
-/ `color-mix()` selector). PR 3c-d's final parity test is the
-consolidation witness that the **1,963-line legacy inline
-CSS** has been migrated into `src/app/globals.css` end-to-end.
-Depends on PR 3c-c (the research / chrome `@layer components`
-block is in place).
+Position 6/18 — **narrowed** scope (see 2026-09-02 corrective addendum; the obsolete monolithic 3c-d is superseded). Depends on **3c-c**. Extends `src/app/globals.css::@layer base` with `@keyframes` (`spin`), `color-mix()` selectors, `body { overscroll-behavior: none; … }`, and `main > :first-child { margin-top: 0 !important; }`. **No utility classes, no parity test.** Allowed production surface: `src/app/globals.css` (~80 LoC). Allowed test surface: `tests/test_tailwind_4_base_resets.py`.
 
-- [ ] 3c-d.1 R — `tests/test_tailwind_4_parity.py` (new): the
-      **final** parametrized parity test that consolidates the
-      three prior parity tests (`tests/test_tailwind_4_tokens.py`
-      from PR 3c-a, `tests/test_taxonomy_styles.py` from PR
-      3c-b, `tests/test_research_styles.py` from PR 3c-c).
-      Reads the legacy `web/index.html` `<style>` block (the
-      **1,963-line** source) and the new `src/app/globals.css`
-      (with `@theme` + `@layer base` + `@layer components` +
-      `@keyframes` + utility classes), asserts (a) every
-      legacy `:root { --x }` token resolves to a non-empty
-      declaration in `globals.css::@theme`, (b) every legacy
-      `var(--x)` reference resolves to a non-empty declaration,
-      (c) every legacy utility class (the classes the legacy
-      `web/dist/tailwind.css` emitted — `bg-primary`,
-      `text-on-surface`, `border-outline-variant`,
-      `bg-surface-container-lowest`, `shadow-sm`,
-      `rounded-r-md`, `bg-primary-fixed`,
-      `text-on-primary-fixed`, …) resolves to a non-empty CSS
-      declaration in the generated
-      `out/_next/static/chunks/*.css`, (d) every
-      `@keyframes` selector (`spin`, …) and every
-      `color-mix()` selector resolves in `globals.css`.
-      <!-- sdd-owner: implementation -->
-- [ ] 3c-d.2 G — `src/app/globals.css` (modified, ~200 LoC
-      delta inside `@layer base { … }`): adds `@keyframes`
-      (`spin`, the loading-state animation), the
-      `color-mix()` selectors (the Tailwind 4
-      theme-mixing pattern the design system relies on for
-      hover / focus / disabled states), the utility-class
-      surface (`bg-primary`, `text-on-surface`,
-      `border-outline-variant`, `bg-surface-container-lowest`,
-      `shadow-sm`, `rounded-r-md`, `bg-primary-fixed`,
-      `text-on-primary-fixed`, … — each derived from the
-      `@theme` block PR 3c-a ships), the
-      `body { overscroll-behavior: none; … }` rule (matches
-      the legacy `<style>` body reset), and the
-      `main > :first-child { margin-top: 0 !important; }`
-      reset (matches the legacy `<style>` first-child reset).
-      All rules under `@layer base` so PR 3c-b's and PR
-      3c-c's `@layer components` rules can override when
-      needed; the source order matches the legacy
-      `<style>` block order (matches `design.md` §"Design
-      tokens" cascade order requirement). <!-- sdd-owner: implementation -->
-- [ ] 3c-d.3 T — extend `tests/test_tailwind_4_parity.py`
-      triangulation: assert (a) the utility-class surface
-      covers every class the legacy build emitted (no
-      silent class loss), (b) every `@keyframes` selector
-      appears under `@layer base`, (c) every `color-mix()`
-      selector appears under `@layer base`, (d) the
-      `body { overscroll-behavior: none; … }` rule and the
-      `main > :first-child { margin-top: 0 !important; }`
-      reset are present in source order at the bottom of
-      `@layer base`, (e) the generated
-      `out/_next/static/chunks/*.css` byte size does NOT
-      exceed the recorded predecessor budget (no
-      unbounded CSS growth — the 1,963-line legacy inline
-      CSS migrates into ≤ 1,500 lines of `globals.css` plus
-      the Tailwind 4 base reset, well within the
-      predecessor's `out/_next/static/chunks/*.css` budget).
-      <!-- sdd-owner: implementation -->
-- [ ] 3c-d.4 Refactor — alphabetise the utility classes
-      inside `@layer base`; collapse the
-      `bg-primary` / `text-on-primary` / `bg-primary-fixed`
-      / `text-on-primary-fixed` cluster into a single
-      `@layer base { … }` block with shared selectors;
-      ensure the source order matches the legacy
-      `<style>` block order (matches `design.md` §"Design
-      tokens" cascade order requirement); ensure the
-      `tests/test_tailwind_4_parity.py` final parity test
-      uses `pytest.mark.parametrize` over the union of
-      tokens / selectors / utility classes (no duplicate
-      enumeration logic across the three prior parity
-      tests). <!-- sdd-owner: implementation -->
+- [ ] 3c-d.1 R — `tests/test_tailwind_4_base_resets.py` (every `@keyframes`/`color-mix()` selector + body/first-child resets resolve in generated CSS)
+- [ ] 3c-d.2 G — `src/app/globals.css` `@layer base` additions (~80 LoC, source order)
+- [ ] 3c-d.3 T — triangulation (source order, selector resolution, byte-size budget)
+- [ ] 3c-d.4 Refactor — alphabetise, dedupe
 
-**Per-task evidence**:
+**Evidence**: `.venv/bin/python3 -m pytest tests/test_tailwind_4_base_resets.py -v`; runtime `npx next build` exit 0. **Rollback**: `git revert <3c-d-sha>`; Phases 3a + 3b + 3c-a + 3c-b + 3c-c untouched.
 
-| Task | Focused test command | Runtime harness | Rollback boundary |
-|------|----------------------|-----------------|-------------------|
-| 3c-d.1, 3c-d.3 | `.venv/bin/python3 -m pytest tests/test_tailwind_4_parity.py -v` | `npx next build` exit 0; `out/_next/static/chunks/*.css` carries the full Tailwind 4 parity surface (`@theme` tokens, `@layer base` `@keyframes` / `color-mix()` / utility classes / body reset / first-child reset, `@layer components` taxonomy + research / chrome selectors); the 1,963-line legacy inline CSS is migrated end-to-end | `git revert <3c-d-sha>` removes the `@layer base { … }` block (the `@keyframes`, `color-mix()`, utility classes, body reset, first-child reset) AND removes `tests/test_tailwind_4_parity.py`; Phases 3a + 3b + 3c-a + 3c-b + 3c-c untouched |
-| 3c-d.2 | same | same | same |
-| 3c-d.4 | same | same | same |
+## Phase 3c-e: Utility-class + remaining animation parity (PR 3c-e → PR 3c-d branch, position 7/18)
 
-## Phase 3d: Makefile rewrite + `WEB_DIR` repoint + AC-21 reader (PR 3d → PR 3c-d branch, position 7/16)
+Position 7/18 — new child (branch `…-07-3c-e`, base `…-06-3c-d`). Depends on **3c-d**. Extends `globals.css::@layer base` with the utility-class surface (`bg-primary`, `text-on-surface`, `border-outline-variant`, `bg-surface-container-lowest`, `shadow-sm`, `rounded-r-md`, `bg-primary-fixed`, `text-on-primary-fixed`, …) and any remaining `@keyframes`/`color-mix()` selectors not in 3c-d. **No parity test.** Allowed production surface: `src/app/globals.css` (~180 LoC). Allowed test surface: `tests/test_tailwind_4_utilities.py`.
+
+- [ ] 3c-e.1 R — `tests/test_tailwind_4_utilities.py` (every legacy utility resolves)
+- [ ] 3c-e.2 G — `src/app/globals.css` utility additions (~180 LoC, source order)
+- [ ] 3c-e.3 T — triangulation (no silent class loss, byte-size budget)
+- [ ] 3c-e.4 Refactor — alphabetise
+
+**Evidence**: `.venv/bin/python3 -m pytest tests/test_tailwind_4_utilities.py -v`; runtime `npx next build` exit 0. **Rollback**: `git revert <3c-e-sha>`; Phases 3a + 3b + 3c-a + 3c-b + 3c-c + 3c-d untouched.
+
+## Phase 3c-f: Final consolidated parity test only (PR 3c-f → PR 3c-e branch, position 8/18)
+
+Position 8/18 — new child (branch `…-08-3c-f`, base `…-07-3c-e`). Depends on **3c-e**. **No new `globals.css` production code ships here.** Final parametrized parity test `tests/test_tailwind_4_parity.py` consolidates the five prior focused tests (3c-a tokens / 3c-b taxonomy / 3c-c research / 3c-d base-resets / 3c-e utilities) — the consolidation witness for the **1,963-line legacy inline CSS** migrated into `src/app/globals.css` end-to-end. **Final parity remains unchanged in contract; it now belongs only to PR 3c-f.** Allowed production surface: **none**. Allowed test surface: `tests/test_tailwind_4_parity.py`.
+
+- [ ] 3c-f.1 R — `tests/test_tailwind_4_parity.py` (the final consolidated witness)
+- [ ] 3c-f.2 G — `pytest.mark.parametrize` over the union of 3c-a / 3c-b / 3c-c / 3c-d / 3c-e focused tests
+- [ ] 3c-f.3 T — triangulation (full surface: `@theme` tokens, `var(--token)`, `@keyframes`/`color-mix()`, utility classes, `@layer components` selectors)
+
+**Evidence**: `.venv/bin/python3 -m pytest tests/test_tailwind_4_parity.py -v`; runtime `npx next build` exit 0. **Rollback**: `git revert <3c-f-sha>`; Phases 3a + 3b + 3c-a + 3c-b + 3c-c + 3c-d + 3c-e untouched.
+
+## Phase 3d: Makefile rewrite + `WEB_DIR` repoint + AC-21 reader (PR 3d → PR 3c-f branch, position 9/18)
 
 Depends on PR 3b (`next build` produces `out/index.html`) and
-PR 3c-d (Tailwind 4 tokens + `@layer base` + `@layer components`
+PR 3c-f (Tailwind 4 tokens + `@layer base` + `@layer components`
 flow through `next build`; the final Tailwind 4 parity test is
 on disk). Fuses the original Phase 3c's `Makefile::api` rewrite
 + the original Phase 3d's `WEB_DIR` repoint + AC-21 reader
