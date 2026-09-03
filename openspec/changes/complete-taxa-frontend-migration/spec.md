@@ -400,17 +400,47 @@ The PR-level scope reshuffle documented in
 revision contract)"` closes a dependency defect the apply gate
 identified in PR 3b's original `src/app/layout.tsx` (which
 imported `@taxa/app-shell` — implemented in PR 4b — and
-`./globals.css` — implemented in PR 3c). PR 3b is rescoped to
-a self-contained App Router static-export bootstrap; the
-`import "./globals.css";` line moves into PR 3c; the
-`<AppShell>` integration moves into PR 4b. The 13-child chain
-topology, the test evidence (`out/index.html` / viewport /
+`./globals.css` — implemented in PR 3c-a). PR 3b is rescoped
+to a self-contained App Router static-export bootstrap; the
+`import "./globals.css";` line moves into PR 3c-a; the
+`<AppShell>` integration moves into PR 4b. The chain topology,
+the test evidence (`out/index.html` / viewport /
 Raleway preload / hydration-zero-warnings), the per-domain
 acceptance criteria above, the backend contract, the
 validation gates recorded above, and the ≤ 400 authored lines
 per sub-PR budget are all preserved. Approach A, FastAPI/
 SQLite, the frozen predecessor, and the per-domain specs stay
 unchanged.
+
+## CSS re-split (2026-09-02)
+
+The apply gate's pre-flight re-audit identified that PR 3c, as
+scoped at the previous corrective revision, was **unsatisfiable**:
+it was tasked with migrating the legacy `web/index.html` inline
+`<style>` block of **1,963 lines** in a single sub-PR while
+staying under the 400-line per-PR review budget — the migration
+cannot fit. The CSS portion of the migration is therefore
+**re-split into four chained children** (PR 3c-a, PR 3c-b, PR
+3c-c, PR 3c-d), each ≤ 400 author lines and partitioned by
+concern: tokens / base / dark mode; tree + inline Overview
+styles; Search / Folder / global Browser styles; animations /
+utilities + final parity. The four CSS children collectively
+migrate the 1,963 legacy inline CSS lines into
+`src/app/globals.css` (≤ 1,500 authored lines plus Tailwind 4
+base reset, well under the predecessor's
+`out/_next/static/chunks/*.css` budget); the legacy `<style>`
+block itself is retired at PR 5c (the legacy `web/index.html`
+deletion). Tracker **PR #146** is the merged starting point for
+the first new CSS child (PR 3c-a). The semantic labels
+(3a, 3b, 3c-a, 3c-b, 3c-c, 3c-d, 3d, 4a, 4b, 5a, 5b, 5c, 6a,
+6b, 6c, 3e) are preserved; only the position counter (NN in
+`feat/complete-taxa-frontend-migration-NN-XXX`) and base-branch
+references change. The chain length grows from 13 children to
+**16 children**; the dependency-defect fix above, the per-domain
+acceptance criteria above, the backend contract, the validation
+gates recorded above, and the ≤ 400 authored lines per sub-PR
+budget are all preserved. Approach A, FastAPI/SQLite, the
+frozen predecessor, and the per-domain specs stay unchanged.
 
 ## Next step
 

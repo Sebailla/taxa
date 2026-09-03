@@ -431,17 +431,47 @@ revisión correctiva del plan)"` cierra un defecto de dependencia
 que el portón de apply identificó en el
 `src/app/layout.tsx` original del PR 3b (que importaba
 `@taxa/app-shell` — implementado en el PR 4b — y
-`./globals.css` — implementado en el PR 3c). El PR 3b se
+`./globals.css` — implementado en el PR 3c-a). El PR 3b se
 re-ambia a un bootstrap autocontenido de exportación estática
 del App Router; la línea `import "./globals.css";` se mueve al
-PR 3c; la integración de `<AppShell>` se mueve al PR 4b. La
-topología de cadena de 13 hijos, la evidencia de prueba
-(`out/index.html` / viewport / preload Raleway / cero warnings
-de hidratación), los criterios de aceptación por dominio de
-arriba, el contrato del backend, las puertas de validación
-registradas arriba y el presupuesto de ≤ 400 líneas authored
-por sub-PR se preservan todos. El Enfoque A, FastAPI/SQLite, el
-predecesor congelado y los specs por dominio quedan sin cambios.
+PR 3c-a; la integración de `<AppShell>` se mueve al PR 4b. La
+topología de cadena, la evidencia de prueba (`out/index.html` /
+viewport / preload Raleway / cero warnings de hidratación), los
+criterios de aceptación por dominio de arriba, el contrato del
+backend, las puertas de validación registradas arriba y el
+presupuesto de ≤ 400 líneas authored por sub-PR se preservan
+todos. El Enfoque A, FastAPI/SQLite, el predecesor congelado y
+los specs por dominio quedan sin cambios.
+
+## Re-división de CSS (2026-09-02)
+
+La re-auditoría previa al apply identificó que el PR 3c, tal
+como quedó delimitado en la revisión correctiva anterior, era
+**insatisfacible**: debía migrar el bloque `<style>` inline de
+`web/index.html` legado de **1.963 líneas** en un solo sub-PR y
+mantenerse bajo el presupuesto de revisión de 400 líneas por
+PR. La parte CSS de la migración se **redivide en cuatro hijos
+encadenados** (PR 3c-a, PR 3c-b, PR 3c-c y PR 3c-d), cada uno
+con ≤400 líneas authored y separado por responsabilidad:
+tokens/base/dark mode; estilos del árbol + Overview inline;
+estilos de Search/Folder/Browser global; animaciones/utilidades
++ paridad final. Los cuatro hijos CSS migran conjuntamente las
+1.963 líneas CSS inline legadas a `src/app/globals.css` (≤1.500
+líneas authored más el reset base de Tailwind 4, dentro del
+presupuesto del predecesor para
+`out/_next/static/chunks/*.css`); el bloque `<style>` legado se
+retira en PR 5c (la eliminación de `web/index.html`). El PR
+tracker **#146** es el punto de partida fusionado para el primer
+hijo CSS nuevo (PR 3c-a). Se preservan las etiquetas semánticas
+(3a, 3b, 3c-a, 3c-b, 3c-c, 3c-d, 3d, 4a, 4b, 5a, 5b, 5c, 6a,
+6b, 6c, 3e); sólo cambian el contador de posición (NN en
+`feat/complete-taxa-frontend-migration-NN-XXX`) y las
+referencias de rama base. La cadena crece de 13 a **16 hijos**;
+se preservan la corrección de dependencia anterior, los
+criterios por dominio, el contrato de backend, las puertas de
+validación y el presupuesto de ≤400 líneas authored por sub-PR.
+El Enfoque A, FastAPI/SQLite, el predecesor congelado y los specs
+por dominio quedan sin cambios.
 
 ## Siguiente paso
 
