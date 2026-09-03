@@ -166,7 +166,7 @@
 > **re-split again into three sequential children**, each
 > ≤ 400 authored lines:
 >
-> - **PR 3c-d (6/18; narrowed)** — base / reset /
+> - **PR 3c-d (6/19; narrowed)** — base / reset /
 >   state-affordances. Extends `globals.css::@layer base` with
 >   `@keyframes` (`spin`), `color-mix()` selectors,
 >   `body { overscroll-behavior: none; … }`, and
@@ -174,41 +174,51 @@
 >   utility classes, no parity test.** Allowed production:
 >   `src/app/globals.css`. Allowed test:
 >   `tests/test_tailwind_4_base_resets.py`.
-> - **PR 3c-e (7/18; new)** — utility-class + remaining
->   animation parity. Extends `globals.css::@layer base` with
->   the utility-class surface (`bg-primary`, `text-on-surface`,
->   `border-outline-variant`, `bg-surface-container-lowest`,
->   `shadow-sm`, `rounded-r-md`, `bg-primary-fixed`,
->   `text-on-primary-fixed`, …) and any remaining `@keyframes`
->   / `color-mix()`. **No parity test.** Allowed production:
->   `src/app/globals.css`. Allowed test:
->   `tests/test_tailwind_4_utilities.py`.
-> - **PR 3c-f (8/18; new; final consolidated parity test
+> - **PR 3c-e1 (7/19; new)** — utility aliases + remaining
+>   `@keyframes`. Owns the two alias renames under
+>   `@layer components` (preserve `primary-fixed -> primary` and
+>   `on-primary-fixed -> on-primary`) and remaining `@keyframes`
+>   under `@layer base`. **No component `color-mix()` rules in
+>   3c-e1.** Allowed production: `src/app/globals.css` (~40 LoC).
+>   Allowed test: `tests/test_tailwind_4_utilities.py` (alias +
+>   keyframe coverage; reuses 3c-d guards).
+> - **PR 3c-e2 (8/19; new)** — utility classes only. Owns the
+>   utility-class surface only in `@layer components`
+>   (`bg-primary`, `text-on-surface`, `border-outline-variant`,
+>   `bg-surface-container-lowest`, `shadow-sm`, `rounded-r-md`,
+>   `bg-primary-fixed`, `text-on-primary-fixed`, …). **No
+>   component `color-mix()` rules in 3c-e2.** Allowed production:
+>   `src/app/globals.css` (~140 LoC). Allowed test:
+>   `tests/test_tailwind_4_utilities.py` (utility-class coverage;
+>   reuses 3c-d guards).
+> - **PR 3c-f (9/19; new; final consolidated parity test
 >   only)** — **no new `globals.css` code**. Final
 >   parametrized parity test
->   `tests/test_tailwind_4_parity.py` consolidates the five
+>   `tests/test_tailwind_4_parity.py` consolidates the six
 >   prior focused tests (3c-a tokens / 3c-b taxonomy / 3c-c
->   research / 3c-d base-resets / 3c-e utilities). **Final
->   parity remains unchanged in contract; it belongs only to
->   PR 3c-f.**
+>   research / 3c-d base-resets / 3c-e1 aliases + keyframes /
+>   3c-e2 utility classes). **Final parity remains unchanged in
+>   contract; it belongs only to PR 3c-f.**
 >
-> **Deterministic renumbering (+2 shift)**: 3d 7→**9/18**;
-> 4a 8→**10/18**; 4b 9→**11/18**; 5a 10→**12/18**; 5b 11→**13/18**;
-> 5c 12→**14/18**; 6a (G5) 13→**15/18**; 6b (G6) 14→**16/18**;
-> 6c (G4) 15→**17/18**; 3e 16→**18/18**. 3a/3b/3c-a/3c-b/3c-c
-> stay; **3c-d stays at 6/18** (same branch, narrowed). New
-> branches: `…-07-3c-e` (base `…-06-3c-d`), `…-08-3c-f` (base
-> `…-07-3c-e`). **18-child count** replaces 16;
-> feature-branch-chain strategy and "tracker-only targeting
+> **Deterministic renumbering (+3 shift; supersedes the prior
+> +2 shift documented in the 2026-09-02 addendum above)**:
+> 3d 7→**10/19**; 4a 8→**11/19**; 4b 9→**12/19**; 5a 10→**13/19**;
+> 5b 11→**14/19**; 5c 12→**15/19**; 6a (G5) 13→**16/19**;
+> 6b (G6) 14→**17/19**; 6c (G4) 15→**18/19**; 3e 16→**19/19**.
+> 3a/3b/3c-a/3c-b/3c-c stay; **3c-d stays at 6/19** (same
+> branch, narrowed). New branches: `…-07-3c-e1` (base
+> `…-06-3c-d`), `…-08-3c-e2` (base `…-07-3c-e1`), `…-09-3c-f`
+> (base `…-08-3c-e2`). **19-child count** replaces the prior
+> 18; feature-branch-chain strategy and "tracker-only targeting
 > `develop`" contract hold. Per-sub-PR LoC budgets stay well
 > under 400; only the prior PR 3a `package-lock.json` exception
 > remains. Approach A, FastAPI/SQLite, the frozen predecessor,
-> G4 / G5 / G6 (now at 17/18, 15/18, 16/18), per-domain specs,
+> G4 / G5 / G6 (now at 18/19, 16/19, 17/19), per-domain specs,
 > and validation gates stay unchanged. Merged PRs 3c-a/#147,
-> 3c-b/#148, 3c-c/#149 preserved unchanged. **The five CSS
-> children (3c-a / 3c-b / 3c-c / 3c-d / 3c-e) plus PR 3c-f
-> cannot collapse without violating the 400-line per-PR
-> review budget.**
+> 3c-b/#148, 3c-c/#149 preserved unchanged. **The six CSS
+> children (3c-a / 3c-b / 3c-c / 3c-d / 3c-e1 / 3c-e2) plus
+> PR 3c-f cannot collapse without violating the 400-line
+> per-PR review budget.**
 
 > **2026-09-03 — 3c-e layer-mixing replan (corrective plan
 > revision; supersedes the previous PR 3c-e scope only)**. PR
@@ -240,6 +250,66 @@
 > Branch / position numbers (3c-e 7/18 → 3c-f 8/18), LoC budget
 > (≤ 180 LoC), the `…-07-3c-e` / `…-08-3c-f` branch pair, and
 > the feature-branch-chain strategy stay unchanged.
+
+> **2026-09-03 — 3c-e1/e2 no-loss re-split (corrective plan
+> revision; supersedes the previous PR 3c-e scope only)**. PR
+> 3c-e as previously rescoped (utility aliases / classes +
+> remaining `@keyframes` in a single sub-PR) still conflated a
+> small, contract-precise alias pair (`primary-fixed -> primary`,
+> `on-primary-fixed -> on-primary`) with the bulk utility-class
+> surface (`bg-primary`, `text-on-surface`, …). The 3c-e scope
+> is **re-split again** into **two sequential children with no
+> loss** of the prior acceptance conditions (alias preservation,
+> remaining `@keyframes` coverage, utility-class coverage, byte
+> budget, layer separation, no component `color-mix()`), holding
+> the 3c-f branch boundary fixed:
+>
+> - **PR 3c-e1 (7/19; new)** — utility aliases + remaining
+>   `@keyframes`. Branch `…-07-3c-e1`, base `…-06-3c-d`. Owns
+>   the two alias renames under `@layer components` (preserve
+>   `primary-fixed -> primary` and `on-primary-fixed ->
+>   on-primary`) and the remaining `@keyframes` under `@layer
+>   base`. **No component `color-mix()` rules in 3c-e1.**
+>   Allowed production surface: `src/app/globals.css` (~40 LoC
+>   across the two alias renames + the remaining `@keyframes`
+>   lines). Allowed test surface:
+>   `tests/test_tailwind_4_utilities.py` (alias + keyframe
+>   coverage; **reuses 3c-d guards** from
+>   `tests/test_tailwind_4_base_resets.py`).
+> - **PR 3c-e2 (8/19; new)** — utility classes only. Branch
+>   `…-08-3c-e2`, base `…-07-3c-e1`. Owns the utility-class
+>   surface only in `@layer components` (`bg-primary`,
+>   `text-on-surface`, `border-outline-variant`,
+>   `bg-surface-container-lowest`, `shadow-sm`, `rounded-r-md`,
+>   `bg-primary-fixed`, `text-on-primary-fixed`, …). **No
+>   component `color-mix()` rules in 3c-e2.** Allowed
+>   production surface: `src/app/globals.css` (~140 LoC of
+>   utility classes). Allowed test surface:
+>   `tests/test_tailwind_4_utilities.py` (utility-class
+>   coverage; **reuses 3c-d guards** from
+>   `tests/test_tailwind_4_base_resets.py`).
+> - **PR 3c-f (9/19; unchanged role)** — final parametrized
+>   parity witness alone still owns **component `color-mix()`
+>   rules and full parity**; consolidates the **six** prior
+>   focused tests (3c-a / 3c-b / 3c-c / 3c-d / 3c-e1 /
+>   3c-e2).
+>
+> **Deterministic renumbering (+3 shift; replaces the prior +2
+> shift)**. 3d 7→**10/19**; 4a 8→**11/19**; 4b 9→**12/19**;
+> 5a 10→**13/19**; 5b 11→**14/19**; 5c 12→**15/19**;
+> 6a (G5) 13→**16/19**; 6b (G6) 14→**17/19**;
+> 6c (G4) 15→**18/19**; 3e 16→**19/19**. **The six CSS
+> children (3c-a / 3c-b / 3c-c / 3c-d / 3c-e1 / 3c-e2) plus
+> PR 3c-f cannot collapse without violating the 400-line
+> per-PR review budget.** Per-sub-PR LoC budgets stay well
+> under 400 (3c-e1 ~40 + 3c-e2 ~140 = ~180 LoC, matching the
+> prior combined 3c-e budget). New sequential branches:
+> `…-07-3c-e1` (base `…-06-3c-d`), `…-08-3c-e2` (base
+> `…-07-3c-e1`), `…-09-3c-f` (base `…-08-3c-e2`). **19-child
+> count** replaces the prior 18. Approach A, FastAPI/SQLite,
+> the frozen predecessor, G4 / G5 / G6 (now at 18/19, 16/19,
+> 17/19), per-domain specs, and validation gates stay
+> unchanged.
 
 ## Scope boundary for this tasks file
 
@@ -1146,9 +1216,9 @@ the `:root` tokens which PR 3c-a owns).
 | 3c-c.2 | same | same | same |
 | 3c-c.4 | same | same | same |
 
-## Phase 3c-d: Base / reset / state-affordances (PR 3c-d → PR 3c-c branch, position 6/18)
+## Phase 3c-d: Base / reset / state-affordances (PR 3c-d → PR 3c-c branch, position 6/19)
 
-Position 6/18 — **narrowed** scope (see 2026-09-02 corrective addendum; the obsolete monolithic 3c-d is superseded). Depends on **3c-c**. Extends `src/app/globals.css::@layer base` with `@keyframes` (`spin`), `color-mix()` selectors, `body { overscroll-behavior: none; … }`, and `main > :first-child { margin-top: 0 !important; }`. **No utility classes, no parity test.** Allowed production surface: `src/app/globals.css` (~80 LoC). Allowed test surface: `tests/test_tailwind_4_base_resets.py`.
+Position 6/19 — **narrowed** scope (see 2026-09-02 corrective addendum; the obsolete monolithic 3c-d is superseded). Depends on **3c-c**. Extends `src/app/globals.css::@layer base` with `@keyframes` (`spin`), `color-mix()` selectors, `body { overscroll-behavior: none; … }`, and `main > :first-child { margin-top: 0 !important; }`. **No utility classes, no parity test.** Allowed production surface: `src/app/globals.css` (~80 LoC). Allowed test surface: `tests/test_tailwind_4_base_resets.py`.
 
 - [ ] 3c-d.1 R — `tests/test_tailwind_4_base_resets.py` (every `@keyframes`/`color-mix()` selector + body/first-child resets resolve in generated CSS)
 - [ ] 3c-d.2 G — `src/app/globals.css` `@layer base` additions (~80 LoC, source order)
@@ -1157,28 +1227,39 @@ Position 6/18 — **narrowed** scope (see 2026-09-02 corrective addendum; the ob
 
 **Evidence**: `.venv/bin/python3 -m pytest tests/test_tailwind_4_base_resets.py -v`; runtime `npx next build` exit 0. **Rollback**: `git revert <3c-d-sha>`; Phases 3a + 3b + 3c-a + 3c-b + 3c-c untouched.
 
-## Phase 3c-e: Utility aliases/classes + remaining keyframes (PR 3c-e → PR 3c-d branch, position 7/18)
+## Phase 3c-e1: Utility aliases + remaining keyframes (PR 3c-e1 → PR 3c-d branch, position 7/19)
 
-Position 7/18 — re-scoped child (see 2026-09-03 3c-e layer-mixing replan; branch `…-07-3c-e`, base `…-06-3c-d`). Depends on **3c-d**. Splits the legacy utility surface across two layers: utility aliases / classes only in `globals.css::@layer components` (`bg-primary`, `text-on-surface`, `border-outline-variant`, `bg-surface-container-lowest`, `shadow-sm`, `rounded-r-md`, `bg-primary-fixed`, `text-on-primary-fixed`, …) and remaining `@keyframes` only in `globals.css::@layer base`. Aliases `primary-fixed -> primary` and `on-primary-fixed -> on-primary` are preserved. **No component `color-mix()` rules in 3c-e**; PR 3c-f alone owns component `color-mix()` and full parity. **No parity test.** Allowed production surface: `src/app/globals.css` (~180 LoC split across `@layer components` aliases / classes + the remaining `@keyframes` lines under `@layer base`). Allowed test surface: `tests/test_tailwind_4_utilities.py` (compact; reuses 3c-d guards from `tests/test_tailwind_4_base_resets.py`).
+Position 7/19 — new child (see 2026-09-03 3c-e1/e2 no-loss re-split; branch `…-07-3c-e1`, base `…-06-3c-d`). Depends on **3c-d**. Owns the two alias renames under `globals.css::@layer components` (preserve `primary-fixed -> primary` and `on-primary-fixed -> on-primary` — the legacy surface maps onto the upstream `primary` / `on-primary` tokens already shipped by PR 3c-a) and the remaining `@keyframes` (those not already shipped by 3c-d) under `globals.css::@layer base`. **No component `color-mix()` rules in 3c-e1**; PR 3c-f alone owns component `color-mix()` and full parity. **No parity test.** Allowed production surface: `src/app/globals.css` (~40 LoC split across the two alias renames under `@layer components` + the remaining `@keyframes` lines under `@layer base`). Allowed test surface: `tests/test_tailwind_4_utilities.py` (alias + keyframe coverage; **reuses 3c-d guards** — selector-resolution + source-order helpers imported from `tests/test_tailwind_4_base_resets.py`; no duplicated fixtures).
 
-- [ ] 3c-e.1 R — `tests/test_tailwind_4_utilities.py` (every legacy utility alias/class resolves; **reuses 3c-d guards** — selector-resolution + source-order helpers imported from `tests/test_tailwind_4_base_resets.py`; no duplicated fixtures)
-- [ ] 3c-e.2 G — `src/app/globals.css` additions (~180 LoC, source order): utility aliases / classes under `@layer components` + remaining `@keyframes` under `@layer base`; preserve `primary-fixed -> primary` and `on-primary-fixed -> on-primary` aliases
-- [ ] 3c-e.3 T — triangulation (no silent class loss, alias preservation, byte-size budget, layer separation — no `color-mix()` selector under either layer in 3c-e)
-- [ ] 3c-e.4 Refactor — alphabetise within each layer
+- [ ] 3c-e1.1 R — `tests/test_tailwind_4_utilities.py` (every legacy alias + remaining keyframe resolves; **reuses 3c-d guards** — selector-resolution + source-order helpers imported from `tests/test_tailwind_4_base_resets.py`; no duplicated fixtures)
+- [ ] 3c-e1.2 G — `src/app/globals.css` additions (~40 LoC, source order): the two alias renames (`primary-fixed -> primary`, `on-primary-fixed -> on-primary`) under `@layer components` + remaining `@keyframes` under `@layer base`; preserve both alias renames
+- [ ] 3c-e1.3 T — triangulation (no silent alias loss, alias preservation, byte-size budget, layer separation — no `color-mix()` selector under either layer in 3c-e1)
+- [ ] 3c-e1.4 Refactor — alphabetise within each layer
 
-**Evidence**: `.venv/bin/python3 -m pytest tests/test_tailwind_4_utilities.py -v`; runtime `npx next build` exit 0. **Rollback**: `git revert <3c-e-sha>`; Phases 3a + 3b + 3c-a + 3c-b + 3c-c + 3c-d untouched.
+**Evidence**: `.venv/bin/python3 -m pytest tests/test_tailwind_4_utilities.py -v`; runtime `npx next build` exit 0. **Rollback**: `git revert <3c-e1-sha>`; Phases 3a + 3b + 3c-a + 3c-b + 3c-c + 3c-d untouched.
 
-## Phase 3c-f: Final consolidated parity test only (PR 3c-f → PR 3c-e branch, position 8/18)
+## Phase 3c-e2: Utility classes (PR 3c-e2 → PR 3c-e1 branch, position 8/19)
 
-Position 8/18 — new child (branch `…-08-3c-f`, base `…-07-3c-e`). Depends on **3c-e**. **No new `globals.css` production code ships here.** Final parametrized parity test `tests/test_tailwind_4_parity.py` consolidates the five prior focused tests (3c-a tokens / 3c-b taxonomy / 3c-c research / 3c-d base-resets / 3c-e utilities) — the consolidation witness for the **1,963-line legacy inline CSS** migrated into `src/app/globals.css` end-to-end. **Final parity remains unchanged in contract; it now belongs only to PR 3c-f.** Allowed production surface: **none**. Allowed test surface: `tests/test_tailwind_4_parity.py`.
+Position 8/19 — new child (see 2026-09-03 3c-e1/e2 no-loss re-split; branch `…-08-3c-e2`, base `…-07-3c-e1`). Depends on **3c-e1**. Owns the legacy utility-class surface only in `globals.css::@layer components` (`bg-primary`, `text-on-surface`, `border-outline-variant`, `bg-surface-container-lowest`, `shadow-sm`, `rounded-r-md`, `bg-primary-fixed`, `text-on-primary-fixed`, …); the two alias renames (`primary-fixed -> primary` and `on-primary-fixed -> on-primary`) ship with 3c-e1 and must continue to resolve. **No component `color-mix()` rules in 3c-e2**; PR 3c-f alone owns component `color-mix()` and full parity. **No parity test.** Allowed production surface: `src/app/globals.css` (~140 LoC of utility classes under `@layer components`). Allowed test surface: `tests/test_tailwind_4_utilities.py` (utility-class coverage; **reuses 3c-d guards** — selector-resolution + source-order helpers imported from `tests/test_tailwind_4_base_resets.py`; no duplicated fixtures).
+
+- [ ] 3c-e2.1 R — `tests/test_tailwind_4_utilities.py` (every legacy utility class resolves; **reuses 3c-d guards** — selector-resolution + source-order helpers imported from `tests/test_tailwind_4_base_resets.py`; no duplicated fixtures)
+- [ ] 3c-e2.2 G — `src/app/globals.css` additions (~140 LoC, source order): utility classes under `@layer components`; the alias renames already shipped by 3c-e1 must continue to resolve
+- [ ] 3c-e2.3 T — triangulation (no silent class loss, alias preservation, byte-size budget, layer separation — no `color-mix()` selector under `@layer components` in 3c-e2)
+- [ ] 3c-e2.4 Refactor — alphabetise within the layer
+
+**Evidence**: `.venv/bin/python3 -m pytest tests/test_tailwind_4_utilities.py -v`; runtime `npx next build` exit 0. **Rollback**: `git revert <3c-e2-sha>`; Phases 3a + 3b + 3c-a + 3c-b + 3c-c + 3c-d + 3c-e1 untouched.
+
+## Phase 3c-f: Final consolidated parity test only (PR 3c-f → PR 3c-e2 branch, position 9/19)
+
+Position 9/19 — new child (branch `…-09-3c-f`, base `…-08-3c-e2`). Depends on **3c-e2**. **No new `globals.css` production code ships here.** Final parametrized parity test `tests/test_tailwind_4_parity.py` consolidates the six prior focused tests (3c-a tokens / 3c-b taxonomy / 3c-c research / 3c-d base-resets / 3c-e1 aliases + keyframes / 3c-e2 utility classes) — the consolidation witness for the **1,963-line legacy inline CSS** migrated into `src/app/globals.css` end-to-end. **Final parity remains unchanged in contract; it now belongs only to PR 3c-f.** Allowed production surface: **none**. Allowed test surface: `tests/test_tailwind_4_parity.py`.
 
 - [ ] 3c-f.1 R — `tests/test_tailwind_4_parity.py` (the final consolidated witness)
-- [ ] 3c-f.2 G — `pytest.mark.parametrize` over the union of 3c-a / 3c-b / 3c-c / 3c-d / 3c-e focused tests
+- [ ] 3c-f.2 G — `pytest.mark.parametrize` over the union of 3c-a / 3c-b / 3c-c / 3c-d / 3c-e1 / 3c-e2 focused tests
 - [ ] 3c-f.3 T — triangulation (full surface: `@theme` tokens, `var(--token)`, `@keyframes`/`color-mix()`, utility classes, `@layer components` selectors)
 
-**Evidence**: `.venv/bin/python3 -m pytest tests/test_tailwind_4_parity.py -v`; runtime `npx next build` exit 0. **Rollback**: `git revert <3c-f-sha>`; Phases 3a + 3b + 3c-a + 3c-b + 3c-c + 3c-d + 3c-e untouched.
+**Evidence**: `.venv/bin/python3 -m pytest tests/test_tailwind_4_parity.py -v`; runtime `npx next build` exit 0. **Rollback**: `git revert <3c-f-sha>`; Phases 3a + 3b + 3c-a + 3c-b + 3c-c + 3c-d + 3c-e1 + 3c-e2 untouched.
 
-## Phase 3d: Makefile rewrite + `WEB_DIR` repoint + AC-21 reader (PR 3d → PR 3c-f branch, position 9/18)
+## Phase 3d: Makefile rewrite + `WEB_DIR` repoint + AC-21 reader (PR 3d → PR 3c-f branch, position 10/19)
 
 Depends on PR 3b (`next build` produces `out/index.html`) and
 PR 3c-f (Tailwind 4 tokens + `@layer base` + `@layer components`
