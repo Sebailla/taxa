@@ -36,13 +36,15 @@ venv:
 	.venv/bin/pip install --quiet --upgrade pip
 	.venv/bin/pip install --quiet -r requirements.txt
 
-# Frontend CSS build — installs the Node toolchain on first run, then
-# compiles web/index.css into web/dist/tailwind.css via the Tailwind CLI.
-# Run before `make api` (the dev server serves web/dist/tailwind.css).
-# Idempotent: npm install is a no-op when node_modules/ is already in sync.
+# Frontend CSS build — RETIRED in PR 3d. The Tailwind 3 pipeline
+# (`tailwindcss -i web/index.css -o web/dist/tailwind.css --minify`) was
+# replaced by the Tailwind 4 stylesheet produced by `next build` at PR 3c
+# (the stylesheet is emitted under `out/_next/static/css/`). Kept as a
+# successful no-op so `make css` keeps working for callers that still
+# reach for it (back-compat) — it MUST NOT hit the network, run any
+# compile step, or invoke the Tailwind CLI.
 css:
-	npm install --no-audit --no-fund
-	npm run build:css
+	@echo "[make css] no-op: Tailwind 4 stylesheet ships with \`next build\` (out/_next/static/css/)"
 
 download:
 	@mkdir -p data/raw
@@ -105,7 +107,14 @@ $(WORMS_ZIP):
 	@mkdir -p $(WORMS_DIR)
 	@if [ ! -f $(WORMS_TSV) ]; then echo "Downloading WoRMS ColDP (26 MB compressed)..."; curl -sSL -o $(WORMS_ZIP) "$(WORMS_URL)"; unzip -o -q $(WORMS_ZIP) -d $(WORMS_DIR); else echo "WoRMS ColDP already extracted at $(WORMS_DIR)"; fi
 
-api: css
+api:
+	@echo "[make api] step 1/4: Node runtime guard"
+	node scripts/check-runtime.mjs
+	@echo "[make api] step 2/4: clean install from package-lock.json"
+	npm ci --no-audit --no-fund
+	@echo "[make api] step 3/4: next build (static export -> out/)"
+	npm run build:web
+	@echo "[make api] step 4/4: uvicorn on 127.0.0.1:8765"
 	.venv/bin/python3 -m uvicorn api.server:app --host 127.0.0.1 --port 8765
 
 test:
