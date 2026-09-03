@@ -26,12 +26,12 @@ import {
   isValidTreeSource,
   type Theme,
   type TreeSource,
-} from "../domain/keys.js";
+} from "../domain/keys";
 import {
   getBrowserStorage,
   tryJsonParse,
   tryJsonStringify,
-} from "./safe-storage.js";
+} from "./safe-storage";
 
 /** Public store surface — 4 typed getters, 4 typed setters, a typed
  *  listener registration, and a reset back to defaults. */

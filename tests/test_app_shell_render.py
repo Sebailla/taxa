@@ -32,10 +32,25 @@ OUT_INDEX = OUT_DIR / "index.html"
 CHUNKS_CSS_GLOB = (REPO_ROOT / "out" / "_next" / "static" / "chunks").glob
 CHUNKS_JS_GLOB = (REPO_ROOT / "out" / "_next" / "static" / "chunks").rglob
 
-FORBIDDEN_IMPORTS = (
-    r"""from\s+["']@taxa/app-shell""",
-    r"""from\s+["']@taxa/browser-state""",
-    r"""from\s+["']\./globals\.css["']""",
+# Per-file forbidden imports — chain-topology guard for the migrated
+# modular monolith.
+#
+# PR 4b integrates the AppShell into the App Router host. The integration
+# seam lives in ``src/app/layout.tsx`` (the layout wraps ``{children}`` in
+# ``<AppShell>...</AppShell>``). Layouts are allowed to import
+# ``@taxa/app-shell``; pages are NOT — ``src/app/page.tsx`` must remain a
+# pure content component (the AppShell is composed once at the layout level
+# and every descendant inherits it). ``@taxa/browser-state`` stays
+# transitive-only (the layout reaches the typed store via the AppShell, not
+# via a direct import).
+LAYOUT_FORBIDDEN_IMPORTS: tuple[tuple[str, str], ...] = (
+    (r"""from\s+["']@taxa/browser-state""", "@taxa/browser-state"),
+    (r"""from\s+["']\./globals\.css["']""", "./globals.css"),
+)
+PAGE_FORBIDDEN_IMPORTS: tuple[tuple[str, str], ...] = (
+    (r"""from\s+["']@taxa/app-shell""", "@taxa/app-shell"),
+    (r"""from\s+["']@taxa/browser-state""", "@taxa/browser-state"),
+    (r"""from\s+["']\./globals\.css["']""", "./globals.css"),
 )
 
 
@@ -180,16 +195,30 @@ def test_layout_uses_next_font_for_raleway():
 
 
 @pytest.mark.parametrize(
-    "src_path, label",
-    [(SRC_LAYOUT, "layout.tsx"), (SRC_PAGE, "page.tsx")],
+    "src_path, label, forbidden_imports",
+    [
+        (SRC_LAYOUT, "layout.tsx", LAYOUT_FORBIDDEN_IMPORTS),
+        (SRC_PAGE, "page.tsx", PAGE_FORBIDDEN_IMPORTS),
+    ],
     ids=["layout", "page"],
 )
-def test_app_file_does_not_import_owners_of_later_prs(src_path, label):
+def test_app_file_does_not_import_owners_of_later_prs(src_path, label, forbidden_imports):
     """Chain-topology guard: PR 3b MUST NOT import cross-module barrels
     owned by later PRs (``@taxa/app-shell`` → 4b, ``@taxa/browser-state`` →
-    4a, ``./globals.css`` → 3c)."""
+    4a, ``./globals.css`` → 3c).
+
+    PR 4b relaxes the layout guard for ``@taxa/app-shell`` — the
+    AppShell integration seam lives in ``src/app/layout.tsx`` and the
+    layout MUST reach the barrel. The page guard is unchanged: pages
+    stay pure content components and inherit the AppShell from the
+    layout, never importing it directly. ``@taxa/browser-state`` stays
+    forbidden for both files — the typed store is consumed transitively
+    via the AppShell, not via a direct barrel import. ``./globals.css``
+    stays forbidden for both files (the layout uses the
+    ``import "./globals.css"`` syntax, not ``from "./globals.css"``,
+    so this regex never matches the G3-a layout import)."""
     text = _read_text(src_path)
-    for pattern, owner in zip(FORBIDDEN_IMPORTS, ("@taxa/app-shell", "@taxa/browser-state", "./globals.css")):
+    for pattern, owner in forbidden_imports:
         assert not re.search(pattern, text), (
             f"{label} MUST NOT import {owner} — that module's owner is a later PR in the chain"
         )
@@ -274,8 +303,15 @@ def test_out_index_html_body_has_no_data_theme_before_hydration(built_index_html
     )
 
 
-def test_out_next_static_chunks_reference_no_browser_state_or_app_shell(built_index_html):
-    """Static-export chunks MUST NOT bundle ``@taxa/browser-state`` or ``@taxa/app-shell`` imports."""
+def test_out_next_static_chunks_reference_no_browser_state(built_index_html):
+    """Static-export chunks MUST NOT bundle ``@taxa/browser-state`` imports.
+
+    PR 4b relaxation: chunks MAY reference ``@taxa/app-shell`` because
+    the AppShell integration seam lives in the layout. The chain-topology
+    guard that survives this PR is the ``@taxa/browser-state`` alias —
+    that import path stays behind the AppShell barrel and must never be
+    inlined into the static-export chunks.
+    """
     chunks_dir = REPO_ROOT / "out" / "_next" / "static" / "chunks"
     js_files = sorted(CHUNKS_JS_GLOB("*.js"))
     assert chunks_dir.is_dir(), "missing out/_next/static/chunks — static export produced no JS chunks"
@@ -284,7 +320,4 @@ def test_out_next_static_chunks_reference_no_browser_state_or_app_shell(built_in
         body = js.read_text(encoding="utf-8", errors="ignore")
         assert "@taxa/browser-state" not in body, (
             f"{js.relative_to(REPO_ROOT)} references @taxa/browser-state — that alias is reserved for PR 4a"
-        )
-        assert "@taxa/app-shell" not in body, (
-            f"{js.relative_to(REPO_ROOT)} references @taxa/app-shell — that alias is reserved for PR 4b"
         )

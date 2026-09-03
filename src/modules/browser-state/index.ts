@@ -19,12 +19,14 @@ export {
   type BrowserStateValueMap,
   type Theme,
   type TreeSource,
-} from "./domain/keys.js";
+} from "./domain/keys";
 
 export {
   createBrowserStateStore,
   type BrowserStateStore,
-} from "./infrastructure/store.js";
+} from "./infrastructure/store";
 
 /** Typed listener signature used by `BrowserStateStore.subscribe`. */
 export type BrowserStateListener = () => void;
+
+export { useMounted } from "./presentation/use-mounted";
