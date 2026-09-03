@@ -1,16 +1,18 @@
 {
   "//": "TypeScript config for the complete-taxa-frontend-migration modular monolith. PR 3a (Phase 3a toolchain bootstrap) modifies this file in place to align the strict-mode flag set, the path-alias map, and the Next.js `jsx`/`noUncheckedIndexedAccess` flags with the Next 16 + React 19 + Tailwind 4 stack the migration adopts. The full Next.js plugin (jsx-runtime, app-router types) lands with PR 3b (Phase 3b App Router static export).",
-
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "jsx": "preserve",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "jsx": "react-jsx",
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "allowImportingTsExtensions": false,
     "resolveJsonModule": true,
     "isolatedModules": true,
-
     "strict": true,
     "noImplicitAny": true,
     "strictNullChecks": true,
@@ -19,27 +21,63 @@
     "noUnusedParameters": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
-
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
     "verbatimModuleSyntax": false,
-
     "paths": {
-      "@taxa/taxonomy": ["./src/modules/taxonomy/index.ts"],
-      "@taxa/taxonomy/*": ["./src/modules/taxonomy/*"],
-      "@taxa/research": ["./src/modules/research/index.ts"],
-      "@taxa/research/*": ["./src/modules/research/*"],
-      "@taxa/design-system": ["./src/modules/design-system/index.ts"],
-      "@taxa/design-system/*": ["./src/modules/design-system/*"],
-      "@taxa/browser-state": ["./src/modules/browser-state/index.ts"],
-      "@taxa/browser-state/*": ["./src/modules/browser-state/*"],
-      "@taxa/app-shell": ["./src/modules/app-shell/index.ts"],
-      "@taxa/app-shell/*": ["./src/modules/app-shell/*"]
-    }
+      "@taxa/taxonomy": [
+        "./src/modules/taxonomy/index.ts"
+      ],
+      "@taxa/taxonomy/*": [
+        "./src/modules/taxonomy/*"
+      ],
+      "@taxa/research": [
+        "./src/modules/research/index.ts"
+      ],
+      "@taxa/research/*": [
+        "./src/modules/research/*"
+      ],
+      "@taxa/design-system": [
+        "./src/modules/design-system/index.ts"
+      ],
+      "@taxa/design-system/*": [
+        "./src/modules/design-system/*"
+      ],
+      "@taxa/browser-state": [
+        "./src/modules/browser-state/index.ts"
+      ],
+      "@taxa/browser-state/*": [
+        "./src/modules/browser-state/*"
+      ],
+      "@taxa/app-shell": [
+        "./src/modules/app-shell/index.ts"
+      ],
+      "@taxa/app-shell/*": [
+        "./src/modules/app-shell/*"
+      ]
+    },
+    "allowJs": true,
+    "noEmit": true,
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
   },
-
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["node_modules", "web", "etl", "tests", "api"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "web",
+    "etl",
+    "tests",
+    "api"
+  ]
 }

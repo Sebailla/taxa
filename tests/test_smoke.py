@@ -75,7 +75,7 @@ def test_openapi_schema_is_valid_json():
 
 
 def test_search_engine_contract():
-    """AC-21: api/server.py::_SEARCH_ENGINES and web/search_urls.js::SEARCH_ENGINES
+    """AC-21: api/server.py::_SEARCH_ENGINES and src/data/search-engines.js::SEARCH_ENGINES
     must agree on `key`, `label`, and `with_authorship` in the same order.
 
     This is the cross-file engine contract — it catches accidental drift
@@ -89,7 +89,14 @@ def test_search_engine_contract():
     import ast
 
     server_src = open("api/server.py").read()
-    js_src = open("web/search_urls.js").read()
+    # PR 3d: the canonical JS mirror of _SEARCH_ENGINES moved to
+    # `src/data/search-engines.js`. Reading the legacy
+    # `web/search_urls.js` path here would silently re-import the
+    # Tailwind 3 frontend's copy after `web/` is deleted in Phase 5
+    # (PR 5.9). The contract is now enforced against the new path;
+    # the legacy file may stay around as a transitional artifact but
+    # the AC-21 reader MUST follow the canonical location.
+    js_src = open("src/data/search-engines.js").read()
 
     # ---- Python side: extract _SEARCH_ENGINES literal via regex + ast.literal_eval
     # The constant is a list of dicts, one per line. The regex `[^]]*` matches
@@ -148,17 +155,77 @@ def test_fixed_search_destinations_are_returned_unchanged():
 
 
 def test_static_index_html_served():
-    """The web/ directory is mounted as static files at root."""
+    """The mounted directory (out/, post PR 3d) is served as static files at root.
+
+    PR 3d repointed the mount from `web/` to `out/` (the Next 16 static
+    export target). On a clean checkout, `out/` is missing because the
+    Next build has not run yet — the test then SKIPs (no false failure).
+    Once `make api` has run end-to-end (next build emits out/), the same
+    test confirms the mount serves the real Next HTML.
+    """
+    from pathlib import Path
+    out_dir = Path(__file__).resolve().parent.parent / "out"
+    if not out_dir.is_dir():
+        pytest.skip(
+            f"out/ not built at {out_dir}; run `make api` (next build) "
+            "to populate it"
+        )
     resp = client.get("/index.html")
     assert resp.status_code == 200
     assert "<title>" in resp.text or "<html" in resp.text
 
 
 def test_static_app_js_served():
-    """Frontend bundle is reachable from the same origin."""
-    resp = client.get("/app.js")
-    assert resp.status_code == 200
-    assert len(resp.text) > 1000, "app.js looks suspiciously small"
+    """A concrete emitted Next chunk is reachable from the same origin.
+
+    Same skip semantics as `test_static_index_html_served` — until the
+    Next build runs, `out/_next/static/...` does not exist.
+
+    Derives the chunk path from the generated `out/index.html` (the HTML
+    references the exact chunks it loads, so we don't have to guess at
+    Turbopack's hashed filenames). Falls back to the first `*.js` under
+    `out/_next/static/chunks/` when no chunk reference is found in the
+    HTML. Starlette StaticFiles does not list directories — `GET
+    /_next/static/` returns 404 even when the mount is wired correctly —
+    so we always request a concrete file, never a directory listing.
+    """
+    import re
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent
+    out_dir = repo_root / "out"
+    if not out_dir.is_dir():
+        pytest.skip(
+            f"out/ not built at {out_dir}; run `make api` (next build) "
+            "to populate it"
+        )
+
+    chunk_path: str | None = None
+    index_html = out_dir / "index.html"
+    if index_html.is_file():
+        html = index_html.read_text(encoding="utf-8")
+        m = re.search(
+            r'src="(/_next/static/chunks/[^"]+\.js)"', html,
+        )
+        if m:
+            chunk_path = m.group(1)
+        if chunk_path is None:
+            chunks_dir = out_dir / "_next" / "static" / "chunks"
+            if chunks_dir.is_dir():
+                for js_file in sorted(chunks_dir.glob("*.js")):
+                    chunk_path = f"/_next/static/chunks/{js_file.name}"
+                    break
+
+    assert chunk_path is not None, (
+        "no JS chunk found under out/_next/static/chunks/ and no chunk "
+        "reference in out/index.html; rebuild the Next export"
+    )
+
+    resp = client.get(chunk_path)
+    assert resp.status_code == 200, (
+        f"chunk mount failed: GET {chunk_path} returned {resp.status_code}"
+    )
+    assert len(resp.content) > 0, f"{chunk_path} returned an empty body"
 
 
 def test_health_endpoint_returns_503_without_db():
