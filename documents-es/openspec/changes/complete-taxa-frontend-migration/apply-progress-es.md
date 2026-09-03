@@ -106,6 +106,76 @@
 > permanece la excepción previa de `package-lock.json`
 > regenerado de PR 3a**.
 
+> **2026-09-03 — nota de supersesión de la re-división
+> del PR 3c-d (el re-plan de tareas del PR #150 es
+> autoritativo; la tabla de 16 hijos de este documento
+> aún refleja solo la re-división del CSS previa a
+> #150)**. El PR #150 (`tasks.md` / `tasks-es.md`
+> "3c-d unsatisfiability split") re-planea el PR 3c-d
+> monolítico previo (animaciones / utilidades +
+> paridad final) en tres hijos secuenciales, cada uno
+> ≤ 400 líneas authored. El manifiesto de reconstrucción
+> de arriba sigue siendo la **vista previa a #150**; la
+> **re-división autoritativa vive en `tasks.md` /
+> `tasks-es.md`**, que es lo que lee la fase de apply.
+> La nueva partición:
+>
+> - **PR 3c-d (6/18; reducido, se queda en 6/18)** —
+>   base / reset / afinidades de estado global.
+>   Extiende `globals.css::@layer base` con las
+>   **afinidades de estado global únicamente**:
+>   `@keyframes` (`spin`), los **selectores
+>   `color-mix()` globales de `@layer base`**,
+>   `body { overscroll-behavior: none; … }`, y
+>   `main > :first-child { margin-top: 0 !important; }`.
+>   **Sin clases de utilidad, sin test de paridad.**
+>   Producción permitida: `src/app/globals.css`;
+>   test permitido: `tests/test_tailwind_4_base_resets.py`.
+> - **PR 3c-e (7/18; nuevo)** — paridad de clases de
+>   utilidad + animación restante. Extiende
+>   `globals.css::@layer base` con la superficie de
+>   clases de utilidad **más cualquier `@keyframes` /
+>   `color-mix()` restante** (`color-mix()` scoped a
+>   componente, reglas emparejadas con utilidad) — las
+>   afinidades globales de estado de `@layer base` se
+>   quedan en 3c-d. **Sin test de paridad.**
+>   Producción permitida: `src/app/globals.css`; test
+>   permitido: `tests/test_tailwind_4_utilities.py`.
+> - **PR 3c-f (8/18; nuevo; único test de paridad
+>   completa)** — **sin código nuevo de
+>   `globals.css`**. Test de paridad parametrizada
+>   final `tests/test_tailwind_4_parity.py` que
+>   consolida los cinco tests enfocados previos (tokens
+>   3c-a / taxonomía 3c-b / research 3c-c / base-resets
+>   3c-d / utilidades 3c-e). El contrato de paridad
+>   final queda sin cambios; pertenece solo al PR 3c-f.
+>
+> Renumeración: 3d 7→**9/18**; 4a 8→**10/18**;
+> 4b 9→**11/18**; 5a 10→**12/18**; 5b 11→**13/18**;
+> 5c 12→**14/18**; 6a (G5) 13→**15/18**;
+> 6b (G6) 14→**16/18**; 6c (G4) 15→**17/18**;
+> 3e 16→**18/18**. **3c-d se queda en 6/18**
+> (reducido, misma rama). Ramas nuevas: `…-07-3c-e`
+> (base `…-06-3c-d`), `…-08-3c-f` (base
+> `…-07-3c-e`). **Conteo de 18 hijos** reemplaza al
+> de 16; la estrategia `feature-branch-chain` y el
+> contrato "tracker-only targeting `develop`" se
+> mantienen. Los presupuestos LoC por sub-PR quedan muy
+> por debajo de 400; solo permanece la excepción previa
+> de `package-lock.json` regenerado de PR 3a.
+> **G4 / G5 / G6 (ahora 17/18 / 15/18 / 16/18), el
+> predecesor congelado, el Enfoque A, FastAPI/SQLite y
+> los specs por dominio quedan sin cambios**. PRs
+> fusionadas 3c-a/#147, 3c-b/#148, 3c-c/#149
+> preservadas. Los cinco hijos CSS (3c-a / 3c-b / 3c-c
+> / 3c-d / 3c-e) más el PR 3c-f no pueden colapsarse
+> sin violar el presupuesto de revisión de 400 líneas
+> por PR. **Nota de supersesión solo documental**: sin
+> edición de código fuente, sin rebase, sin creación de
+> rama nueva en esta revisión; el próximo worktree de
+> código recoge el alcance autoritativo desde
+> `tasks.md`.
+
 | Sub-PR | Alcance | Presupuesto LoC (authored) | Archivos fuente | Estado |
 |--------|---------|----------------------------|-----------------|--------|
 | PR 3a | **Bootstrap de toolchain** (NUEVA posición 1) | ~210 authored; excepción de lockfile generado aprobada por el usuario | `package.json` + `package-lock.json` regenerado (la excepción queda restringida a cambios de resolución requeridos por este manifiesto, y ambos se revisan juntos; `next@^16` / `react@^19` / `react-dom@^19` / `tailwindcss@^4` / toolchain TS / `engines.node ">=20.9.0"` / `scripts.check-runtime` / `scripts.build:web`; deps legacy de Tailwind 3.4 eliminadas) + `scripts/check-runtime.mjs` (nuevo, Node ≥ 20.9.0) + `tsconfig.json` (modificado en su lugar; el predecesor ya está en la raíz del repo; config base + aliases de ruta `@taxa/<capability>`) + `.nvmrc` (nuevo, pin `20`) + `tests/test_toolchain_bootstrap.py` (nuevo) + `tests/test_check_runtime.py` (nuevo) | pendiente de reconstrucción |
@@ -1016,6 +1086,52 @@ añade 4 tests de triangulación separados; cada
 sub-PR queda muy por debajo de 400); **solo permanece
 la excepción previa de `package-lock.json` regenerado
 de PR 3a**.
+
+**Nota de supersesión de la re-división del PR 3c-d
+del 2026-09-03** (esta nota de estado; el re-plan de
+tareas del PR #150 es autoritativo): el PR #150
+(`tasks.md` / `tasks-es.md` "3c-d unsatisfiability
+split") re-planea el PR 3c-d monolítico previo
+(animaciones / utilidades + paridad final) en tres
+hijos secuenciales, cada uno ≤ 400 líneas authored.
+**3c-d = base / reset / afinidades de estado global
+únicamente** (`@keyframes` (`spin`), selectores
+`color-mix()` globales de `@layer base`, `body {
+overscroll-behavior: none; … }`, `main > :first-child
+{ margin-top: 0 !important; }`; **sin clases de
+utilidad, sin test de paridad**; test permitido
+`tests/test_tailwind_4_base_resets.py`).
+**3c-e (nuevo) = superficie de clases de utilidad +
+`@keyframes` / `color-mix()` restantes** (`color-mix()`
+scoped a componente, reglas emparejadas con utilidad);
+**sin test de paridad**; test permitido
+`tests/test_tailwind_4_utilities.py`.
+**3c-f (nuevo) = único test de paridad completa** — sin
+código nuevo de `globals.css`; test final consolidado
+`tests/test_tailwind_4_parity.py`. Renumeración:
+3d 7→**9/18**; 4a 8→**10/18**; 4b 9→**11/18**;
+5a 10→**12/18**; 5b 11→**13/18**; 5c 12→**14/18**;
+6a (G5) 13→**15/18**; 6b (G6) 14→**16/18**;
+6c (G4) 15→**17/18**; 3e 16→**18/18**;
+**3c-d se queda en 6/18** (reducido). Ramas nuevas:
+`…-07-3c-e` (base `…-06-3c-d`), `…-08-3c-f` (base
+`…-07-3c-e`). **Conteo de 18 hijos** reemplaza al de
+16; la estrategia `feature-branch-chain` y el contrato
+"tracker-only targeting `develop`" se mantienen. Los
+presupuestos LoC por sub-PR quedan muy por debajo de
+400; solo permanece la excepción previa de
+`package-lock.json` regenerado de PR 3a. **G4 / G5 / G6
+(ahora 17/18 / 15/18 / 16/18), el predecesor congelado,
+el Enfoque A, FastAPI/SQLite y los specs por dominio
+quedan sin cambios**. PRs fusionadas 3c-a/#147,
+3c-b/#148, 3c-c/#149 preservadas. Los cinco hijos CSS
+(3c-a / 3c-b / 3c-c / 3c-d / 3c-e) más el PR 3c-f no
+pueden colapsarse sin violar el presupuesto de revisión
+de 400 líneas por PR. **Nota de supersesión solo
+documental**: sin edición de código fuente, sin
+rebase, sin creación de rama nueva en esta revisión; el
+próximo worktree de código recoge el alcance
+autoritativo desde `tasks.md`.
 
 > **Footer (flips de la fase de apply)**: G1: PASS
 > registrado · G2: PASS registrado · G3 Tier-1: PASS
