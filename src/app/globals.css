@@ -180,25 +180,67 @@
    collapse into their parents so the visual chain stays in lock-step
    across the React cutover. */
 @layer components {
-  /* Alias renames (PR 3c-e1 — alias + remaining-keyframe slice).
-     The legacy surface used `--primary-fixed` / `--on-primary-fixed`
+  /* Alias renames (PR 3c-e1 — alias + remaining-keyframe slice; PR 3c-e2
+     extends the same `:root { ... }` block with the
+     `--surface-container-lowest -> --surface` alias chain). The
+     legacy surface used `--primary-fixed` / `--on-primary-fixed`
      token names; the upstream design tokens shipped by PR 3c-a only
      expose `--primary` / `--on-primary`. Declaring the alias pair on
      `:root` inside `@layer components` preserves the legacy mapping
-     so the upcoming 3c-e2 utility-class surface (`.bg-primary-fixed`,
-     `.text-on-primary-fixed`) keeps resolving to the upstream token
-     value AND flips with the dark-mode `data-theme` override (the
-     alias chain follows the var() indirection at use-time). */
+     so the 3c-e2 utility-class surface (`.bg-primary-fixed`,
+     `.text-on-primary-fixed`, `.bg-surface-container-lowest`) keeps
+     resolving to the upstream token value AND flips with the
+     dark-mode `data-theme` override (the alias chain follows the
+     var() indirection at use-time).
+
+     PR 3c-e2's `--surface-container-lowest -> --surface` alias:
+     the legacy `tailwind.config.js` exposed
+     `surface-container-lowest: #FFFFFF` (light) but the React
+     cutover relies on the same dark-mode `--surface` override so
+     the darkest container (= page surface) tracks the theme;
+     declaring the alias here keeps `.bg-surface-container-lowest`
+     resolving via the theme's var() indirection instead of baking
+     a hardcoded hex literal into the rule body. */
   :root {
     --primary-fixed: var(--primary);
     --on-primary-fixed: var(--on-primary);
+    --surface-container-lowest: var(--surface);
   }
+
+  /* Utility class (PR 3c-e2) — global spinner animation. References
+     the `@keyframes spin` block shipped under `@layer base` by PR 3c-d
+     (no new keyframe added here). The 0.8s linear infinite timing
+     matches the legacy `web/index.html` `.animate-spin` cascade so
+     the materialise spinner stays in lock-step with the React cutover. */
+  .animate-spin {
+    animation: spin 0.8s linear infinite;
+  }
+
   /* Authorship — Overview tab body metadata. */
   .authorship {
     color: var(--on-surface-variant);
     font-family: "Raleway", sans-serif;
     font-size: 12px;
     line-height: 1.4;
+  }
+  /* Utility classes (PR 3c-e2) — background-color helpers. Each rule
+     reads its value from the upstream `@theme` token (or a 3c-e1 /
+     3c-e2 alias declared above on `:root`) so the dark-mode
+     `[data-theme="dark"]` override on `<html>` flips every utility
+     class at use-time via the var() indirection — no hardcoded hex
+     literals here. Ordered alphabetically (PR 3c-e2.4 refactor
+     contract). */
+  .bg-primary {
+    background-color: var(--color-primary);
+  }
+  .bg-primary-fixed {
+    background-color: var(--primary-fixed);
+  }
+  .bg-surface-container-lowest {
+    background-color: var(--surface-container-lowest);
+  }
+  .border-outline-variant {
+    border-color: var(--color-outline-variant);
   }
 
   /* Breadcrumb — rank / taxon / scientific-name chain above the tree.
@@ -349,6 +391,15 @@
     overflow-y: auto;
   }
 
+
+  /* Utility class (PR 3c-e2) — right-side rounded corner helper for
+     the file/folder affordance rows the legacy `web/index.html`
+     cascade emitted via the `rounded-r-md` Tailwind class. */
+  .rounded-r-md {
+    border-top-right-radius: 0.375rem;
+    border-bottom-right-radius: 0.375rem;
+  }
+
   /* Scientific name — italic by ICZN convention; --roman modifier
      (PR 5a) flips higher ranks back to roman. */
   .scientific-name {
@@ -418,6 +469,12 @@
     text-align: center;
     cursor: pointer;
   }
+  /* Utility class (PR 3c-e2) — subtle elevation shadow. Matches the
+     legacy Tailwind-3 `shadow-sm` value (0 1px 2px 0 rgb(0 0 0 / 5%))
+     so the Search-tab cards keep the same lift on the React cutover. */
+  .shadow-sm {
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  }
 
   /* Species count — small monospace metadata (Overview body + tree). */
   .species-count {
@@ -478,6 +535,18 @@
     gap: 0;
     padding: 0;
     background: var(--surface);
+  }
+  /* Utility classes (PR 3c-e2) — text-color helpers. `.text-on-surface`
+     reads from the `--color-on-surface` 3c-a alias;
+     `.text-on-primary-fixed` routes through the 3c-e1
+     `--on-primary-fixed` alias so the dark-mode
+     `[data-theme="dark"]` override flips both at use-time via the
+     var() indirection. */
+  .text-on-primary-fixed {
+    color: var(--on-primary-fixed);
+  }
+  .text-on-surface {
+    color: var(--color-on-surface);
   }
 
   /* Tree row — one rank/name/source/species-count entry plus per-row

@@ -31,6 +31,18 @@ TAXONOMY_OWNED_BY_3C_B: tuple[str, ...] = (
     ".tab-strip", ".tab-button", ".overview-tab", ".breadcrumb",
     ".scientific-name", ".authorship", ".species-count",
 )
+# PR 3c-e2 utility-class surface — the nine legacy utility classes that
+# ship as top-level rules under ``@layer components`` (see
+# ``tests/test_tailwind_4_utilities.py::UTILITY_CLASSES_3C_E2``). They are
+# neither taxonomy (3c-b) nor research / chrome (3c-c) selectors, so the
+# chain-topology guard below whitelists EXACTLY these nine — anything else
+# is still a leak.
+UTILITY_CLASSES_OWNED_BY_3C_E2: tuple[str, ...] = (
+    ".animate-spin", ".bg-primary", ".bg-primary-fixed",
+    ".bg-surface-container-lowest", ".border-outline-variant",
+    ".rounded-r-md", ".shadow-sm", ".text-on-primary-fixed",
+    ".text-on-surface",
+)
 # Search tab category sections in fixed order, matching
 # ``web/search_urls.js::CATEGORIES``.
 SEARCH_TAB_CATEGORIES_IN_ORDER: tuple[str, ...] = (
@@ -139,9 +151,10 @@ def test_layer_base_does_not_own_research_chrome_selectors(selector):
 
 def test_layer_components_research_chrome_block_does_not_leak_taxonomy():
     """PR 3c-c MUST NOT introduce a new top-level taxonomy selector — every
-    top-level rule's base selector MUST belong to PR 3c-b or PR 3c-c."""
+    top-level rule's base selector MUST belong to PR 3c-b, PR 3c-c, or the
+    nine PR 3c-e2 utility classes."""
     body = _block(_read(GLOBALS_CSS), "@layer components")
-    allowed = set(TAXONOMY_OWNED_BY_3C_B) | {
+    allowed = set(TAXONOMY_OWNED_BY_3C_B) | set(UTILITY_CLASSES_OWNED_BY_3C_E2) | {
         ".folder-tab", ".header-browser-tab", ".research-explorer", ".search-tab",
     }
     for head in _top_level(body):
@@ -149,7 +162,8 @@ def test_layer_components_research_chrome_block_does_not_leak_taxonomy():
         base = f".{m.group(1)}" if m else head
         assert base in allowed, (
             f"top-level @layer components rule starts with {base!r} — neither a "
-            f"PR 3c-b taxonomy selector nor a PR 3c-c research/chrome selector"
+            f"PR 3c-b taxonomy selector, a PR 3c-c research/chrome selector, "
+            f"nor a PR 3c-e2 utility class"
         )
 
 
