@@ -115,3 +115,204 @@
     margin-bottom: 0 !important;
   }
 }
+
+/* Taxonomy tree + inline Overview/DetailPanel selectors (PR 3c-b).
+   Lives under @layer components so the Tailwind 4 utility surface
+   (PR 3c-d) can still override. Top-level ordering is alphabetical
+   (3c-b.4 refactor contract); per-row kebab + tab-strip descendants
+   collapse into their parents so the visual chain stays in lock-step
+   across the React cutover. */
+@layer components {
+  /* Authorship — Overview tab body metadata. */
+  .authorship {
+    color: var(--on-surface-variant);
+    font-family: "Raleway", sans-serif;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  /* Breadcrumb — rank / taxon / scientific-name chain above the tree.
+     JetBrains Mono aligns the rank separators (›) vertically. */
+  .breadcrumb {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 12px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--on-surface);
+  }
+
+  /* Detail panel — sticky column right of the tree. Three tabs in
+     fixed order: Overview / Search / Folder, all reachable from
+     every selection; Overview always visible per the user-selected
+     policy. */
+  .detail-panel {
+    position: sticky;
+    top: 144px;
+    z-index: 30;
+    background: var(--surface);
+    border: 1px solid var(--outline-variant);
+    border-radius: 16px;
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.04),
+      0 4px 12px rgba(15, 23, 42, 0.06),
+      0 12px 32px rgba(15, 23, 42, 0.04);
+    height: auto;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  /* Kebab + per-row kebab-menu (3c-b.4: collapsed into parent). */
+  .kebab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+  .kebab > .kebab-menu {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    min-width: 180px;
+    background: var(--surface);
+    border: 1px solid var(--outline-variant);
+    border-radius: 8px;
+    padding: 4px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+    z-index: 50;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .kebab > .kebab-menu.open {
+    display: flex;
+  }
+
+  /* Per-row materialize indicator — status marker when the taxon's
+     root→taxon folder is on disk. */
+  .materialize-indicator {
+    margin-left: 4px;
+    padding: 2px;
+    border-radius: 4px;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #15803d;
+  }
+  .materialize-indicator:hover {
+    background: var(--surface-container-low);
+    color: #166534;
+  }
+
+  /* Overview tab body — scientific name, accepted status, authorship,
+     species count. NEVER hide this tab; user-selected policy binds
+     Overview as always visible. */
+  .overview-tab {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px 24px;
+  }
+
+  /* Scientific name — italic by ICZN convention; --roman modifier
+     (PR 5a) flips higher ranks back to roman. */
+  .scientific-name {
+    font-family: "Raleway", sans-serif;
+    font-style: italic;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--on-surface);
+  }
+
+  /* Species count — small monospace metadata (Overview body + tree). */
+  .species-count {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--on-surface-variant);
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  /* Tab strip — segmented control with three buttons in fixed order
+     (Overview / Search / Folder). The data-tab attribute names each
+     tab; PR 5a (taxonomy port) stamps it on the React elements. */
+  .tab-strip {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--surface-container);
+    padding: 0 16px;
+    margin: 0 -16px 16px;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--surface);
+  }
+  .tab-strip > .tab-button {
+    padding: 10px 14px;
+    font-family: "Raleway", sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--on-surface-variant);
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 120ms, border-color 120ms;
+  }
+  .tab-strip > .tab-button:hover {
+    color: var(--on-surface);
+  }
+  .tab-strip > .tab-button.active,
+  .tab-strip > .tab-button[data-tab="Overview"].active,
+  .tab-strip > .tab-button[data-tab="Search"].active,
+  .tab-strip > .tab-button[data-tab="Folder"].active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+  }
+
+  /* Taxonomic tree — <main> left column; CSS-grid with four columns
+     (rank / name / source / species-count). */
+  .taxa-tree {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: 0;
+    padding: 0;
+    background: var(--surface);
+  }
+
+  /* Tree row — one rank/name/source/species-count entry plus per-row
+     affordances (kebab, search icon, materialize indicator). */
+  .tree-row {
+    display: contents;
+  }
+  .tree-row:hover {
+    background: var(--surface-container-low);
+  }
+
+  /* Per-row search glyph — end of row's meta block. */
+  .tree-search-icon {
+    margin-left: 8px;
+    padding: 2px;
+    border-radius: 4px;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .tree-search-icon:hover {
+    background: var(--surface-container-low);
+    color: var(--primary);
+  }
+}
