@@ -126,6 +126,51 @@
       transform: rotate(360deg);
     }
   }
+  /* Remaining global keyframes (PR 3c-e1 — alias + remaining-keyframe
+     slice). Each one preserves the legacy ``web/index.html`` cascade
+     verbatim so the React cutover's animation parity stays intact. The
+     paired utility classes (`.animate-spin`, `.detail-card`, `.toast`,
+     `.search-pulse`) live under `@layer components` (3c-e2 / 3c-b / 3c-c)
+     — keyframes live here under `@layer base` so every layer can reach
+     them without re-importing the @theme tokens. */
+  @keyframes detail-card-enter {
+    from {
+      opacity: 0;
+      transform: translateY(-8px) scale(0.995);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  @keyframes detail-card-leave {
+    from {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(-6px) scale(0.995);
+    }
+  }
+  @keyframes search-pulse-anim {
+    0% {
+      box-shadow: 0 0 0 0 rgba(29, 126, 169, 0.55);
+    }
+    100% {
+      box-shadow: 0 0 0 16px rgba(29, 126, 169, 0);
+    }
+  }
+  @keyframes toast-slide-in {
+    from {
+      opacity: 0;
+      transform: translate(-50%, 8px);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+  }
 }
 
 /* Taxonomy tree + inline Overview/DetailPanel selectors (PR 3c-b).
@@ -135,6 +180,19 @@
    collapse into their parents so the visual chain stays in lock-step
    across the React cutover. */
 @layer components {
+  /* Alias renames (PR 3c-e1 — alias + remaining-keyframe slice).
+     The legacy surface used `--primary-fixed` / `--on-primary-fixed`
+     token names; the upstream design tokens shipped by PR 3c-a only
+     expose `--primary` / `--on-primary`. Declaring the alias pair on
+     `:root` inside `@layer components` preserves the legacy mapping
+     so the upcoming 3c-e2 utility-class surface (`.bg-primary-fixed`,
+     `.text-on-primary-fixed`) keeps resolving to the upstream token
+     value AND flips with the dark-mode `data-theme` override (the
+     alias chain follows the var() indirection at use-time). */
+  :root {
+    --primary-fixed: var(--primary);
+    --on-primary-fixed: var(--on-primary);
+  }
   /* Authorship — Overview tab body metadata. */
   .authorship {
     color: var(--on-surface-variant);
