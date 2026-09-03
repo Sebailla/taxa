@@ -527,6 +527,76 @@ the implementation happens during apply.
 > remains**. Approach A, FastAPI/SQLite, the frozen
 > predecessor, and the per-domain specs stay unchanged.
 
+> **2026-09-03 — PR 3c-d re-split supersession (PR #150
+> task replan is authoritative; this document still
+> reflects the pre-#150 16-child CSS re-split only)**.
+> PR #150 (`tasks.md` / `tasks-es.md` "3c-d
+> unsatisfiability split") re-plans the previous
+> monolithic PR 3c-d (animations / utilities + final
+> parity) into three sequential children, each ≤ 400
+> authored lines. The sub-PR slice table and dependency
+> order above remain the **pre-#150 view**; the
+> **authoritative re-split lives in `tasks.md` /
+> `tasks-es.md`**, which the apply phase reads. The new
+> partition:
+>
+> - **PR 3c-d (6/18; narrowed, stays at 6/18)** —
+>   base / reset / global state affordances. Extends
+>   `globals.css::@layer base` with the **global state
+>   affordances only**: `@keyframes` (`spin`), the
+>   **global `@layer base` `color-mix()` selectors**,
+>   `body { overscroll-behavior: none; … }`, and
+>   `main > :first-child { margin-top: 0 !important; }`.
+>   **No utility classes, no parity test.** Allowed
+>   production: `src/app/globals.css`; allowed test:
+>   `tests/test_tailwind_4_base_resets.py`.
+> - **PR 3c-e (7/18; new)** — utility-class + remaining
+>   animation parity. Extends `globals.css::@layer
+>   base` with the utility-class surface
+>   (`bg-primary`, `text-on-surface`,
+>   `border-outline-variant`,
+>   `bg-surface-container-lowest`, `shadow-sm`,
+>   `rounded-r-md`, `bg-primary-fixed`,
+>   `text-on-primary-fixed`, …) **plus any remaining
+>   `@keyframes` / `color-mix()` (component-scoped
+>   color-mix, utility-paired rules)** — the global
+>   `@layer base` state affordances stay in 3c-d.
+>   **No parity test.** Allowed production:
+>   `src/app/globals.css`; allowed test:
+>   `tests/test_tailwind_4_utilities.py`.
+> - **PR 3c-f (8/18; new; sole full-parity test
+>   only)** — **no new `globals.css` code**. Final
+>   parametrized parity test
+>   `tests/test_tailwind_4_parity.py` consolidates the
+>   five prior focused tests (3c-a tokens / 3c-b
+>   taxonomy / 3c-c research / 3c-d base-resets / 3c-e
+>   utilities). Final parity contract is unchanged; it
+>   belongs only to PR 3c-f.
+>
+> Renumbering: 3d 7→**9/18**; 4a 8→**10/18**;
+> 4b 9→**11/18**; 5a 10→**12/18**; 5b 11→**13/18**;
+> 5c 12→**14/18**; 6a (G5) 13→**15/18**;
+> 6b (G6) 14→**16/18**; 6c (G4) 15→**17/18**;
+> 3e 16→**18/18**. **3c-d stays at 6/18** (same
+> branch, narrowed). New branches:
+> `…-07-3c-e` (base `…-06-3c-d`),
+> `…-08-3c-f` (base `…-07-3c-e`). **18-child count**
+> replaces 16; `feature-branch-chain` strategy and
+> "tracker-only targets `develop`" contract hold.
+> Per-sub-PR LoC budgets stay well under 400; only the
+> prior PR 3a `package-lock.json` exception remains.
+> **G4 / G5 / G6 (now 17/18 / 15/18 / 16/18), the
+> frozen predecessor, Approach A, FastAPI/SQLite, and
+> the per-domain specs stay unchanged**. Merged PRs
+> 3c-a/#147, 3c-b/#148, 3c-c/#149 preserved. The five
+> CSS children (3c-a / 3c-b / 3c-c / 3c-d / 3c-e) plus
+> PR 3c-f cannot collapse without violating the
+> 400-line per-PR review budget. **Documentation-only
+> supersession note**: no source-code edit, no rebase,
+> no new branch creation in this revision; the next
+> code worktree picks up the authoritative scope from
+> `tasks.md`.
+
 The predecessor's `tasks.md` enumerated 35 tasks across
 14+ sub-PRs. The corrected chain re-slices them under
 Approach A within the 400-line review budget per sub-PR.
