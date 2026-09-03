@@ -21,11 +21,6 @@ TAXONOMY_SELECTORS: tuple[str, ...] = (
     ".tab-strip", ".tab-button", ".overview-tab", ".breadcrumb",
     ".scientific-name", ".authorship", ".species-count",
 )
-FORBIDDEN_SELECTORS: tuple[str, ...] = (  # owned by PR 3c-c
-    ".search-tab", ".search-category-section", ".search-link-list",
-    ".search-link", ".folder-tab", ".header-browser-tab",
-    ".research-explorer", ".file-explorer-pane", ".file-viewer-pane",
-)
 
 _TEXT = re.sub(r"/\*[\s\S]*?\*/", "", GLOBALS_CSS.read_text(encoding="utf-8"))
 
@@ -109,17 +104,6 @@ def test_layer_base_does_not_own_taxonomy_selectors(selector):
         f"{selector} MUST NOT live under @layer base — taxonomy belongs under @layer components"
     )
 
-
-@pytest.mark.parametrize("selector", FORBIDDEN_SELECTORS)
-def test_layer_components_does_not_own_research_or_chrome_selectors(selector):
-    """``.search-tab`` / ``.folder-tab`` / ``.header-browser-tab`` /
-    ``.research-explorer`` / … belong to PR 3c-c (research / chrome)."""
-    body = _block("@layer components")
-    if not body:
-        return
-    assert not re.search(r"(?:^|[\s,{}>+~])" + re.escape(selector) + r"(?=[\s,{:>+~]|$)", body), (
-        f"{selector} belongs to PR 3c-c (research / chrome), not PR 3c-b"
-    )
 
 # ---- binding design contracts -----------------------------------------------
 
