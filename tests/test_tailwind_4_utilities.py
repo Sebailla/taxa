@@ -1,4 +1,4 @@
-"""Utility-class + alias parity tests for PR 3c-e1 (CSS slice).
+"""Utility-class + alias parity tests for PR 3c-e1 + 3c-e2 (CSS slice).
 
 PR 3c-e1 (position 7/19; the 3c-e1/e2 no-loss re-split per PR #154)
 owns ONLY the **alias renames + remaining ``@keyframes``**:
@@ -13,16 +13,30 @@ owns ONLY the **alias renames + remaining ``@keyframes``**:
   — declared under ``globals.css::@layer base`` in source order
   AFTER the existing resets and ``@keyframes spin``.
 
-**OUT of scope for 3c-e1** (these belong to PR 3c-e2 or PR 3c-f):
+PR 3c-e2 (position 8/19) owns ONLY the **legacy utility-class surface**:
 
-- Utility classes — ``.bg-primary``, ``.text-on-surface``,
+- Nine utility classes declared under ``globals.css::@layer
+  components``: ``.bg-primary``, ``.text-on-surface``,
   ``.border-outline-variant``, ``.bg-surface-container-lowest``,
   ``.shadow-sm``, ``.rounded-r-md``, ``.bg-primary-fixed``,
-  ``.text-on-primary-fixed``, ``.animate-spin``, … (3c-e2).
+  ``.text-on-primary-fixed``, ``.animate-spin``. The 3c-e1 alias
+  renames (``--primary-fixed`` / ``--on-primary-fixed``) continue
+  to resolve — PR 3c-e2 ONLY adds the utility-class block.
+- The ``surface-container-lowest -> surface`` alias (the legacy
+  ``surface-container-lowest: #FFFFFF`` token equal to ``surface``
+  in light + dark modes) so ``.bg-surface-container-lowest``
+  resolves.
+
+**OUT of scope for 3c-e1 + 3c-e2** (belongs to PR 3c-f):
+
 - Component-scoped ``color-mix()`` rules — every ``color-mix(in
   srgb, var(--token) X%, transparent)`` line inside a specific
-  component class belongs under ``@layer components`` (3c-e2, or
-  3c-f alone owns the full-parity witness for ``color-mix()``).
+  component class belongs under ``@layer components`` (3c-f alone
+  owns the full-parity witness for ``color-mix()``). 3c-e1 +
+  3c-e2 MUST NOT introduce any ``color-mix()`` rule.
+- Any new ``@keyframes`` block. ``.animate-spin`` references the
+  ``spin`` keyframe shipped by PR 3c-d under ``@layer base``; it
+  does not add a new ``@keyframes`` declaration.
 - The final consolidated parity test
   ``tests/test_tailwind_4_parity.py`` (3c-f).
 
@@ -63,12 +77,25 @@ REMAINING_KEYFRAMES_3C_E1: tuple[str, ...] = (
     "search-pulse-anim",
     "toast-slide-in",
 )
-# PR 3c-e2 utility-class surface — 3c-e1 MUST NOT add these (the
-# utility-class migration is the 3c-e2 slice).
-UTILITY_CLASSES_OWNED_BY_3C_E2: tuple[str, ...] = (
-    ".bg-primary", ".text-on-surface", ".border-outline-variant",
-    ".bg-surface-container-lowest", ".shadow-sm", ".rounded-r-md",
-    ".bg-primary-fixed", ".text-on-primary-fixed", ".animate-spin",
+# PR 3c-e2 utility-class surface — declared under ``@layer components``.
+# Each tuple pins the property+value the class MUST carry so the
+# Tailwind 4 utility surface matches the legacy ``web/index.html``
+# cascade. ``.bg-primary-fixed`` / ``.text-on-primary-fixed`` route
+# through the 3c-e1 ``--primary-fixed`` / ``--on-primary-fixed``
+# aliases; ``.bg-surface-container-lowest`` routes through the 3c-e2
+# ``--surface-container-lowest`` alias chain; ``.animate-spin``
+# references the ``spin`` keyframe shipped under ``@layer base`` by
+# PR 3c-d (no new keyframe added in 3c-e2).
+UTILITY_CLASSES_3C_E2: tuple[tuple[str, str, str], ...] = (
+    (".bg-primary", "background-color", "var(--color-primary)"),
+    (".text-on-surface", "color", "var(--color-on-surface)"),
+    (".border-outline-variant", "border-color", "var(--color-outline-variant)"),
+    (".bg-surface-container-lowest", "background-color", "var(--surface-container-lowest)"),
+    (".bg-primary-fixed", "background-color", "var(--primary-fixed)"),
+    (".text-on-primary-fixed", "color", "var(--on-primary-fixed)"),
+    (".shadow-sm", "box-shadow", "0 1px 2px 0 rgb(0 0 0 / 0.05)"),
+    (".rounded-r-md", "border-top-right-radius", "0.375rem"),
+    (".animate-spin", "animation", "spin 0.8s linear infinite"),
 )
 
 
@@ -145,51 +172,141 @@ def test_layer_components_does_not_own_remaining_keyframes(kf_name):
     )
 
 
-# ---- 3c-e1.3 — triangulators (negative + boundary) ---------------------------
+# ---- 3c-e1 + 3c-e2 — triangulators (negative + boundary) ----------------------
 
-def test_layer_base_no_color_mix_after_alias_split():
-    """3c-e1.3 — chain-topology guard: 3c-e1 MUST NOT introduce any
-    ``color-mix()`` rule under either layer. Component-scoped
-    ``color-mix()`` rules belong under ``@layer components`` in
-    PR 3c-e2 or the final consolidated parity witness in PR 3c-f."""
+def test_no_color_mix_in_either_layer_after_3c_e2():
+    """3c-e1.3 + 3c-e2.3 — chain-topology guard: 3c-e1 + 3c-e2 MUST
+    NOT introduce any ``color-mix()`` rule under either layer.
+    Component-scoped ``color-mix()`` rules belong to PR 3c-f (the
+    final consolidated parity witness). The 3c-e1 + 3c-e2 surface
+    ships only aliases + keyframes + utility classes — NO
+    ``color-mix()`` rules anywhere."""
     for layer in ("base", "components"):
         body = _block(_read(GLOBALS_CSS), f"@layer {layer}")
         if not body:
             continue
         assert "color-mix" not in body, (
             f"@layer {layer} MUST NOT carry any color-mix() rule "
-            f"(PR 3c-e1 is alias + remaining keyframes only — "
-            f"component color-mix() belongs to 3c-e2 / 3c-f)"
+            f"(PR 3c-e1 + 3c-e2 are aliases + keyframes + utility "
+            f"classes only — component color-mix() belongs to 3c-f)"
         )
 
 
-@pytest.mark.parametrize("selector", UTILITY_CLASSES_OWNED_BY_3C_E2)
-def test_no_utility_class_ships_in_3c_e1(selector):
-    """3c-e1.3 — chain-topology guard: the legacy utility-class surface
-    (``bg-primary``, ``text-on-surface``, ``bg-primary-fixed``, …)
-    belongs to PR 3c-e2. 3c-e1 ships only aliases + remaining
-    keyframes — a stray utility class here is a regression that
-    would inflate the 3c-e2 budget."""
-    text = _read(GLOBALS_CSS)
-    stripped = re.sub(r"/\*[\s\S]*?\*/", "", text)
-    base_match = re.search(r"@layer\s+base\s*\{", stripped)
-    components_match = re.search(r"@layer\s+components\s*\{", stripped)
-    assert base_match and components_match, (
-        "globals.css must declare both @layer base and @layer components"
-    )
-    leaked = re.findall(
+@pytest.mark.parametrize(
+    "selector",
+    [item[0] for item in UTILITY_CLASSES_3C_E2],
+    ids=[item[0] for item in UTILITY_CLASSES_3C_E2],
+)
+def test_layer_base_does_not_own_3c_e2_utility_classes(selector):
+    """3c-e2.3 — chain-topology guard: PR 3c-e2 utility classes MUST
+    live under ``@layer components``, NOT ``@layer base``. Each
+    utility class belongs to the components cascade so the Tailwind 4
+    utility surface stays under the component layer's specificity."""
+    body = _block(_read(GLOBALS_CSS), "@layer base")
+    if not body:
+        return
+    assert not re.search(
         r"(?:^|[\s,{}>+~])" + re.escape(selector) + r"(?=[\s,{:>+~]|$)",
-        stripped[base_match.end():components_match.start()],
+        body,
+    ), (
+        f"{selector} MUST NOT live under @layer base — utility classes "
+        f"belong under @layer components (PR 3c-e2)"
     )
-    components_end = stripped.find("}", components_match.end())
-    assert components_end != -1, "@layer components must close"
-    leaked.extend(re.findall(
-        r"(?:^|[\s,{}>+~])" + re.escape(selector) + r"(?=[\s,{:>+~]|$)",
-        stripped[components_match.start():components_end],
-    ))
-    assert not leaked, (
-        f"{selector} MUST NOT ship in PR 3c-e1 — utility-class "
-        f"migration is the 3c-e2 slice"
+
+
+# ---- 3c-e2.1 — utility classes live under @layer components -------------------
+
+@pytest.mark.parametrize(
+    ("selector", "property", "expected_value"),
+    UTILITY_CLASSES_3C_E2,
+)
+def test_layer_components_declares_utility_class(selector, property, expected_value):
+    """3c-e2.1 — every legacy utility class MUST be declared under
+    ``@layer components`` so the Tailwind 4 utility surface matches
+    the legacy ``web/index.html`` cascade. The class selector +
+    property:value pair MUST exist in the rule body."""
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare an @layer components { ... } block"
+    rule = _rule(body, selector)
+    assert rule.strip(), (
+        f"@layer components must declare {selector} {{ ... }} with a "
+        f"non-empty block (PR 3c-e2.1 — utility-class parity)"
+    )
+    pattern = re.escape(property) + r"\s*:\s*" + re.escape(expected_value) + r"\s*;"
+    assert re.search(pattern, rule), (
+        f"{selector} rule MUST set {property}: {expected_value}; "
+        f"(PR 3c-e2.1 — utility-class content parity)"
+    )
+
+
+def test_layer_components_declares_surface_container_lowest_alias():
+    """3c-e2.2 — ``--surface-container-lowest`` alias MUST live under
+    ``@layer components`` (3c-e2 ``surface-container-lowest ->
+    surface`` alias) so the legacy ``.bg-surface-container-lowest``
+    utility resolves and the dark-mode override still flips the
+    value via the ``var()`` indirection."""
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare an @layer components { ... } block"
+    pattern = (
+        r":root\s*\{[^}]*"
+        + re.escape("--surface-container-lowest")
+        + r"\s*:\s*var\(--surface\)\s*;"
+        + r"[^}]*\}"
+    )
+    assert re.search(pattern, body, re.DOTALL), (
+        "@layer components must declare a :root { --surface-container-lowest: "
+        "var(--surface); ... } alias block (PR 3c-e2 — "
+        "surface-container-lowest -> surface alias)"
+    )
+
+
+def test_3c_e1_alias_renames_still_resolve_after_3c_e2():
+    """3c-e2.2 — alias preservation: the 3c-e1 alias renames
+    (``--primary-fixed -> --primary`` and
+    ``--on-primary-fixed -> --on-primary``) MUST continue to
+    resolve after PR 3c-e2 ships the utility-class surface. The
+    ``.bg-primary-fixed`` / ``.text-on-primary-fixed`` utilities
+    route through these aliases — a regression that drops the
+    alias renames would freeze the dark-mode parity at the light
+    value for those two utilities."""
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare an @layer components { ... } block"
+    for custom_prop, target in (
+        ("--primary-fixed", "var(--primary)"),
+        ("--on-primary-fixed", "var(--on-primary)"),
+    ):
+        pattern = (
+            r":root\s*\{[^}]*"
+            + re.escape(custom_prop)
+            + r"\s*:\s*"
+            + re.escape(target)
+            + r"\s*;"
+            + r"[^}]*\}"
+        )
+        assert re.search(pattern, body, re.DOTALL), (
+            f"3c-e1 alias {custom_prop} -> {target} MUST still resolve "
+            f"after PR 3c-e2 (alias preservation contract)"
+        )
+
+
+def test_animate_spin_references_existing_spin_keyframe():
+    """3c-e2.2 — ``.animate-spin`` MUST reference the ``spin``
+    keyframe (which lives under ``@layer base``) via
+    ``animation: spin 0.8s linear infinite;``. PR 3c-e2 does NOT
+    add a new ``@keyframes`` declaration — it reuses the existing
+    ``spin`` keyframe shipped by PR 3c-d."""
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare an @layer components { ... } block"
+    rule = _rule(body, ".animate-spin")
+    assert rule.strip(), ".animate-spin missing under @layer components (PR 3c-e2.1)"
+    assert re.search(r"animation\s*:\s*spin\s+0\.8s\s+linear\s+infinite\s*;", rule), (
+        ".animate-spin must animate `spin 0.8s linear infinite` "
+        "(PR 3c-e2.2 — references the existing @layer base keyframe)"
+    )
+    # And confirm no new @keyframes sneaked into @layer components.
+    assert not re.search(r"@keyframes\s+\w+", body), (
+        "@layer components MUST NOT add any new @keyframes block "
+        "(PR 3c-e2 ships no keyframes; only utility classes)"
     )
 
 
@@ -286,19 +403,32 @@ def test_remaining_keyframes_have_identifying_frames():
     )
 
 
-# ---- 3c-e1.3 — byte-size budget (≤ 400 LoC delta per PR cumulative) ----------
+# ---- 3c-e1.3 + 3c-e2.3 — byte-size budget (≤ 400 LoC delta per PR) ----------
 
-def test_globals_css_byte_size_within_3c_e1_budget():
-    """3c-e1.3 — byte-size budget: PR 3c-e1's ``src/app/globals.css``
-    delta MUST stay within the 400-line per-PR review budget (the
-    project's hard ceiling for any single sub-PR). Computed via git
-    diff against the 3c-e1 base branch (PR 3c-d
-    `feat/complete-taxa-frontend-migration-06-3c-d`). The spec budgets
-    ~40 LoC for the alias + remaining-keyframes slice; the cumulative
-    delta MUST NOT exceed 400 LoC."""
+@pytest.mark.parametrize(
+    ("base", "label"),
+    [
+        (
+            "feat/complete-taxa-frontend-migration-06-3c-d",
+            "3c-e1",
+        ),
+        (
+            "feat/complete-taxa-frontend-migration-07-3c-e1",
+            "3c-e2",
+        ),
+    ],
+)
+def test_globals_css_byte_size_within_pr_budget(base, label):
+    """3c-e1.3 / 3c-e2.3 — byte-size budget: each sub-PR's
+    ``src/app/globals.css`` delta MUST stay within the 400-line
+    per-PR review budget (the project's hard ceiling for any
+    single sub-PR). Computed via ``git diff --numstat`` against
+    each PR's base branch:
+    - 3c-e1 ~ vs ``feat/complete-taxa-frontend-migration-06-3c-d``
+    - 3c-e2 ~ vs ``feat/complete-taxa-frontend-migration-07-3c-e1``
+    The cumulative delta MUST NOT exceed 400 LoC per PR. The spec
+    budgets ~40 LoC for 3c-e1 + ~140 LoC for 3c-e2."""
     import subprocess
-    base = "feat/complete-taxa-frontend-migration-06-3c-d"
-    # Use --numstat to count inserted/removed lines for globals.css only.
     result = subprocess.run(
         ["git", "diff", "--numstat", base, "--", "src/app/globals.css"],
         cwd=str(REPO_ROOT),
@@ -317,6 +447,6 @@ def test_globals_css_byte_size_within_3c_e1_budget():
     added, removed, _path = numstat.split()
     delta = int(added) + int(removed)
     assert delta <= 400, (
-        f"PR 3c-e1 globals.css delta is {delta} lines "
+        f"PR {label} globals.css delta is {delta} lines "
         f"(+{added}/-{removed}) — exceeds the 400-line per-PR review budget"
     )
