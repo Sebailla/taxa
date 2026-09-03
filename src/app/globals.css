@@ -97,8 +97,8 @@
 /* Base resets — html/body margin+padding zeroed; body overscroll disabled
    so iOS / macOS Safari's rubber-band doesn't fight the SPA scroll; main's
    first/last child drop Tailwind's default margins. PR 3c-d finalizes the
-   @layer base block with body typography (font-family / line-height / color
-   / background) and the bespoke animation / utility surface. */
+   @layer base block with the global @keyframes spin affordance. Utility
+   classes (`.bg-primary` / `.animate-spin` / …) belong to PR 3c-e. */
 @layer base {
   html,
   body {
@@ -113,6 +113,18 @@
   }
   main > :last-child {
     margin-bottom: 0 !important;
+  }
+  /* Global loading-state affordance — the rotate-0 → rotate-360 keyframe
+     the design system uses for materialise spinners and any future loading
+     affordance. Paired with `.animate-spin` (PR 3c-e) which applies
+     `animation: spin 0.8s linear infinite` to component scopes. */
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
 }
 
