@@ -1,10 +1,12 @@
 """Taxonomy 5a.2 contract tests — mounted Tree + Breadcrumb (PR 5a.2).
 
 Pins slice 5a.2: React hook + presentation components + barrels +
-minimal AppShell page mount. Kebab glyph is a STUB (real menu lands
-in 5a.4); the page renders `DetailPanel` (5a.3) instead of the
-`TaxonDetailPlaceholder` that 5a.2 shipped. Predecessor 5a.1
-contracts stay byte-identical.
+minimal AppShell page mount. The per-row kebab is the REAL `Kebab`
+menu (PR 5a.4) backed by the `useKebab` local-state hook — `KebabStub`
+(5a.2 inert glyph) is relegated to a backward-compat barrel re-export
+and is no longer mounted by page.tsx. The page renders `DetailPanel`
+(5a.3) instead of the `TaxonDetailPlaceholder` that 5a.2 shipped.
+Predecessor 5a.1 contracts stay byte-identical.
 """
 from __future__ import annotations
 import re, shutil, subprocess
@@ -17,14 +19,15 @@ APP = T / "application" / "useTaxonTree.ts"
 HOOK = T / "application" / "useTaxonTreeHook.ts"
 PRES = T / "presentation"
 TREE, BREAD = PRES / "Tree.tsx", PRES / "Breadcrumb.tsx"
-KEBAB, DETAIL = PRES / "KebabStub.tsx", PRES / "DetailPanel.tsx"
+KEBAB, USE_KEBAB = PRES / "Kebab.tsx", PRES / "useKebab.ts"
+DETAIL = PRES / "DetailPanel.tsx"
 PRES_IDX, BARREL, PAGE = PRES / "index.ts", T / "index.ts", R / "src" / "app" / "page.tsx"
-COMPONENTS = ("Tree", "Breadcrumb", "KebabStub", "DetailPanel")
+COMPONENTS = ("Tree", "Breadcrumb", "Kebab", "DetailPanel")
 
 
-@pytest.mark.parametrize("path", [HOOK, TREE, BREAD, KEBAB, DETAIL, PRES_IDX])
+@pytest.mark.parametrize("path", [HOOK, TREE, BREAD, KEBAB, USE_KEBAB, DETAIL, PRES_IDX])
 def test_files_present(path: Path) -> None:
-    assert path.is_file(), f"missing {path} (PR 5a.2 + 5a.3 surface)"
+    assert path.is_file(), f"missing {path} (PR 5a.2 + 5a.3 + 5a.4 surface)"
 
 @pytest.mark.parametrize("name", COMPONENTS)
 def test_both_barrels_reexport(name: str) -> None:
@@ -44,10 +47,26 @@ def test_useTaxonTree_has_react_hook() -> None:
         assert tok in app_text, f"predecessor {tok!r} must stay byte-identical"
     assert '"react"' not in app_text and "'react'" not in app_text
 
-def test_kebab_is_stub_no_real_menu() -> None:
+def test_kebab_has_real_menu_body() -> None:
+    """PR 5a.4 lands the real kebab menu in `Kebab.tsx`; `KebabStub` is
+    backward-compat only and is no longer mounted by page.tsx. Pin the
+    real menu's trigger + label so the e2e harness keeps targeting the
+    right selector (the e2e + screenshot corpus relies on these data-
+    actions to find the kebab + the `Search online` item).
+    """
     text = KEBAB.read_text()
-    assert re.search(r'data-action=["\']kebab["\']', text)
-    assert "Search online" not in text and ".kebab-menu.open" not in text
+    assert re.search(r'data-action=["\']toggle-kebab["\']', text), \
+        "Kebab.tsx must stamp data-action=\"toggle-kebab\" on the trigger"
+    assert "Search online" in text, \
+        "Kebab.tsx must render the literal label \"Search online\""
+    # `kebab-menu` is the CSS class (PR 3c-b); source defines it via the
+    # `KEbab_MENU_CLASS` constant so a literal `.kebab-menu` substring
+    # won't appear — assert the constant + the menu container's className
+    # bind instead.
+    assert re.search(r'KEbab_MENU_CLASS\s*=\s*["\']kebab-menu["\']', text), \
+        "Kebab.tsx must declare KEbab_MENU_CLASS = \"kebab-menu\""
+    assert re.search(r'\$\{KEbab_MENU_CLASS\}\s+open', text), \
+        "Kebab.tsx must bind the menu className with `${KEbab_MENU_CLASS} open`"
 
 def test_page_mounts_presentation_via_barrel() -> None:
     text = PAGE.read_text()
@@ -57,6 +76,7 @@ def test_page_mounts_presentation_via_barrel() -> None:
 
 def test_presentation_layer_children_are_valid() -> None:
     allowed = {".gitkeep", "index.ts", "Tree.tsx", "Breadcrumb.tsx",
+               "Kebab.tsx", "useKebab.ts",
                "KebabStub.tsx", "TaxonDetailPlaceholder.tsx",
                "DetailPanel.tsx", "FolderTabStub.tsx", "OverviewTab.tsx",
                "SearchTabStub.tsx", "TabStrip.tsx"}
