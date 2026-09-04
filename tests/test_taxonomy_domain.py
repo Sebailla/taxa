@@ -130,7 +130,7 @@ def _run_tsc_isolated(source: Path, out_dir: Path) -> subprocess.CompletedProces
     ES2022` (no DOM — task requirement)."""
     return subprocess.run(
         [
-            "npx", "--yes", "-p", "typescript@5.7", "tsc",
+            "npx", "tsc", "--ignoreConfig",
             "--strict",
             "--target", "ES2022",
             "--module", "commonjs",
