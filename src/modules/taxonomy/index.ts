@@ -20,6 +20,13 @@
  * PR 5a.3 EXTENDS the public surface with:
  *   - `DetailPanel` + `OverviewTab` + local `TabStrip`
  *   - inert `SearchTabStub` / `FolderTabStub` (bodies land in 5b)
+ *
+ * PR 5a.4 EXTENDS the public surface with:
+ *   - the real per-row `Kebab` menu (Search online) + `useKebab`
+ *     open/close state hook
+ *   - the force-Search contract on `DetailPanel` (the kebab's
+ *     `Search online` callback forces the Search tab active even
+ *     for top-level taxa)
  */
 
 export type {
@@ -69,6 +76,8 @@ export {
   type DetailPanelProps,
   FolderTabStub,
   type FolderTabStubProps,
+  Kebab,
+  type KebabProps,
   KebabStub,
   type KebabStubProps,
   OverviewTab,
@@ -82,4 +91,6 @@ export {
   type TaxonDetailPlaceholderProps,
   Tree,
   type TreeProps,
+  useKebab,
+  type UseKebabResult,
 } from "./presentation";
