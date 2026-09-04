@@ -870,3 +870,78 @@ spec por dominio literalmente a
 `openspec/specs/{frontend-runtime,design-tokens,browser-state-hydration,frontend-bootstrap,research}/spec.md`
 y promueve el spec modular-architecture al árbol de specs
 canónico.
+
+---
+
+## Addenda — 2026-09-04: re-plan de Fase 5a en cuatro rebanadas (solo anexo)
+
+Esta es una adenda de decisión deliberadamente **solo anexo**; la prosa de
+arriba para Fase 5a (port de taxonomy, PR 5a en la posición de cadena
+que actualmente ocupa) se conserva verbatim. Registra una supersesión
+solo documental que gobierna cómo el **próximo** worktree de código
+re-rebanará PR 5a en cuatro sub-PRs revisables. El WIP sobredimensionado
+de PR 5a (5a.1–5a.9 + strip de `DetailPanel` + force-Search de `Kebab` +
+testigo Playwright del strip en una sola rebanada, muy por encima del
+presupuesto de 400 líneas por PR) queda **descartado**.
+
+- **WIP sobredimensionado de 5a descartado.** La enumeración previa
+  monolítica (5a.1 R, 5a.2 G, 5a.3 G, 5a.4 G, 5a.5 G, 5a.6 G, 5a.7 T,
+  5a.8 T, 5a.9 Refactor en un PR) se reemplaza por el re-plan de cuatro
+  rebanadas de abajo. La enumeración descartada se conserva solo como
+  contexto histórico; **no** es autoritativa para el próximo worktree.
+- **5a.1 — foundation.** `src/modules/taxonomy/{domain,application,
+  infrastructure}/**` solo: superficie de tipos, invariantes, funciones
+  `fetch*`, hook `useTaxonTree`; la capa de aplicación emite solo
+  view-models. Sin `Tree.tsx`, `DetailPanel.tsx`, `Kebab.tsx` ni `TabStrip`.
+- **5a.2 — `Tree` + `Breadcrumb` montados.** `src/modules/taxonomy/
+  presentation/{Tree,Breadcrumb}.tsx`; portea el layout legacy de
+  `web/{tree,breadcrumb}.js` (glifo kebab por fila reservado, cuerpo del
+  menú **no** autorizado todavía — el glifo es no-op hasta 5a.4);
+  cabalga sobre los selectores `@layer components` de PR 3c-b. Sin
+  `DetailPanel`, `Overview`, `TabStrip` ni activación global.
+- **5a.3 — `DetailPanel` + cuerpo de `Overview` + `TabStrip` local.**
+  `src/modules/taxonomy/presentation/{DetailPanel,OverviewTab}.tsx` más
+  un `TabStrip` **local** (`["Overview", "Search", "Folder"]`, orden
+  fijo, tres hermanas siempre alcanzables, `Overview` siempre visible
+  según la política de usuario); sin contrato de activación global
+  todavía — el callback force-Search del `Kebab` se conecta solo contra
+  este componente local.
+- **5a.4 — force-Search de `Search online` de `Kebab` + testigo Chromium.**
+  `src/modules/taxonomy/presentation/Kebab.tsx` más la extensión de
+  `tests/test_taxonomy_infra.py`: el menú kebab gana la acción `Search
+  online`; la acción dispara el callback de activación que **fuerza la
+  pestaña `Search` activa** sobre el taxón seleccionado (NO debe caer
+  en `Overview`, ni siquiera para taxones de nivel superior); el testigo
+  Chromium es el guardián de regresión canónico. **Asignación de
+  regresión** (por solicitud):
+  `Archaea → Search online → Search` (taxón de nivel superior; la
+  regresión viva actual cae en `Overview`; 5a.4 la cierra).
+- **Por rebanada ≤ 400 líneas (LoC authored, excluyendo `package-lock.json`
+  regenerado).** Cada uno de 5a.1, 5a.2, 5a.3, 5a.4 se dimensiona para
+  dejar headroom bajo el presupuesto de 400 líneas por PR que
+  Aproximación A bloqueó 2026-09-02. El WIP descartado violaba el
+  presupuesto; el re-plan lo restaura.
+- **Posiciones de cadena para el próximo worktree de código (topología
+  de 22 hijos).** El próximo worktree DEBE usar este mapeo y nada más:
+  `5a.1 → 13`, `5a.2 → 14`, `5a.3 → 15`, `5a.4 → 16`, `5b → 17`,
+  `5c → 18`, `6a → 19`, `6b → 20`, `6c → 21`, `3e → 22` (cutover
+  atómico, aún con compuerta G1–G6). Posiciones 13–16 albergan 5a.1–5a.4;
+  posiciones 17–22 albergan cada sub-PR posterior; el conteo de 22
+  hijos reemplaza a 16. PR 4b en posición 12/22 es la base de merge para
+  5a.1. Topología de cadena, estrategia `feature-branch-chain`, contrato
+  "tracker-only targets `develop`", predecesor congelado, Aproximación A,
+  FastAPI/SQLite y specs por dominio quedan sin cambios.
+- **Promoción de `TabStrip` diferida a design-system — en PR 5b.** El
+  primitivo `TabStrip` autor en 5a.3 permanece **local** en
+  `src/modules/taxonomy/presentation/` durante la rebanada 5a. Su
+  promoción a `src/modules/design-system/` (para que `SearchTab` /
+  `FolderTab` de 5b lo consuman como primitivo hermano) queda
+  **diferida a PR 5b**, junto con el guardián de regresión de que
+  ninguna ruta de importación de taxonomy regrese.
+- **Contrato de autoría.** Sin edición de código, sin rebase y sin rama
+  nueva en esta adenda; el próximo worktree de código lee esta adenda
+  como autoritativa y re-rebana 5a.1–5a.4 según las reglas de arriba. El
+  espejo en español vive en
+  `documents-es/.../{tasks-es.md,apply-progress-es.md,design-es.md}` y
+  carga la misma semántica; cualquier deriva se resuelve a favor del
+  inglés.
