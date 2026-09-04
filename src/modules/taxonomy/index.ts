@@ -12,7 +12,10 @@
  *   - typed fetch* helpers + `NetworkError`
  *   - framework-free application view-model surface
  *
- * The React hook + presentation components land with PR 5a.2/5a.3.
+ * PR 5a.2 EXTENDS the public surface with:
+ *   - the React adapter hook (`useTaxonTree` + state types)
+ *   - the presentation layer (Tree, Breadcrumb, KebabStub,
+ *     TaxonDetailPlaceholder)
  */
 
 export type {
@@ -48,3 +51,20 @@ export {
   type BreadcrumbViewModel,
   type TaxonTreeNode,
 } from "./application";
+
+export {
+  useTaxonTree,
+  type TaxonTreeHookState,
+  type UseTaxonTreeOptions,
+} from "./application";
+
+export {
+  Breadcrumb,
+  type BreadcrumbProps,
+  KebabStub,
+  type KebabStubProps,
+  TaxonDetailPlaceholder,
+  type TaxonDetailPlaceholderProps,
+  Tree,
+  type TreeProps,
+} from "./presentation";

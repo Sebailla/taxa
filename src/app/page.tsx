@@ -1,29 +1,45 @@
 "use client";
 
 /**
- * Single-screen client entry for the App Router static export (PR 3b + PR 4b).
+ * Single-screen client entry for the App Router static export
+ * (PR 3b + PR 4b + PR 5a.2).
  *
- * Minimal semantic placeholder inside the ``<AppShell>`` from
- * ``@taxa/app-shell``. The AppShell (PR 4b.2) imports `useEffect` /
- * `useSyncExternalStore` and is a client component, so this page is
- * also a client component to keep the React 19 server-vs-client
- * bundle split explicit (a later PR — taxonomy port 5a — will add
- * the real taxon tree, detail panel, and breadcrumbs here).
+ * Renders the taxonomy tree + breadcrumb + detail-placeholder trio
+ * inside the ``<main>`` slot that ``<AppShell>`` (PR 4b.2) emits.
+ * ``useTaxonTree`` (PR 5a.2) owns the network boundary; ``Tree`` /
+ * ``Breadcrumb`` / ``TaxonDetailPlaceholder`` consume the hook state
+ * and stay in lock-step via ``setSelectedId``. ``KebabStub`` is a
+ * no-op until 5a.4.
  *
  * Chain-topology guard: this file MUST NOT directly import
- *   - ``@taxa/app-shell``        (AppShell is composed by layout.tsx;
- *                                  this file only renders content)
- *   - ``./globals.css``          (owned by PR 3c Tailwind tokens; the
- *                                  layout imports it once)
- *
- * The ``<main>`` landmark and the visible ``<h1>`` are the minimum
- * semantic content ``next build`` needs to render a non-empty page so
- * the G2 ``out/index.html`` witness is satisfiable.
+ * ``@taxa/app-shell`` (composed by layout.tsx),
+ * ``@taxa/browser-state`` (transitive via the AppShell), or
+ * ``./globals.css`` (owned by PR 3c; layout imports it once).
  */
+import {
+  Breadcrumb,
+  KebabStub,
+  TaxonDetailPlaceholder,
+  Tree,
+  useTaxonTree,
+} from "@taxa/taxonomy";
+
 export default function Page(): React.ReactElement {
+  const treeState = useTaxonTree({ baseUrl: "", source: "col" });
+  const recordsById = new Map(treeState.records.map((r) => [r.id, r]));
+  const selected = treeState.selectedId !== null
+    ? recordsById.get(treeState.selectedId) ?? null
+    : null;
   return (
     <>
       <h1>taxa</h1>
+      <Breadcrumb viewModel={treeState.breadcrumb}
+                  onSelect={treeState.setSelectedId} />
+      <Tree root={treeState.tree}
+            selectedId={treeState.selectedId}
+            onSelect={treeState.setSelectedId} />
+      <KebabStub taxonId={selected?.id ?? 0} />
+      <TaxonDetailPlaceholder selected={selected} />
     </>
   );
 }
