@@ -16,6 +16,10 @@
  *   - the React adapter hook (`useTaxonTree` + state types)
  *   - the presentation layer (Tree, Breadcrumb, KebabStub,
  *     TaxonDetailPlaceholder)
+ *
+ * PR 5a.3 EXTENDS the public surface with:
+ *   - `DetailPanel` + `OverviewTab` + local `TabStrip`
+ *   - inert `SearchTabStub` / `FolderTabStub` (bodies land in 5b)
  */
 
 export type {
@@ -61,8 +65,19 @@ export {
 export {
   Breadcrumb,
   type BreadcrumbProps,
+  DetailPanel,
+  type DetailPanelProps,
+  FolderTabStub,
+  type FolderTabStubProps,
   KebabStub,
   type KebabStubProps,
+  OverviewTab,
+  type OverviewTabProps,
+  SearchTabStub,
+  type SearchTabStubProps,
+  TabStrip,
+  type TabDefinition,
+  type TabStripProps,
   TaxonDetailPlaceholder,
   type TaxonDetailPlaceholderProps,
   Tree,

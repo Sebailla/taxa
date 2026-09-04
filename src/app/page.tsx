@@ -2,14 +2,14 @@
 
 /**
  * Single-screen client entry for the App Router static export
- * (PR 3b + PR 4b + PR 5a.2).
+ * (PR 3b + PR 4b + PR 5a.2 + PR 5a.3).
  *
- * Renders the taxonomy tree + breadcrumb + detail-placeholder trio
+ * Renders the taxonomy tree + breadcrumb + detail-panel trio
  * inside the ``<main>`` slot that ``<AppShell>`` (PR 4b.2) emits.
  * ``useTaxonTree`` (PR 5a.2) owns the network boundary; ``Tree`` /
- * ``Breadcrumb`` / ``TaxonDetailPlaceholder`` consume the hook state
+ * ``Breadcrumb`` / ``DetailPanel`` (PR 5a.3) consume the hook state
  * and stay in lock-step via ``setSelectedId``. ``KebabStub`` is a
- * no-op until 5a.4.
+ * no-op until 5a.4 (force-Search).
  *
  * Chain-topology guard: this file MUST NOT directly import
  * ``@taxa/app-shell`` (composed by layout.tsx),
@@ -18,8 +18,8 @@
  */
 import {
   Breadcrumb,
+  DetailPanel,
   KebabStub,
-  TaxonDetailPlaceholder,
   Tree,
   useTaxonTree,
 } from "@taxa/taxonomy";
@@ -39,7 +39,7 @@ export default function Page(): React.ReactElement {
             selectedId={treeState.selectedId}
             onSelect={treeState.setSelectedId} />
       <KebabStub taxonId={selected?.id ?? 0} />
-      <TaxonDetailPlaceholder selected={selected} />
+      <DetailPanel selected={selected} />
     </>
   );
 }

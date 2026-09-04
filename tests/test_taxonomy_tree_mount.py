@@ -2,7 +2,8 @@
 
 Pins slice 5a.2: React hook + presentation components + barrels +
 minimal AppShell page mount. Kebab glyph is a STUB (real menu lands
-in 5a.4); no DetailPanel/Overview/TabStrip (5a.3). Predecessor 5a.1
+in 5a.4); the page renders `DetailPanel` (5a.3) instead of the
+`TaxonDetailPlaceholder` that 5a.2 shipped. Predecessor 5a.1
 contracts stay byte-identical.
 """
 from __future__ import annotations
@@ -16,14 +17,14 @@ APP = T / "application" / "useTaxonTree.ts"
 HOOK = T / "application" / "useTaxonTreeHook.ts"
 PRES = T / "presentation"
 TREE, BREAD = PRES / "Tree.tsx", PRES / "Breadcrumb.tsx"
-KEBAB, DETAIL = PRES / "KebabStub.tsx", PRES / "TaxonDetailPlaceholder.tsx"
+KEBAB, DETAIL = PRES / "KebabStub.tsx", PRES / "DetailPanel.tsx"
 PRES_IDX, BARREL, PAGE = PRES / "index.ts", T / "index.ts", R / "src" / "app" / "page.tsx"
-COMPONENTS = ("Tree", "Breadcrumb", "KebabStub", "TaxonDetailPlaceholder")
+COMPONENTS = ("Tree", "Breadcrumb", "KebabStub", "DetailPanel")
 
 
 @pytest.mark.parametrize("path", [HOOK, TREE, BREAD, KEBAB, DETAIL, PRES_IDX])
 def test_files_present(path: Path) -> None:
-    assert path.is_file(), f"missing {path} (PR 5a.2 slice 2)"
+    assert path.is_file(), f"missing {path} (PR 5a.2 + 5a.3 surface)"
 
 @pytest.mark.parametrize("name", COMPONENTS)
 def test_both_barrels_reexport(name: str) -> None:
@@ -56,7 +57,9 @@ def test_page_mounts_presentation_via_barrel() -> None:
 
 def test_presentation_layer_children_are_valid() -> None:
     allowed = {".gitkeep", "index.ts", "Tree.tsx", "Breadcrumb.tsx",
-               "KebabStub.tsx", "TaxonDetailPlaceholder.tsx"}
+               "KebabStub.tsx", "TaxonDetailPlaceholder.tsx",
+               "DetailPanel.tsx", "FolderTabStub.tsx", "OverviewTab.tsx",
+               "SearchTabStub.tsx", "TabStrip.tsx"}
     extra = {p.name for p in PRES.iterdir()} - allowed
     assert not extra
 
