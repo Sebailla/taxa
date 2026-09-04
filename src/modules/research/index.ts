@@ -18,4 +18,5 @@
  * An empty barrel is intentionally a no-op re-export so this file is
  * a valid TypeScript module and `tsc --noEmit` accepts it.
  */
-export {};
+export * from "./domain";
+export * from "./infrastructure";
