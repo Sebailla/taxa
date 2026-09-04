@@ -2634,3 +2634,116 @@ presupuesto de 400 líneas por PR) queda **descartado**.
   `documents-es/.../{tasks-es.md,apply-progress-es.md,design-es.md}` y
   carga la misma semántica; cualquier deriva se resuelve a favor del
   inglés.
+
+---
+
+## Addenda — 2026-09-04: re-plan de Fase 5b en cuatro rebanadas (solo anexo)
+
+Esta es una adenda de decisión deliberadamente **solo anexo**; la prosa de
+arriba para Fase 5b (port del módulo research + pin de CDN, PR 5b en la
+posición de cadena que actualmente ocupa) se conserva verbatim. Registra
+una supersesión solo documental que gobierna cómo el **próximo** worktree
+de código re-rebanará PR 5b en cuatro sub-PRs revisables. La enumeración
+prevista in-line de 5b (5b.1 R + 5b.2–5b.7 G + 5b.8 T + 5b.9 Refactor —
+nueve pasos dentro de una sola rebanada de ~395 LoC ya en el presupuesto
+de 400 líneas por PR) queda **descartada** y se conserva solo como
+contexto histórico.
+
+- **Enumeración in-line de 5b descartada.** La enumeración previa
+  monolítica de Fase 5b (5b.1 R tests, 5b.2 G domain, 5b.3 G
+  `infrastructure/api.ts`, 5b.4 G re-export de `search-engines.js`,
+  5b.5 G hooks de application, 5b.6 G presentation ~290 LoC, 5b.7 G
+  delta de app-shell `Browser`, 5b.8 T triangulación, 5b.9 Refactor —
+  todo en un PR en la posición previa 17/22) se reemplaza por el
+  re-plan de cuatro rebanadas de abajo. La enumeración descartada se
+  conserva solo como contexto histórico; **no** es autoritativa para
+  el próximo worktree de código.
+- **5b.1 — foundation (research domain + infrastructure + re-export de
+  search-engines).** `src/modules/research/{domain,infrastructure}/**`:
+  tipos `ResearchFile` / `Engine` / `FileNode` (domain); `fetchFiles(id)`,
+  `fetchServe(id, rel)`, loader idempotente de CDN `loadScriptOnce(name,
+  src)` (`infrastructure/api.ts`); más `search-engines.js` re-exportando
+  `SEARCH_ENGINES` desde el `src/data/search-engines.js` de PR 3d (export
+  nombrado sin cambios). Sin hooks de application, sin `FileExplorer.tsx`,
+  sin `FileViewer.tsx`, sin `SearchTab` / `FolderTab` / `SearchLinkList`,
+  sin delta de app-shell.
+- **5b.2 — hooks de application.** `src/modules/research/application/
+  {useFileExplorer,useFileViewer}.ts`: los dos hooks consumen las
+  funciones `fetch*` tipadas de 5b.1 y emiten view-models. Las claves
+  de estado persistido (`state.explorer.search.{query, mode,
+  hideEmpty}`) y el contrato de **debounce de 200 ms** se **declaran
+  aquí** como contratos a nivel de hook para que 5b.3 los consuma; el
+  cableado real de `FileExplorer.tsx` / `FileViewer.tsx` queda en 5b.3.
+  Sin presentation, sin `SearchTab` / `FolderTab`, sin delta de
+  app-shell.
+- **5b.3 — presentation de `FileExplorer` + `FileViewer` + comportamiento
+  CDN / debounce / estado persistido.** `src/modules/research/
+  presentation/{FileExplorer,FileViewer,RawTableTreeTabs,MetaStrip,
+  BreadcrumbPanel,Banners}.tsx`: portea el layout legacy de dos paneles
+  de `web/{file_explorer,file_viewer,format,keymap}.js`; despachador de
+  nueve formatos con lazy loading pineado a CDN (`mammoth@1.8.0`,
+  `xlsx@0.18.5`, `epubjs@0.3.93`); fallbacks legacy de DOC y formatos no
+  soportados; banner de fallo de CDN
+  `"Viewer offline — raw download unavailable"`; búsqueda en árbol con
+  **debounce de 200 ms**, modos filter / highlight, y
+  `state.explorer.search.{query, mode, hideEmpty}` **persistido** entre
+  cambios de taxón; meta strip `FORMAT | SIZE | ENCODING`; reset del
+  estado del explorer al cambiar de taxón. Cabalga sobre los
+  selectores `@layer components` de PR 3c-c. Sin `SearchTab` /
+  `FolderTab` / `SearchLinkList`, sin delta de app-shell, sin
+  promoción de `TabStrip` todavía.
+- **5b.4 — `SearchTab` + `FolderTab` + `SearchLinkList` + re-anclaje
+  global de `Browser` + promoción de `TabStrip` a design-system.**
+  `src/modules/research/presentation/{SearchTab,FolderTab,
+  SearchLinkList}.tsx`: `SearchTab` renderiza las cinco secciones de
+  categoría (`General` / `Taxonomic` / `Academic` / `Multimedia` /
+  `Documents`) en orden fijo; `FolderTab` es **separado** (indicador
+  de materialización por taxón; NO debe ser subconjunto de
+  `SearchTab`); `SearchLinkList` mapea cada `Engine` a un ancla con
+  `target="_blank"` y `rel="noopener noreferrer"`, resolviendo la
+  plantilla de URL desde `SEARCH_ENGINES`. Más
+  `src/modules/app-shell/infrastructure/page-chrome.tsx` (~30 LoC de
+  delta): la pestaña `Browser` del header se re-ancla como
+  **explorador global de Research / archivos** — abre sin filtro
+  `taxonId`; seleccionar un taxón con `Browser` activo NO debe acotar
+  el explorer a ese taxón (el contrato de atributos
+  `data-path="browser"` / `data-action="nav-tab"` se preserva). Más la
+  promoción diferida de `TabStrip` desde 5a.3 que aterriza aquí: el
+  primitivo `TabStrip` local se mueve a `src/modules/design-system/`
+  (primitivo hermano), **con el guardián de regresión** de que
+  ninguna ruta de importación de taxonomy regrese.
+- **Por rebanada ≤ 400 líneas (LoC authored, excluyendo
+  `package-lock.json` regenerado).** Cada uno de 5b.1, 5b.2, 5b.3,
+  5b.4 se dimensiona para dejar headroom bajo el presupuesto de 400
+  líneas por PR que Aproximación A bloqueó 2026-09-02. La enumeración
+  in-line descartada de 9 pasos violaba el presupuesto; el re-plan de
+  cuatro rebanadas lo restaura.
+- **Posiciones de cadena para el próximo worktree de código (tracker +
+  25 hijos = 26 PRs totales).** El próximo worktree DEBE usar este
+  mapeo y nada más: `5b.1 → 17`, `5b.2 → 18`, `5b.3 → 19`,
+  `5b.4 → 20`, `5c → 21`, `6a → 22`, `6b → 23`, `6c → 24`,
+  `3e → 25` (cutover atómico, aún con compuerta G1–G6). El conteo de
+  25 hijos reemplaza al conteo previo de 22 hijos; posiciones 17–20
+  albergan el split 5b.1–5b.4, posiciones 21–25 albergan cada sub-PR
+  posterior. PR 4b en posición 12/22 se mantiene como base de merge
+  para 5a.1; la base de merge de 5b.1 es el PR que aterriza
+  inmediatamente antes de la posición 17 en la topología corregida
+  (según la auditoría del próximo worktree de código). Topología de
+  cadena, estrategia `feature-branch-chain`, contrato
+  "tracker-only targets `develop`", predecesor congelado,
+  Aproximación A, FastAPI/SQLite y specs por dominio quedan sin
+  cambios.
+- **Cierre de la promoción de `TabStrip` en 5b.4.** La promoción de
+  `TabStrip` que la adenda de 5a.3 difirió a PR 5b ahora cierra en
+  PR 5b.4 (no al final de PR 5b como bloque): el primitivo `TabStrip`
+  local se mueve a `src/modules/design-system/`, y el guardián de
+  regresión de 5b.4 asegura que ninguna ruta de importación de
+  taxonomy regrese. Después de que 5b.4 aterrice, no queda más
+  trabajo de `TabStrip` pendiente desde las rebanadas 5a / 5b.
+- **Contrato de autoría.** Sin edición de código, sin rebase y sin
+  rama nueva en esta adenda; el próximo worktree de código lee esta
+  adenda como autoritativa y re-rebana 5b.1–5b.4 según las reglas de
+  arriba. El espejo en español vive en
+  `documents-es/.../{tasks-es.md,apply-progress-es.md,design-es.md}`
+  y carga la misma semántica; cualquier deriva se resuelve a favor del
+  inglés.
