@@ -818,3 +818,76 @@ per-domain spec verbatim into
 `openspec/specs/{frontend-runtime,design-tokens,browser-state-hydration,frontend-bootstrap,research}/spec.md`
 and promotes the modular-architecture spec into the
 canonical specs tree.
+
+---
+
+## Addendum — 2026-09-04: Phase 5a four-slice replan (append-only)
+
+This is a deliberate **append-only** decision addendum; the prose above for
+Phase 5a (taxonomy port, PR 5a at the chain position it currently holds)
+is preserved verbatim. It records a docs-only supersession that governs
+how the **next** code worktree re-slices PR 5a into four reviewable
+sub-PRs. The oversized PR-5a WIP (5a.1–5a.9 + `DetailPanel` tab-strip +
+`Kebab` force-Search + Playwright witness in a single slice, well past
+the 400-line per-PR review budget) is **discarded**.
+
+- **Discarded oversized 5a WIP.** The previous monolithic Phase 5a
+  enumeration (5a.1 R, 5a.2 G, 5a.3 G, 5a.4 G, 5a.5 G, 5a.6 G, 5a.7 T,
+  5a.8 T, 5a.9 Refactor, all in one PR at the prior position) is replaced
+  by the four-slice replan below. The discarded enumeration is retained
+  only as historical context; it is **not** authoritative for the next
+  code worktree.
+- **5a.1 — foundation.** `src/modules/taxonomy/{domain,application,
+  infrastructure}/**` only: type surface, invariants, `fetch*` functions,
+  `useTaxonTree` hook; the application layer emits view-models only. No
+  `Tree.tsx`, no `DetailPanel.tsx`, no `Kebab.tsx`, no `TabStrip`.
+- **5a.2 — mounted `Tree` + `Breadcrumb`.** `src/modules/taxonomy/
+  presentation/{Tree,Breadcrumb}.tsx`; ports the legacy
+  `web/{tree,breadcrumb}.js` row layout (per-row kebab glyph reserved,
+  but the menu body is **not** yet authored — the glyph is a no-op until
+  5a.4); rides on PR 3c-b's `@layer components` selectors. No `DetailPanel`,
+  no `Overview`, no `TabStrip`, no global activation.
+- **5a.3 — `DetailPanel` + `Overview` body + local `TabStrip`.**
+  `src/modules/taxonomy/presentation/{DetailPanel,OverviewTab}.tsx` plus
+  a **local** `TabStrip` (`["Overview", "Search", "Folder"]`, fixed
+  order, three siblings always reachable, `Overview` always visible per
+  the user-selected policy); no global activation contract yet — the
+  `Kebab`'s force-Search callback is wired only against this local
+  component.
+- **5a.4 — `Kebab` `Search online` force-Search + Chromium witness.**
+  `src/modules/taxonomy/presentation/Kebab.tsx` plus the
+  `tests/test_taxonomy_infra.py` extension: the per-row kebab menu gains
+  the `Search online` action; the action dispatches the tab-activation
+  callback that **forces the `Search` tab active** on the selected taxon
+  (it MUST NOT default to `Overview`, even for top-level taxa); the
+  Chromium witness is the canonical regression guard. **Regression
+  assignment** (per request):
+  `Archaea → Search online → Search` (top-level taxon; the current live
+  regression lands on `Overview`; 5a.4 closes it).
+- **Per-slice ≤ 400 lines (authored LoC, excluding regenerated
+  `package-lock.json`).** Each of 5a.1, 5a.2, 5a.3, 5a.4 is sized to
+  leave headroom under the 400-line per-PR review budget that Approach A
+  locked 2026-09-02. The discarded WIP violated the budget; the
+  four-slice replan restores it.
+- **Chain positions for the next code worktree (22-child topology).** The
+  next code worktree MUST use this mapping and nothing else:
+  `5a.1 → 13`, `5a.2 → 14`, `5a.3 → 15`, `5a.4 → 16`, `5b → 17`,
+  `5c → 18`, `6a → 19`, `6b → 20`, `6c → 21`, `3e → 22` (atomic cutover,
+  still gated on G1–G6 closure). Positions 13–16 hold the 5a.1–5a.4 split;
+  positions 17–22 hold every later sub-PR; the 22-child count replaces
+  16. PR 4b at position 12/22 is the merge base for 5a.1. Chain topology,
+  `feature-branch-chain` strategy, "tracker-only targets `develop`"
+  contract, predecessor frozen status, Approach A, FastAPI/SQLite, and
+  per-domain specs are unchanged.
+- **`TabStrip` promotion deferred to design-system — at PR 5b.** The
+  `TabStrip` primitive authored in 5a.3 stays **local** to
+  `src/modules/taxonomy/presentation/` for the 5a slice. Its promotion
+  to `src/modules/design-system/` (so 5b's `SearchTab` / `FolderTab` can
+  consume it as a sibling primitive) is **deferred to PR 5b**, along
+  with the regression guard that no taxonomy import path regresses.
+- **Authoring contract.** No code edit, no rebase, no new branch in this
+  addendum; the next code worktree reads this addendum as authoritative
+  and re-slices 5a.1–5a.4 per the rules above. The Spanish mirror lives
+  at `documents-es/.../{tasks-es.md,apply-progress-es.md,design-es.md}`
+  and carries the same semantics; any drift is resolved in favour of the
+  English.
