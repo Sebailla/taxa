@@ -7,14 +7,44 @@
  * (`presentation`, `application`, `domain`, `infrastructure`) are
  * blocked by `.eslintrc.cjs::no-restricted-imports`.
  *
- * PR 2a (Phase 2 scaffold work unit) ships an empty barrel — the real
- * exports land with the PR 5 capability port (tasks 5.1–5.3):
- *   - `domain/taxon.ts`        → plain TS types + invariants
- *   - `infrastructure/api.ts`   → `fetchTaxon`, `fetchChildren`
- *   - `application/useTaxonTree`, `application/useDetail`
- *   - `presentation/{Tree,DetailPanel,Breadcrumb}/` React components
+ * PR 5a.1 (Phase 5 capability port, slice 1) ships:
+ *   - domain types + source-aware parent-chain walker
+ *   - typed fetch* helpers + `NetworkError`
+ *   - framework-free application view-model surface
  *
- * An empty barrel is intentionally a no-op re-export so this file is
- * a valid TypeScript module and `tsc --noEmit` accepts it.
+ * The React hook + presentation components land with PR 5a.2/5a.3.
  */
-export {};
+
+export type {
+  BreadcrumbSegment,
+  Rank,
+  Taxon,
+  TaxonRecord,
+  TreeSource,
+} from "./domain/taxon";
+
+export {
+  RANK_ORDER,
+  compareRanks,
+  isValidRank,
+  isValidTaxon,
+  isValidTreeSource,
+  parentIdOf,
+  walkParentChain,
+} from "./domain/taxon";
+
+export {
+  NetworkError,
+  defaultFetch,
+  fetchChildren,
+  fetchDomains,
+  fetchTaxon,
+  type FetchLike,
+} from "./infrastructure";
+
+export {
+  buildBreadcrumb,
+  loadTaxonTree,
+  type BreadcrumbViewModel,
+  type TaxonTreeNode,
+} from "./application";
