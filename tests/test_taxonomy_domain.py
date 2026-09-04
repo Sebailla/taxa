@@ -47,10 +47,35 @@ def _has_node() -> bool:
     return shutil.which("node") is not None
 
 
+# Sibling worktrees from earlier migration slices carry `typescript`
+# in their node_modules. This fresh 5a.3 worktree has no
+# node_modules of its own, so the harness falls back to a sibling
+# `tsc` binary instead of asking `npx` to fetch one over the network.
+_SIBLINGS = (
+    "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-14-5a-2-tree-breadcrumb",
+    "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-13-5a-1-domain-api",
+    "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-12-4b",
+    "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-11-4a",
+)
+
+
+def _local_tsc() -> str | None:
+    bin_path = shutil.which("tsc")
+    if bin_path is not None:
+        return bin_path
+    for sibling in _SIBLINGS:
+        candidate = Path(sibling) / "node_modules" / "typescript" / "bin" / "tsc"
+        if candidate.is_file():
+                return str(candidate)
+    return None
+
+
 @pytest.fixture()
 def require_toolchain() -> None:
-    if not (_has_npx() and _has_node()):
-        pytest.skip("npx + node required on PATH for compile/runtime test")
+    if not _has_node():
+        pytest.skip("node required on PATH for runtime test")
+    if _local_tsc() is None:
+        pytest.skip("tsc required (PATH or sibling worktree) for compile test")
 
 
 # ---------------------------------------------------------------------------
@@ -127,10 +152,14 @@ def _run_tsc_isolated(source: Path, out_dir: Path) -> subprocess.CompletedProces
     """Compile `taxon.ts` in isolation. Flags mirror project tsconfig +
     design.md §Interfaces/Contracts: `--strict`, `--target ES2022`,
     `--module commonjs` (so Node can `require` the output), `--lib
-    ES2022` (no DOM — task requirement)."""
+    ES2022` (no DOM — task requirement). Uses a locally-resolved
+    `tsc` binary (PATH or sibling worktree) so the harness does not
+    ask `npx` to fetch TypeScript over the network."""
+    bin_path = _local_tsc()
+    assert bin_path is not None  # require_toolchain fixture gates this
     return subprocess.run(
         [
-            "npx", "tsc", "--ignoreConfig",
+            bin_path, "--ignoreConfig",
             "--strict",
             "--target", "ES2022",
             "--module", "commonjs",
@@ -232,7 +261,7 @@ process.stdout.write("PASS\n");
 
 
 @pytest.fixture()
-def compiled_domain(tmp_path: Path, require_toolchain: None) -> Path:
+def compiled_domain(tmp_path: Path, require_toolchain: None) -> tuple[Path, Path]:
     """Compile `taxon.ts` to CommonJS in `tmp_path/build/`, write the
     Node harness, return the (compiled-module path, harness path)."""
     if not DOMAIN_FILE.exists():

@@ -127,13 +127,31 @@ process.stdout.write("PASS\n");
 
 
 def test_compiled_walker_passes_runtime_contract(tmp_path: Path) -> None:
-    if not (shutil.which("npx") and shutil.which("node")):
-        pytest.skip("npx + node required for compile/runtime harness")
+    if not shutil.which("node"):
+        pytest.skip("node required for runtime harness")
+    # Local-only tsc resolution: PATH first, then a sibling worktree
+    # carrying `typescript` in node_modules. Avoids asking `npx` to
+    # fetch TypeScript over the network in this fresh 5a.3 worktree
+    # (which has no node_modules of its own).
+    bin_path = shutil.which("tsc")
+    if bin_path is None:
+        for sibling in (
+            "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-14-5a-2-tree-breadcrumb",
+            "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-13-5a-1-domain-api",
+            "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-12-4b",
+            "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-11-4a",
+        ):
+            candidate = Path(sibling) / "node_modules" / "typescript" / "bin" / "tsc"
+            if candidate.is_file():
+                bin_path = str(candidate)
+                break
+    if bin_path is None:
+        pytest.skip("tsc required (PATH or sibling worktree) for compile test")
     if not DOMAIN_FILE.is_file():
         pytest.skip("domain file not present yet")
     out_dir = tmp_path / "build"; out_dir.mkdir()
     proc = subprocess.run(
-        ["npx", "tsc", "--ignoreConfig",
+        [bin_path, "--ignoreConfig",
          "--strict", "--target", "ES2022", "--module", "commonjs",
          "--lib", "ES2022", "--skipLibCheck", "--esModuleInterop",
          "--outDir", str(out_dir), str(DOMAIN_FILE)],
