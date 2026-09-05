@@ -18,31 +18,38 @@ import pytest
 R = Path(__file__).resolve().parent.parent
 T = R / "src" / "modules" / "taxonomy"
 PRES = T / "presentation"
-TABSTRIP = PRES / "TabStrip.tsx"
+DS = R / "src" / "modules" / "design-system"
+DS_PRES = DS / "presentation"
+DS_TABSTRIP = DS_PRES / "TabStrip.tsx"
 DETAIL = PRES / "DetailPanel.tsx"
 OVERVIEW = PRES / "OverviewTab.tsx"
-SEARCH_STUB = PRES / "SearchTabStub.tsx"
-FOLDER_STUB = PRES / "FolderTabStub.tsx"
 KEBAB = PRES / "Kebab.tsx"
 USE_KEBAB = PRES / "useKebab.ts"
 PRES_IDX = PRES / "index.ts"
 BARREL = T / "index.ts"
 PAGE = R / "src" / "app" / "page.tsx"
-NEW_COMPONENTS = ("TabStrip", "DetailPanel", "OverviewTab",
-                  "SearchTabStub", "FolderTabStub")
+NEW_COMPONENTS = ("TabStrip", "DetailPanel", "OverviewTab")
 KEBAB_COMPONENTS = ("Kebab", "useKebab")
 
 
 # --- file presence + barrel re-export --------------------------------
 
-@pytest.mark.parametrize("path", [TABSTRIP, DETAIL, OVERVIEW,
-                                  SEARCH_STUB, FOLDER_STUB])
+@pytest.mark.parametrize("path", [DS_TABSTRIP, DETAIL, OVERVIEW])
 def test_files_present(path: Path) -> None:
-    assert path.is_file(), f"missing {path} (PR 5a.3)"
+    assert path.is_file(), f"missing {path} (PR 5a.3 / 5b.4)"
 
 
 @pytest.mark.parametrize("name", NEW_COMPONENTS)
 def test_both_barrels_reexport(name: str) -> None:
+    # `TabStrip` lives in `@taxa/design-system` (promoted in 5b.4);
+    # it does NOT belong in `@taxa/taxonomy`. The taxonomy barrel
+    # exposes `DetailPanel` + `OverviewTab` only.
+    if name == "TabStrip":
+        ds_barrel = (DS / "index.ts").read_text(encoding="utf-8")
+        assert re.search(r"\bTabStrip\b", ds_barrel), (
+            f"design-system barrel must re-export {name!r}"
+        )
+        return
     for f, label in ((PRES_IDX, "presentation/index.ts"),
                      (BARREL, "taxonomy/index.ts")):
         assert re.search(rf"\b{name}\b", f.read_text()), \
@@ -76,13 +83,17 @@ def test_detailpanel_pins_tab_order_overview_search_folder() -> None:
 
 
 def test_tabstrip_emits_data_tab_attribute() -> None:
-    text = TABSTRIP.read_text()
-    assert re.search(r"data-tab\s*=\s*\{tab\.label\}", text), \
-        "TabStrip must stamp data-tab={tab.label} (CSS contract)"
-    assert re.search(r'role\s*=\s*["\']tab["\']', text), \
-        "TabStrip must set role=\"tab\" for the a11y harness"
-    assert "active" in text and "aria-pressed" in text, \
-        "TabStrip must apply .active + aria-pressed to the selected button"
+        # PR 5b.4 promotion: TabStrip moved from
+    # `src/modules/taxonomy/presentation/TabStrip.tsx` to
+    # `src/modules/design-system/presentation/TabStrip.tsx`. The
+    # attribute contract is unchanged (3c-c CSS selectors still match).
+        text = DS_TABSTRIP.read_text()
+        assert re.search(r"data-tab\s*=\s*\{tab\.label\}", text), \
+            "design-system TabStrip must stamp data-tab={tab.label} (CSS contract)"
+        assert re.search(r'role\s*=\s*["\']tab["\']', text), \
+            "design-system TabStrip must set role=\"tab\" for the a11y harness"
+        assert "active" in text and "aria-pressed" in text, \
+            "design-system TabStrip must apply .active + aria-pressed to the selected button"
 
 
 def test_detailpanel_keeps_local_active_tab_state() -> None:
@@ -116,11 +127,15 @@ def test_detailpanel_renders_all_three_tab_bodies_and_uses_selector() -> None:
 
 def test_detailpanel_renders_exactly_one_body_per_active_key() -> None:
     """Triangulation: each body MUST be gated by `activeKey === "<key>"`
-    ternary so only one body mounts at a time."""
+    ternary so only one body mounts at a time.
+
+    PR 5b.4: the Search / Folder bodies are the `SearchTab` /
+    `FolderTab` components from `@taxa/research` (not the
+    obsolete `SearchTabStub` / `FolderTabStub` stubs)."""
     text = DETAIL.read_text()
     for key, body in (("overview", "OverviewTab"),
-                      ("search", "SearchTabStub"),
-                      ("folder", "FolderTabStub")):
+                      ("search", "SearchTab"),
+                      ("folder", "FolderTab")):
         pat = re.compile(
             rf"activeKey\s*===\s*[\"']{key}[\"']\s*\?\s*<\s*{body}")
         assert pat.search(text), \
@@ -139,13 +154,24 @@ def test_overview_tab_uses_overview_tab_class_and_taxonrecord_fields() -> None:
             f"OverviewTab must surface the {tok!r} field of TaxonRecord"
 
 
-@pytest.mark.parametrize("stub,cls", [(SEARCH_STUB, "search-tab"),
-                                     (FOLDER_STUB, "folder-tab")])
-def test_search_and_folder_stubs_use_correct_css_class(stub: Path,
-                                                       cls: str) -> None:
-    text = stub.read_text()
-    assert re.search(rf'className=["\'][^"\']*{cls}', text), \
-        f"{stub.name} must use the .{cls} CSS selector (PR 3c-c)"
+@pytest.mark.parametrize("body,cls", [
+    ("SearchTab", "search-tab"),
+    ("FolderTab", "folder-tab"),
+])
+def test_search_and_folder_bodies_use_correct_css_class(body: str, cls: str) -> None:
+        """PR 5b.4: the SearchTab / FolderTab BODIES (not stubs) live in
+        `src/modules/research/presentation/`. They ride the production
+        `.search-tab` / `.folder-tab` CSS selectors 3c-c pinned for the
+        detail-panel slots."""
+        body_path = (R / "src" / "modules" / "research" / "presentation"
+                     / f"{body}.tsx")
+        assert body_path.is_file(), (
+            f"missing {body_path.relative_to(R)} — PR 5b.4 must land "
+            f"the real body"
+        )
+        text = body_path.read_text()
+        assert re.search(rf'className=["\'][^"\']*{cls}', text), \
+            f"{body}.tsx must use the .{cls} CSS selector (PR 3c-c)"
 
 
 # --- 5a.4 contracts ---------------------------------------------------
@@ -304,8 +330,7 @@ def tsc_rc(tmp_path_factory) -> int:
         pytest.skip("no sibling @types")
     tmp = tmp_path_factory.mktemp("tsc")
     cfg = tmp / "tsconfig.json"
-    sources = ",".join(f'"{p}"' for p in [TABSTRIP, DETAIL, OVERVIEW,
-                                          SEARCH_STUB, FOLDER_STUB,
+    sources = ",".join(f'"{p}"' for p in [DETAIL, OVERVIEW,
                                           KEBAB, USE_KEBAB,
                                           PRES_IDX, BARREL, PAGE])
     cfg.write_text(
@@ -314,14 +339,19 @@ def tsc_rc(tmp_path_factory) -> int:
         '"lib":["ES2022","DOM","DOM.Iterable"],"skipLibCheck":true,'
         '"esModuleInterop":true,"strict":true,"noEmit":true,'
         f'"typeRoots":["{type_root}"],'
-        f'"paths":{{"@taxa/taxonomy":["{T}"]}}}},'
+f'"paths":{{'
+        f'"@taxa/taxonomy":["{T}"],'
+        f'"@taxa/design-system":["{DS}"],'
+f'"@taxa/research":["{R / "src" / "modules" / "research"}]"'
+        f'}}}},'
         f'"include":[{sources}]}}'
     )
     proc = subprocess.run([bin_path, "--noEmit", "-p", str(cfg)],
                           cwd=str(R), capture_output=True, text=True,
                           check=False, timeout=120)
     if proc.returncode != 0:
-        pytest.fail(f"tsc failed (rc={proc.returncode}).\nstderr:\n"
+        pytest.fail(f"tsc failed (rc={proc.returncode}).\nstdout:\n"
+                    f"{proc.stdout[-1500:]}\nstderr:\n"
                     f"{proc.stderr[-1500:]}")
     return proc.returncode
 

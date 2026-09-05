@@ -3,21 +3,22 @@
  *
  * spec.md rule 5: cross-module consumers MUST import only from this
  * file (or via the `@taxa/design-system` path alias defined in
- * `tsconfig.json`). Direct imports into the layer folders below are
+ * `tsconfig.json`). Direct imports into the layer folders below
+ * (`presentation`, `application`, `domain`, `infrastructure`) are
  * blocked by `.eslintrc.cjs::no-restricted-imports`.
  *
- * PR 2a (Phase 2 scaffold work unit) ships an empty barrel — the real
- * exports land with the PR 3 frontend-bootstrap (tasks 3.1–3.8):
- *   - `infrastructure/globals.css`      → `@import "tailwindcss"` + `@theme`
- *   - `infrastructure/tailwind-preset.ts` → legacy utility → Tailwind 4 mapping
- *   - `domain/tokens.ts`                → typed design-token surface
+ * PR 2a (Phase 2 scaffold work unit) shipped an empty barrel.
  *
- * The legacy `--primary`, `--bg-surface`, `--realm-*` tokens resolve
- * unchanged because they are re-exported as aliases inside `@layer
- * base { :root { … } }` (design.md §Architecture Decisions, "Design
- * tokens" row).
- *
- * An empty barrel is intentionally a no-op re-export so this file is
- * a valid TypeScript module and `tsc --noEmit` accepts it.
+ * PR 5b.4 EXTENDS the public surface with the promoted `TabStrip`
+ * primitive (verbatim port of the taxonomy local `TabStrip` from 5a.3
+ * — see openspec/changes/complete-taxa-frontend-migration/tasks.md
+ * §"Addendum — 2026-09-04: Phase 5a four-slice replan"). The promotion
+ * closes the deferred TabStrip-to-design-system move the 5a.3 addendum
+ * scheduled for the 5b slice.
  */
-export {};
+
+export {
+  TabStrip,
+  type TabDefinition,
+  type TabStripProps,
+} from "./presentation";

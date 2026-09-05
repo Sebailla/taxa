@@ -39,6 +39,13 @@ const NAV_TABS: ReadonlyArray<{ path: string; label: string }> = [
   { path: "settings", label: "Settings" },
 ];
 
+/** Canonical default for the primary-tab state. Classification is
+ *  the legacy landing surface; Browser is the new global research
+ *  surface (5b.4). */
+export const DEFAULT_NAV_TAB = "classification";
+
+export type NavTabPath = "browser" | "classification" | "settings";
+
 export interface ShellState {
   selected: string | null;
   tree: string | null;
@@ -52,6 +59,11 @@ export interface PageChromeProps {
   state: ShellState;
   /** Typed store — passed through so the theme toggle persists writes. */
   store: BrowserStateStore | null;
+  /** Active primary nav tab (5b.4 addendum). Drives the
+   *  `aria-selected` / `data-tab-active` attribute on each nav button. */
+  activeTab: NavTabPath;
+  /** Called when the user clicks a nav tab. */
+  onNavTab: (path: NavTabPath) => void;
   children: ReactNode;
 }
 
@@ -59,6 +71,8 @@ export function PageChrome({
   mounted,
   state,
   store,
+  activeTab,
+  onNavTab,
   children,
 }: PageChromeProps): ReactElement {
   // Theme toggle — stamps/unstamps `data-theme` on <html> via the typed
@@ -79,21 +93,32 @@ export function PageChrome({
     store.setTheme(nextTheme);
   }, [mounted, store]);
 
+  const handleNavClick = useCallback((path: NavTabPath) => {
+    onNavTab(path);
+  }, [onNavTab]);
+
   return (
     <>
-      <header data-mounted={mounted ? "true" : "false"}>
+      <header data-mounted={mounted ? "true" : "false"}
+              data-active-tab={activeTab}>
         <nav role="tablist" aria-label="Primary">
-          {NAV_TABS.map((tab) => (
-            <button
-              key={tab.path}
-              type="button"
-              role="tab"
-              data-action="nav-tab"
-              data-path={tab.path}
-            >
-              {tab.label}
-            </button>
-          ))}
+          {NAV_TABS.map((tab) => {
+            const isActive = tab.path === activeTab;
+            return (
+              <button
+                key={tab.path}
+                type="button"
+                role="tab"
+                data-action="nav-tab"
+                data-path={tab.path}
+                data-tab-active={isActive ? "true" : "false"}
+                aria-selected={isActive ? "true" : "false"}
+                onClick={() => handleNavClick(tab.path as NavTabPath)}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
         </nav>
         <button
           type="button"
@@ -108,6 +133,7 @@ export function PageChrome({
       <main
         data-selected={state.selected ?? ""}
         data-tree={state.tree ?? ""}
+        data-active-tab={activeTab}
       >
         {children}
       </main>

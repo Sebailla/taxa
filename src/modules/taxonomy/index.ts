@@ -19,7 +19,8 @@
  *
  * PR 5a.3 EXTENDS the public surface with:
  *   - `DetailPanel` + `OverviewTab` + local `TabStrip`
- *   - inert `SearchTabStub` / `FolderTabStub` (bodies land in 5b)
+ *   - inert placeholders for the Search/Folder tab bodies (5b owns
+ *     the real bodies; the placeholders are removed in 5b.4)
  *
  * PR 5a.4 EXTENDS the public surface with:
  *   - the real per-row `Kebab` menu (Search online) + `useKebab`
@@ -27,6 +28,11 @@
  *   - the force-Search contract on `DetailPanel` (the kebab's
  *     `Search online` callback forces the Search tab active even
  *     for top-level taxa)
+ *
+ * PR 5b.4 RETIRES:
+ *   - the local `TabStrip` (promoted to `@taxa/design-system` verbatim)
+ *   - the inert placeholders for the Search/Folder tabs (replaced by
+ *     the real `SearchTab` / `FolderTab` from `@taxa/research`)
  */
 
 export type {
@@ -74,19 +80,12 @@ export {
   type BreadcrumbProps,
   DetailPanel,
   type DetailPanelProps,
-  FolderTabStub,
-  type FolderTabStubProps,
   Kebab,
   type KebabProps,
   KebabStub,
   type KebabStubProps,
   OverviewTab,
   type OverviewTabProps,
-  SearchTabStub,
-  type SearchTabStubProps,
-  TabStrip,
-  type TabDefinition,
-  type TabStripProps,
   TaxonDetailPlaceholder,
   type TaxonDetailPlaceholderProps,
   Tree,

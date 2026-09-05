@@ -1,5 +1,5 @@
 /**
- * AppShell — root chrome shell (PR 4b.2 + PR 4b.6 integration seam).
+ * AppShell — root chrome shell (PR 4b.2 + PR 4b.6 + PR 5b.4).
  *
  * Owns the typed `browser-state` store instance for the application
  * lifetime and gates every persisted-state read behind the
@@ -23,11 +23,19 @@
  * re-reading via `useSyncExternalStore` on a context-exposed store
  * reference. PR 4b only ships the gating pattern; context plumbing
  * lands with PR 5a.
+ *
+ * PR 5b.4 EXTENDS the AppShell with primary-tab routing. The header
+ * `Browser` tab is re-anchored as the **global Research / file
+ * explorer** (decision #3 in the 5b.4 brief). When the active nav
+ * tab is `browser`, AppShell renders `<BrowserSurface>` instead of
+ * the taxonomy `children`. The taxonomy children remain the default
+ * (`classification`); the switch is fully driven by the nav buttons
+ * in PageChrome.
  */
 
 "use client";
 
-import { useEffect, useState, type ReactElement, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactElement, type ReactNode } from "react";
 
 import {
   createBrowserStateStore,
@@ -36,9 +44,13 @@ import {
 } from "@taxa/browser-state";
 
 import {
+  DEFAULT_NAV_TAB,
   PageChrome,
+  type NavTabPath,
   type ShellState,
 } from "../infrastructure/page-chrome";
+
+import { BrowserSurface } from "./BrowserSurface";
 
 /** Empty state — every shell attribute defaults to null on first paint. */
 const EMPTY_STATE: ShellState = {
@@ -62,6 +74,15 @@ export function AppShell({
   );
 
   const [state, setState] = useState<ShellState>(EMPTY_STATE);
+
+  // PR 5b.4 — primary-tab state. The default is `classification`
+  // (the legacy landing surface). When the user clicks the header
+  // `Browser` tab the AppShell flips this to `browser` and renders
+  // `<BrowserSurface>` instead of the taxonomy children.
+  const [activeTab, setActiveTab] = useState<NavTabPath>(DEFAULT_NAV_TAB);
+  const onNavTab = useCallback((path: NavTabPath) => {
+    setActiveTab(path);
+  }, []);
 
   useEffect(() => {
     if (!mounted) return;
@@ -99,9 +120,24 @@ export function AppShell({
     }
   }, [mounted, store]);
 
+  // PR 5b.4 — primary-tab routing. When the active tab is `browser`
+  // we mount the global `<BrowserSurface>` (decision #3 — global,
+  // not taxon-scoped). Otherwise we mount the taxonomy `children`
+  // (the legacy classification surface). The switch is driven by
+  // the nav buttons in PageChrome; AppShell owns the state machine.
+  const content: ReactNode = activeTab === "browser"
+    ? <BrowserSurface baseUrl="" />
+    : children;
+
   return (
-    <PageChrome mounted={mounted} state={state} store={mounted ? store : null}>
-      {children}
+    <PageChrome
+      mounted={mounted}
+      state={state}
+      store={mounted ? store : null}
+      activeTab={activeTab}
+      onNavTab={onNavTab}
+    >
+      {content}
     </PageChrome>
   );
 }

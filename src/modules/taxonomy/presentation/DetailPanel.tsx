@@ -1,27 +1,32 @@
 "use client";
 
-// DetailPanel — taxon detail surface with local TabStrip (PR 5a.3).
+// DetailPanel — taxon detail surface consuming the design-system
+// `TabStrip` primitive (PR 5b.4 promotion).
 //
-// Owns local active-tab state (default `Overview`). 5a.4 EXTENDS the
-// surface with a `forceOpenSearch` prop so the per-row kebab's
-// `Search online` action can snap the active tab to Search even for
-// top-level taxa where the default would otherwise be Overview.
+// 5a.3 / 5a.4 shipped DetailPanel with a LOCAL `TabStrip` and
+// `SearchTabStub` / `FolderTabStub` placeholders. 5b.4 promotes
+// `TabStrip` to `@taxa/design-system` (verbatim port) and swaps the
+// taxonomy stubs for the real `SearchTab` / `FolderTab` from the
+// research module (`@taxa/research`). The detail panel continues to
+// own local active-tab state (default `Overview`) and the
+// `forceOpenSearch` prop regression guard from 5a.4 (the per-row
+// kebab's `Search online` action forces the Search tab active even for
+// top-level taxa whose default would otherwise be Overview).
 //
-// The prop is intentionally a counter-shaped scalar (callers bump it
-// to retrigger) so the same `forceOpenSearch` value can be re-applied
-// after the user manually switches back to Overview without the panel
-// having to track equality itself. The snapshot lives in a ref so the
-// effect doesn't fire on every parent render.
+// The `forceOpenSearch` prop is a counter-shaped scalar (callers bump
+// it to retrigger) so the same value can be re-applied after the user
+// manually switches back to Overview without the panel having to track
+// equality itself. The snapshot lives in a ref so the effect doesn't
+// fire on every parent render.
 
 import type { ReactElement } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import { type TaxonRecord } from "@taxa/taxonomy";
+import { TabStrip, type TabDefinition } from "@taxa/design-system";
+import { SearchTab, FolderTab } from "@taxa/research";
 
-import { TabStrip, type TabDefinition } from "./TabStrip";
 import { OverviewTab } from "./OverviewTab";
-import { SearchTabStub } from "./SearchTabStub";
-import { FolderTabStub } from "./FolderTabStub";
 
 const TABS: readonly TabDefinition[] = [
   { key: "overview", label: "Overview" },
@@ -69,8 +74,8 @@ export function DetailPanel({
       <TabStrip tabs={TABS} activeKey={activeKey}
                 onChange={setActiveKey} />
       {activeKey === "overview" ? <OverviewTab selected={selected} /> : null}
-      {activeKey === "search" ? <SearchTabStub selectedId={selectedId} /> : null}
-      {activeKey === "folder" ? <FolderTabStub selectedId={selectedId} /> : null}
+      {activeKey === "search" ? <SearchTab taxonId={selectedId} /> : null}
+      {activeKey === "folder" ? <FolderTab taxonId={selectedId} /> : null}
     </aside>
   );
 }
