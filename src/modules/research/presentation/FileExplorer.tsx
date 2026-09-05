@@ -97,14 +97,27 @@ interface FileRowProps {
   readonly depth: number;
   readonly matches: ReadonlySet<string>;
   readonly selectedFilePath: string | null;
+  /** Open the file in the viewer (double-click). */
+  readonly onOpenFile: (node: WireFileNode & { type: "file" }) => void;
+  /** Update selection state (single-click). */
   readonly onSelectFile: (node: WireFileNode & { type: "file" }) => void;
 }
 
 function FileRow({
-  node, depth, matches, selectedFilePath, onSelectFile,
+  node, depth, matches, selectedFilePath, onOpenFile, onSelectFile,
 }: FileRowProps): ReactElement {
   const isMatch = matches.has(node.path);
   const isSelected = node.path === selectedFilePath;
+  // PR 5c — single-click selects, double-click opens. Matches the
+  // legacy `web/file_explorer.js::renderFileRow` contract:
+  //   `if (e.detail >= 2) return; // dblclick handles the open`
+  // The handler uses React's `onClick` + `onDoubleClick` (camelCase)
+  // so React handles the dedup automatically — we don't need to
+  // inspect `e.detail`. The single-click handler only updates
+  // selection state; the typed viewer descriptor is fed exclusively
+  // by the double-click path via `hook.openFile`.
+  const handleClick = (): void => onSelectFile(node);
+  const handleDoubleClick = (): void => onOpenFile(node);
   return (
     <div
       className={`fex-row file${isSelected ? " selected" : ""}${isMatch ? " search-match" : ""}`}
@@ -114,7 +127,8 @@ function FileRow({
       tabIndex={0}
       aria-selected={isSelected}
       style={{ paddingLeft: 4 + depth * 12 }}
-      onClick={() => onSelectFile(node)}
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
     >
       <span className="fex-icon material-symbols-outlined" aria-hidden="true">
         draft
@@ -135,6 +149,9 @@ interface TreeRowProps {
   readonly selectedFolderPath: string | null;
   readonly selectedFilePath: string | null;
   readonly onSelectFolder: (path: string) => void;
+  /** Open the file in the viewer (double-click). */
+  readonly onOpenFile: (node: WireFileNode & { type: "file" }) => void;
+  /** Update selection state (single-click). */
   readonly onSelectFile: (node: WireFileNode & { type: "file" }) => void;
 }
 
@@ -156,6 +173,7 @@ function TreeRow(props: TreeRowProps): ReactElement {
       depth={props.depth}
       matches={props.matches}
       selectedFilePath={props.selectedFilePath}
+      onOpenFile={props.onOpenFile}
       onSelectFile={props.onSelectFile}
     />
   );
@@ -270,8 +288,8 @@ export function FileExplorer({
   // No-taxon / loading / error states (self-mount: hook owns the fetch).
   if (taxonId === null) {
     return (
-      <div className="research-explorer" data-explorer="idle" data-taxon-id="">
-        <div className="file-explorer-pane" data-pane="tree" />
+      <div className="research-explorer fex-shell" data-explorer="idle" data-taxon-id="">
+        <div className="file-explorer-pane fex-tree-pane" data-pane="tree" />
         <div className="file-viewer-pane" data-pane="viewer">
           <TreeEmptyState message={NO_CORPUS_MESSAGE} />
         </div>
@@ -281,9 +299,9 @@ export function FileExplorer({
 
   if (hook.loading && hook.tree === null) {
     return (
-      <div className="research-explorer" data-explorer="loading"
+      <div className="research-explorer fex-shell" data-explorer="loading"
            data-taxon-id={taxonId} aria-busy="true">
-        <div className="file-explorer-pane" data-pane="tree">
+        <div className="file-explorer-pane fex-tree-pane" data-pane="tree">
           <TreeLoadingState />
         </div>
         <div className="file-viewer-pane" data-pane="viewer">
@@ -299,9 +317,9 @@ export function FileExplorer({
 
   if (hook.error !== null) {
     return (
-      <div className="research-explorer" data-explorer="error"
+      <div className="research-explorer fex-shell" data-explorer="error"
            data-taxon-id={taxonId} role="status" aria-live="assertive">
-        <div className="file-explorer-pane" data-pane="tree" />
+        <div className="file-explorer-pane fex-tree-pane" data-pane="tree" />
         <div className="file-viewer-pane" data-pane="viewer">
           <div className="fex-empty-state">
             <span className="fex-empty-state-icon material-symbols-outlined"
@@ -320,8 +338,8 @@ export function FileExplorer({
   // sees a stable "no corpus" surface instead of a blank pane.
   if (tree === null || !tree.exists || tree.root === null) {
     return (
-      <div className="research-explorer" data-explorer="empty" data-taxon-id={taxonId}>
-        <div className="file-explorer-pane" data-pane="tree">
+      <div className="research-explorer fex-shell" data-explorer="empty" data-taxon-id={taxonId}>
+        <div className="file-explorer-pane fex-tree-pane" data-pane="tree">
           <TreeEmptyState message={NO_CORPUS_MESSAGE} />
         </div>
         <div className="file-viewer-pane" data-pane="viewer">
@@ -358,8 +376,8 @@ export function FileExplorer({
   const searchMode = search.mode;
 
   return (
-    <div className="research-explorer" data-explorer="ready" data-taxon-id={taxonId}>
-      <div className="file-explorer-pane" data-pane="tree">
+    <div className="research-explorer fex-shell" data-explorer="ready" data-taxon-id={taxonId}>
+      <div className="file-explorer-pane fex-tree-pane" data-pane="tree">
         <div className="fex-tree-header">
           <h2>Research</h2>
         </div>
@@ -424,15 +442,21 @@ export function FileExplorer({
             </button>
           </div>
         </div>
-        <TreeRow
-          node={tree.root}
-          depth={0}
-          matches={annotation.matches}
-          selectedFolderPath={selectedFilePath}
-          selectedFilePath={selectedFilePath}
-          onSelectFolder={(path) => hook.openFile(path, null)}
-          onSelectFile={(node) => hook.openFile(node.path, node.extension)}
-        />
+<TreeRow
+              node={tree.root}
+              depth={0}
+              matches={annotation.matches}
+              selectedFolderPath={selectedFilePath}
+              selectedFilePath={selectedFilePath}
+              onSelectFolder={(path) => hook.openFile(path, null)}
+              // PR 5c — single-click selects (no-op for now; selection
+              // state is derived from the typed openFile path). Double-
+              // click opens the file via the typed descriptor contract.
+              onSelectFile={() => {
+                /* selection is driven by openFile path, see useFileExplorer */
+              }}
+              onOpenFile={(node) => hook.openFile(node.path, node.extension)}
+            />
       </div>
       <div className="file-viewer-pane" data-pane="viewer">
         <FileViewer

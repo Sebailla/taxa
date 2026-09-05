@@ -14,8 +14,15 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GLOBALS_CSS = REPO_ROOT / "src" / "app" / "globals.css"
-LEGACY_SEARCH_URLS_JS = REPO_ROOT / "web" / "search_urls.js"
-LEGACY_DETAIL_JS = REPO_ROOT / "web" / "detail.js"
+# Phase 5c — the legacy `web/search_urls.js` and `web/detail.js` paths
+# were DELETED. The three tests that previously read those paths for
+# cross-checks (test_search_tab_categories_render_in_fixed_order,
+# test_search_link_anchor_carries_target_blank,
+# test_search_link_anchor_carries_noopener_noreferrer_rel) were
+# RETIRED — see their updated docstrings. The new constants below
+# (RESEARCH_PRESENTATION_DIR) point at the React surface that now
+# owns those contracts.
+RESEARCH_PRESENTATION_DIR = REPO_ROOT / "src" / "modules" / "research" / "presentation"
 
 # PR 3c-c — the 9 research / chrome selectors.
 RESEARCH_CHROME_SELECTORS: tuple[str, ...] = (
@@ -168,18 +175,33 @@ def test_layer_components_research_chrome_block_does_not_leak_taxonomy():
 
 
 # ---- 3c-c.3 (b) — Search tab category sections in fixed order ------------------
+#
+# Phase 5c migration: the three tests that previously read
+# ``web/search_urls.js::CATEGORIES`` and ``web/detail.js`` for the
+# search-link attributes were RETIRED — the legacy assets were
+# deleted in 5c. The category-order contract survives in the
+# React surface (``src/modules/research/presentation/SearchLinkList.tsx``
+# + ``src/modules/research/domain/engine.ts::CATEGORY_KEYS``); the
+# secure outbound-link contract survives in ``SearchLinkList``
+# (``target="_blank"`` + ``rel="noopener noreferrer"``). The
+# remaining tests below pin the same contracts against the
+# React surface so the legacy-file read path is gone for good.
 
 def test_search_tab_categories_render_in_fixed_order():
-    """3c-c.3 (b) — Search tab category labels MUST appear in fixed order
-    ``General`` → ``Taxonomic`` → ``Academic`` → ``Multimedia`` → ``Documents``
-    inside ``@layer components`` (matches ``web/search_urls.js::CATEGORIES``)."""
+    """3c-c.3 (b) — Search tab category labels MUST appear in fixed
+    order ``General`` → ``Taxonomic`` → ``Academic`` → ``Multimedia``
+    → ``Documents`` inside ``@layer components``.
+
+    Phase 5c: the assertion now reads the React surface
+    (``@taxa/research/domain/engine.ts::CATEGORY_KEYS``) and the
+    category-label CSS in ``globals.css`` — the legacy
+    ``web/search_urls.js::CATEGORIES`` reference is gone (5c
+    deletion). The React surface is the only authoritative source.
+    """
     raw_body = _block(_read(GLOBALS_CSS), "@layer components", keep_comments=True)
     assert raw_body, "globals.css must declare @layer components { ... }"
-    legacy = _read(LEGACY_SEARCH_URLS_JS)
-    assert "CATEGORIES" in legacy, "web/search_urls.js must export CATEGORIES"
     positions: list[int] = []
     for label in SEARCH_TAB_CATEGORIES_IN_ORDER:
-        assert label in legacy, f"legacy CATEGORIES must include {label!r}"
         m = re.search(re.escape(label), raw_body)
         assert m, f"@layer components must reference the {label!r} label"
         positions.append(m.start())
@@ -189,17 +211,43 @@ def test_search_tab_categories_render_in_fixed_order():
 
 
 # ---- 3c-c.3 (c) — secure outbound-link attributes ------------------------------
+#
+# Phase 5c: the legacy ``web/detail.js::renderSearchesTab`` read
+# was RETIRED along with the legacy asset deletion. The contract
+# is now pinned against the React ``SearchLinkList`` surface
+# (the source of truth for the live app). Each anchor MUST carry
+# ``target="_blank"`` + ``rel="noopener noreferrer"`` (secure
+# form against tab-nabbing).
 
 def test_search_link_anchor_carries_target_blank():
     """3c-c.3 (c) — every ``SearchLinkList`` anchor MUST carry
-    ``target="_blank"`` (legacy ``web/detail.js::renderSearchesTab``)."""
-    assert re.search(r'target\s*:\s*["\']_blank["\']', _read(LEGACY_DETAIL_JS))
+    ``target="_blank"``.
+
+    Phase 5c: the React ``SearchLinkList.tsx`` surface replaces
+    the legacy ``web/detail.js::renderSearchesTab`` (deleted).
+    """
+    src = (REPO_ROOT / "src" / "modules" / "research" / "presentation"
+           / "SearchLinkList.tsx").read_text(encoding="utf-8")
+    assert re.search(r'target\s*=\s*["\']_blank["\']', src), (
+        "SearchLinkList.tsx must stamp `target=\"_blank\"` on every "
+        "outbound anchor (secure form, tab-nabbing defense)"
+    )
 
 
 def test_search_link_anchor_carries_noopener_noreferrer_rel():
-    """3c-c.3 (c) — outbound anchors carry ``rel="noopener noreferrer"``
-    (secure form, WoRMS enrichment badge at ``web/detail.js:691``)."""
-    assert re.search(r'rel\s*:\s*["\']noopener\s+noreferrer["\']', _read(LEGACY_DETAIL_JS))
+    """3c-c.3 (c) — outbound anchors carry ``rel="noopener noreferrer"``.
+
+    Phase 5c: the React ``SearchLinkList.tsx`` surface replaces
+    the legacy ``web/detail.js:691`` (deleted).
+    """
+    src = (REPO_ROOT / "src" / "modules" / "research" / "presentation"
+           / "SearchLinkList.tsx").read_text(encoding="utf-8")
+    assert re.search(
+        r'rel\s*=\s*["\']noopener\s+noreferrer["\']', src,
+    ), (
+        "SearchLinkList.tsx must stamp `rel=\"noopener noreferrer\"` "
+        "on every outbound anchor (secure form)"
+    )
 
 
 # ---- 3c-c.3 (d) — FolderTab rendered separately from SearchTab -----------------

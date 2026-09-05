@@ -1057,3 +1057,386 @@ def test_application_barrel_reexports_materialize_preview() -> None:
         assert tok in src, (
             f"application/index.ts must re-export {tok!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase 5c — FileViewer per-format renderer + FileExplorer double-click
+#
+# The 5b.3 contract only required FileViewer to paint the host element
+# (`data-viewer-body`). Phase 5c ports the per-format dispatcher from
+# legacy `web/file_viewer.js` into the React surface. The renderers MUST
+# ride the already-shipped 5b.2 typed `resolveViewerDescriptor` contract
+# (no local copy of the RENDERERS table) and MUST NOT touch the
+# application / domain / infrastructure layers.
+#
+# Renderer coverage:
+#   - pdf, html, htm      -> <iframe>  (sandboxed for html/htm)
+#   - txt, md             -> <pre>     (fetch + useEffect paint)
+#   - image, svg          -> <img>     (svg uses inline fetch + XSS scrub)
+#   - video               -> <video controls preload="metadata">
+#   - json                -> <pre>     (Raw tab; Tree tab deferred)
+#   - docx, xls, xlsx, epub -> offline banner w/ download link (Raw tab)
+#   - csv, tsv            -> <iframe>  (Raw tab; Table tab reads Papa)
+#   - doc, unknown        -> empty state w/ download link (Raw tab)
+#
+# The renderers must live inside FileViewer.tsx (NOT in a new file -
+# `test_presentation_directory_is_bounded` pins the directory roster).
+# ---------------------------------------------------------------------------
+def test_file_viewer_pdf_renders_iframe() -> None:
+    """PDF must mount an <iframe> pointing at the typed serve URL.
+    The renderer's iframe src MUST equal `${baseUrl}/...serve?path=...`
+    (the same shape `useFileViewer` exposes via `serveUrl`)."""
+    src = read("presentation/FileViewer.tsx")
+    # The viewer must branch on `format === "pdf"` (the typed
+    # descriptor contract) and emit an <iframe> whose src attribute is
+    # the serveUrl built by `fetchServe`.
+    assert re.search(r'(\bformat\s*===?\s*["\']pdf["\']|\bcase\s*["\']pdf["\'])', src), (
+        "FileViewer must branch on `format === 'pdf'` to mount the iframe"
+    )
+    assert "<iframe" in src, (
+        "FileViewer must emit an <iframe> element for PDF rendering"
+    )
+    assert "serveUrl" in src, (
+        "FileViewer must reach the typed `serveUrl` for the iframe src"
+    )
+
+
+def test_file_viewer_html_uses_sandboxed_iframe() -> None:
+    """HTML must mount a sandboxed <iframe> (`sandbox=""` attribute)
+    so the loaded HTML cannot reach the parent page's cookies / DOM.
+    Matches legacy `web/file_viewer.js::renderHtml` sandbox contract."""
+    src = read("presentation/FileViewer.tsx")
+    # Either branch on html/htm explicitly OR cover both via a generic
+    # html iframe branch. We accept either by checking the literal
+    # 'sandbox' string is present near an <iframe> emission.
+    assert "sandbox" in src, (
+        "FileViewer must stamp `sandbox` on the HTML iframe (XSS defense)"
+    )
+
+
+def test_file_viewer_text_renders_pre_with_fetch() -> None:
+    """TXT must fetch the serve URL and paint the body inside a fenced
+    `<pre>` so monospace + word-wrap apply. Matches legacy
+    `renderText` / `renderAsPre`."""
+    src = read("presentation/FileViewer.tsx")
+    assert re.search(r'(\bformat\s*===?\s*["\']txt["\']|\bcase\s*["\']txt["\'])', src), (
+        "FileViewer must branch on `format === 'txt'`"
+    )
+    # The renderer fetches the serveUrl + emits a <pre> with the body.
+    assert "<pre" in src, (
+        "FileViewer must emit a <pre> element for plain-text rendering"
+    )
+    assert "fetch(" in src or "fetchFn" in src, (
+        "FileViewer must fetch the serveUrl to read the text body"
+    )
+
+
+def test_file_viewer_markdown_renders_pre_with_fetch() -> None:
+    """MD must follow the same fenced-<pre> pattern as TXT (legacy
+    `renderMd` chose fenced <pre> for the first iteration)."""
+    src = read("presentation/FileViewer.tsx")
+    assert re.search(r'(\bformat\s*===?\s*["\']md["\']|\bcase\s*["\']md["\'])', src), (
+        "FileViewer must branch on `format === 'md'`"
+    )
+
+
+def test_file_viewer_image_emits_img_with_alt() -> None:
+    """Images (jpg/jpeg/png/gif/webp/bmp) must mount an `<img>` with
+    the file name as alt + title and `loading="lazy"` for big files.
+    SVG inlines via DOMParser with <script> + on*-attribute scrub."""
+    src = read("presentation/FileViewer.tsx")
+    # Image branch stamps `format === "image"`.
+    assert re.search(r'(\bformat\s*===?\s*["\']image["\']|\bcase\s*["\']image["\'])', src), (
+        "FileViewer must branch on `format === 'image'`"
+    )
+    assert "<img" in src or "<image" in src, (
+        "FileViewer must emit an <img> element for image rendering"
+    )
+    # Alt attribute on the image (file name) - a11y contract.
+    assert "alt=" in src, (
+        "FileViewer must stamp `alt` on the <img> element"
+    )
+    # SVG XSS scrub - DOMParser + script tag removal.
+    assert "DOMParser" in src or "script" in src, (
+        "FileViewer must scrub SVG <script> tags (XSS defense)"
+    )
+
+
+def test_file_viewer_video_emits_video_with_controls() -> None:
+    """Video (mp4/webm/ogv) must mount `<video controls preload="metadata">`
+    - no autoplay. Matches legacy `renderVideo` contract."""
+    src = read("presentation/FileViewer.tsx")
+    assert re.search(r'(\bformat\s*===?\s*["\']video["\']|\bcase\s*["\']video["\'])', src), (
+        "FileViewer must branch on `format === 'video'`"
+    )
+    assert "<video" in src, (
+        "FileViewer must emit a <video> element"
+    )
+    assert "controls" in src, (
+        "FileViewer must stamp `controls` on the <video> (no autoplay UX)"
+    )
+
+
+def test_file_viewer_offline_banner_for_cdn_formats() -> None:
+    """DOCX / XLS / XLSX / EPUB must show the offline banner with a
+    download link as the Raw tab fallback (CDN may fail). Reuses the
+    existing `Banners` component shape."""
+    src = read("presentation/FileViewer.tsx")
+    # Each CDN-backed format must be enumerated (so a future format
+    # addition can't silently drop the banner).
+    for fmt in ("docx", "xls", "xlsx", "epub"):
+        assert re.search(
+            rf'(\bformat\s*===?\s*["\']{fmt}["\']|\bcase\s*["\']{fmt}["\'])',
+            src,
+        ), (
+            f"FileViewer must branch on `format === '{fmt}'` to show the "
+            f"offline banner / download fallback"
+        )
+
+
+def test_file_viewer_unknown_format_shows_download_fallback() -> None:
+    """Unknown / `doc` extensions must not throw - the viewer must
+    render an empty state with a download link so the user can still
+    get the file."""
+    src = read("presentation/FileViewer.tsx")
+    # The default branch (unknown + doc) reaches a download link.
+    assert "unknown" in src, (
+        "FileViewer must handle the `format === 'unknown'` branch"
+    )
+    # The download fallback uses an anchor with `download` attribute
+    # OR the existing Banners offline banner pattern.
+    assert re.search(r'\bdownload\b', src), (
+        "FileViewer must provide a `download` link as the format-"
+        "unknown fallback (matches legacy `renderUnsupported` shape)"
+    )
+
+
+def test_file_viewer_csv_tsv_use_iframe_in_raw() -> None:
+    """CSV / TSV in the Raw tab must mount an iframe pointing at the
+    serve URL (the Table tab is the parsed Papa Parse view - the
+    Raw tab shows the raw bytes inside the same iframe shape used
+    by HTML)."""
+    src = read("presentation/FileViewer.tsx")
+    for fmt in ("csv", "tsv"):
+        assert re.search(
+            rf'(\bformat\s*===?\s*["\']{fmt}["\']|\bcase\s*["\']{fmt}["\'])',
+            src,
+        ), (
+            f"FileViewer must branch on `format === '{fmt}'` (Raw tab)"
+        )
+
+
+def test_file_viewer_json_renders_pre_in_raw() -> None:
+    """JSON in the Raw tab must fetch the body and paint it inside a
+    `<pre>` so monospace + word-wrap apply. The Tree tab is a future
+    PR (the iterative JSON walker is deferred)."""
+    src = read("presentation/FileViewer.tsx")
+    assert re.search(r'(\bformat\s*===?\s*["\']json["\']|\bcase\s*["\']json["\'])', src), (
+        "FileViewer must branch on `format === 'json'` (Raw tab)"
+    )
+
+
+def test_file_viewer_format_branch_covers_every_research_file_format() -> None:
+    """The renderer's switch MUST cover every format the typed
+    `resolveViewerDescriptor` may emit (`FILE_FORMATS`). A format
+    without a renderer would fall through to the unknown branch and
+    silently degrade."""
+    formats = (
+        "pdf", "epub", "html", "md", "txt", "doc", "docx",
+        "xls", "xlsx", "csv", "tsv", "json", "image", "video",
+        "unknown",
+    )
+    src = read("presentation/FileViewer.tsx")
+    for fmt in formats:
+        assert re.search(rf'["\']{fmt}["\']', src), (
+            f"FileViewer must reference the {fmt!r} format string"
+        )
+
+
+def test_file_viewer_does_not_define_local_renderers_table() -> None:
+    """The renderer MUST consume the typed `resolveViewerDescriptor`
+    (5b.2 contract). A local `RENDERERS` map inside FileViewer would
+    duplicate the dispatcher contract - the very thing 5b.2 closed."""
+    src = read("presentation/FileViewer.tsx")
+    assert not re.search(r"\bconst\s+RENDERERS\b", src), (
+        "FileViewer must not declare a local `RENDERERS` table - "
+        "consume the typed `resolveViewerDescriptor` instead"
+    )
+
+
+def test_file_explorer_file_row_has_double_click_handler() -> None:
+    """The FileExplorer file rows MUST mount an `onDoubleClick` (or
+    `onDblClick`) handler so a double-click on a file row invokes
+    the openFile hook (vs. single-click which only sets selection).
+    Matches the legacy `web/file_explorer.js::renderFileRow` contract."""
+    src = read("presentation/FileExplorer.tsx")
+    # FileRow's React JSX must stamp `onDoubleClick` (camelCase in
+    # JSX, NOT `ondblclick`). The handler MUST call `hook.openFile`
+    # so the typed descriptor contract resolves.
+    assert "onDoubleClick" in src, (
+        "FileExplorer file rows must register `onDoubleClick` "
+        "(double-click opens the file, single-click only selects)"
+    )
+    assert "hook.openFile" in src, (
+        "FileExplorer must call `hook.openFile(...)` on double-click "
+        "to feed the typed viewer descriptor"
+    )
+
+
+def test_file_explorer_single_click_only_selects_not_opens() -> None:
+    """Single-click on a file row MUST only update `selectedFilePath`
+    (selection state); it MUST NOT call `hook.openFile` (the open
+    action is reserved for double-click). Matches legacy single/
+    double-click semantics in `web/file_explorer.js::renderFileRow`:
+      `if (e.detail >= 2) return; // dblclick handles the open`.
+    """
+    src = read("presentation/FileExplorer.tsx")
+    # The onClick handler on a file row must reference selection
+    # (not hook.openFile). We assert the selection state setter is
+    # wired AND hook.openFile is NOT referenced from the onClick
+    # handler chain.
+    m = re.search(
+        r"onClick=\{[^}]*hook\.openFile", src,
+    )
+    assert m is None, (
+        f"FileRow onClick must NOT call hook.openFile (only double-click "
+        f"opens); got {m.group(0)!r}"
+    )
+
+
+def test_file_viewer_format_dispatch_uses_descriptor_format() -> None:
+    """The renderer's switch key MUST be the descriptor's `format`
+    (typed 5b.2 contract), NOT a string-extended extension key. The
+    renderer must not own its own `extension`->`format` dispatch."""
+    src = read("presentation/FileViewer.tsx")
+    # The renderer reads `descriptor.format` (NOT `file.extension`).
+    assert "descriptor.format" in src, (
+        "FileViewer renderer must dispatch on `descriptor.format` "
+        "(typed 5b.2 contract) - not on `file.extension`"
+    )
+
+
+
+
+# ---------------------------------------------------------------------------
+# Phase 5c triangulation — defensive coverage for the FileExplorer / FileViewer
+# per-format renderer + double-click semantics. These tests pin edge cases
+# beyond the GREEN suite:
+#
+#   - explorer wrapper stamps `fex-shell` (legacy e2e selector)
+#   - explorer pane stamps `fex-tree-pane` (legacy e2e selector)
+#   - viewer pane stamps `fex-viewer-pane` (legacy e2e selector)
+#   - double-click handler is on file rows only (NOT folder rows)
+#   - SVG renderer scrubs <script> tags (XSS defense)
+#   - text renderer fetches the serve URL (not a local copy)
+#   - format dispatcher passes descriptor.format as the key (typed)
+#   - download fallback uses anchor with `download` attribute
+# ---------------------------------------------------------------------------
+def test_file_explorer_wrapper_stamps_fex_shell_class() -> None:
+    """The explorer wrapper MUST stamp `fex-shell` (back-compat with
+    the legacy e2e selector contract). The legacy class name was the
+    top-level two-pane shell; the React surface keeps both classes."""
+    src = read("presentation/FileExplorer.tsx")
+    assert "fex-shell" in src, (
+        "FileExplorer must stamp `fex-shell` on its wrapper for legacy "
+        "e2e selector back-compat"
+    )
+
+
+def test_file_explorer_pane_stamps_fex_tree_pane_class() -> None:
+    """The left tree pane MUST stamp `fex-tree-pane` (legacy e2e
+    selector)."""
+    src = read("presentation/FileExplorer.tsx")
+    assert "fex-tree-pane" in src, (
+        "FileExplorer must stamp `fex-tree-pane` on the left tree pane"
+    )
+
+
+def test_file_viewer_pane_stamps_fex_viewer_pane_class() -> None:
+    """The right viewer pane MUST stamp `fex-viewer-pane` (legacy e2e
+    selector)."""
+    src = read("presentation/FileViewer.tsx")
+    assert "fex-viewer-pane" in src, (
+        "FileViewer must stamp `fex-viewer-pane` on the right viewer pane"
+    )
+
+
+def test_file_explorer_double_click_is_on_file_rows_only() -> None:
+    """The `onDoubleClick` handler MUST be wired on the FileRow
+    component (file rows) — NOT on the FolderRow component. Folders
+    are not double-clickable (single-click selects the folder)."""
+    src = read("presentation/FileExplorer.tsx")
+    # The FileRow function declaration must precede the onDoubleClick
+    # binding. A future refactor that adds onDoubleClick to FolderRow
+    # would surface here.
+    file_row_idx = src.find("function FileRow(")
+    folder_row_idx = src.find("function FolderRow(")
+    on_dbl_idx = src.find("onDoubleClick")
+    assert file_row_idx > 0 and folder_row_idx > 0 and on_dbl_idx > 0, (
+        "FileExplorer must declare FileRow + FolderRow + onDoubleClick"
+    )
+    # The onDoubleClick binding must come AFTER FileRow (which is
+    # declared after FolderRow) — i.e. it's wired into FileRow.
+    assert on_dbl_idx > file_row_idx, (
+        "onDoubleClick must be wired inside FileRow (file rows only), "
+        "not FolderRow"
+    )
+
+
+def test_file_viewer_svg_renderer_scrubs_script_tags() -> None:
+    """The SVG renderer MUST strip <script> tags via DOMParser
+    (`script` element removal). XSS defense for inline SVG."""
+    src = read("presentation/FileViewer.tsx")
+    # The renderer must use DOMParser to parse the body and walk the
+    # tree to remove script tags.
+    assert "DOMParser" in src, (
+        "FileViewer SVG renderer must use DOMParser to parse the body"
+    )
+    # Must remove script elements.
+    assert re.search(r'\.querySelectorAll\(["\']script["\']\)|remove\(\)', src), (
+        "FileViewer SVG renderer must remove <script> tags"
+    )
+
+
+def test_file_viewer_text_renderer_fetches_serve_url() -> None:
+    """The text renderer (txt / md / json) MUST fetch the serve URL
+    directly (no inline body copy). The fetch's URL must equal the
+    passed `url` prop (the typed serveUrl)."""
+    src = read("presentation/FileViewer.tsx")
+    # There must be a fetch( inside the text renderer.
+    assert re.search(r'fetch\(\s*url\s*\)', src), (
+        "FileViewer text renderer must `fetch( url )` to read the body"
+    )
+
+
+def test_file_viewer_download_fallback_uses_anchor_with_download_attr() -> None:
+    """The download fallback renderer MUST mount an <a> with the
+    `download` attribute set (so the browser downloads instead of
+    navigating). Matches legacy `renderUnsupported` shape."""
+    src = read("presentation/FileViewer.tsx")
+    # The download fallback component must render an anchor with
+    # `download={name}` (typed prop).
+    assert re.search(r'<a[\s\S]{0,80}download=', src), (
+        "FileViewer download fallback must mount an <a> with "
+        "`download={name}` so the browser downloads instead of navigating"
+    )
+
+
+def test_file_viewer_iframe_paints_pdf_with_type_attr() -> None:
+    """The PDF renderer MUST stamp `type="application/pdf"` on the
+    <iframe> so browsers render inline instead of downloading."""
+    src = read("presentation/FileViewer.tsx")
+    assert 'application/pdf' in src, (
+        "FileViewer PDF iframe must carry `application/pdf` MIME type "
+        "(via the `type` attribute) so browsers render PDF inline"
+    )
+
+
+def test_file_viewer_video_emits_lazy_loading_attr() -> None:
+    """The video renderer MUST mount a <video> with `preload="metadata"`
+    so opening a large file doesn't pin the network."""
+    src = read("presentation/FileViewer.tsx")
+    assert 'preload="metadata"' in src, (
+        "FileViewer video renderer must stamp `preload=\"metadata\"` "
+        "(no full-file preload, UX)"
+    )
