@@ -37,6 +37,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "verify_chromium.py"
 WEB_DIR = REPO_ROOT / "web"
 DIST_DIR = WEB_DIR / "dist"
+TAILWIND_CONFIG = REPO_ROOT / "tailwind.config.js"
 
 
 # ---------------------------------------------------------------------------
@@ -273,86 +274,72 @@ def _walk_bytes(root: Path) -> tuple[int, int]:
     return total, count
 
 
-def test_legacy_html_present_and_nontrivial():
-    """The legacy `web/index.html` is the source of truth for the
-    pre-migration baseline. It must exist and be large enough to be
-    a real SPA shell (~2,200 lines per exploration.md).
-    """
-    index = WEB_DIR / "index.html"
-    assert index.exists(), (
-        f"missing legacy HTML shell at {index}; baseline cannot be measured"
-    )
-    size = index.stat().st_size
-    # The shell is ~75 KB per exploration.md. Pin a floor well under that
-    # so this catches a missing file but tolerates source refactors.
-    assert size > 50_000, (
-        f"legacy index.html looks too small: {size} bytes; "
-        f"expected > 50 KB for the full SPA shell"
-    )
-
-
-def test_legacy_module_count_matches_exploration():
-    """Pin the legacy JS module roster so the baseline records a
-    consistent list of files. exploration.md §Current State names
-    18 modules but the actual glob yields 17 (the text "18 modules"
-    is the headline count including the implicit aggregate). We
-    pin the real number so the baseline stays honest.
-    """
-    js_files = sorted(p.name for p in WEB_DIR.glob("*.js") if p.is_file())
-    assert len(js_files) == 17, (
-        f"legacy JS module count drifted: expected 17, got {len(js_files)}; "
-        f"files: {js_files}"
-    )
-
-    # Spot-check a few of the canonical names — catches a renamed or
-    # deleted module without forcing the test to enumerate all 17.
-    for expected in ("app.js", "tree.js", "detail.js", "file_explorer.js"):
-        assert expected in js_files, (
-            f"legacy module {expected!r} is missing from web/; "
-            f"baseline module roster has drifted"
+def test_legacy_html_absent():
+        """Phase 5c migration gate: the legacy `web/index.html` MUST be
+        absent. The Next.js static export at `out/index.html` (PR 3b) is
+        the only authoritative HTML shell now. Pin the absence so a
+        regression that re-commits the legacy HTML fails loudly here.
+        """
+        index = WEB_DIR / "index.html"
+        assert not index.exists(), (
+            f"legacy HTML shell at {index} must be deleted (Phase 5c); "
+            f"the Next.js static export at out/index.html is the only "
+            f"authoritative shell"
         )
 
 
-def test_legacy_total_source_size_below_threshold():
-    """Pre-migration, the legacy `web/` payload (HTML + JS + CSS, excluding
-    git-ignored `dist/`) is around 200-300 KB on disk. We pin an upper
-    bound well above that so the baseline detects accidental drops but
-    tolerates minor source refactors.
+def test_legacy_module_roster_absent():
+        """Phase 5c migration gate: the legacy 17 JS modules in `web/`
+        (app.js + api.js + tree.js + breadcrumb.js + detail.js + nav.js
+        + dom.js + banner.js + help.js + keymap.js + settings.js +
+        search.js + file_explorer.js + file_viewer.js + format.js +
+        search_urls.js + state.js) MUST all be absent. The React surface
+        under `src/modules/research/presentation/` replaces every one.
 
-    The design phase uses this number, plus the Playwright sample, to
-    cite concrete evidence when closing `scope-decisions.md::§1`.
-    """
-    total, count = _walk_bytes(WEB_DIR)
-    assert count > 0, "no source files found under web/"
-    # Upper bound — the legacy build is ~200 KB on disk; 500 KB is a
-    # generous ceiling that still catches a missing-tree regression.
-    assert total < 500_000, (
-        f"legacy web/ source size {total} bytes (count={count}) exceeds "
-        f"the 500 KB ceiling; baseline evidence may be stale"
-    )
-    # And a sensible lower bound — catches a deleted file.
-    assert total > 100_000, (
-        f"legacy web/ source size {total} bytes (count={count}) below "
-        f"the 100 KB floor; some files appear to have been removed"
-    )
-
-
-def test_legacy_compiled_css_is_present():
-    """web/dist/tailwind.css must exist locally for the baseline paint
-    measurement to be meaningful. The file is git-ignored — the test
-    instructs reviewers to run `make css` if it's missing.
-    """
-    css = DIST_DIR / "tailwind.css"
-    if not css.exists():
-        pytest.skip(
-            f"{css} not present locally (git-ignored). "
-            f"Run `make css` to regenerate before measuring the baseline."
+        Pin the per-name roster (NOT a glob count) so a regression that
+        re-commits any of the legacy modules fails here with the exact
+        filename.
+        """
+        legacy_modules = (
+            "app.js", "api.js", "tree.js", "breadcrumb.js", "detail.js",
+            "nav.js", "dom.js", "banner.js", "help.js", "keymap.js",
+            "settings.js", "search.js", "file_explorer.js",
+            "file_viewer.js", "format.js", "search_urls.js", "state.js",
         )
-    size = css.stat().st_size
-    # Per exploration.md: ~16 KB minified.
-    assert 5_000 < size < 100_000, (
-        f"compiled CSS at {size} bytes looks unexpected; expected ~16 KB"
-    )
+        present = [name for name in legacy_modules
+                   if (WEB_DIR / name).is_file()]
+        assert not present, (
+            f"legacy JS modules must be deleted from {WEB_DIR} (Phase 5c); "
+            f"found: {present}. The React surface under "
+            f"src/modules/research/presentation/ replaces every one."
+        )
+
+
+def test_legacy_tailwind_config_absent():
+        """Phase 5c migration gate: the legacy Tailwind 3 config
+        (`tailwind.config.js`) MUST be absent. The Tailwind 4 design
+        tokens now live in `src/app/globals.css` (PR 3c-a). Pin the
+        absence so a regression that re-commits the legacy config fails
+        here with the exact filename.
+        """
+        assert not TAILWIND_CONFIG.exists(), (
+            f"legacy tailwind config at {TAILWIND_CONFIG} must be deleted "
+            f"(Phase 5c); Tailwind 4 design tokens now live in "
+            f"src/app/globals.css (PR 3c-a)"
+        )
+
+
+def test_legacy_index_css_absent():
+        """Phase 5c migration gate: the legacy `web/index.css` MUST be
+        absent. The Next.js globals.css (`src/app/globals.css`) is the
+        only authoritative stylesheet now (PR 3c-a).
+        """
+        index_css = WEB_DIR / "index.css"
+        assert not index_css.exists(), (
+            f"legacy CSS shell at {index_css} must be deleted (Phase 5c); "
+            f"the Next.js globals.css (src/app/globals.css) is the only "
+            f"authoritative stylesheet"
+        )
 
 
 # ---------------------------------------------------------------------------
