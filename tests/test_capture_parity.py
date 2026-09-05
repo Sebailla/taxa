@@ -730,7 +730,7 @@ def test_g4_asgi_launcher_rewires_db_path_and_research_dir_only():
     # WEB_DIR must NOT be touched — the launcher rewires only DB_PATH and
     # RESEARCH_DIR. Anything else would mean api/server.py was implicitly
     # modified, which the parent task forbids.
-    expected_web_dir = str((REPO_ROOT / "web").resolve())
+    expected_web_dir = str((REPO_ROOT / "out").resolve())
     assert out["web_dir"] == expected_web_dir, (
         f"launcher must NOT modify api.server.WEB_DIR "
         f"(production change forbidden); got {out['web_dir']!r}, want {expected_web_dir!r}"

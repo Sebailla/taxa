@@ -26,6 +26,19 @@ data/db/*.db
 data/db/*.db-shm
 data/db/*.db-wal
 data/*.log
+# PR 3d adds a canonical JS mirror of the search-engine registry at
+# `src/data/search-engines.js` (consumed by the AC-21 contract test
+# `tests/test_smoke.py::test_search_engine_contract`). The recursive
+# `data/` rule above silently ignores it. The parent + file negations
+# un-ignore `src/data/` and the specific JS mirror; the re-ignore
+# patterns below keep any other tracked/untracked data files under
+# `src/data/` excluded (immediate files, subdirectories, and any depth
+# beneath them via the original recursive `data/` rule) so only this
+# single canonical asset is exposed.
+!src/data/
+src/data/*
+src/data/*/
+!src/data/search-engines.js
 
 # Editors
 .vscode/
@@ -44,6 +57,11 @@ Research/
 !openspec/changes/*/specs/research/
 !openspec/changes/archive/*/specs/research/
 !openspec/specs/research/
+# Spanish OpenSpec mirrors are human-readable artifacts and must track
+# their research capability specs alongside the English source.
+!documents-es/openspec/changes/*/specs/research/
+!documents-es/openspec/changes/archive/*/specs/research/
+!documents-es/openspec/specs/research/
 # PR 2a introduces a tracked capability module at `src/modules/research/`
 # (lowercase). Same case-insensitive collision on macOS would silently drop
 # the scaffold (`index.ts` barrel + 4 layer `.gitkeep` placeholders).
@@ -57,6 +75,13 @@ Research/
 # committed; CI and fresh clones regenerate it on demand.
 node_modules/
 web/dist/
+
+# PR 3d: Next 16 build + static export targets. `next build` populates these
+# via `make api`; the contents are deterministic from the source tree and are
+# regenerated on demand. The leading `/` pins each rule to the repo root so
+# nested dirs (e.g. `tools/g4-capture/out/`) keep their own explicit rules.
+/out/
+/.next/
 
 # Impeccable design critiques + annotations — local-only notes produced by
 # the .impeccable/ CLI skill during UI review. Not part of the source tree.
