@@ -51,19 +51,22 @@ def test_files_present(path: Path) -> None:
     assert path.is_file(), f"missing {path} (PR 5b.2 application slice)"
 
 
-def test_application_directory_is_two_files_only() -> None:
-    """5b.2 constraint: 'avoid extra files'. The application directory
-    MUST hold exactly the two named modules plus the barrel — no stale
-    stub files from earlier PRs, no stray helpers, no .gitkeep."""
-    if not APP.is_dir():
-        pytest.skip("application dir not present yet")
-    allowed = {"index.ts", "useFileExplorer.ts", "useFileViewer.ts"}
-    actual = {p.name for p in APP.iterdir()}
-    unexpected = actual - allowed
-    assert not unexpected, (
-        f"application/ has unexpected children: {sorted(unexpected)}. "
-        f"Only these are allowed: {sorted(allowed)}."
-    )
+def test_application_directory_is_three_files_only() -> None:
+        """5b.2 + 5b.4 constraint: 'avoid extra files'. The application
+        directory MUST hold exactly the three named modules plus the
+        barrel — no stale stub files from earlier PRs, no stray
+        helpers, no .gitkeep. 5b.4 adds `useMaterializePreview.ts` (the
+        typed materialize-preview + folder-creation hook)."""
+        if not APP.is_dir():
+            pytest.skip("application dir not present yet")
+        allowed = {"index.ts", "useFileExplorer.ts", "useFileViewer.ts",
+                   "useMaterializePreview.ts"}
+        actual = {p.name for p in APP.iterdir()}
+        unexpected = actual - allowed
+        assert not unexpected, (
+            f"application/ has unexpected children: {sorted(unexpected)}. "
+            f"Only these are allowed: {sorted(allowed)}."
+        )
 
 
 # ---------------------------------------------------------------------------

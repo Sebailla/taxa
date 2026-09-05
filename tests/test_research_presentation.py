@@ -50,6 +50,12 @@ RAW_TABS = PRES / "RawTableTreeTabs.tsx"
 META_STRIP = PRES / "MetaStrip.tsx"
 BREAD_PANEL = PRES / "BreadcrumbPanel.tsx"
 BANNERS = PRES / "Banners.tsx"
+SEARCH_TAB = PRES / "SearchTab.tsx"
+FOLDER_TAB = PRES / "FolderTab.tsx"
+SEARCH_LINK_LIST = PRES / "SearchLinkList.tsx"
+APP = R / "application"
+USE_MATERIALIZE = APP / "useMaterializePreview.ts"
+DO_REALM = R / "domain" / "realm.ts"
 
 
 def read(rel: str) -> str:
@@ -59,30 +65,33 @@ def read(rel: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# File presence — every 5b.3 component lands on disk
+# File presence — every 5b.3 + 5b.4 component lands on disk
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("path", [
     FILE_EXPLORER, FILE_VIEWER, RAW_TABS, META_STRIP, BREAD_PANEL, BANNERS,
-    PRES_INDEX,
+    SEARCH_TAB, FOLDER_TAB, SEARCH_LINK_LIST,
+    PRES_INDEX, USE_MATERIALIZE, DO_REALM,
 ])
 def test_files_present(path: Path) -> None:
     assert path.is_file(), (
-        f"missing {path.relative_to(REPO)} (PR 5b.3 presentation slice)"
+        f"missing {path.relative_to(REPO)} (PR 5b.3 + 5b.4 presentation slice)"
     )
 
 
 def test_presentation_directory_is_bounded() -> None:
-    """5b.3 constraint: presentation/ holds exactly the named surface
-    files + the barrel — no stray helpers, no application-style state
-    machines, no .gitkeep left over from a different phase. Matches the
-    'avoid extra files' 5b.2 contract, applied to the new layer.
-    """
+    """5b.3 constraint (extended in 5b.4): presentation/ holds exactly
+    the named surface files + the barrel — no stray helpers, no
+    application-style state machines, no .gitkeep left over from a
+    different phase. Matches the 'avoid extra files' 5b.2 contract,
+    applied to the new layer (5b.4 adds SearchTab, FolderTab, and
+    SearchLinkList)."""
     if not PRES.is_dir():
         pytest.skip("presentation dir not present yet")
     allowed = {
         ".gitkeep", "index.ts",
         "FileExplorer.tsx", "FileViewer.tsx", "RawTableTreeTabs.tsx",
         "MetaStrip.tsx", "BreadcrumbPanel.tsx", "Banners.tsx",
+        "SearchTab.tsx", "FolderTab.tsx", "SearchLinkList.tsx",
     }
     actual = {p.name for p in PRES.iterdir()}
     unexpected = actual - allowed
@@ -96,13 +105,14 @@ def test_presentation_directory_is_bounded() -> None:
 # Public barrel — every 5b.3 surface export reaches `@taxa/research`
 # ---------------------------------------------------------------------------
 def test_presentation_barrel_reexports_every_surface_component() -> None:
-    """`presentation/index.ts` MUST re-export every 5b.3 surface component
-    so cross-module consumers (app-shell in 5b.4) import via the barrel
-    rather than reaching into `presentation/` directly."""
+    """`presentation/index.ts` MUST re-export every 5b.3 + 5b.4 surface
+    component so cross-module consumers (DetailPanel, app-shell) import
+    via the barrel rather than reaching into `presentation/` directly."""
     src = read("presentation/index.ts")
     for tok in (
         "FileExplorer", "FileViewer", "RawTableTreeTabs",
         "MetaStrip", "BreadcrumbPanel", "Banners",
+        "SearchTab", "FolderTab", "SearchLinkList",
     ):
         assert re.search(rf"\b{tok}\b", src), (
             f"presentation/index.ts must re-export {tok!r}"
@@ -135,14 +145,14 @@ def test_root_barrel_keeps_predecessor_exports() -> None:
 # Cross-module contract — only the public barrel is reachable
 # ---------------------------------------------------------------------------
 def test_presentation_components_only_import_via_barrel() -> None:
-    """No 5b.3 component MUST reach into another module's deep layer.
+    """No 5b.3 + 5b.4 component MUST reach into another module's deep layer.
     The barrel is the contract (spec.md rule 5). Tolerates intra-module
     relative imports (`./MetaStrip`, `./Banners`, …) and the
     `@taxa/research` self-import.
     """
     targets = (
         FILE_EXPLORER, FILE_VIEWER, RAW_TABS, META_STRIP,
-        BREAD_PANEL, BANNERS,
+        BREAD_PANEL, BANNERS, SEARCH_TAB, FOLDER_TAB, SEARCH_LINK_LIST,
     )
     forbidden_alias = re.compile(
         r'from\s+["\']@taxa/(?!research\b)[a-z-]+/',  # any alias except self
@@ -229,26 +239,41 @@ def test_file_explorer_does_not_fetch_when_taxon_id_is_null() -> None:
     )
 
 
-def test_file_explorer_folder_rows_carry_data_realm_other() -> None:
-    """5b.3 defers realm mapping. Every folder row the explorer stamps
-    MUST carry `data-realm="other"` (no helper, no realm dispatch)."""
+def test_file_explorer_folder_rows_carry_dynamic_data_realm() -> None:
+    """5b.4 supersedes the 5b.3 deferred-to-5b.4 placeholder contract.
+    Folder rows now stamp `data-realm` from the domain
+    `realmForFolderPath` helper (decision #1 — pure helper lives in
+    the research domain). The literal hard-coded
+    `data-realm="other"` is RETIRED — the value MUST be a dynamic
+    expression that consumes the helper, not a string literal."""
     src = read("presentation/FileExplorer.tsx")
-    assert re.search(r'data-realm=["\']other["\']', src), (
-        'FileExplorer folder rows must stamp `data-realm="other"` '
-        "(realm mapping is deferred to 5b.4)"
+    # The folder row MUST stamp `data-realm` (the contract is
+    # preserved from 5b.3 — just the value source changes).
+    assert re.search(r"data-realm\s*=\s*\{realmForFolderPath\(", src), (
+        "FileExplorer folder rows must stamp "
+        "`data-realm={realmForFolderPath(...)}` (5b.4 dynamic dispatch)"
+    )
+    # The 5b.3 hard-coded literal MUST be gone.
+    assert not re.search(r'data-realm=["\']other["\']', src), (
+        "FileExplorer must not hard-code `data-realm=\"other\"`; "
+        "the 5b.3 placeholder is retired (5b.4 dynamic dispatch)"
     )
 
 
-def test_file_explorer_does_not_reference_a_realm_helper() -> None:
-    """5b.3 explicitly forbids a realm helper / domain file. The
-    explorer MUST NOT import one."""
+def test_file_explorer_consumes_realm_helper_from_barrel() -> None:
+    """5b.4 contract: FileExplorer MUST consume `realmForFolderPath`
+    from `@taxa/research` (the public barrel) — NOT via a deep import
+    into `../domain/realm`. Pins the rule-5 barrel contract on the
+    new helper too."""
     src = read("presentation/FileExplorer.tsx")
-    for tok in ("realmFor", "realm-helper", "realm.ts", "realms.ts",
-                "from \"../domain/realm\"", "from '../domain/realm'"):
-        assert tok not in src, (
-            f"FileExplorer must not reference realm helper {tok!r} "
-            f"(5b.3 defers realm mapping)"
-        )
+    assert re.search(r'from\s+["\']@taxa/research["\']', src), (
+        "FileExplorer must import via `@taxa/research` (barrel contract)"
+    )
+    bad = re.search(r'from\s+["\']\.\./domain/realm["\']', src)
+    assert bad is None, (
+        f"FileExplorer must not deep-import the realm helper; "
+        f"got {bad.group(0)!r}"
+    )
 
 
 def test_file_explorer_renders_annotate_explorer_matches_output() -> None:
@@ -894,14 +919,141 @@ def test_component_source_is_well_formed(path: Path) -> None:
             counts[ch] += 1
         i += 1
     assert counts["{"] == counts["}"], (
-        f"{path.name} has unbalanced braces: "
-        f"{counts['{']} open vs {counts['}']} close"
-    )
+    f"{path.name} has unbalanced braces: "
+    f"{counts['{']} open vs {counts['}']} close"
+        )
     assert counts["("] == counts[")"], (
-        f"{path.name} has unbalanced parens: "
-        f"{counts['(']} open vs {counts[')']} close"
-    )
+    f"{path.name} has unbalanced parens: "
+    f"{counts['(']} open vs {counts[')']} close"
+        )
     assert counts["["] == counts["]"], (
         f"{path.name} has unbalanced brackets: "
         f"{counts['[']} open vs {counts[']']} close"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Phase 5b.4 additions:
+#   - FolderTab uses the typed materialize-preview hook
+#   - FolderTab exposes folder creation with loading + error states
+#   - SearchTab + SearchLinkList + realm dispatch are pinned separately
+#     (test_research_search_tab.py, test_research_realm_mapping.py)
+#
+# The 5b.4 contract: FolderTab MUST NOT import the obsolete taxonomy
+# `SearchTabStub` or `FolderTabStub` (the stubs are removed in 5b.4).
+# ---------------------------------------------------------------------------
+def test_folder_tab_uses_typed_materialize_preview_hook() -> None:
+    """5b.4 decision #2: FolderTab MUST use the typed
+    `useMaterializePreview` hook from the research application
+    barrel. The hook is the typed materialize-preview API the
+    folder body delegates to (no inline fetch, no local copy of
+    the loading / error state machine)."""
+    src = read("presentation/FolderTab.tsx")
+    assert "useMaterializePreview" in src, (
+        "FolderTab must consume `useMaterializePreview` from "
+        "@taxa/research (typed materialize-preview API)"
     )
+    # The hook is reached via the public barrel (rule 5).
+    assert re.search(r'from\s+["\']@taxa/research["\']', src), (
+        "FolderTab must import the hook via `@taxa/research` "
+        "(barrel contract)"
+    )
+    # FolderTab MUST NOT implement its own fetch.
+    bad = re.search(r"fetch\s*\(", src)
+    assert bad is None, (
+        f"FolderTab must not call `fetch(` directly — delegate "
+        f"to the hook; got {bad.group(0)!r}"
+    )
+
+
+def test_folder_tab_exposes_loading_and_error_data_attributes() -> None:
+    """5b.4 decision #5: FolderTab MUST surface typed folder creation
+    with loading + error states. The component MUST stamp
+    `data-folder-tab-status` so e2e / screenshot harnesses can pin
+    the state without text-matching. Loading carries `loading`,
+    error carries `error`, idle carries `idle`."""
+    src = read("presentation/FolderTab.tsx")
+    assert "data-folder-tab-status" in src, (
+        "FolderTab must stamp `data-folder-tab-status` so the "
+        "loading / error / idle states are observable"
+    )
+    for state in ("idle", "loading", "error"):
+        assert f'"{state}"' in src or f"'{state}'" in src, (
+            f"FolderTab must reference the {state!r} status literal"
+        )
+
+
+def test_folder_tab_renders_folder_tab_class() -> None:
+    """3c-c pinned `.folder-tab` as the production CSS class for
+    the Folder body. FolderTab MUST ride it (no new wrapper class)."""
+    src = read("presentation/FolderTab.tsx")
+    assert "folder-tab" in src, (
+        "FolderTab must render the `.folder-tab` wrapper class"
+    )
+
+
+def test_folder_tab_does_not_import_obsolete_stubs() -> None:
+    """Regression guard: the taxonomy `SearchTabStub` / `FolderTabStub`
+    are removed in 5b.4. FolderTab MUST NOT deep-import them — the
+    taxonomy barrel no longer surfaces them and a stale import would
+    break the build."""
+    src = read("presentation/FolderTab.tsx")
+    for forbidden in (
+        "SearchTabStub", "FolderTabStub",
+        "@taxa/taxonomy/presentation",
+    ):
+        assert forbidden not in src, (
+            f"FolderTab must not reference the removed "
+            f"{forbidden!r} surface (5b.4 cleanup)"
+        )
+
+
+def test_presentation_barrel_reexports_5b4_surfaces() -> None:
+    """The presentation barrel MUST re-export `SearchTab`, `FolderTab`,
+    and `SearchLinkList` so cross-module consumers (DetailPanel,
+    app-shell) import via `@taxa/research` (5b.4 addendum)."""
+    src = read("presentation/index.ts")
+    for tok in ("SearchTab", "FolderTab", "SearchLinkList"):
+        assert re.search(rf"\b{tok}\b", src), (
+            f"presentation/index.ts must re-export {tok!r}"
+        )
+
+
+def test_use_materialize_preview_declares_typed_view_model() -> None:
+    """The 5b.4 typed materialize-preview hook MUST expose the
+    materialize status shape (`idle | loading | ready | error`)
+    and a typed folder-creation input shape. The presentation
+    layer (FolderTab) reads these view models without falling back
+    to a manual state machine."""
+    src = read("application/useMaterializePreview.ts")
+    for tok in (
+        "useMaterializePreview",
+        "MaterializeStatus",
+        "FolderCreateInput",
+    ):
+        assert re.search(rf"\b{tok}\b", src), (
+            f"application/useMaterializePreview.ts must declare {tok!r}"
+        )
+
+
+def test_use_materialize_preview_exports_status_predicate() -> None:
+    """The typed hook MUST export an `isMaterializeStatus` predicate
+    so consumers can defensively narrow an unknown string into the
+    closed union."""
+    src = read("application/useMaterializePreview.ts")
+    assert re.search(r"\bisMaterializeStatus\b", src), (
+        "useMaterializePreview.ts must export `isMaterializeStatus`"
+    )
+
+
+def test_application_barrel_reexports_materialize_preview() -> None:
+    """The application barrel MUST re-export `useMaterializePreview`
+    + `FolderCreateInput` + `MaterializeStatus` so FolderTab (and any
+    future app-shell consumer) reaches the surface via
+    `@taxa/research` (barrel contract)."""
+    src = read("application/index.ts")
+    for tok in ("useMaterializePreview", "FolderCreateInput",
+                "MaterializeStatus"):
+        assert tok in src, (
+            f"application/index.ts must re-export {tok!r}"
+        )

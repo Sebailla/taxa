@@ -5,9 +5,10 @@
 // `taxonId`. The explorer SELF-MOUNTS via the `useFileExplorer` hook
 // (5b.2) — the parent (app-shell, PR 5b.4) never pre-fetches.
 //
-// Realm mapping is DEFERRED (5b.3 brief): every folder row stamps
-// `data-realm="other"` and there is no realm helper. PR 5b.4 will
-// add the per-folder dispatch.
+// Realm mapping: folder rows dispatch via the domain
+// `realmForFolderPath(path)` helper (5b.4 — was deferred in 5b.3).
+// File rows do NOT receive a realm attribute (5b.4 user-decision #3
+// — folder rows only).
 //
 // No Search / Folder tab wiring — strictly the research presentation
 // surface. No app-shell integration, no CSS changes, no new
@@ -19,6 +20,7 @@ import type { ReactElement } from "react";
 import {
   DEBOUNCE_MS,
   annotateExplorerMatches,
+  realmForFolderPath,
   useFileExplorer,
   type ExplorerSearchState,
   type ExplorerViewerTab,
@@ -50,7 +52,7 @@ function FolderRow({
       <div
         className={`fex-row folder${isSelected ? " selected" : ""}`}
         data-folder-path={node.path}
-        data-realm="other"
+        data-realm={realmForFolderPath(node.path)}
         data-row-wrap="folder"
         role="button"
         tabIndex={0}

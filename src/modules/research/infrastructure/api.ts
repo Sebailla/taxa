@@ -55,6 +55,87 @@ export function fetchServe(baseUrl: string, taxonId: number, path: string): stri
   return `${baseUrl}/api/taxon/${taxonId}/files/serve?path=${encodeURIComponent(path)}`;
 }
 
+// 5b.4 — typed materialize-preview fetch + folder-creation fetch.
+// Endpoints mirror the FastAPI surface (`api/server.py::_materialize_*`).
+// Failures surface as typed `NetworkError` (the existing infra contract).
+
+/** Materialize-preview payload returned by `fetchMaterializePreview`.
+ *  Mirrors the shape the legacy `web/file_explorer.js` rendered into
+ *  the Folder body — the typed hook (`useMaterializePreview`, 5b.4)
+ *  projects this surface to the FolderTab component. */
+export interface MaterializePreviewEnvelope {
+  readonly taxon_id: number;
+  readonly exists: boolean;
+  readonly status: "ready" | "pending" | "absent";
+  readonly filesystem_path: string | null;
+  readonly pending_jobs: readonly { readonly id: string; readonly started_at: string }[];
+}
+
+function isMaterializePreviewEnvelope(v: unknown): v is MaterializePreviewEnvelope {
+  if (typeof v !== "object" || v === null) return false;
+  const o = v as Record<string, unknown>;
+  if (typeof o.taxon_id !== "number" || !Number.isInteger(o.taxon_id)) return false;
+  if (typeof o.exists !== "boolean") return false;
+  if (o.status !== "ready" && o.status !== "pending" && o.status !== "absent") return false;
+  if (o.filesystem_path !== null && typeof o.filesystem_path !== "string") return false;
+  if (!Array.isArray(o.pending_jobs)) return false;
+  for (const job of o.pending_jobs) {
+    if (typeof job !== "object" || job === null) return false;
+    const j = job as Record<string, unknown>;
+    if (typeof j.id !== "string" || typeof j.started_at !== "string") return false;
+  }
+  return true;
+}
+
+/** GET `${baseUrl}/api/taxon/${taxonId}/materialize` — typed materialize
+ *  preview. The hook reads this on mount and on taxonId change. */
+export async function fetchMaterializePreview(
+  baseUrl: string, taxonId: number,
+  fetchFn: FetchLike = defaultFetch(),
+): Promise<MaterializePreviewEnvelope> {
+  const url = `${baseUrl}/api/taxon/${taxonId}/materialize`;
+  let res: Awaited<ReturnType<FetchLike>>;
+  try {
+    res = await fetchFn(url, { method: "GET" });
+  } catch (cause) {
+    throw new NetworkError(`fetchMaterializePreview failed: ${url}`, null, cause);
+  }
+  if (!res.ok) throw new NetworkError(
+    `non-2xx response (${res.status}) for ${url}`, res.status);
+  const body = await res.json().catch((cause: unknown) => {
+    throw new NetworkError(`invalid JSON body for ${url}`, res.status, cause);
+  });
+  if (!isMaterializePreviewEnvelope(body)) {
+    throw new NetworkError(`malformed materialize-preview body for ${url}`);
+  }
+  return body;
+}
+
+/** POST `${baseUrl}/api/taxon/${taxonId}/materialize` — typed folder
+ *  creation. Returns the reloaded preview envelope so the caller can
+ *  update its view-model in one round-trip. */
+export async function createMaterializeFolder(
+  baseUrl: string, taxonId: number,
+  fetchFn: FetchLike = defaultFetch(),
+): Promise<MaterializePreviewEnvelope> {
+  const url = `${baseUrl}/api/taxon/${taxonId}/materialize`;
+  let res: Awaited<ReturnType<FetchLike>>;
+  try {
+    res = await fetchFn(url, { method: "POST" });
+  } catch (cause) {
+    throw new NetworkError(`createMaterializeFolder failed: ${url}`, null, cause);
+  }
+  if (!res.ok) throw new NetworkError(
+    `non-2xx response (${res.status}) for ${url}`, res.status);
+  const body = await res.json().catch((cause: unknown) => {
+    throw new NetworkError(`invalid JSON body for ${url}`, res.status, cause);
+  });
+  if (!isMaterializePreviewEnvelope(body)) {
+    throw new NetworkError(`malformed materialize-create body for ${url}`);
+  }
+  return body;
+}
+
 // CDN pins. DO NOT unpin — byte contract with web/file_viewer.js.
 export const CDN_URLS = {
   mammoth: "https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js",

@@ -1,20 +1,17 @@
 // Presentation-layer barrel for the taxonomy module
-// (PR 5a.2 + 5a.3 + 5a.4).
+// (PR 5a.2 + 5a.3 + 5a.4 + PR 5b.4 promotion cleanup).
 //
-// 5a.4 EXTENDS the surface with the real `Kebab` (per-row menu
-// with `Search online`) + `useKebab` (local open/close state hook).
-// `KebabStub` (5a.2 inert glyph) stays exported for backward
-// compatibility with anything that still references it; the page
-// mounts the real `Kebab` exclusively. Real Search/Folder bodies
-// land in PR 5b.
+// 5b.4 removes the obsolete taxonomy TabStrip primitive (promoted to
+// the design-system module verbatim) and the inert placeholders for
+// the Search/Folder tab bodies (replaced by the real
+// SearchTab / FolderTab surfaces from the research module). The
+// barrel drops their re-exports so the public surface stays in
+// lock-step with the files on disk.
 export { Breadcrumb, type BreadcrumbProps } from "./Breadcrumb";
 export { DetailPanel, type DetailPanelProps } from "./DetailPanel";
-export { FolderTabStub, type FolderTabStubProps } from "./FolderTabStub";
 export { Kebab, type KebabProps } from "./Kebab";
 export { KebabStub, type KebabStubProps } from "./KebabStub";
 export { OverviewTab, type OverviewTabProps } from "./OverviewTab";
-export { SearchTabStub, type SearchTabStubProps } from "./SearchTabStub";
-export { TabStrip, type TabDefinition, type TabStripProps } from "./TabStrip";
 export {
   TaxonDetailPlaceholder, type TaxonDetailPlaceholderProps,
 } from "./TaxonDetailPlaceholder";

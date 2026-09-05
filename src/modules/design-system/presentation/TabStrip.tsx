@@ -1,8 +1,22 @@
 "use client";
 
-// TabStrip — local segmented control (PR 5a.3). Three tabs in fixed
-// order (`Overview` / `Search` / `Folder`); stays local to `presentation/`
-// until 5b promotes it to design-system.
+// TabStrip — design-system primitive (5b.4 promotion).
+//
+// The local `TabStrip` authored in 5a.3 (taxonomy/presentation/TabStrip.tsx)
+// is promoted verbatim to the design-system module here. The
+// taxonomy DetailPanel now imports it from `@taxa/design-system`.
+//
+// The promotion is the 5b.4 close-out of the 5a.3 addendum (see
+// openspec/changes/complete-taxa-frontend-migration/tasks.md
+// §"Addendum — 2026-09-04: Phase 5a four-slice replan"). The verbatim
+// port keeps the contract identical so the 3c-c CSS selectors
+// (`[data-tab="Overview"].active`, etc.) and the force-search useEffect
+// in DetailPanel continue to match without any new wiring.
+//
+// API surface (unchanged from 5a.3):
+//   - `tabs: readonly TabDefinition[]` — the canonical tab definitions
+//   - `activeKey: string` — the externally-controlled active tab
+//   - `onChange: (key: string) => void` — the parent owns selection
 
 import type { ReactElement } from "react";
 

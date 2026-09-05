@@ -1,6 +1,6 @@
 /**
  * Public barrel for the `app-shell` capability module (PR 2a scaffold
- * + PR 4b integration seam).
+ * + PR 4b integration seam + PR 5b.4 addendum).
  *
  * spec.md rule 5: cross-module consumers MUST import only from this
  * file (or via the `@taxa/app-shell` path alias defined in
@@ -13,10 +13,14 @@
  *     behind `useMounted()`, and rehydrates `last-taxon-id` into the
  *     URL after the first paint. Consumed by `src/app/layout.tsx`
  *     which wraps `{children}` in `<AppShell>...</AppShell>`.
+ *   - `BrowserSurface` (PR 5b.4) — the global Research / file
+ *     explorer host. Wraps `FileExplorer` with `taxonId={null}` so
+ *     the explorer mounts its no-taxon idle state. Mounted by AppShell
+ *     when the primary nav tab is `browser`. NOT taxon-scoped.
  *
  * `app-shell` is the host module for the single Next.js route
  * (`src/app/page.tsx`). It composes the other capability modules
  * through their public barrels — never by deep import.
  */
 
-export { AppShell } from "./presentation/AppShell";
+export { AppShell, BrowserSurface } from "./presentation";
