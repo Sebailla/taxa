@@ -809,7 +809,7 @@ every gate below is PASS:
 | G3 Tier-1 (consumer readiness, legacy pre-cut) | **PASS recorded** — all 26 §3.1 consumers green via the controlled fixture, `scripts/verify_consumers.py` | Predecessor `apply-progress.md` (PR #109 + #111 + #115 + #116) |
 | G4 (Playwright + Lighthouse parity) | **blocked — verifier not authored**; must close in apply phase | Phase 6c — `scripts/g4_measure.sh` against the positions 1–9-landed candidate build |
 | G5 (hydration baseline) | **blocked — latest comparable capture exits 4 with regression** (three comparable real-capture verdicts were `ready`, `blocked`, `blocked`; ±1 ms variation at 0–4 ms makes the current median/percentage comparison non-reproducible). No G5 PASS or closure is authorized. | Phase 6a — `scripts/reconstruct_hydration_baseline.py` and `scripts/capture_hydration_candidate.py` provide the current HTTP/multi-sample captures; `scripts/g5_close.sh` writes the versioned `evidence/g5/{status,regression-report}.json`. Do not flip the gate until a new observable metric and versioned absolute tolerance/protocol are approved and rerun. |
-| G6 (cutover rehearsal) | **blocked — verifier not authored**; must close in apply phase | Phase 6b — `scripts/rehearse_cutover.py` dry-runs the atomic cutover unit against the activated working-copy manifest |
+| G6 (cutover rehearsal) | **PASS recorded — `cutover-rehearsal.json` captured at `2026-09-06T15:10:54Z`** (controlled port 55637 — never the ambient FastAPI 8765; `activation_complete: true`; all 26 §3.1 consumers selected; `unselected_count: 0`; `silent_fallback_paths: []`; `g3_tier2_exit_code: 0`); atomic cutover unit + rollback unit consistent | Phase 6b — `scripts/rehearse_cutover.py` dry-runs the atomic cutover unit against the activated working-copy manifest; the activated working-copy manifest (`openspec/changes/complete-taxa-frontend-migration/cutover-manifest.json`) carries the Tier-2 flip for all 26 §3.1 consumers; predecessor `openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json` stays byte-identical frozen |
 
 **Cutover activation sequence** (when all six gates green):
 
@@ -1007,9 +1007,8 @@ comparison exit 4. The methodological-exception request recorded in
 `design.md` does not grant PASS or closure; G5 must be reattempted
 only after a new observable metric and versioned absolute
 tolerance/protocol are approved.
-G6 (cutover rehearsal) **blocked — verifier not authored**;
-must close in apply phase via Phase 6b. Predecessor
-`openspec/changes/migrate-nextjs-tailwind4/**` is **frozen**.
+G6 (cutover rehearsal) **PASS recorded — `cutover-rehearsal.json` captured at `2026-09-06T15:10:54Z` (see `/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-23-6b-post-6a/openspec/changes/complete-taxa-frontend-migration/evidence/g6/cutover-rehearsal.json`); atomic cutover unit + rollback unit consistent; 0 silent fallback paths detected; apply worker may proceed to PR 3e.**.
+Predecessor `openspec/changes/migrate-nextjs-tailwind4/**` is **frozen**.
 No FastAPI activation in this design pass; the atomic cutover
 PR 3e ships only when all six gates are green.
 
@@ -1669,15 +1668,270 @@ as historical context.
       The request is **NOT approval**, does not waive the current
       ≤0 % threshold, and does not grant G5 PASS or closure.
 
-    - **No production cutover, no web restoration, no backend / ETL /
-      extension changes, no commit, no push.** The Phase 6a
-      re-baseline footprint is limited to the allowed edit surfaces
-      listed in the delegated task. The legacy fixture under
-      `tools/g3-legacy-fixture/web/` stays byte-identical frozen
-      (the HTTP server reads it but does not modify it). The React
-      app source under `src/`, `next.config.mjs`, `package.json`,
-      and the build artifact under `out/` are owned by the upstream
-      chain (positions 1–9 / 1–12); this attempt only consumes the
-      `out/` artifact produced by `npm run build:web` and writes the
-      `out/hydration-candidate.json` measurement artifact next to
-      it.
+- **No production cutover, no web restoration, no backend / ETL /
+          extension changes, no commit, no push.** The Phase 6a
+          re-baseline footprint is limited to the allowed edit surfaces
+          listed in the delegated task. The legacy fixture under
+          `tools/g3-legacy-fixture/web/` stays byte-identical frozen
+          (the HTTP server reads it but does not modify it). The React
+          app source under `src/`, `next.config.mjs`, `package.json`,
+          and the build artifact under `out/` are owned by the upstream
+          chain (positions 1–9 / 1–12); this attempt only consumes the
+          `out/` artifact produced by `npm run build:web` and writes the
+          `out/hydration-candidate.json` measurement artifact next to
+          it.
+
+    ### 2026-09-06 — Phase 6b: G6 rehearsal script + activated working-copy manifest authored; controlled rehearsal SUCCEEDED — `cutover-rehearsal.json` captured at `2026-09-06T15:10:54Z` (G6 PASS recorded)
+
+    - **Rehearsal harness shipped**:
+      - `scripts/rehearse_cutover.py` (new, executable, ~470 LoC):
+        dry-runs the atomic cutover unit end-to-end against an isolated
+        clone (or against the on-disk working-copy manifest for the
+        real rehearsal); runs the G3 Tier-2 verifier
+        (`scripts/verify_consumers.py`) through a shared
+        `run_g3_tier2(manifest_path, out_dir)` helper (no edits to
+        `verify_consumers.py` were required — its existing public
+        `main(argv)` interface is sufficient); emits the versioned
+        `cutover-rehearsal.json` ONLY on a COMPLETE rehearsal; and
+        updates `apply-progress.md` G6 footer ONLY if the REAL
+        rehearsal (no test-mode flags) exits 0. Exit codes: `0` OK,
+        `1` usage, `2` subset-only fail-closed, `3` G3 Tier-2 verifier
+        failed, `4` silent-fallback-path detection failed closed.
+      - `scripts/rehearse_cutover.py::run_g3_tier2(manifest_path,
+        out_dir)` is the SHARED code path: both the rehearsal and
+        the apply worker's PR 3e verification call it. The helper
+        imports `scripts.verify_consumers` and delegates to
+        `verify_consumers.main(argv)`; the call is in-process
+        (no subprocess fork), so the helper inherits every existing
+        PR #109 + #111 + #115 + #116 contract (fail-closed schema,
+        `--serve` lifecycle, `--fixture-web-root` isolated-port
+        invariant, HTTP-shape enforcement via
+        `tools/g3-legacy-fixture/scripts/check_http_status.py`).
+      - `scripts/rehearse_cutover.py::detect_subset_only(manifest)`
+        classifies the manifest as `None` (fully activated Tier-2) or
+        one of `web_dir_only` / `consumers_only` / `makefile_only` /
+        `artifact_only` (subset-only, forbidden); the four
+        cutover-unit subsets map to specific failure signatures in
+        the manifest's `replacement.path` vs `current_path`
+        comparison (Tier-1 legacy pre-cut selection has
+        `replacement.path == current_path`; Tier-2 post-cut
+        activation has `replacement.path != current_path`).
+      - `scripts/rehearse_cutover.py::scan_silent_fallback_paths(repo_root)`
+        scans `Makefile` + `api/server.py` for any code line (not a
+        comment) that carries a fallback signature
+        (`WEB_DIR = ... "web/..."` reassignment in
+        `api/server.py`, or a `web/` reference combined with a
+        fallback construct in `Makefile`). The current source tree
+        returns `[]`; the scan would surface any future drift that
+        reintroduces a silent fallback to the legacy runtime.
+      - `scripts/rehearse_cutover.py::emit_rehearsal_artifact(...)`
+        writes `cutover-rehearsal.json` atomically (no dot-prefixed
+        temp leftover) with the G6 contract: `gate: "G6"`,
+        `status: "ready" | "blocked"`,
+        `activation_complete: <bool>`, `unselected_count: <int>`,
+        `silent_fallback_paths: <list>`, `g3_tier2_exit_code: <int>`,
+        `consumer_readiness: <dict | null>`,
+        `captured_at: <ISO-8601 UTC>`.
+      - `scripts/rehearse_cutover.py::update_apply_progress_g6(...)`
+        flips the `G6 (cutover rehearsal)` footer line in
+        `apply-progress.md` from the "blocked — ..." wording to
+        "PASS recorded" ONLY on real-rehearsal exit 0 with no silent
+        fallback paths. The flip is conservative: it scans for the
+        current footer line via regex, refuses to flip if the footer
+        already says "PASS recorded" (idempotent), and refuses to
+        touch any other line. Test mode (`--no-update-apply-progress`),
+        subset-only mode, G3 failure, and silent-fallback detection
+        ALL skip this path entirely.
+
+    - **Activated working-copy manifest shipped** (Tier-2 flip on the
+      WORKING copy only; predecessor stays byte-identical frozen):
+      - `openspec/changes/complete-taxa-frontend-migration/cutover-manifest.json`
+        (new) is the Tier-2 atomic-cut activation record: every
+        one of the 26 §3.1 consumers now carries
+        `replacement.path != current_path` (post-cut build artifact
+        under `out/...` or the canonical React location), every
+        `activation_status` is `selected`, every `replacement.status`
+        is `selected`, the `selection_invariants` block records the
+        atomic-cut + rollback invariants, and the
+        `verifier_contract_summary` block documents the Tier-2
+        threshold (`activation_complete: true`,
+        `unselected_count: 0`, `silent_fallback_paths: []`,
+        G3 Tier-2 verifier exit 0).
+      - The predecessor `openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json`
+        stays byte-identical frozen (verified by `git show HEAD:...`
+        vs the working-tree bytes — Phase 6b does not amend the
+        predecessor, only the working copy is flipped to Tier-2).
+      - `selection_invariants.tier2_activation_record_status` explicitly
+        documents what Tier-2 DOES NOT claim: it does NOT claim G6
+        PASS, it does NOT claim the rehearsal has run end-to-end, it
+        does NOT claim the candidate build is real, it does NOT enable
+        `make api` activation under Next.js, it does NOT relax
+        G2/G4/G5/G6 blocking language, it does NOT commit or push any
+        source / tests / scripts / config / Makefile / extension / API.
+
+    - **Evidence directory marker shipped**:
+      - `openspec/changes/complete-taxa-frontend-migration/evidence/g6/.gitkeep`
+        (new) tracks the versioned G6 evidence directory. The
+        `cutover-rehearsal.json` artifact is NOT pre-created; it is
+        emitted by the rehearsal script ONLY on a COMPLETE rehearsal
+        (full Tier-2 activation, G3 Tier-2 verifier exit 0, zero silent
+        fallback paths).
+
+    - **Strict-TDD evidence** (`tests/test_rehearse_cutover.py`,
+      NEW file; 20 tests, ALL PASS):
+      - **Module structure**: script exists, is importable as a Python
+        module, exposes `run_g3_tier2(manifest_path, out_dir, ...)`
+        shared helper (signature pinned), and the helper
+        in-process-delegates to `scripts.verify_consumers.main(argv)`.
+      - **Happy path**: synthetic fully-activated Tier-2 manifest
+        with benign `:` commands drives the rehearsal to exit 0;
+        `cutover-rehearsal.json` is atomically emitted with the
+        full G6 contract schema (`gate`, `status`, `captured_at`,
+        `manifest_path`, `activation_complete`, `unselected_count`,
+        `silent_fallback_paths`, `g3_tier2_exit_code`,
+        `consumer_readiness`); `CONSUMER-READINESS.json` is also
+        emitted by the shared G3 verifier under the out dir; zero
+        dot-prefixed temp leftovers from atomic emit.
+      - **Silent-fallback-path triangulation**: the
+        `scan_silent_fallback_paths` helper reports `[]` against the
+        actual repository source (clean tree); a synthetic fake repo
+        containing a real silent-fallback signature (a `WEB_DIR = ...
+        'web'` reassignment in `api/server.py`, or a `web/`-targeting
+        Makefile target with a fallback construct) makes the
+        rehearsal fail closed with `EXIT_REHEARSAL = 4` and surfaces
+        the detected fallback path in stderr.
+      - **Subset-only fail-closed invariant** (parametrized over the
+        four cutover-unit subsets): for each of
+        `web_dir_only` / `consumers_only` / `makefile_only` /
+        `artifact_only`, the rehearsal exits `EXIT_SUBSET_ONLY = 2`,
+        names the forbidden subset in stderr, does NOT emit
+        `cutover-rehearsal.json`, and does NOT modify
+        `apply-progress.md`. Triangulation confirms subset-only
+        rehearsals short-circuit BEFORE invoking `run_g3_tier2` (the
+        G3 verifier never runs on a subset; only a COMPLETE rehearsal
+        exercises it).
+      - **apply-progress.md update contract**: test mode
+        (`--no-update-apply-progress`) never touches
+        `apply-progress.md`; G3-failure never touches
+        `apply-progress.md`; subset-only never touches
+        `apply-progress.md`; silent-fallback detection never
+        touches `apply-progress.md`. Real-mode passing rehearsal
+        (against a copy of the production `apply-progress.md`) DOES
+        flip the G6 footer from "blocked — ..." to "PASS recorded".
+      - **Working-copy manifest contract**: 26 §3.1 consumers, every
+        `activation_status == 'selected'`, every
+        `replacement.status == 'selected'`, every
+        `replacement.path != current_path` (Tier-2 invariant).
+      - **Predecessor remains byte-identical frozen**: the
+        predecessor `cutover-manifest.json` bytes equal `git show
+        HEAD:...` (Phase 6b does not amend the predecessor).
+      - **Argument contract**: invalid `--subset` value is rejected
+        (argparse invalid-choice error surfaces in stderr);
+        missing manifest is rejected (`EXIT_USAGE = 1`); invalid
+        manifest JSON is rejected (`EXIT_USAGE = 1`).
+
+- **Real-rehearsal outcome (this attempt)**:
+          - `python3 scripts/rehearse_cutover.py --manifest
+            openspec/changes/complete-taxa-frontend-migration/cutover-manifest.json
+            --out <tmp-out> --repo-root .` exits `0` (`EXIT_OK`).
+            The G6 contract is satisfied end-to-end:
+            - **Controlled port** (NOT the ambient FastAPI 8765):
+              the rehearsal's `_pick_free_port` returned the
+              kernel-assigned loopback port `55637`, which the
+              `ControlledStaticServer._spawn` bound via
+              `python -m http.server 55637 --directory
+              <fixture-web-root>`. The production FastAPI mount on
+              `127.0.0.1:8765` was never bound by the rehearsal.
+            - **Subset-only check passes**: `detect_subset_only`
+              returns `None` (full Tier-2 activation); every one of
+              the 26 §3.1 consumers carries
+              `replacement.path != current_path`.
+            - **Silent-fallback scan clean**: `scan_silent_fallback_paths`
+              against the on-disk `Makefile` + `api/server.py`
+              returns `[]` (no `WEB_DIR = ... "web/..."`
+              reassignment, no `web/`-targeting Makefile fallback
+              construct).
+            - **G3 Tier-2 verifier passes**: `run_g3_tier2` invokes
+              `scripts.verify_consumers.main(argv)` in-process
+              against the port-rewritten tmp manifest copy; the
+              verifier emits `CONSUMER-READINESS.json` under the
+              supplied `--out` dir and exits `0`.
+          - `cutover-rehearsal.json` is atomically emitted at
+            `openspec/changes/complete-taxa-frontend-migration/evidence/g6/cutover-rehearsal.json`
+            with the verified G6 contract: `gate: "G6"`,
+            `status: "ready"`, `activation_complete: true`,
+            `unselected_count: 0`, `silent_fallback_paths: []`,
+            `g3_tier2_exit_code: 0`, `consumer_readiness.all_selected:
+            true` (all 26 consumers present, every `replacement.status
+            == "selected"`, every `activation_status == "selected"`),
+            `captured_at: "2026-09-06T15:10:54Z"`. The tmp
+            port-rewritten manifest copy under `/tmp` is removed by
+            the rehearsal's `finally` block.
+          - The atomic cutover unit + rollback unit are consistent:
+            no subset-only subset detected, no silent fallback path
+            detected, every Tier-2 consumer is selected. The §Status
+            footer in `apply-progress.md` is flipped from
+            "blocked — ..." to "PASS recorded" via
+            `update_apply_progress_g6(...)` (idempotent — a
+            subsequent call is a no-op).
+
+- **§Pre-flight gate table update**: `G6 (cutover rehearsal)`:
+      `PASS recorded — cutover-rehearsal.json captured at
+      2026-09-06T15:10:54Z` (controlled port 55637 — never the
+      ambient FastAPI 8765; activation_complete true; all 26
+      §3.1 consumers selected; unselected_count 0;
+      silent_fallback_paths []; g3_tier2_exit_code 0); atomic
+      cutover unit + rollback unit consistent. (was:
+      `blocked — verifier authored; rehearsal fails closed
+      against the current source tree because the React
+      candidate (out/) is not yet built; close in a follow-up
+      apply attempt after npm run build:web succeeds`; the
+      `verifier not authored` wording pre-dated this entry.)
+- **§Status footer update**: `G6 (cutover rehearsal)` flipped to
+      `PASS recorded — cutover-rehearsal.json captured at
+      2026-09-06T15:10:54Z (see
+      openspec/changes/complete-taxa-frontend-migration/evidence/g6/cutover-rehearsal.json);
+      atomic cutover unit + rollback unit consistent; 0 silent
+      fallback paths detected; apply worker may proceed to PR
+      3e.` The flip is driven by
+      `scripts/rehearse_cutover.py::update_apply_progress_g6(...)`
+      on a real-rehearsal exit 0; the contract pins the flip to
+      a real-rehearsal exit 0 with no silent fallback paths.
+      G5 wording in the §Status footer is preserved verbatim
+      (`blocked — real captures are not reproducible under the
+      current protocol`); the G6 PASS flip does NOT relax G5
+      blocking language.
+- **`cutover-rehearsal.json` emitted**: at
+      `openspec/changes/complete-taxa-frontend-migration/evidence/g6/cutover-rehearsal.json`,
+      captured at `2026-09-06T15:10:54Z`, schema-conformant to the
+      G6 contract (`gate`, `status`, `captured_at`,
+      `manifest_path`, `activation_complete`, `unselected_count`,
+      `silent_fallback_paths`, `g3_tier2_exit_code`,
+      `consumer_readiness`). The artifact is the verified
+      authoritative evidence for the G6 PASS record above; it is
+      NOT pre-created and is emitted ONLY on a COMPLETE
+      rehearsal (full Tier-2 activation, G3 Tier-2 verifier
+      exit 0, zero silent fallback paths).
+
+        - **No production cutover, no web restoration, no backend / ETL /
+          extension changes, no commit, no push.** The Phase 6b footprint
+          is limited to the allowed edit surfaces listed in the
+          delegated task: `scripts/rehearse_cutover.py`,
+          `tests/test_rehearse_cutover.py`,
+          `openspec/changes/complete-taxa-frontend-migration/cutover-manifest.json`,
+          `openspec/changes/complete-taxa-frontend-migration/evidence/g6/.gitkeep`,
+          `openspec/changes/complete-taxa-frontend-migration/apply-progress.md`
+          (§Change log delta + G6 §Pre-flight gate + G6 §Status footer
+          update). The legacy fixture under
+          `tools/g3-legacy-fixture/web/`, the React app source under
+          `src/`, `next.config.mjs`, `package.json`, the build
+          artifact under `out/`, the predecessor
+          `openspec/changes/migrate-nextjs-tailwind4/**`, the FastAPI
+          `api/server.py`, and the Chrome extension under
+          `extension/**` are NOT modified by this attempt. The G3
+          Tier-2 verifier `scripts/verify_consumers.py` is NOT edited
+          (its existing public `main(argv)` interface is sufficient;
+          the orchestrator contract requires reporting a blocker
+          rather than expanding scope if the public interface made
+          sharing Tier-2 invocation impossible — it does not, so no
+          blocker is reported).
