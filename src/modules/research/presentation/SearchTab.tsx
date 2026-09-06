@@ -62,7 +62,13 @@ const CATEGORY_LABEL: Record<CategoryKey, string> = {
 };
 
 function enginesForCategory(category: CategoryKey): readonly Engine[] {
-  return SEARCH_ENGINES.filter((engine) => engine.category === category);
+  // SEARCH_ENGINES is the canonical JS catalog (`src/data/search-engines.js`);
+  // its `category` field is `string` at the JS layer. Narrow via the
+  // typed `Engine` shape — every entry in the catalog is already a
+  // valid `Engine` (CATEGORY_KEYS is the only allowed value).
+  return (SEARCH_ENGINES as readonly Engine[]).filter(
+(engine) => engine.category === category,
+  );
 }
 
 export function SearchTab({
