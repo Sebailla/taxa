@@ -1,0 +1,63 @@
+{
+  "baseline_path": "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-22-6a/web/dist/evidence-baseline.json",
+  "candidate_path": "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-22-6a/out/hydration-candidate.json",
+  "baseline_build": "legacy",
+  "candidate_build": "migrated",
+  "initial_paint_delta_pct": Infinity,
+  "interaction_latency_delta_pct": 33.33333333333333,
+  "initial_paint_baseline_ms": 0.0,
+  "initial_paint_candidate_ms": 1.0,
+  "interaction_latency_baseline_ms": 3.0,
+  "interaction_latency_candidate_ms": 4.0,
+  "regression": true,
+  "regressing_axes": [
+    "initial_paint",
+    "interaction_latency"
+  ],
+  "baseline_origin": "http://127.0.0.1:59691/",
+  "candidate_origin": "http://127.0.0.1:59603/",
+  "baseline_samples_retained": 5,
+  "candidate_samples_retained": 5,
+  "baseline_warmup_count": 1,
+  "candidate_warmup_count": 1,
+  "baseline_median_initial_paint_ms": 0.0,
+  "baseline_median_interaction_latency_ms": 3.0,
+  "candidate_median_initial_paint_ms": 1.0,
+  "candidate_median_interaction_latency_ms": 4.0,
+  "baseline": {
+    "samples": {
+      "tree_first_paint_ms": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "tree_first_interactive_ms": [
+        4.0,
+        3.0,
+        3.0,
+        3.0,
+        3.0
+      ]
+    }
+  },
+  "candidate": {
+    "samples": {
+      "tree_first_paint_ms": [
+        1.0,
+        3.0,
+        2.0,
+        0.0,
+        0.0
+      ],
+      "tree_first_interactive_ms": [
+        4.0,
+        5.0,
+        5.0,
+        3.0,
+        3.0
+      ]
+    }
+  }
+}
