@@ -808,7 +808,7 @@ every gate below is PASS:
 | G2 (foundation build) | **PASS recorded** against the verified Next 16.3.3 / Turbopack clean build | Predecessor `apply-progress.md` 2026-08-30 entry |
 | G3 Tier-1 (consumer readiness, legacy pre-cut) | **PASS recorded** — all 26 §3.1 consumers green via the controlled fixture, `scripts/verify_consumers.py` | Predecessor `apply-progress.md` (PR #109 + #111 + #115 + #116) |
 | G4 (Playwright + Lighthouse parity) | **blocked — verifier not authored**; must close in apply phase | Phase 6c — `scripts/g4_measure.sh` against the positions 1–9-landed candidate build |
-| G5 (hydration baseline) | **unreproducible — legacy baseline not on disk**; must be reconstructed or replaced during the apply phase | Phase 6a — `scripts/reconstruct_hydration_baseline.py` reads the predecessor's documented numbers from `design.md` §"Migration Evidence Baseline" |
+| G5 (hydration baseline) | **blocked — latest comparable capture exits 4 with regression** (three comparable real-capture verdicts were `ready`, `blocked`, `blocked`; ±1 ms variation at 0–4 ms makes the current median/percentage comparison non-reproducible). No G5 PASS or closure is authorized. | Phase 6a — `scripts/reconstruct_hydration_baseline.py` and `scripts/capture_hydration_candidate.py` provide the current HTTP/multi-sample captures; `scripts/g5_close.sh` writes the versioned `evidence/g5/{status,regression-report}.json`. Do not flip the gate until a new observable metric and versioned absolute tolerance/protocol are approved and rerun. |
 | G6 (cutover rehearsal) | **blocked — verifier not authored**; must close in apply phase | Phase 6b — `scripts/rehearse_cutover.py` dry-runs the atomic cutover unit against the activated working-copy manifest |
 
 **Cutover activation sequence** (when all six gates green):
@@ -830,8 +830,8 @@ every gate below is PASS:
    plan").
 5. Mark the cutover PR (child 16 / 16, targeting the PR 6c
    branch) ready for review and flip the gate-status footer
-   in §Status below from "blocked / unreproducible /
-   blocked" to "PASS recorded".
+   in §Status below from "blocked / blocked / blocked" to "PASS
+   recorded" only after each gate is independently verified.
 6. Merge PR 3e into the tracker — the chain is now complete.
    Take `docs/complete-taxa-frontend-migration-plan` **out
    of draft** and merge it to `develop` with a **merge
@@ -952,7 +952,7 @@ every gate below is PASS:
 | Reconstruction sequence interrupted; partial merge of the toolchain bootstrap + App Router sub-PRs leaves the project in an inconsistent state. | Medium | Each sub-PR's focused test passes independently of subsequent sub-PRs. Under the Feature Branch Chain no partial state can reach `develop`: children accumulate on the draft/no-merge tracker only. A stuck child blocks its successors inside the chain, never `develop`. |
 | Predecessor `migrate-nextjs-tailwind4/` directory accidentally edited during reconstruction; source files deviate from the frozen planning history. | High | Predecessor directory is marked read-only at filesystem level; CI / branch-protection rejects any PR that modifies it. Every sub-PR's PR body must include a `## Lo que NO cambió` section confirming the predecessor stayed byte-identical. |
 | Phase 6 validation work accidentally generates new `web/**` source, new `api/server.py` route handlers, or new `extension/**` files (violates the "validation only, not migration" contract). | Medium | Phase 6 tasks are constrained to `scripts/*` shims, measurement artifacts in `out/`, and `apply-progress.md` deltas. No `web/**`, `api/server.py` route handlers, or `extension/**` edits are permitted in Phase 6. The 5c.6 deletion lives in PR 5c, NOT in Phase 6. |
-| G5 reconstruction produces a baseline that drifts from the predecessor's documented numbers (the predecessor §3.3.5 audit lists the legacy baseline as **unreproducible**). | Medium | `scripts/reconstruct_hydration_baseline.py` reads the documented numbers verbatim from `openspec/changes/migrate-nextjs-tailwind4/design.md` §"Migration Evidence Baseline"; any drift is logged as a design.md risk-register update before G5 can flip. |
+| G5's current median/percentage hydration comparison is unstable at sub-millisecond scale; comparable runs produced **ready / blocked / blocked** verdicts with ±1 ms movement at 0–4 ms. | High | The latest evidence remains **blocked** (regression on `initial_paint` 0→1 ms and `interaction_latency` 3→4 ms; comparison exit 4). The risk-register disposition is a methodological-exception **request, not approval**: before G5 is reattempted, version a new observable hydration metric and a versioned absolute tolerance/protocol (including clock origin, sampling/outlier rules, units, and pass/fail aggregation). No G5 PASS, closure, or cutover activation is granted. |
 | G6 rehearsal fails closed (subset-only dry-run exits non-zero) and blocks the cutover. | Low | The fail-closed invariant is the spec — subset reverts break the SPA shell. PR 3e ships only when the full atomic rehearsal exits 0. |
 | G4 measurement exceeds the ≤ 0 % delta budget on initial paint or interaction latency. | Medium | `scripts/g4_measure.sh` records the delta; if it exceeds 0 %, the apply worker writes an exemption request into `design.md` §"Risk register" and the gate stays blocked until a maintainer signs off. |
 | Sub-PR 5b (research port + CDN pin) inflates the largest sub-PR to ~360 LoC; reviewers still see one focused work unit. | Low | Sub-PR 5b is one cohesive port of `web/{file_explorer,file_viewer,format,keymap}.js`; the research module's 5 × 4 layering matches the canonical modular-architecture spec. The 400-line budget holds with -40 LoC headroom. |
@@ -998,8 +998,15 @@ G3 Tier-2 (atomic-cut selection) **NOT PASSED** — gated by
 G4 + G5 + G6 closure. G4 (Playwright + Lighthouse parity)
 **blocked — verifier not authored**; must close in apply
 phase via Phase 6c. G5 (hydration baseline)
-**unreproducible — legacy baseline not on disk**; must be
-reconstructed or replaced during apply phase via Phase 6a.
+**blocked — real captures are not reproducible under the current
+protocol**. Three comparable runs produced `ready`, `blocked`, and
+`blocked` verdicts because the 0–4 ms measurements moved by ±1 ms;
+the latest captured evidence records baseline medians 0.0/3.0 ms,
+candidate medians 1.0/4.0 ms, regression on both axes, and
+comparison exit 4. The methodological-exception request recorded in
+`design.md` does not grant PASS or closure; G5 must be reattempted
+only after a new observable metric and versioned absolute
+tolerance/protocol are approved.
 G6 (cutover rehearsal) **blocked — verifier not authored**;
 must close in apply phase via Phase 6b. Predecessor
 `openspec/changes/migrate-nextjs-tailwind4/**` is **frozen**.
@@ -1133,8 +1140,8 @@ authoritative scope from `tasks.md`.
 > **Footer (apply phase flips)**: G1: PASS recorded · G2:
 > PASS recorded · G3 Tier-1: PASS recorded · G3 Tier-2: NOT
 > PASSED (gated) · G4: blocked — verifier not authored ·
-> G5: unreproducible — legacy baseline not on disk · G6:
-> blocked — verifier not authored. Footer flips to PASS
+> G5: blocked — latest comparable real capture regressed (three runs: ready / blocked / blocked; ±1 ms variance at 0–4 ms; no PASS authorized) ·
+> G6: blocked — verifier not authored. Footer flips to PASS
 > recorded for G4 / G5 / G6 only after Phase 6 closes and PR
 > 3e ships.
 
@@ -1328,8 +1335,349 @@ as historical context.
   slices.
 - **Authoring contract.** No code edit, no rebase, no new branch in
   this addendum; the next code worktree reads this addendum as
-  authoritative and re-slices 5b.1–5b.4 per the rules above. The
-  Spanish mirror lives at
-  `documents-es/.../{tasks-es.md,apply-progress-es.md,design-es.md}`
-  and carries the same semantics; any drift is resolved in favour of
-  the English.
+      authoritative and re-slices 5b.1–5b.4 per the rules above. The
+      Spanish mirror lives at
+      `documents-es/.../{tasks-es.md,apply-progress-es.md,design-es.md}`
+      and carries the same semantics; any drift is resolved in favour of
+      the English.
+
+### 2026-09-05 — Phase 6a attempt: G5 baseline harness shipped under environmental blocker (G5 NOT flipped)
+
+- **Harness shipped** (superseded by the next attempt below; retained for
+  audit only):
+  - `scripts/measure_hydration.py` extended compatibly with
+    `--baseline <b> --candidate <c> [--report-out <r>]` mode that
+    computes the percentage delta on `initial_paint` (= `client_render
+    .tree_first_paint_ms`) and `interaction_latency` (= `client_render
+    .tree_first_interactive_ms`). Exit code `4` fails closed on any
+    positive delta on either axis; exit code `0` requires both deltas
+    ≤ 0 %. The legacy single-positional `<path>` invocation is
+    preserved exactly (back-compat contract pinned by
+    `tests/test_hydration_timing.py::test_measure_hydration_back_compat_single_positional_artifact`).
+  - `scripts/reconstruct_hydration_baseline.py` (new) attempts a real
+    Playwright + Chromium capture against the **frozen, read-only**
+    `tools/g3-legacy-fixture/web/` fixture and emits a
+    schema-conformant artifact at `web/dist/evidence-baseline.json`.
+    When Playwright or Chromium is unavailable it writes a fail-closed
+    placeholder carrying `source: "unavailable"` and a `blocker` field
+    naming the missing dependency, then exits `3`. It NEVER invents
+    baseline numbers.
+  - `scripts/g5_close.sh` (new, executable) is the runtime harness:
+    runs `reconstruct_hydration_baseline.py`, runs `measure_hydration.py`
+    `--baseline`/`--candidate`/`--report-out` against
+    `out/hydration-candidate.json` when present, and writes a versioned
+    `status.json` under
+    `openspec/changes/complete-taxa-frontend-migration/evidence/g5/`.
+    The harness itself does NOT flip G5; it records `blocked` or
+    `ready` and leaves the gate flip to the apply worker per
+    `tasks.md` §Cutover activation sequence step 5.
+  - `openspec/changes/complete-taxa-frontend-migration/evidence/g5/
+    .gitkeep` (new) tracks the versioned evidence directory.
+
+- **Strict-TDD evidence** (`tests/test_hydration_timing.py`):
+  - 22 tests pass: 11 pre-existing + 11 new Phase 6a tests covering
+    back-compat, baseline/candidate report, fail-closed regression
+    detection, JSON report output, flag-misuse, reconstruction
+    harness fail-closed contract, g5_close.sh existence + executability,
+    evidence directory versioned marker, and the environmental-blocker
+    status.json contract. Captured fixture numbers used by the new tests
+    are schema-correct test inputs, NOT G5 evidence.
+  - Triangulation probe (19/19 PASS): identical inputs, improvement,
+    regression on `initial_paint` only, regression on
+    `interaction_latency` only, malformed baseline JSON,
+    schema-violating baseline, missing baseline file, positional+flag
+    usage error, no-args usage error, reconstruction without
+    Playwright, and `g5_close.sh` environmental-blocker status.json.
+
+- **Environmental blocker (this attempt)**: the apply worker's Python
+  environment does NOT have Playwright installed
+  (`python3 -c "import playwright"` raises `ModuleNotFoundError`). The
+  reconstruction script therefore emits the fail-closed placeholder
+  and `g5_close.sh` records G5 as `blocked` with the blocker field:
+  `playwright Python package is not importable (playwright); install
+  with \`pip install -r requirements-dev.txt\` and \`playwright
+  install chromium\`.`
+- **G5 NOT flipped**: per the fail-closed contract, the gate stays
+  `unreproducible — legacy baseline not on disk` (the §Status footer)
+  until both preconditions are satisfied: a real
+  `web/dist/evidence-baseline.json` with `source: "captured"` AND a
+  baseline-vs-candidate comparison that exits `0`. The captured
+  `evidence/g5/status.json` from this attempt is the audit trail.
+
+    - **No production cutover, no web restoration, no backend / ETL /
+      extension changes, no commit, no push.** The Phase 6a footprint is
+      limited to the allowed edit surfaces listed in the delegated task.
+
+### 2026-09-05 — Phase 6a attempt: candidate capture extended; legacy baseline REAL; build failed closed (G5 NOT flipped)
+
+- **Harness extension (this attempt)**:
+  - `scripts/capture_hydration_candidate.py` (new, executable) is the
+    minimal Phase 6a extension that closes the candidate half of the
+    G5 closure. It starts an in-process local static HTTP server that
+    serves the React candidate build (`out/`) on a kernel-assigned
+    loopback port, drives Playwright + Chromium against it, and emits
+    `out/hydration-candidate.json` whose schema is identical to the
+    legacy baseline pinned by `tests/test_hydration_timing.py`.
+    The static server is torn down on every exit path (success,
+    failure, exception, Ctrl-C); no listener leaks between runs.
+    The harness is fail-closed: any failure path (missing build_dir,
+    missing `index.html`, Playwright import failure, Chromium
+    probe failure, server bind failure, capture exception) writes a
+    schema-conformant placeholder with `source: "unavailable"` plus
+    a `blocker` field naming the failure mode, then exits non-zero.
+    The harness NEVER invents candidate numbers.
+  - `scripts/g5_close.sh` (extended) now invokes the candidate capture
+    as Step 2 of four when `out/` exists but `out/hydration-candidate.json`
+    is missing; the existing baseline reconstruction, comparison,
+    and verdict-recording steps are preserved. Step 2 is gated on
+    `--build-dir` (env `G5_BUILD_DIR`, default `out/`) and is skipped
+    if `out/` is absent. The harness STILL does NOT flip G5; it records
+    `blocked` or `ready` and leaves the gate flip to the apply worker.
+  - `tests/test_hydration_timing.py` (extended):
+    - The pre-existing `monkeypatch` approach to hide playwright from
+      the subprocess is fundamentally broken (the parent-process patch
+      does not propagate to a fresh subprocess); the test was failing
+      now that playwright IS installed. Replaced with a poisoned
+      `PYTHONPATH` rig (a `playwright.py` shadow module that raises
+      `ImportError`) plus `PYTHONNOUSERSITE=1` so the
+      fail-closed contract is testable in both states.
+    - Three new tests cover the candidate capture path:
+      `test_capture_hydration_candidate_script_exists`,
+      `test_capture_hydration_candidate_fails_closed_without_playwright`,
+      `test_capture_hydration_candidate_fails_closed_without_build_dir`,
+      plus
+      `test_g5_close_sh_writes_candidate_source_in_status` for the
+      new Step 2 status-record contract.
+
+- **Strict-TDD evidence** (`tests/test_hydration_timing.py`):
+  - **29 tests pass** (26 prior + 3 candidate-path tests; the broken
+    monkeypatch test was fixed in-place by replacing it with the
+    poisoned-PYTHONPATH rig, not by adding a new test). Captured
+    fixture numbers used by the new tests are schema-correct test
+    inputs, NOT G5 evidence.
+  - Triangulation probes (all PASS): identical inputs, improvement,
+    regression on `initial_paint` only, regression on
+    `interaction_latency` only, malformed baseline JSON,
+    schema-violating baseline, missing baseline file, positional+flag
+    usage error, no-args usage error, reconstruction without
+    Playwright (legacy), reconstruction with a missing build_dir
+    (legacy), candidate capture without Playwright, candidate
+    capture with a missing build_dir, and `g5_close.sh`
+    environmental-blocker status.json.
+
+- **Real legacy baseline captured (this attempt)**: the apply
+  worker's Python environment now has Playwright 1.62.0 installed
+  (system site-packages), so the legacy baseline capture in
+  `reconstruct_hydration_baseline.py` succeeds against the frozen
+  fixture and emits a real artifact:
+  `web/dist/evidence-baseline.json` carries `source: "captured"`,
+  `first_paint_ms: 1.0`, `dom_content_loaded_ms: 15.0`,
+  `tree_first_paint_ms: 1.0`,
+  `tree_first_interactive_ms: 15.0`, `console_warnings: []`,
+  `fixture_web_root: tools/g3-legacy-fixture/web`. The previously
+  blocking environmental condition (no Playwright) is resolved.
+
+- **`npm ci` + `npm run build:web` outcome (this attempt)**: the
+  React candidate build FAILS to produce an `out/` directory because
+  of pre-existing TypeScript errors in
+  `src/modules/research/presentation/{FileExplorer,FileViewer,
+  SearchTab}.tsx` (the 5b research module that the positions 1-12
+  chain landed with). The build exits `1` after `Failed to type
+  check.` with seven TS errors (`TS2724` missing
+  `WireFileNode` export, `TS7006` implicit any,
+  `TS2739` `TreeRowProps` shape, `TS6133` unused variable,
+  `TS2322` iframe `type` attribute, `TS2322` `Node | null`, and
+  `TS2322` `readonly Engine[]` `category` mismatch). The errors
+  are scoped to PR 5b, NOT to the Phase 6a harness; per the
+  delegation contract ("Do not modify production app behavior,
+  backend APIs, fixtures") they cannot be patched here. The build
+  does not produce `out/index.html` (or any HTML), so the candidate
+  capture cannot run.
+
+- **`g5_close.sh` outcome (this attempt)**: the runtime harness
+  exits `2` (precondition not met) because `out/` is absent.
+  Captured `evidence/g5/status.json` records:
+  - `gate: "G5"`, `status: "blocked"`,
+  - `baseline_source: "captured"` (legacy baseline IS real),
+  - `baseline_path: web/dist/evidence-baseline.json`,
+  - `candidate_path: null`,
+  - `regression: null`,
+  - `blocker: "no candidate artifact available; the positions 1-12-landed candidate build has not yet been captured by the apply worker. Run the candidate capture (out/hydration-candidate.json) and re-run scripts/g5_close.sh."`
+  The harness's exit code reflects the verdict (non-zero) so the
+  apply worker can chain on it. The blocker is the candidate build,
+  not Playwright or any other environmental condition.
+
+- **G5 NOT flipped**: per the fail-closed contract, the gate stays
+  blocked. The blocker is now narrower than the prior attempt: the
+  legacy baseline IS captured and reproducible; the only remaining
+  precondition is a candidate build that the current source tree
+  cannot produce until PR 5b's TypeScript errors are resolved (out
+  of Phase 6a scope). The §Status footer below reflects the new
+  state without flipping G5 to PASS.
+
+- **§Status footer update**: `G5: blocked — baseline captured; candidate build failed (PR 5b TS errors)` (was: `G5: unreproducible — legacy baseline not on disk`). No other footer flips.
+
+    - **No production cutover, no web restoration, no backend / ETL /
+      extension changes, no commit, no push.** The Phase 6a footprint
+      is limited to the allowed edit surfaces listed in the delegated
+      task. The candidate capture script lives entirely inside
+      `scripts/` + `tests/`; the React app source under `src/`,
+      `next.config.mjs`, `package.json`, and the legacy fixture under
+      `tools/g3-legacy-fixture/web/` are unchanged.
+
+    ### 2026-09-06 — Phase 6a re-baseline: one run reported ready, but comparable real captures are unstable; G5 remains blocked
+
+    - **Re-baseline scope (this attempt)**: the previous Phase 6a
+      harness was partial — the legacy baseline ran over ``file://``
+      with a single sample, and the React candidate ran over HTTP with
+      a single sample. Apples-to-apples comparison was impossible.
+      This attempt deepens both legs so the comparison is meaningful:
+      - **`scripts/reconstruct_hydration_baseline.py`** now serves the
+        frozen G3 fixture (`tools/g3-legacy-fixture/web/`) via an
+        in-process loopback HTTP server (mirror of the candidate's
+        contract — ``file://`` navigation is forbidden because it
+        would diverge from the candidate's HTTP origin and disable
+        ``fetch`` + ES-module loading for the React build). Captures
+        1 warm-up + 5 retained samples per metric by default
+        (``--samples-retained 5`` / ``--warmup-count 1``), reduces
+        each retained array to its empirical median via
+        ``statistics.median``, and writes a multi-sample artifact
+        with `samples`, `warmup_samples`, `median`, `samples_retained`,
+        `warmup_count`, and `origin` (the loopback URL the capture
+        was driven against). The legacy back-compat single-point
+        fields (`server_shell` / `client_render`) are populated with
+        the median values verbatim so consumers that don't yet
+        understand the multi-sample schema keep working.
+      - **`scripts/capture_hydration_candidate.py`** mirrors the same
+        multi-sample + HTTP + median contract for the React build
+        served out of `out/`. Same default CLI flags.
+      - **`scripts/measure_hydration.py`** validator accepts the new
+        multi-sample fields (and rejects `< 3` retained samples so the
+        variance-reduction contract is enforced). The comparison
+        prefers `median.client_render.*` over the legacy back-compat
+        `client_render.*` values; a mixed scenario (one artifact with
+        median, one without) uses the appropriate source per leg.
+        The `--report-out` JSON now carries `baseline_median_*` /
+        `candidate_median_*` / `baseline_samples_retained` /
+        `candidate_samples_retained` / `baseline_warmup_count` /
+        `candidate_warmup_count` / `baseline_origin` /
+        `candidate_origin` / `baseline.samples.*` /
+        `candidate.samples.*` so a reviewer can audit the variance
+        reduction from the report alone.
+
+    - **Strict-TDD evidence** (`tests/test_hydration_timing.py`):
+      - **42 tests pass** (29 prior + 13 new Phase 6a re-baseline
+        tests). All `RED` tests were observed to fail against the
+        pre-revision single-sample harness before the GREEN
+        implementation landed:
+        - `test_measure_hydration_accepts_multi_sample_artifact`
+          (schema contract);
+        - `test_measure_hydration_rejects_at_least_3_samples_violation`
+          (variance-reduction guard);
+        - `test_measure_hydration_comparison_uses_median_when_present`
+          (median-precedence contract);
+        - `test_measure_hydration_backcompat_single_point_artifact_no_median`
+          (single-point back-compat);
+        - `test_measure_hydration_mixed_single_and_multi_uses_appropriate_metric`
+          (mixed scenario);
+        - `test_measure_hydration_regression_report_includes_median_metadata`
+          (report enrichment);
+        - `test_reconstruct_hydration_baseline_uses_http_server_not_file_uri`
+          (HTTP origin contract for the baseline);
+        - `test_reconstruct_hydration_baseline_runs_multiple_samples`
+          (multi-sample + median + warmup references in source);
+        - `test_capture_hydration_candidate_runs_multiple_samples`
+          (same for the candidate);
+        - `test_reconstruct_hydration_baseline_default_samples_retained_is_5`
+          / `test_reconstruct_hydration_baseline_default_warmup_count_is_1`
+          / `test_capture_hydration_candidate_default_samples_retained_is_5`
+          / `test_capture_hydration_candidate_default_warmup_count_is_1`
+          (CLI defaults pinned).
+      - Triangulation probes (all PASS): empirical-median correctness
+        for both odd-length (5) samples arrays, regression detection
+        via median exits 4 fail-closed, mixed single+multi, single-
+        point back-compat, multi-sample schema rejection of `< 3`
+        retained samples, source-code contracts for HTTP / multi-
+        sample / defaults.
+
+    - **`npm run build:web` outcome (this attempt)**: build exits 0;
+      `out/index.html` regenerated. The previously-blocking PR 5b
+      TypeScript errors are resolved in the current source tree (the
+      Tailwind 4 `@theme` parser warning is non-fatal and Next 16 /
+      Turbopack emits the static export anyway).
+
+    - **Real capture + g5_close outcome (this attempt)**:
+      - `scripts/reconstruct_hydration_baseline.py` exits 0
+        (Playwright 1.62.0 + Chromium binary both available). The
+        produced `web/dist/evidence-baseline.json` carries
+        `source: "captured"`, `origin: "http://127.0.0.1:<port>/"`,
+        `samples.{server_shell,client_render}.*` (5-element arrays),
+        `warmup_samples.*` (1-element arrays), `median.*`,
+        `samples_retained: 5`, `warmup_count: 1`.
+      - `scripts/capture_hydration_candidate.py` exits 0. The
+        produced `out/hydration-candidate.json` carries the same
+        multi-sample schema (5 retained samples per metric, 1 warm-up,
+        HTTP origin).
+      - `scripts/g5_close.sh` exits 0; the comparison reports:
+        - `initial_paint_delta_pct: 0.0` (baseline median =
+          candidate median — both legs render the static shell in
+          under 1ms; the variance reduction collapses the previous
+          single-sample noise to a tie).
+        - `interaction_latency_delta_pct: -25.0%` (negative delta =
+          improvement: candidate median < baseline median).
+        - `regression: false`, `regressing_axes: []`.
+      - At that moment, `evidence/g5/status.json` recorded
+        `status: "ready"`, `regression: false`, and no `blocker`
+        field. This is transient evidence only, not a G5 closure: the
+        latest comparable evidence supersedes it and remains
+        `status: "blocked"`, `regression: true`, with a `blocker`
+        naming the regression.
+      - `evidence/g5/regression-report.json` carries the full
+        multi-sample contract: median values per leg, sample counts
+        (5 / 5), warmup counts (1 / 1), HTTP origins (loopback URLs
+        from each capture run), and the raw retained samples for
+        both `tree_first_paint_ms` and `tree_first_interactive_ms`
+        per leg.
+
+    - **Harness verdict / supersession**: The first multi-sample
+      run exited 0 and transiently produced a ready verdict. Across
+      three comparable real-capture runs, verdicts were `ready`,
+      `blocked`, and `blocked`; the 0–4 ms metrics moved by ±1 ms,
+      so the percentage/median comparison is not reproducible. The
+      latest `evidence/g5/status.json` captured at
+      `2026-09-06T01:37:38Z` is `blocked` (baseline medians
+      0.0/3.0 ms, candidate medians 1.0/4.0 ms; regression on
+      `initial_paint` and `interaction_latency`; comparison exit 4).
+      The `ready` result is audit history only: no G5 PASS, status
+      flip, or cutover authorization is granted.
+
+    - **Current §Pre-flight gate table update**: `G5 (hydration
+      baseline)`: `blocked — latest comparable capture exits 4 with
+      regression; three runs were ready / blocked / blocked; ±1 ms
+      variance at 0–4 ms makes the current comparison
+      non-reproducible. No G5 PASS is authorized until a new
+      observable metric and versioned absolute tolerance/protocol
+      are approved.` (The prior `ready` wording is superseded by
+      this current disposition.)
+    - **Current §Status footer update**: `G5: blocked — latest
+      comparable real capture regressed (ready / blocked / blocked
+      across three runs; ±1 ms at 0–4 ms); no PASS or closure
+      authorized.` No G5 footer flip is made.
+    - **Methodological exception request**: `design.md` §"G5 —
+      hydration baseline" records the request for a new observable
+      hydration metric and a versioned absolute tolerance/protocol.
+      The request is **NOT approval**, does not waive the current
+      ≤0 % threshold, and does not grant G5 PASS or closure.
+
+    - **No production cutover, no web restoration, no backend / ETL /
+      extension changes, no commit, no push.** The Phase 6a
+      re-baseline footprint is limited to the allowed edit surfaces
+      listed in the delegated task. The legacy fixture under
+      `tools/g3-legacy-fixture/web/` stays byte-identical frozen
+      (the HTTP server reads it but does not modify it). The React
+      app source under `src/`, `next.config.mjs`, `package.json`,
+      and the build artifact under `out/` are owned by the upstream
+      chain (positions 1–9 / 1–12); this attempt only consumes the
+      `out/` artifact produced by `npm run build:web` and writes the
+      `out/hydration-candidate.json` measurement artifact next to
+      it.
