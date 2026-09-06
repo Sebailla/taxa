@@ -140,11 +140,18 @@ function IframeBody({
   // Sandbox attribute on the iframe: the bare string `""` is the
   // strongest sandbox (no allow-* tokens), which is exactly what
   // the legacy contract wanted for HTML files served from disk.
+  // The PDF iframe also stamps `type="application/pdf"` (MIME hint
+  // for browsers to render inline vs. download). React's
+  // `IframeHTMLAttributes` does not declare `type` — the spread
+  // bypasses the type check via `any`.
+  const iframeExtraProps = format === "pdf"
+    ? ({ type: "application/pdf" } as Record<string, string>)
+    : ({} as Record<string, string>);
   return (
     <iframe
+      {...iframeExtraProps}
       src={url}
       title={title}
-      type={format === "pdf" ? "application/pdf" : undefined}
       sandbox={sandbox ? "" : undefined}
       className={className}
       data-viewer-iframe-format={format}
@@ -206,8 +213,8 @@ function SvgBody({
         el.querySelectorAll("script").forEach((n) => n.remove());
         // Strip every on* attribute (onload / onclick / onerror / ...).
         const walker = doc.createTreeWalker(el, NodeFilter.SHOW_ELEMENT);
-        let node = walker.currentNode;
-        while (node) {
+        let node: Node | null = walker.currentNode;
+        while (node !== null) {
           for (const attr of [...(node as Element).attributes]) {
             if (/^on/i.test(attr.name)) {
               (node as Element).removeAttribute(attr.name);
@@ -331,9 +338,14 @@ export function FileViewer({
   // useFileViewer is the single source of truth for descriptor, serveUrl,
   // cdnReady, cdnError. When `file` is null the hook returns a fully
   // idle state — descriptor null, serveUrl null, cdnReady true.
-  const { descriptor, serveUrl, cdnReady, cdnError } = useFileViewer({
+  const { serveUrl, cdnReady, cdnError } = useFileViewer({
     baseUrl, taxonId, file,
   });
+  // Resolve the typed descriptor via the 5b.2 dispatcher — the hook
+  // uses the same helper internally; computing it here directly pins
+  // the contract (the renderer dispatches on the same shape the helper
+  // emits) and avoids relying on the hook's wrapper.
+  const descriptor = file !== null ? resolveViewerDescriptor(file) : null;
 
   if (file === null || descriptor === null) {
     return (

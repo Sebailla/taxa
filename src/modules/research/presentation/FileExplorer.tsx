@@ -24,6 +24,7 @@ import {
   useFileExplorer,
   type ExplorerSearchState,
   type ExplorerViewerTab,
+  type FileFormat,
   type ViewerFile,
   type WireFileNode,
 } from "@taxa/research";
@@ -40,11 +41,17 @@ interface FolderRowProps {
   readonly depth: number;
   readonly matches: ReadonlySet<string>;
   readonly selectedFolderPath: string | null;
+  readonly selectedFilePath: string | null;
   readonly onSelectFolder: (path: string) => void;
+  /** Open the file in the viewer (double-click). */
+  readonly onOpenFile: (node: WireFileNode & { type: "file" }) => void;
+  /** Update selection state (single-click). */
+  readonly onSelectFile: (node: WireFileNode & { type: "file" }) => void;
 }
 
 function FolderRow({
-  node, depth, matches, selectedFolderPath, onSelectFolder,
+  node, depth, matches, selectedFolderPath, selectedFilePath,
+  onSelectFolder, onOpenFile, onSelectFile,
 }: FolderRowProps): ReactElement {
   const isSelected = node.path === selectedFolderPath;
   return (
@@ -84,7 +91,10 @@ function FolderRow({
             depth={depth + 1}
             matches={matches}
             selectedFolderPath={selectedFolderPath}
+            selectedFilePath={selectedFilePath}
             onSelectFolder={onSelectFolder}
+            onOpenFile={onOpenFile}
+            onSelectFile={onSelectFile}
           />
         ))}
       </div>
@@ -163,7 +173,10 @@ function TreeRow(props: TreeRowProps): ReactElement {
         depth={props.depth}
         matches={props.matches}
         selectedFolderPath={props.selectedFolderPath}
+        selectedFilePath={props.selectedFilePath}
         onSelectFolder={props.onSelectFolder}
+        onOpenFile={props.onOpenFile}
+        onSelectFile={props.onSelectFile}
       />
     );
   }
@@ -455,7 +468,7 @@ export function FileExplorer({
               onSelectFile={() => {
                 /* selection is driven by openFile path, see useFileExplorer */
               }}
-              onOpenFile={(node) => hook.openFile(node.path, node.extension)}
+              onOpenFile={(node) => hook.openFile(node.path, node.extension as FileFormat | null)}
             />
       </div>
       <div className="file-viewer-pane" data-pane="viewer">

@@ -2,8 +2,8 @@
 // realm-mapping helper. PR 5b.4 ADDS the realm surface — never
 // removes or reorders predecessors.
 
-export type { FileFormat, ResearchFile } from "./research-file";
-export { FILE_FORMATS, isValidFileFormat, isValidResearchFile } from "./research-file";
+export type { FileFormat, ResearchFile, WireFileNode, FilesEnvelope } from "./research-file";
+export { FILE_FORMATS, isValidFileFormat, isValidResearchFile, isValidFilesEnvelope } from "./research-file";
 export type { Category, CategoryKey, Engine } from "./engine";
 export { CATEGORY_KEYS, isValidCategory, isValidCategoryKey, isValidEngine } from "./engine";
 export type { FileNode } from "./file-node";
