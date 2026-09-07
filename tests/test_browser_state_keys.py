@@ -31,14 +31,17 @@ STORE_FILE = MODULE_ROOT / "infrastructure" / "store.ts"
 BARREL = MODULE_ROOT / "index.ts"
 
 
-# Pinned four-key contract. The full literal string is part of the public
-# contract: a regression that drifts the namespace (e.g. `taxa.theme`
-# instead of `taxa.settings.theme`) silently misroutes writes.
+# Pinned five-key contract (PR 5c.1a extends PR 4a's four-key contract by
+# adding the typed boolean `versionBannerDismissed`). The full literal string
+# is part of the public contract: a regression that drifts the namespace
+# (e.g. `taxa.theme` instead of `taxa.settings.theme`) silently misroutes
+# writes.
 EXPECTED_KEYS: tuple[tuple[str, str], ...] = (
-    ("theme",       "taxa.settings.theme"),
-    ("treeSource",  "taxa.tree.source"),
-    ("lastTaxonId", "taxa.tree.lastTaxonId"),
-    ("kebabOpenId", "taxa.tree.kebabOpenId"),
+    ("theme",                  "taxa.settings.theme"),
+    ("treeSource",             "taxa.tree.source"),
+    ("lastTaxonId",            "taxa.tree.lastTaxonId"),
+    ("kebabOpenId",            "taxa.tree.kebabOpenId"),
+    ("versionBannerDismissed", "taxa.settings.versionBannerDismissed"),
 )
 
 
@@ -100,18 +103,19 @@ def test_pr4a_layer_files_exist(path: Path):
 
 
 # ===========================================================================
-# Four-key typed literals + defaults.
+# Five-key typed literals + defaults (PR 5c.1a extends PR 4a).
 # ===========================================================================
-def test_keys_object_declares_exactly_four_pinned_literals():
-    """`BROWSER_STATE_KEYS` MUST have exactly the four pinned entries
-    with the exact literal strings — a typo or rename here is silently
-    data-corrupting on existing localStorage data."""
+def test_keys_object_declares_exactly_five_pinned_literals():
+    """`BROWSER_STATE_KEYS` MUST have exactly the five pinned entries
+    (PR 5c.1a adds `versionBannerDismissed`) with the exact literal
+    strings — a typo or rename here is silently data-corrupting on
+    existing localStorage data."""
     text = _read(KEYS_FILE)
     block = re.search(r"BROWSER_STATE_KEYS\s*=\s*\{([^}]*)\}", text, flags=re.DOTALL)
     assert block, "BROWSER_STATE_KEYS object literal not found"
     quoted = re.findall(r'"([^"]+)"', block.group(1))
     expected = [literal for _, literal in EXPECTED_KEYS]
-    assert len(quoted) == 4, f"expected 4 literals, got {quoted}"
+    assert len(quoted) == 5, f"expected 5 literals, got {quoted}"
     assert sorted(quoted) == sorted(expected), (
         f"BROWSER_STATE_KEYS literals drifted: expected {expected}, got {quoted}"
     )
@@ -152,16 +156,16 @@ def test_barrel_reexports_keys_and_defaults():
 
 
 # ===========================================================================
-# 4 + 4 call-site contract (tasks.md §Phase 4.1).
+# 5 + 5 call-site contract (PR 5c.1a extends PR 4a's 4 + 4 contract).
 # ===========================================================================
-def test_exactly_four_getitem_callsites_under_src():
-    """Tasks.md §Phase 4.1: the store is the ONLY localStorage layer,
-    with exactly four `getItem(` callsites, one per pinned key, all in
-    `infrastructure/store.ts`. Splitting across files would break the
-    4 + 4 invariant."""
+def test_exactly_five_getitem_callsites_under_src():
+    """Tasks.md §Phase 4.1 (extended by PR 5c.1a): the store is the
+    ONLY localStorage layer, with exactly five `getItem(` callsites,
+    one per pinned key, all in `infrastructure/store.ts`. Splitting
+    across files would break the 5 + 5 invariant."""
     occurrences = _callsites(SRC_ROOT, "getItem(")
-    assert len(occurrences) == 4, (
-        f"expected exactly 4 getItem( callsites under src/; "
+    assert len(occurrences) == 5, (
+        f"expected exactly 5 getItem( callsites under src/; "
         f"found {len(occurrences)}: "
         f"{[(p.relative_to(REPO_ROOT).as_posix(), ln) for p, ln in occurrences]}"
     )
@@ -177,12 +181,12 @@ def test_exactly_four_getitem_callsites_under_src():
         )
 
 
-def test_exactly_four_setitem_callsites_under_src():
-    """Mirror of the getItem contract — same 4 + 4 shape, same single-file
+def test_exactly_five_setitem_callsites_under_src():
+    """Mirror of the getItem contract — same 5 + 5 shape, same single-file
     location invariant."""
     occurrences = _callsites(SRC_ROOT, "setItem(")
-    assert len(occurrences) == 4, (
-        f"expected exactly 4 setItem( callsites under src/; "
+    assert len(occurrences) == 5, (
+        f"expected exactly 5 setItem( callsites under src/; "
         f"found {len(occurrences)}: "
         f"{[(p.relative_to(REPO_ROOT).as_posix(), ln) for p, ln in occurrences]}"
     )
@@ -241,6 +245,73 @@ def test_domain_has_no_forbidden_token(token: str):
 
 
 # ===========================================================================
+# PR 5c.1a typed-foundation deltas — TreeSource extends to `freshwater` and
+# the boolean `versionBannerDismissed` defaults to `false`.
+# ===========================================================================
+def test_tree_source_validator_accepts_freshwater():
+    """PR 5c.1a extends `TreeSource` to `col | worms | freshwater`. The
+    type guard in `domain/keys.ts` MUST accept `freshwater` so the React
+    layer (PR 5c.1b) can persist the user's choice. Source-level check
+    keeps the test hermetic — no need to import the TS module."""
+    text = _read(KEYS_FILE)
+    assert '"freshwater"' in text, (
+        "keys.ts must extend the TreeSource union literal with 'freshwater'; "
+        "PR 5c.1b's tree-source UI requires the validator to accept it."
+    )
+    # Validator body MUST include the new literal alongside `col` / `worms`.
+    m = re.search(
+        r"isValidTreeSource\s*\([^)]*\)\s*:\s*value\s+is\s+TreeSource\s*\{([\s\S]*?)\}",
+        text,
+    )
+    validator_body = m.group(1) if m else ""
+    assert "freshwater" in validator_body, (
+        "isValidTreeSource must return true for the 'freshwater' literal; "
+        "extending TreeSource without updating the validator is data-corrupting."
+    )
+
+
+def test_version_banner_dismissed_defaults_to_false():
+    """PR 5c.1a adds the boolean `versionBannerDismissed` key. The default
+    MUST be `false` so first-paint users see the banner (PR 5c.1b renders
+    the UI). The literal name MUST be typed as a boolean field on the
+    value map."""
+    text = _read(KEYS_FILE)
+    # Defaults row — must declare the boolean short name with `false`.
+    defaults_block = re.search(
+        r"BROWSER_STATE_DEFAULTS\b[^=]*=\s*\{([^}]+)\}", text, flags=re.DOTALL
+    )
+    assert defaults_block, "BROWSER_STATE_DEFAULTS object literal not found"
+    body = defaults_block.group(1)
+    m = re.search(
+        r"\bversionBannerDismissed\s*:\s*([^,\n]+)", body
+    )
+    assert m, (
+        "BROWSER_STATE_DEFAULTS must declare `versionBannerDismissed: false`"
+    )
+    assert m.group(1).strip() == "false", (
+        f"versionBannerDismissed default must be literal `false`, got "
+        f"{m.group(1).strip()!r}"
+    )
+    # Value map MUST type the field as boolean. The interface body sits
+    # directly under `interface BrowserStateValueMap { ... }`; we anchor
+    # on the `interface` keyword so we don't accidentally capture the
+    # BROWSER_STATE_DEFAULTS annotation that ALSO carries the same name.
+    value_map_block = re.search(
+        r"interface\s+BrowserStateValueMap\s*\{([^}]+)\}",
+        text,
+        flags=re.DOTALL,
+    )
+    assert value_map_block, "BrowserStateValueMap interface literal not found"
+    m = re.search(
+        r"\bversionBannerDismissed\s*:\s*([^;\n]+)", value_map_block.group(1)
+    )
+    assert m, "BrowserStateValueMap must declare `versionBannerDismissed`"
+    assert "boolean" in m.group(1), (
+        f"versionBannerDismissed must be typed as boolean, got {m.group(1)!r}"
+    )
+
+
+# ===========================================================================
 # Public barrel hygiene — typed APIs only, never raw localStorage.
 # ===========================================================================
 def test_barrel_does_not_mention_localstorage():
@@ -283,12 +354,12 @@ def test_fex_tree_width_is_not_a_browser_state_key():
 
 
 # ===========================================================================
-# Store surface — 4 typed getters + 4 typed setters + subscribe + reset.
+# Store surface — 5 typed getters + 5 typed setters + subscribe + reset.
 # ===========================================================================
-def test_store_exposes_eight_mutators_and_listener():
-    """Pins the public store surface: 4 typed getters, 4 typed setters,
-    a `subscribe(listener)` registration, and a `reset()` action. The
-    regex matches every `camelCase(` token; we filter the
+def test_store_exposes_ten_mutators_and_listener():
+    """Pins the public store surface (PR 5c.1a): 5 typed getters, 5
+    typed setters, a `subscribe(listener)` registration, and a `reset()`
+    action. The regex matches every `camelCase(` token; we filter the
     infrastructure-internal helpers (`getBrowserStorage`, `getItem`,
     `setItem`) so the assertion reflects the public surface, not the
     import list."""

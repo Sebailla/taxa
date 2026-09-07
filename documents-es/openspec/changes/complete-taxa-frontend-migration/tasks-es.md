@@ -2028,6 +2028,29 @@ inline legacy de 1.963 líneas ha sido migrado a
 `src/app/globals.css` de extremo a extremo y está listo
 para retirarse).
 
+**Re-rebanado de PR 5c (esta entrada, supersede la enumeración
+in-line 5c.1–5c.7 para el próximo worktree de código)**. Los siete
+sub-PRs TDD de abajo colapsan en una única rebanada **`5c.1b`
+(diferida)** para que la fundación tipada pueda aterrizar primero.
+El registro de evidencia vive en `apply-progress-es.md` §registro
+de cambios entrada "2026-09-07 — PR 5c.1a: fundación tipada de
+browser-state aterrizada"; la adenda vinculante vive en
+`design-es.md`; **G4 permanece bloqueada**.
+
+- [x] **5c.1a (aterrizada)** — fundación tipada:
+      `versionBannerDismissed: "taxa.settings.versionBannerDismissed"`
+      (booleano, default `false`); `TreeSource` se extiende a
+      `col | worms | freshwater`; contrato de llamadas de
+      almacenamiento **5 + 5** restaurado (1 `getItem(` inline + 1
+      `setItem(` inline para la nueva llave, todos en
+      `infrastructure/store.ts`); 27/27 tests pasan bajo TDD
+      estricto.
+- [ ] **5c.1b (diferida)** — integración React del banner + UI de
+      fuente de árbol + actualizaciones de selectores E2E; sin
+      cambios en `domain/keys.ts` / `infrastructure/store.ts`.
+- [ ] **5c.2 (diferida)** — cableado de research / search / folder;
+      sin cambios en `domain/keys.ts` / `infrastructure/store.ts`.
+
 - [ ] 5c.1 R — `tests/test_e2e_file_explorer.py`
       (modificado, el test existe pero los selectores son
       anteriores al árbol de componentes React): verifica

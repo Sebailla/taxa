@@ -1789,6 +1789,26 @@ parity test is on disk; the 1,963-line legacy inline CSS has
 been migrated into `src/app/globals.css` end-to-end and is
 ready to be retired).
 
+**PR 5c re-split (this entry, supersedes the inline 5c.1–5c.7 enumeration
+for the next code worktree)**. The seven-TDD sub-PRs below collapse
+into a single **`5c.1b` (deferred)** UI slice so the typed foundation
+can land first. Evidence record lives in `apply-progress.md` §Change
+log entry "2026-09-07 — PR 5c.1a: typed browser-state foundation
+landed"; binding addendum lives in `design.md`; **G4 remains blocked**.
+
+- [x] **5c.1a (landed)** — typed foundation:
+      `versionBannerDismissed: "taxa.settings.versionBannerDismissed"`
+      (boolean, default `false`); `TreeSource` extends to
+      `col | worms | freshwater`; **5 + 5** storage-call contract
+      restored (1 inline `getItem(` + 1 inline `setItem(` for the new
+      key, all in `infrastructure/store.ts`); 27/27 tests pass under
+      strict TDD.
+- [ ] **5c.1b (deferred)** — React integration of banner + tree-source
+      UI + E2E selector updates; no `domain/keys.ts` /
+      `infrastructure/store.ts` change.
+- [ ] **5c.2 (deferred)** — research / search / folder wiring; no
+      `domain/keys.ts` / `infrastructure/store.ts` change.
+
 - [ ] 5c.1 R — `tests/test_e2e_file_explorer.py` (modified,
       the test exists but selectors predate the React
       component tree): assert every legacy selector

@@ -1150,5 +1150,11 @@ contexto histórico.
   adenda como autoritativa y re-rebana 5b.1–5b.4 según las reglas de
   arriba. El espejo en español vive en
   `documents-es/.../{tasks-es.md,apply-progress-es.md,design-es.md}`
-  y carga la misma semántica; cualquier deriva se resuelve a favor del
-  inglés.
+      y carga la misma semántica; cualquier deriva se resuelve a favor del
+      inglés.
+
+---
+
+## Addenda — 2026-09-07: PR 5c.1a fundación tipada de browser-state (aterrizada); 5c.1b + 5c.2 diferidas (solo anexo)
+
+- **PR 5c.1a aterrizada (esta entrada, supersede la enumeración previa de sub-PRs de Fase 5c para el próximo worktree de código)**. La enumeración de siete PRs de Fase 5c (`5c.1 R / 5c.2 R / 5c.3 G / 5c.4 G / 5c.5 T / 5c.6 G / 5c.7 Refactor`) colapsa en una única rebanada **`5c.1b` (diferida)** de UI y la rebanada de fundación tipada `5c.1a` (registrada como **aterrizada**). `5c.1a` añade la llave booleana `versionBannerDismissed: "taxa.settings.versionBannerDismissed"` + `TreeSource` `col | worms | freshwater` a `domain/keys.ts` y restaura el contrato de llamadas de almacenamiento **5 + 5** de `getItem(` / `setItem(` en `infrastructure/store.ts`. La evidencia completa vive en `apply-progress-es.md` §registro de cambios entrada "2026-09-07 — PR 5c.1a: fundación tipada de browser-state aterrizada"; `5c.1b` y `5c.2` están diferidas. **G4 permanece bloqueada.** El espejo en español carga la misma semántica; cualquier deriva se resuelve a favor del inglés. Sin React, sin tests E2E, sin selectores de fuente, sin features de research, sin salidas de build, sin commit/push.
