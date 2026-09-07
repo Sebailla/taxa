@@ -2260,4 +2260,94 @@ as historical context.
             - **Deferrals (binding, this entry)**:
               - **PR 5c.2 (deferred, unchanged)** — research / search / folder wiring. No `domain/keys.ts` / `infrastructure/store.ts` change.
               - **G4 / G3 Tier-2 / cutover status (unchanged).** G4 Playwright + Lighthouse parity remains **blocked** (verifier not authored); G3 Tier-2 remains gated on G4 + G6 closure; G6 remains blocked; the atomic cutover PR 3e ships only when G1 + G2 + G3 Tier-1 + G3 Tier-2 + G4 + G5 + G6 are all green.
-            - **Scope of this corrective attempt (binding)**: allowed edit surfaces limited to `src/modules/app-shell/presentation/VersionBanner.tsx`, `src/app/globals.css`, `tests/test_browser_state_keys.py`, and the six OpenSpec files (3 EN + 3 ES). **No parallel store construction**, no Folder/Search research behaviour change, no G4 tests, no browser capture, no build outputs (`out/`), no commit/push, no FastAPI/SQLite/extension changes. The legacy fixture under `tools/g3-legacy-fixture/web/`, the rest of `src/`, `next.config.mjs`, `package.json`, the predecessor OpenSpec tree, the FastAPI `api/server.py`, and the Chrome extension under `extension/**` are NOT modified by this attempt. **No gate flip, no cutover authority granted** — G1 / G2 / G3 Tier-1 / G3 Tier-2 / G4 / G6 status rows and the PR 3e cutover-authority rows are preserved verbatim from the prior change-log entry.
+                - **Scope of this corrective attempt (binding)**: allowed edit surfaces limited to `src/modules/app-shell/presentation/VersionBanner.tsx`, `src/app/globals.css`, `tests/test_browser_state_keys.py`, and the six OpenSpec files (3 EN + 3 ES). **No parallel store construction**, no Folder/Search research behaviour change, no G4 tests, no browser capture, no build outputs (`out/`), no commit/push, no FastAPI/SQLite/extension changes. The legacy fixture under `tools/g3-legacy-fixture/web/`, the rest of `src/`, `next.config.mjs`, `package.json`, the predecessor OpenSpec tree, the FastAPI `api/server.py`, and the Chrome extension under `extension/**` are NOT modified by this attempt. **No gate flip, no cutover authority granted** — G1 / G2 / G3 Tier-1 / G3 Tier-2 / G4 / G6 status rows and the PR 3e cutover-authority rows are preserved verbatim from the prior change-log entry.
+
+
+        ### 2026-09-07 — PR 5c.2-A: search-engine contract alignment landed (canonical 14-engine roster enforced on both mirrors; FileExplorer global mount + selector/harness updates + legacy deletion + G4 / G3 Tier-2 / cutover still deferred)
+
+        - **Scope (this entry)**. PR 5c.2-A is a search-engine contract slice
+          split from the prior deferred `5c.2` row: it aligns
+          `api/server.py::_SEARCH_ENGINES` and
+          `src/data/search-engines.js::SEARCH_ENGINES` to the canonical
+          14-engine roster (google, imagen, documentos, pdf, wikipedia, bhl,
+          researchgate, plos, academia, scielo, scholar, youtube, zootaxa,
+          scribd) in the same ordered fields, removing the three retired
+          `general` social/share entries (`threads_acipenser`,
+          `facebook_acipenser_baerii`, `threads_shared_post`) from both
+          mirrors. `tests/test_smoke.py::test_search_engine_contract` is
+          extended (strict TDD) to pin the exact count (14) and the ordered
+          key list in addition to the existing key/label/with_authorship
+          parity check; `tests/test_smoke.py::test_fixed_search_destinations_are_returned_unchanged`
+          is retired (its three assertions targeted engines no longer in the
+          roster — the URL contract for the 14 preserved engines is already
+covered by `tests/test_api_freshwater.py::test_searches_urls_are_well_formed`
+          and `test_searches_authorship_on_bhl_and_scholar_only`).
+          - **Strict-TDD evidence (`tests/test_smoke.py::test_search_engine_contract`)**:
+            - **RED observed** before implementation: 1 failure on the
+              pre-5c.2-A source (17-engine mirrors) — `test_search_engine_contract`
+              asserted `len(py_entries) == 14` and reported
+              `AssertionError: PR 5c.2-A: api/server.py::_SEARCH_ENGINES must
+              hold 14 engines (the canonical 14-engine roster); got 17
+              assert 17 == 14`. The new `_CANONICAL_ENGINE_KEYS` pin list and
+              the count+ordered-key assertions on both mirrors were
+              simultaneously the failure source; the cross-file parity check
+              below them had already passed (both sides carried 17 in
+              lock-step), which is exactly the same-direction-drift hole the
+              new pins are designed to close.
+            - **GREEN observed** after implementation: **7/7 non-DB smoke
+              tests pass** (6 pre-existing non-DB + the contract test
+              itself). Triangulation probes confirm: `api/server.py` parses
+              cleanly via `ast.literal_eval` (the regex-extracted constant is
+              a valid Python list literal); `src/data/search-engines.js`
+              parses cleanly via the same JS-side regex used by AC-21
+              (`re.findall` returns 14 entries); the 14 ordered keys match
+              `_CANONICAL_ENGINE_KEYS` exactly on both mirrors; the
+              cross-file parity check (key/label/with_authorship on every
+              pair, plus the equal-count guard) still passes; the
+              `src/modules/research/infrastructure/search-engines.js`
+              re-export still surfaces the same 14-entry roster to consumers
+              (no consumer change — only the source of truth shrinks).
+              `tests/test_research_search_tab.py` (16/16 source-contract
+              tests pass — SearchTab still consumes `SEARCH_ENGINES` via the
+              `@taxa/research` barrel; the resolver driver still drops
+              `{name}` and `{auth}` tokens correctly on the surviving
+              `google` / `scholar` fixtures).
+            - **No REFACTOR step** — the implementation landed as a minimal
+              mechanical delta (three lines removed from each mirror +
+              trailing explanatory comments + the strict-TDD pin extension
+              on `test_search_engine_contract` + retirement of
+              `test_fixed_search_destinations_are_returned_unchanged`).
+          - **Deferrals (binding, this entry)**:
+            - **PR 5c.2 remainder (deferred, unchanged)** — FileExplorer
+              global mount, e2e selector/harness updates in
+              `tests/test_e2e_file_explorer.py` / `tests/test_web_toggle.py`,
+              and `web/*.{html,js,css}` + `tailwind.config.js` legacy
+              deletion. No `domain/keys.ts` / `infrastructure/store.ts`
+              change.
+            - **G4 / G3 Tier-2 / cutover status (unchanged).** G4
+              Playwright + Lighthouse parity remains **blocked** (verifier
+              not authored); G3 Tier-2 remains gated on G4 + G6 closure;
+              G6 remains blocked; the atomic cutover PR 3e ships only when
+              G1 + G2 + G3 Tier-1 + G3 Tier-2 + G4 + G5 + G6 are all
+              green.
+- **Scope of this attempt (binding)**: allowed edit surfaces
+            limited to `api/server.py`, `src/data/search-engines.js`,
+            `tests/test_smoke.py`, `tests/test_api_freshwater.py`,
+            `tests/test_research_infra.py`, and the six OpenSpec files
+            (3 EN + 3 ES). `tests/test_api_freshwater.py` and
+            `tests/test_research_infra.py` are allowed direct 14-roster
+            witnesses and were updated in this slice to maintain count,
+            order, and API coverage. **No FileExplorer
+            global mount**, no Folder/Search research behaviour change,
+            no `domain/keys.ts` / `infrastructure/store.ts` change, no
+            e2e selector/harness updates, no legacy deletion, no G4
+            tests, no browser capture, no build outputs (`out/`), no
+            commit/push, no dependency change, no FastAPI/SQLite/extension
+            changes beyond the two mirror constants themselves. The legacy
+            fixture under `tools/g3-legacy-fixture/web/`, the rest of
+            `src/`, `next.config.mjs`, `package.json`, the predecessor
+            OpenSpec tree, and the Chrome extension under `extension/**`
+            are NOT modified by this attempt. **No gate flip, no cutover
+            authority granted** — G1 / G2 / G3 Tier-1 / G3 Tier-2 / G4 / G6
+            status rows and the PR 3e cutover-authority rows are preserved
+            verbatim from the prior change-log entry.

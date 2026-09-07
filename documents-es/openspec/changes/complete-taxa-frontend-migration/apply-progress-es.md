@@ -1730,17 +1730,122 @@ contexto histórico.
             - **Alcance de este intento correctivo (vinculante)**: superficies
               de edición permitidas limitadas a
               `src/modules/app-shell/presentation/VersionBanner.tsx`,
-              `src/app/globals.css`, `tests/test_browser_state_keys.py`,
-              y los seis archivos OpenSpec (3 EN + 3 ES). **Sin construcción
-              de store paralelo**, sin cambio de comportamiento de
-              Folder/Search research, sin tests G4, sin captura de browser,
-              sin salidas de build (`out/`), sin commit/push, sin cambios
-              de FastAPI / SQLite / extension. El fixture legacy bajo
-              `tools/g3-legacy-fixture/web/`, el resto de `src/`, `next.config.mjs`,
-              `package.json`, el predecesor OpenSpec tree, el FastAPI
-              `api/server.py`, y la extensión Chrome bajo `extension/**` NO se
-              modifican por este intento. **Sin volteo de puerta, sin autoridad
-              de cutover concedida** — las filas de estado G1 / G2 / G3 Tier-1
-              / G3 Tier-2 / G4 / G6 y las filas de autoridad de cutover de PR
-              3e se preservan verbatim desde la entrada previa del registro
-              de cambios.
+                  `src/app/globals.css`, `tests/test_browser_state_keys.py`,
+                  y los seis archivos OpenSpec (3 EN + 3 ES). **Sin construcción
+                  de store paralelo**, sin cambio de comportamiento de
+                  Folder/Search research, sin tests G4, sin captura de browser,
+                  sin salidas de build (`out/`), sin commit/push, sin cambios
+                  de FastAPI / SQLite / extension. El fixture legacy bajo
+                  `tools/g3-legacy-fixture/web/`, el resto de `src/`, `next.config.mjs`,
+                  `package.json`, el predecesor OpenSpec tree, el FastAPI
+                  `api/server.py`, y la extensión Chrome bajo `extension/**` NO se
+                  modifican por este intento. **Sin volteo de puerta, sin autoridad
+                  de cutover concedida** — las filas de estado G1 / G2 / G3 Tier-1
+                  / G3 Tier-2 / G4 / G6 y las filas de autoridad de cutover de PR
+                  3e se preservan verbatim desde la entrada previa del registro
+                  de cambios.
+
+
+            ### 2026-09-07 — PR 5c.2-A: alineación del contrato de motores de búsqueda aterrizada (roster canónico de 14 motores aplicado en ambos espejos; montaje global de FileExplorer + actualizaciones de selectores/arnés + borrado legacy + G4 / G3 Tier-2 / cutover siguen diferidos)
+
+            - **Alcance (esta entrada)**. PR 5c.2-A es una rebanada de
+              contrato de motores de búsqueda dividida desde la fila previa
+              `5c.2` diferida: alinea `api/server.py::_SEARCH_ENGINES` y
+              `src/data/search-engines.js::SEARCH_ENGINES` al roster
+              canónico de 14 motores (google, imagen, documentos, pdf,
+              wikipedia, bhl, researchgate, plos, academia, scielo,
+              scholar, youtube, zootaxa, scribd) en los mismos campos
+              ordenados, eliminando las tres entradas retiradas de
+              `general` social/share (`threads_acipenser`,
+              `facebook_acipenser_baerii`, `threads_shared_post`) de ambos
+              espejos. `tests/test_smoke.py::test_search_engine_contract` se
+              extiende (TDD estricto) para fijar el conteo exacto (14) y la
+              lista ordenada de llaves además de la verificación de paridad
+              key/label/with_authorship existente;
+              `tests/test_smoke.py::test_fixed_search_destinations_are_returned_unchanged`
+              se retira (sus tres afirmaciones apuntaban a motores que ya no
+              están en el roster — el contrato de URL para los 14 motores
+preservados ya está cubierto por
+              `tests/test_api_freshwater.py::test_searches_urls_are_well_formed` y
+              `test_searches_authorship_on_bhl_and_scholar_only`).
+              - **Evidencia de TDD estricto (`tests/test_smoke.py::test_search_engine_contract`)**:
+                - **RED observado** antes de la implementación: 1 falla
+                  sobre la fuente previa a 5c.2-A (espejos de 17 motores) —
+                  `test_search_engine_contract` afirmó
+                  `len(py_entries) == 14` y reportó
+                  `AssertionError: PR 5c.2-A: api/server.py::_SEARCH_ENGINES must
+                  hold 14 engines (the canonical 14-engine roster); got 17
+                  assert 17 == 14`. La nueva lista pin
+                  `_CANONICAL_ENGINE_KEYS` y las afirmaciones de
+                  conteo+llaves-ordenadas en ambos espejos fueron
+                  simultáneamente la fuente de la falla; la verificación de
+                  paridad cross-file debajo de ellas ya pasaba (ambos lados
+                  portaban 17 en lock-step), que es exactamente el agujero
+                  de deriva en la misma dirección que los nuevos pins están
+                  diseñados para cerrar.
+                - **GREEN observado** después de la implementación:
+                  **7/7 tests de smoke no-DB pasan** (6 preexistentes no-DB
+                  + el test de contrato mismo). Las sondas de triangulación
+                  confirman: `api/server.py` se parsea limpiamente vía
+                  `ast.literal_eval` (la constante extraída por regex es un
+                  literal de lista Python válido); `src/data/search-engines.js`
+                  se parsea limpiamente vía la misma regex del lado JS
+                  usada por AC-21 (`re.findall` devuelve 14 entradas); las
+                  14 llaves ordenadas coinciden con `_CANONICAL_ENGINE_KEYS`
+                  exactamente en ambos espejos; la verificación de paridad
+                  cross-file (key/label/with_authorship en cada par, más la
+                  guarda de conteo igual) aún pasa; la re-exportación en
+                  `src/modules/research/infrastructure/search-engines.js`
+                  aún expone el mismo roster de 14 entradas a los
+                  consumidores (sin cambio en consumidores — solo la fuente
+                  de verdad se reduce). `tests/test_research_search_tab.py`
+                  (16/16 tests de contrato de fuente pasan — SearchTab aún
+                  consume `SEARCH_ENGINES` vía el barrel `@taxa/research`;
+                  el driver del resolver aún descarta los tokens `{name}` y
+                  `{auth}` correctamente sobre los fixtures sobrevivientes
+                  `google` / `scholar`).
+                - **Sin paso de REFACTOR** — la implementación aterrizó
+                  como un delta mecánico mínimo (tres líneas eliminadas de
+                  cada espejo + comentarios explicativos al final + la
+                  extensión del pin de TDD estricto en
+                  `test_search_engine_contract` + retiro de
+                  `test_fixed_search_destinations_are_returned_unchanged`).
+              - **Diferimientos (vinculantes, esta entrada)**:
+                - **Resto de PR 5c.2 (diferida, sin cambios)** — montaje
+                  global de FileExplorer, actualizaciones de selectores/
+                  arnés e2e en `tests/test_e2e_file_explorer.py` /
+                  `tests/test_web_toggle.py`, y borrado legacy
+                  `web/*.{html,js,css}` + `tailwind.config.js`. Sin cambios
+                  en `domain/keys.ts` / `infrastructure/store.ts`.
+                - **Estado de G4 / G3 Tier-2 / cutover (sin cambios).** G4
+                  paridad Playwright + Lighthouse permanece **bloqueada**
+                  (verificador no autordado); G3 Tier-2 permanece con
+                  compuerta en el cierre de G4 + G6; G6 permanece
+                  bloqueada; el cutover atómico PR 3e se publica solo
+                  cuando G1 + G2 + G3 Tier-1 + G3 Tier-2 + G4 + G5 + G6
+                  estén todos verdes.
+- **Alcance de este intento (vinculante)**: superficies de
+                edición permitidas limitadas a `api/server.py`,
+                `src/data/search-engines.js`, `tests/test_smoke.py`,
+                `tests/test_api_freshwater.py`, `tests/test_research_infra.py`,
+                y los seis archivos OpenSpec (3 EN + 3 ES).
+                `tests/test_api_freshwater.py` y `tests/test_research_infra.py`
+                son testigos directos permitidos del roster de 14 y
+                fueron actualizados en esta rebanada para mantener el
+                conteo, el orden y la cobertura de API. **Sin montaje global de FileExplorer**, sin
+                cambio de comportamiento de Folder/Search research, sin
+                cambios en `domain/keys.ts` / `infrastructure/store.ts`,
+                sin actualizaciones de selectores/arnés e2e, sin
+                borrado legacy, sin tests G4, sin captura de browser,
+                sin salidas de build (`out/`), sin commit/push, sin
+                cambios de dependencias, sin cambios de FastAPI /
+                SQLite / extension más allá de las dos constantes de
+                espejo mismas. El fixture legacy bajo
+                `tools/g3-legacy-fixture/web/`, el resto de `src/`,
+                `next.config.mjs`, `package.json`, el predecesor OpenSpec
+                tree, y la extensión Chrome bajo `extension/**` NO se
+                modifican por este intento. **Sin volteo de puerta, sin
+                autoridad de cutover concedida** — las filas de estado
+                G1 / G2 / G3 Tier-1 / G3 Tier-2 / G4 / G6 y las filas de
+                autoridad de cutover de PR 3e se preservan verbatim desde
+                la entrada previa del registro de cambios.

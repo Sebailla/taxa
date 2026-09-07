@@ -1809,8 +1809,25 @@ landed"; binding addendum lives in `design.md`; **G4 remains blocked**.
 - [x] **5c.1b-B (landed)** — VersionBanner render + panel close/sticky
       work; tree-source hydration polish; no `domain/keys.ts` /
       `infrastructure/store.ts` change.
+- [x] **5c.2-A (landed)** — search-engine contract alignment:
+      `api/server.py::_SEARCH_ENGINES` and
+      `src/data/search-engines.js::SEARCH_ENGINES` now hold exactly
+      the canonical 14 engines (google, imagen, documentos, pdf,
+      wikipedia, bhl, researchgate, plos, academia, scielo,
+      scholar, youtube, zootaxa, scribd) in the same ordered
+      fields; the three retired `general` social/share entries
+      (`threads_acipenser`, `facebook_acipenser_baerii`,
+      `threads_shared_post`) are removed from both mirrors.
+      `tests/test_smoke.py::test_search_engine_contract` now pins
+      the exact count (14) and the ordered key list in addition
+      to the existing key/label/with_authorship parity check.
 - [ ] **5c.2 (deferred)** — research / search / folder wiring; no
-      `domain/keys.ts` / `infrastructure/store.ts` change.
+      `domain/keys.ts` / `infrastructure/store.ts` change. **5c.2-A**
+      landed the search-engine contract alignment; the remainder
+      (FileExplorer global mount, e2e selector/harness updates,
+      and `web/*.{html,js,css}` + `tailwind.config.js` legacy
+      deletion) is still deferred. G4 / G3 Tier-2 / cutover remain
+      blocked.
 
 - [ ] 5c.1 R — `tests/test_e2e_file_explorer.py` (modified,
       the test exists but selectors predate the React
