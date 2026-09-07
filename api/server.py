@@ -51,7 +51,7 @@ from pydantic import BaseModel
 from etl.migrations import CURRENT_SCHEMA_VERSION, get_applied_version  # pyright: ignore
 
 DB_PATH = Path(__file__).parent.parent / "data" / "db" / "taxa.db"
-WEB_DIR = Path(__file__).parent.parent / "web"
+WEB_DIR = Path(__file__).parent.parent / "out"
 # Where the materialize endpoint creates folder structures. Configurable via
 # env var so tests can monkeypatch to a tmp dir without touching the real
 # research folder. Resolved to absolute so the response's `absolute_path`

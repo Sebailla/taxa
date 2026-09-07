@@ -1,0 +1,18 @@
+{
+  "gate": "G5",
+  "status": "blocked",
+  "captured_at": "2026-09-06T01:37:38Z",
+  "baseline_path": "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-22-6a/web/dist/evidence-baseline.json",
+  "baseline_source": "captured",
+  "candidate_path": "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-22-6a/out/hydration-candidate.json",
+  "regression": true,
+  "regressing_axes": [
+    "initial_paint",
+    "interaction_latency"
+  ],
+  "initial_paint_delta_pct": Infinity,
+  "interaction_latency_delta_pct": 33.33333333333333,
+  "comparison_exit_code": 4,
+  "blocker": "measure_hydration.py exited 4; baseline vs candidate comparison regressed on initial_paint, interaction_latency. G5 must NOT flip until both deltas are <= 0 %.",
+  "action_required": "fix the candidate so neither initial_paint nor interaction_latency regress vs baseline, then re-capture and re-run scripts/g5_close.sh."
+}
