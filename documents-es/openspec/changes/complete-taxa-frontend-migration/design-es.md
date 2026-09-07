@@ -429,13 +429,64 @@ cierre; la implementación ocurre durante apply.
 
 ### G4 — Arnés de paridad Playwright + Lighthouse
 
-| Paso | Propietario | Salida |
-| --- | --- | --- |
-| Actualizar selectores de `tests/test_e2e_file_explorer.py` para el árbol de componentes React (atributos `data-*` preservados según el spec research canónico) | Apply | `tests/test_e2e_file_explorer.py` |
-| Actualizar selectores de `tests/test_web_toggle.py`; afirmar que el toggle de tema persiste vía `localStorage.taxa.settings.theme` y estampa `data-theme` en `<html>` | Apply | `tests/test_web_toggle.py` |
-| Re-ejecutar el fixture chromium del predecesor contra el nuevo build; capturar paint inicial + latencia de interacción bajo Playwright + Lighthouse | Apply | Traza Playwright + JSON de Lighthouse |
-| Comparar contra `web/dist/evidence-baseline.json` del predecesor | Apply | Reporte de Δ |
-| Δ ≤ 0 % en paint inicial + latencia de interacción sin exención documentada → **G4 PASS** | Apply | Inversión de estado |
+    | Paso | Propietario | Salida |
+    | --- | --- | --- |
+    | Actualizar selectores de `tests/test_e2e_file_explorer.py` para el árbol de componentes React (atributos `data-*` preservados según el spec research canónico) | Apply | `tests/test_e2e_file_explorer.py` |
+    | Actualizar selectores de `tests/test_web_toggle.py`; afirmar que el toggle de tema persiste vía `localStorage.taxa.settings.theme` y estampa `data-theme` en `<html>` | Apply | `tests/test_web_toggle.py` |
+    | Re-ejecutar el fixture chromium del predecesor contra el nuevo build; capturar paint inicial + latencia de interacción bajo Playwright + Lighthouse | Apply | Traza Playwright + JSON de Lighthouse |
+    | Comparar contra `web/dist/evidence-baseline.json` del predecesor | Apply | Reporte de Δ |
+    | Δ ≤ 0 % en paint inicial + latencia de interacción sin exención documentada → **G4 PASS** | Apply | Inversión de estado |
+
+    #### Slice 6c.0 — sub-slice solo de navegación (aterrizado, no cierra)
+
+    El primer sub-slice de G4 entrega el productor solo de navegación.
+    **No** es un G4 PASS — captura solo uno de los cinco reportes que
+    espera el agregador `scripts/verify_parity.py`, y la compuerta
+    permanece bloqueada hasta que aterricen los cuatro reportes restantes.
+
+    - **Productor**: `tools/g4-capture/scripts/parity_navigation.mjs`
+      (driver Playwright; dynamic-imported; `playwright@1.49.1` pinned
+      aislado junto al `lighthouse@12.2.1` + `chrome-launcher@1.2.1`
+      existente; sin cambios en dependencias raíz).
+    - **CLI**: `--legacy-origin`, `--candidate-origin`, `--paths`
+      (separados por coma), `--output-root`, `--manifest` opcional.
+      Los puertos de producción NO están horneados.
+    - **Disposición de salida**: `<outputRoot>/<UTC-timestamp>/{legacy,
+      candidate}/{navigation.json,manifest.snapshot.json,run.json}`.
+      El timestamp del run es `YYYY-MM-DDTHH-MM-SSZ` (filename-safe;
+      los dos puntos se reemplazan con guión porque Windows los
+      rechaza en componentes de path). El valor JSON `captured_at`
+      usa la forma con precisión de segundos `YYYY-MM-DDTHH:MM:SSZ`
+      según `scripts/verify_parity.py::ISO_FMT`.
+    - **Esquema**: `navigation.json` coincide con la cabecera común
+      versionada (`schema_version: "1.0.0"`, `captured_at`) más la
+      lista de registros de navegación (`paths: [{path: str,
+      status: int}, ...]`) que el agregador ya valida. El campo
+      `schema` del lado del productor nombra el contrato específico
+      del slice (`taxa.g4-parity.navigation/1`).
+    - **Transporte**: ambos lados conducidos a través de HTTP
+      controlado (solo `http(s)://`; `file://` y cualquier otro
+      esquema explícitamente rechazados). Legacy y candidate DEBEN
+      diferir — lados iguales se rechazan para que un candidato
+      roto nunca pueda "pasar" silenciosamente contra sí mismo.
+    - **Guardas fail-closed**: orígenes faltantes/inválidos, origen
+      con componente de path, lados iguales, `paths` vacío, desajuste
+      de path del manifest, 5xx o status `0` (error de red, timeout
+      de navegación) en cualquier lado, drift de outcome por path
+      entre lados, y un directorio `<outputRoot>/<UTC-timestamp>/`
+      preexistente (guarda de colisión de salida). Cada guarda la
+      ejercita un test hermético en `tests/test_capture_parity.py`.
+    - **Tests herméticos**: 25 tests inyectan un `runFn` sintético
+      (resultados `(path, status)` enlatados, throws, o casos de
+      drift) y un `now()` fijo para que el productor corra sin
+      navegador real ni red en vivo. El runner de Playwright se
+      dynamic-importa dentro de `defaultRunNavigation` para que
+      el arnés de tests permanezca libre de dependencias de
+      navegador hasta que se ejercite el camino real.
+    - **Reversión**: `git revert <6c-sha>` elimina el productor,
+      los tests, el delta del Makefile, y el delta del lockfile.
+      El slice 6c.1–6c.4 queda intacto. Sin flip G4 / G3 Tier-2 /
+      cutover status.
 
 ### G5 — Línea base de hidratación
 
