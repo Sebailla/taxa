@@ -205,6 +205,13 @@
     --primary-fixed: var(--primary);
     --on-primary-fixed: var(--on-primary);
     --surface-container-lowest: var(--surface);
+    /* PR 5c.1b-B (coherence fix) — single source of truth for the
+       DetailPanel header height. The `.detail-header` block pins
+       its `min-height` to this variable, and `.detail-tabs` pins
+       its `top` offset to the SAME variable, so the sticky header
+       and the pinned tab strip cannot drift apart when the
+       header's padding or font-size changes downstream. */
+    --detail-header-height: 49px;
   }
 
   /* Utility class (PR 3c-e2) — global spinner animation. References
@@ -275,6 +282,49 @@
     height: auto;
     max-height: 90vh;
     overflow-y: auto;
+  }
+  /* PR 5c.1b-B — sticky header contract for the detail panel.
+     The header and tabs sit inside `.detail-panel`'s overflow-y
+     scroll viewport so they stay pinned while the body scrolls.
+     The header pins at `top: 0`; the tabs pin just below it.
+     All colors route through design tokens (no raw hex). */
+  .detail-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    min-height: var(--detail-header-height);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 12px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--outline-variant);
+    font-family: "Raleway", sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--on-surface);
+  }
+  .detail-header > .detail-close {
+    background: transparent;
+    border: 0;
+    padding: 4px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: "Raleway", sans-serif;
+    font-size: 12px;
+    color: var(--on-surface-variant);
+  }
+  .detail-header > .detail-close:hover {
+    background: var(--surface-container-low);
+    color: var(--on-surface);
+  }
+  .detail-tabs {
+    position: sticky;
+    top: var(--detail-header-height);
+    z-index: 1;
+    background: var(--surface);
+    border-bottom: 1px solid var(--outline-variant);
   }
 
   /* Folder tab body (PR 3c-c) — per-taxon materialize indicator
@@ -573,5 +623,43 @@
   .tree-search-icon:hover {
     background: var(--surface-container-low);
     color: var(--primary);
+  }
+
+  /* PR 5c.1b-B — minimal styling for the schema-outdated version
+     banner. Activated only when the actual schema_version is
+     strictly less than the expected one (the banner component
+     drives the `hidden` attribute on the host). All colors route
+     through design tokens; no raw hex literals. */
+  #version-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: var(--surface-container-high);
+    border: 1px solid var(--outline);
+    border-radius: 12px;
+    margin: 12px 16px;
+    font-family: "Raleway", sans-serif;
+    font-size: 12px;
+    color: var(--on-surface);
+  }
+  #version-banner > #version-banner-actual,
+  #version-banner > #version-banner-expected {
+    font-family: "JetBrains Mono", monospace;
+    font-weight: 700;
+    color: var(--primary);
+    padding: 0 4px;
+  }
+  #version-banner > [data-action="dismiss-version-banner"] {
+    margin-left: auto;
+    padding: 4px 10px;
+    background: var(--primary);
+    color: var(--on-primary);
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: "Raleway", sans-serif;
+    font-size: 12px;
+    font-weight: 600;
   }
 }

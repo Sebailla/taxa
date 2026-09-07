@@ -1806,8 +1806,8 @@ landed"; binding addendum lives in `design.md`; **G4 remains blocked**.
 - [x] **5c.1b-A (landed)** — tree-source UI + nav/breadcrumb ids + single-store
       context wire (page.tsx subscribes via `useBrowserStateStore`);
       no `domain/keys.ts` / `infrastructure/store.ts` change.
-- [ ] **5c.1b-B (deferred)** — VersionBanner render + panel close/sticky work;
-      tree-source hydration polish; no `domain/keys.ts` /
+- [x] **5c.1b-B (landed)** — VersionBanner render + panel close/sticky
+      work; tree-source hydration polish; no `domain/keys.ts` /
       `infrastructure/store.ts` change.
 - [ ] **5c.2 (deferred)** — research / search / folder wiring; no
       `domain/keys.ts` / `infrastructure/store.ts` change.

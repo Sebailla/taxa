@@ -2049,7 +2049,7 @@ browser-state aterrizada"; la adenda vinculante vive en
       + cableado de contexto de store único (page.tsx se suscribe vía
       `useBrowserStateStore`); sin cambios en `domain/keys.ts` /
       `infrastructure/store.ts`.
-- [ ] **5c.1b-B (diferida)** — render de VersionBanner + trabajo de cierre/
+- [x] **5c.1b-B (aterrizada)** — render de VersionBanner + trabajo de cierre/
       sticky de panel + pulido de hidratación de fuente de árbol; sin
       cambios en `domain/keys.ts` / `infrastructure/store.ts`.
 - [ ] **5c.2 (diferida)** — cableado de research / search / folder;

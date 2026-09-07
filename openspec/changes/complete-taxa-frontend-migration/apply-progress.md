@@ -2042,3 +2042,222 @@ as historical context.
         - **PR 5c.2 (deferred, unchanged)** — research / search / folder wiring. No `domain/keys.ts` / `infrastructure/store.ts` change.
         - **G4 / G3 Tier-2 / cutover status (unchanged).** G4 Playwright + Lighthouse parity remains **blocked** (verifier not authored); G3 Tier-2 remains gated on G4 + G6 closure; G6 remains blocked; the atomic cutover PR 3e ships only when G1 + G2 + G3 Tier-1 + G3 Tier-2 + G4 + G5 + G6 are all green.
       - **Scope of this attempt (binding)**: allowed edit surfaces limited to `src/modules/app-shell/{infrastructure/page-chrome.tsx, presentation/AppShell.tsx, presentation/browser-state-store-context.ts, index.ts}`, `src/app/page.tsx`, `src/modules/taxonomy/presentation/Breadcrumb.tsx`, `tests/test_browser_state_keys.py`, and the six OpenSpec files (3 EN + 3 ES). **No VersionBanner render**, no panel close/sticky work, no Folder/Search research behaviour change, no G4 tests, no browser capture, no commit/push. The legacy fixture under `tools/g3-legacy-fixture/web/`, the rest of `src/`, `next.config.mjs`, `package.json`, the build artifact under `out/`, the predecessor OpenSpec tree, the FastAPI `api/server.py`, and the Chrome extension under `extension/**` are NOT modified by this attempt. **No gate flip, no cutover authority granted** — G1 / G2 / G3 Tier-1 / G3 Tier-2 / G4 / G6 status rows and the PR 3e cutover-authority rows are preserved verbatim from the prior change-log entry.
+
+
+        ### 2026-09-07 — PR 5c.1b-B: VersionBanner render + panel close/sticky contract landed (5c.2 deferred; G4 / G3 Tier-2 / cutover still blocked)
+
+        - **Scope (this entry)**. PR 5c.1b-B is the React + CSS slice of the
+          deferred `5c.1b-B` row: it lands (a) the mounted-gated
+          `VersionBanner` (`src/modules/app-shell/presentation/VersionBanner.tsx`)
+          consuming the SINGLE typed `BrowserStateStore` instance via the
+          `useBrowserStateStore()` hook (no duplicate `createBrowserStateStore()`),
+          reading `/api/health` only AFTER `useMounted()` flips, failing closed
+          on non-OK responses / missing schema-version fields / non-numeric
+          fields / network errors, preserving the legacy DOM ids
+          `version-banner` / `version-banner-actual` / `version-banner-expected`,
+          persisting dismissals via `setVersionBannerDismissed(true)`, and
+          mounting inside the existing `data-slot="banner-host"` slot via
+          `src/modules/app-shell/infrastructure/page-chrome.tsx` (consumed
+          via a sibling-module import; the public `app-shell` presentation
+          barrel is left untouched in this slice because `index.ts` is not
+          in the allowed edit surfaces); (b) the
+          `DetailPanel` close/sticky contract (`src/modules/taxonomy/presentation/DetailPanel.tsx`)
+          — `id="detail-panel"`, close button `data-action="close-detail"`
+          wired to a new `detailOpen` state, a `forceOpenSearch` effect that
+          also resets `detailOpen` to `true` so Search-online reopens a
+          closed panel (closes the legacy silent-no-op regression), and the
+          `.detail-header` / `.detail-tabs` structural hooks for the sticky
+          CSS; (c) the minimal sticky-CSS contract in `src/app/globals.css`
+          — `position: sticky` + `top:` + `z-index` on both `.detail-header`
+          AND `.detail-tabs` inside the existing `.detail-panel` scroll
+          viewport, plus a minimal `#version-banner` rule (all colors route
+          through `var(--…)` tokens; no raw hex literals).
+          - **Strict-TDD evidence (`tests/test_browser_state_keys.py`)**:
+            - **RED observed** before implementation: 8 failures on the
+              pre-5c.1b-B source — `test_page_chrome_mounts_version_banner_without_duplicate_store`,
+              `test_app_shell_index_reexports_version_banner`,
+              `test_detail_panel_renders_with_id_detail_panel`,
+              `test_detail_panel_close_uses_data_action_close_detail`,
+              `test_detail_panel_close_hides_panel_and_force_search_reopens`,
+              `test_detail_panel_renders_detail_header_and_detail_tabs_hooks`,
+              `test_globals_css_pins_detail_header_and_detail_tabs_as_sticky`,
+              `test_globals_css_minimal_version_banner_style_uses_tokens_only`;
+              5 additional tests skip on `VersionBanner.tsx` not yet authored
+              (file presence gate) — `test_version_banner_preserves_legacy_dom_ids`,
+              `test_version_banner_is_mount_gated_and_fetches_health_only_after_mount`,
+              `test_version_banner_fails_closed_on_unavailable_or_malformed_health`,
+              `test_version_banner_persists_dismiss_via_typed_store`,
+              `test_version_banner_does_not_construct_a_second_store`. Each
+              failed/skipped test reported a documented expected-vs-actual diff.
+            - **GREEN observed** after implementation: **46/46 tests pass**
+              (33 pre-existing + 13 new). Triangulation probes confirm:
+              `VersionBanner.tsx` reads the typed store via `useBrowserStateStore`
+              (no `createBrowserStateStore` callsite); the `/api/health` fetch
+              lives inside `useEffect` with `if (!mounted) return;` guard;
+              `typeof X !== "number"` + `Number.isFinite` guards return `null`
+              on malformed payload (fail-closed); `.catch()` handler swallows
+              network errors; `setVersionBannerDismissed(true)` wires the
+              dismiss click to the SAME typed store; `getVersionBannerDismissed()`
+              controls re-mount visibility; page-chrome.tsx mounts
+              `<VersionBanner />` without a second store; the public presentation
+              barrel is not touched in this slice (out of edit surfaces); `DetailPanel.tsx` stamps `id="detail-panel"`
+              + `data-action="close-detail"` + `data-detail-open` + the
+              `detailOpen` state; the `forceOpenSearch` effect calls
+              `setDetailOpen(true)`; the `.detail-header` / `.detail-tabs`
+              structural hooks are present; `globals.css` declares `position: sticky`
+              + `top: 0|49px` + `z-index: 2|1` on both selectors; the
+              `#version-banner` rule body has ZERO raw hex literals.
+              `node_modules/.bin/tsc --noEmit` is clean for `src/`.
+            - **No REFACTOR step** — the implementation landed as a minimal,
+              mechanical delta (one new component file + one `<VersionBanner />`
+              mount in page-chrome + the DetailPanel rewrite + one targeted
+              globals.css extension with token-only colors; no public barrel
+              re-export because `index.ts` is not in the allowed edit surfaces).
+          - **Deferrals (binding, this entry)**:
+            - **PR 5c.2 (deferred, unchanged)** — research / search / folder wiring. No `domain/keys.ts` / `infrastructure/store.ts` change.
+            - **G4 / G3 Tier-2 / cutover status (unchanged).** G4 Playwright + Lighthouse parity remains **blocked** (verifier not authored); G3 Tier-2 remains gated on G4 + G6 closure; G6 remains blocked; the atomic cutover PR 3e ships only when G1 + G2 + G3 Tier-1 + G3 Tier-2 + G4 + G5 + G6 are all green.
+            - **Scope of this attempt (binding)**: allowed edit surfaces limited to
+                `src/modules/app-shell/{infrastructure/page-chrome.tsx,
+                presentation/AppShell.tsx — unchanged, presentation/VersionBanner.tsx — new}`, `src/modules/taxonomy/presentation/DetailPanel.tsx`,
+                `src/app/globals.css`, `tests/test_browser_state_keys.py`, and the six
+                OpenSpec files (3 EN + 3 ES). **No Folder/Search research behaviour change**,
+                no G4 tests, no browser capture, no build outputs (`out/`), no commit/push,
+                no FastAPI/SQLite/extension changes. The legacy fixture under
+                `tools/g3-legacy-fixture/web/`, the rest of `src/`, `next.config.mjs`,
+                `package.json`, the predecessor OpenSpec tree, the FastAPI
+                `api/server.py`, and the Chrome extension under `extension/**` are
+                NOT modified by this attempt. **No gate flip, no cutover authority
+                granted** — G1 / G2 / G3 Tier-1 / G3 Tier-2 / G4 / G6 status rows
+                and the PR 3e cutover-authority rows are preserved verbatim from
+                the prior change-log entry.
+
+
+            ### 2026-09-07 — PR 5c.1b-B (corrective): reactivity + sticky-coherence corrections landed (5c.2 deferred; G4 / G3 Tier-2 / cutover still blocked)
+
+            - **Trigger (this entry)**. A 5c.1b-B accepted-size-exception
+              review (5c.1b-B) identified three correctness defects in the
+              prior 5c.1b-B landing above that this corrective entry
+              closes. They do NOT change the prior entry's scope or
+              gate flips — they close the review findings on the same
+              files in the same allowed edit surfaces.
+
+            - **Defect 1 — `VersionBanner` dismissal reactivity
+              (silent no-op on Dismiss click)**. The prior
+              `VersionBanner` consumed the typed store's dismissal
+              snapshot via a plain `const dismissed = store !== null &&
+              store.getVersionBannerDismissed();` read. After the
+              Dismiss click called `setVersionBannerDismissed(true)`,
+              the same component never re-rendered, so the banner
+              stayed visible until an unrelated external re-render
+              flipped it. The fix wires `useSyncExternalStore` over
+              `store.subscribe` + `store.getVersionBannerDismissed()` +
+              a `false` server-snapshot fallback (the same
+              `subscribe / snapshot / server-snapshot` pattern
+              `infrastructure/page-chrome.tsx` uses for
+              `treeSource`). The Dismiss click now flips the banner
+              off in the same render.
+
+            - **Defect 2 — sticky header / tabs `top` drift**.
+              `.detail-header` rendered at its natural padding-driven
+              height (~44px) and `.detail-tabs { top: 49px }` was a
+              hand-tuned magic number five pixels above the natural
+              header height. Any padding or font-size change in
+              `.detail-header` silently re-introduced the overlap /
+              gap risk. The fix declares ONE CSS custom property
+              `--detail-header-height: 49px;` on `:root` inside
+              `@layer components` (alongside the existing
+              `--primary-fixed` / `--on-primary-fixed` /
+              `--surface-container-lowest` 3c-e1 / 3c-e2 aliases)
+              and pins BOTH `.detail-header { min-height:
+              var(--detail-header-height) }` and `.detail-tabs { top:
+              var(--detail-header-height) }` to that single token.
+              Header and tabs cannot drift; padding / font changes
+              propagate atomically. Colors remain token-only — no
+              raw hex literals introduced.
+
+            - **Defect 3 — apply-progress truthfulness**. The prior
+              RED list above referenced
+              `test_app_shell_index_reexports_version_banner`, a test
+              that does NOT exist in
+              `tests/test_browser_state_keys.py` (no
+              `presentation/index.ts` VersionBanner barrel re-export
+              is shipped in this slice — the component is mounted via
+              a sibling-module import from `infrastructure/page-chrome.tsx`).
+              The earlier RED count of `8 failures` was therefore
+              inflated by exactly one phantom test; the actual
+              pre-implementation failure count was 7. The earlier
+              GREEN count of `46 / 46 tests pass (33 pre-existing +
+              13 new)` was also slightly understated because the
+              corrective entry adds two new tests — the reactivity
+              pin and the sticky-coherence pin (each with its own
+              RED/GREEN evidence below).
+
+            - **Strict-TDD evidence (`tests/test_browser_state_keys.py`)**:
+              - **RED observed** before the corrective implementation:
+                7 failures on the pre-5c.1b-B source (the prior `8`
+                count minus the phantom
+                `test_app_shell_index_reexports_version_banner`
+                entry) — `test_page_chrome_mounts_version_banner_without_duplicate_store`,
+                `test_detail_panel_renders_with_id_detail_panel`,
+                `test_detail_panel_close_uses_data_action_close_detail`,
+                `test_detail_panel_close_hides_panel_and_force_search_reopens`,
+                `test_detail_panel_renders_detail_header_and_detail_tabs_hooks`,
+                `test_globals_css_pins_detail_header_and_detail_tabs_as_sticky`,
+                `test_globals_css_minimal_version_banner_style_uses_tokens_only`;
+                5 additional tests skip on `VersionBanner.tsx` not
+                yet authored (file presence gate) —
+                `test_version_banner_preserves_legacy_dom_ids`,
+                `test_version_banner_is_mount_gated_and_fetches_health_only_after_mount`,
+                `test_version_banner_fails_closed_on_unavailable_or_malformed_health`,
+                `test_version_banner_persists_dismiss_via_typed_store`,
+                `test_version_banner_does_not_construct_a_second_store`.
+                Two additional failures appear ONLY for this
+                corrective entry (the new reactivity + coherence
+                pins):
+                `test_version_banner_subscribes_to_dismissal_via_use_sync_external_store`
+                (FAILS because the prior `VersionBanner` reads
+                `getVersionBannerDismissed` once via `const dismissed
+                = …` instead of `useSyncExternalStore`) and
+                `test_globals_css_detail_header_height_token_is_single_source_of_truth`
+                (FAILS because the prior `:root` block in
+                `@layer components` lacks `--detail-header-height`).
+                Each failed test reported a documented
+                expected-vs-actual diff.
+              - **GREEN observed** after the corrective
+                implementation: **47/47 tests pass** (33
+                pre-existing + 14 new — the 12 original 5c.1b-B
+                tests plus the 2 corrective pins: reactivity +
+                sticky-coherence). Triangulation probes confirm:
+                `VersionBanner.tsx` calls `useSyncExternalStore`
+                with `store ? store.subscribe : () => () =>
+                undefined` (subscribe), `() => (store ?
+                store.getVersionBannerDismissed() : false)`
+                (snapshot), `() => false` (server snapshot); the
+                snapshot arg references `getVersionBannerDismissed`;
+                the subscribe arg references `store.subscribe` (no
+                parallel `createBrowserStateStore`); the `/api/health`
+                fetch still lives inside `useEffect` with `if
+                (!mounted) return;` guard; the dismiss click wires
+                through `setVersionBannerDismissed(true)` on the SAME
+                typed store and the banner flips off on the same
+                render via the `useSyncExternalStore` re-subscribe;
+                `globals.css` declares `--detail-header-height: 49px`
+                exactly once on `:root` inside `@layer components`;
+                BOTH `.detail-header` `min-height` AND `.detail-tabs`
+                `top` reference that single token via `var(--…)` so
+                the two cannot drift apart; all `#version-banner`
+                colors still route through tokens (zero raw hex
+                literals). `node_modules/.bin/tsc --noEmit` is clean
+                for `src/`.
+              - **No REFACTOR step** — the corrective landed as a
+                minimal mechanical delta (one `useSyncExternalStore`
+                wiring in `VersionBanner.tsx`, one `:root` token
+                declaration + two `var(--…)` references in
+                `globals.css`, two new hermetic source-contract
+                tests in `tests/test_browser_state_keys.py`, and the
+                RED-list correction + GREEN-count reconciliation in
+                this apply-progress entry).
+            - **Deferrals (binding, this entry)**:
+              - **PR 5c.2 (deferred, unchanged)** — research / search / folder wiring. No `domain/keys.ts` / `infrastructure/store.ts` change.
+              - **G4 / G3 Tier-2 / cutover status (unchanged).** G4 Playwright + Lighthouse parity remains **blocked** (verifier not authored); G3 Tier-2 remains gated on G4 + G6 closure; G6 remains blocked; the atomic cutover PR 3e ships only when G1 + G2 + G3 Tier-1 + G3 Tier-2 + G4 + G5 + G6 are all green.
+            - **Scope of this corrective attempt (binding)**: allowed edit surfaces limited to `src/modules/app-shell/presentation/VersionBanner.tsx`, `src/app/globals.css`, `tests/test_browser_state_keys.py`, and the six OpenSpec files (3 EN + 3 ES). **No parallel store construction**, no Folder/Search research behaviour change, no G4 tests, no browser capture, no build outputs (`out/`), no commit/push, no FastAPI/SQLite/extension changes. The legacy fixture under `tools/g3-legacy-fixture/web/`, the rest of `src/`, `next.config.mjs`, `package.json`, the predecessor OpenSpec tree, the FastAPI `api/server.py`, and the Chrome extension under `extension/**` are NOT modified by this attempt. **No gate flip, no cutover authority granted** — G1 / G2 / G3 Tier-1 / G3 Tier-2 / G4 / G6 status rows and the PR 3e cutover-authority rows are preserved verbatim from the prior change-log entry.

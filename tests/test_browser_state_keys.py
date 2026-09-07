@@ -569,3 +569,449 @@ def test_breadcrumb_renders_with_id_breadcrumb():
         "Breadcrumb.tsx must stamp id=\"breadcrumb\" on BOTH the "
         "empty-state and the populated-state <nav> branches"
     )
+
+# ===========================================================================
+# PR 5c.1b-B — VersionBanner render + DetailPanel close/sticky contract.
+# Source-contract tests only (no DOM, no JSDOM); keep the suite hermetic.
+# Production slices live in:
+#     src/modules/app-shell/presentation/VersionBanner.tsx   (NEW)
+#     src/modules/app-shell/infrastructure/page-chrome.tsx   (host mount)
+#     src/modules/taxonomy/presentation/DetailPanel.tsx     (close/sticky)
+#     src/app/globals.css                                    (sticky contract)
+#
+# NOTE: the `presentation/index.ts` barrel is intentionally NOT
+# re-exporting `VersionBanner` in this slice — the component is
+# mounted by `infrastructure/page-chrome.tsx` via a sibling-module
+# import, and the public `app-shell/presentation/index.ts` barrel
+# stays limited to `AppShell` + `BrowserSurface` (PR 4b + PR 5b.4
+# surface). The earlier "(re-export)" annotation on the
+# `presentation/index.ts` line was incorrect; corrected here so the
+# production-slices list reflects the actual shipped contract.
+# ===========================================================================
+VERSION_BANNER_FILE = APP_SHELL_PRESENTATION / "VersionBanner.tsx"
+DETAIL_PANEL_FILE = (
+    REPO_ROOT / "src" / "modules" / "taxonomy"
+    / "presentation" / "DetailPanel.tsx"
+)
+GLOBALS_CSS_FILE = REPO_ROOT / "src" / "app" / "globals.css"
+
+
+def test_version_banner_preserves_legacy_dom_ids():
+    """PR 5c.1b-B: VersionBanner MUST render the three legacy DOM
+    ids `version-banner`, `version-banner-actual`,
+    `version-banner-expected` on its visible children so legacy e2e
+    + Playwright tests and the banner-host re-anchor continue to
+    resolve."""
+    if not VERSION_BANNER_FILE.is_file():
+        pytest.skip("VersionBanner.tsx not yet authored")
+    text = _read_stripped(VERSION_BANNER_FILE)
+    for legacy_id in (
+        '"version-banner"',
+        '"version-banner-actual"',
+        '"version-banner-expected"',
+    ):
+        assert legacy_id in text, (
+            f"VersionBanner.tsx must stamp legacy DOM id {legacy_id!r}"
+        )
+
+
+def test_version_banner_is_mount_gated_and_fetches_health_only_after_mount():
+    """PR 5c.1b-B: the /api/health fetch MUST fire only AFTER the
+    `useMounted()` flag flips. SSR + initial CSR render with no
+    network call so React's hydration guard never trips on a server
+    that doesn't reach the API. Source-only check: the fetch lives
+    inside `useEffect`, the effect early-returns when `mounted`
+    is false, AND the component imports `useMounted` from
+    `@taxa/browser-state`."""
+    if not VERSION_BANNER_FILE.is_file():
+        pytest.skip("VersionBanner.tsx not yet authored")
+    text = _read_stripped(VERSION_BANNER_FILE)
+    assert "useMounted" in text, (
+        "VersionBanner.tsx must import and call useMounted() so the "
+        "network fetch is mounted-gated (SSR-safe)"
+    )
+    assert "/api/health" in text, (
+        "VersionBanner.tsx must fetch /api/health to read schema "
+        "version fields (preserves legacy contract)"
+    )
+    assert re.search(r"useEffect\s*\(\s*\(\s*\)\s*=>\s*\{", text), (
+        "VersionBanner.tsx must call useEffect for the health fetch"
+    )
+    effect_block = re.search(
+        r"useEffect\s*\(\s*\(\s*\)\s*=>\s*\{([\s\S]*?)\}\s*,\s*\[",
+        text,
+    )
+    assert effect_block, "useEffect block not parseable"
+    effect_body = effect_block.group(1)
+    assert "mounted" in effect_body, (
+        "useEffect must reference `mounted` so the fetch is gated"
+    )
+    assert re.search(
+        r"if\s*\(\s*!\s*mounted\s*\)\s*return", effect_body
+    ), (
+        "useEffect must early-return when mounted is false "
+        "(`if (!mounted) return;`)"
+    )
+
+
+def test_version_banner_fails_closed_on_unavailable_or_malformed_health():
+    """PR 5c.1b-B: VersionBanner MUST hide (return null / keep host
+    hidden) on:
+      - non-OK HTTP response
+      - missing schema-version fields
+      - non-numeric schema-version fields
+      - exception during fetch
+    It MUST NEVER fabricate an outdated state when health is
+    unavailable."""
+    if not VERSION_BANNER_FILE.is_file():
+        pytest.skip("VersionBanner.tsx not yet authored")
+    text = _read_stripped(VERSION_BANNER_FILE)
+    assert re.search(
+            r"typeof\s+\w+\s*[!=]==?\s*[\"\']number[\"\']", text
+        ), (
+            "VersionBanner.tsx must validate fetched payload fields "
+            "with typeof number checks so malformed data fails closed"
+        )
+    assert ".catch(" in text, (
+        "VersionBanner.tsx must attach a .catch() handler to fetch "
+        "/ .json() so network errors fail closed"
+    )
+
+
+def test_version_banner_persists_dismiss_via_typed_store():
+    """PR 5c.1b-B: the dismiss click MUST call
+    `store.setVersionBannerDismissed(true)` on the SINGLE typed
+    store instance (no localStorage access from the component) AND
+    the visibility check MUST honour `getVersionBannerDismissed()`."""
+    if not VERSION_BANNER_FILE.is_file():
+        pytest.skip("VersionBanner.tsx not yet authored")
+    text = _read_stripped(VERSION_BANNER_FILE)
+    assert "setVersionBannerDismissed" in text, (
+        "VersionBanner.tsx must call setVersionBannerDismissed(true) "
+        "on the dismiss click (single-typed-store contract)"
+    )
+    assert "getVersionBannerDismissed" in text, (
+        "VersionBanner.tsx must read getVersionBannerDismissed() to "
+        "honour a previous dismissal across reloads"
+    )
+    assert "localStorage" not in text, (
+        "VersionBanner.tsx must not touch localStorage directly; the "
+        "typed store is the sole writer (5 + 5 contract intact)"
+    )
+
+
+def test_version_banner_does_not_construct_a_second_store():
+    """PR 5c.1b-B: VersionBanner MUST NOT construct a second typed
+    store. AppShell is the sole `createBrowserStateStore()` call
+    site in the codebase; the banner consumes the SAME instance via
+    the React Context exposed by `useBrowserStateStore`."""
+    if not VERSION_BANNER_FILE.is_file():
+        pytest.skip("VersionBanner.tsx not yet authored")
+    text = _read_stripped(VERSION_BANNER_FILE)
+    assert "createBrowserStateStore" not in text, (
+        "VersionBanner.tsx must NOT call createBrowserStateStore(); "
+        "AppShell owns the single instance."
+    )
+    assert "useBrowserStateStore" in text, (
+        "VersionBanner.tsx must consume the typed store via the "
+        "useBrowserStateStore() hook (AppShell-exposed context)."
+    )
+
+
+def test_version_banner_subscribes_to_dismissal_via_use_sync_external_store():
+    """PR 5c.1b-B (corrective): VersionBanner MUST subscribe to the
+    same typed store's dismissal snapshot via `useSyncExternalStore`
+    (or an equivalent reactive selector) so the Dismiss click hides
+    the banner IMMEDIATELY. A one-shot snapshot via plain
+    `getVersionBannerDismissed()` would leave the banner visible
+    after dismiss until the next external re-render; a parallel
+    `createBrowserStateStore()` would silently bypass the
+    AppShell-owned instance. The test pins three contracts:
+
+      1. `useSyncExternalStore` is called inside the component
+         (the standard React-19 reactive selector).
+      2. The snapshot reader references
+         `getVersionBannerDismissed` so a dismiss change flips the
+         snapshot.
+      3. The subscribe path references the SAME store the
+         `useBrowserStateStore()` hook returns — `store.subscribe`
+         (with a no-op fallback for the pre-mount window) — so
+         notifications reach the banner.
+
+    Source-only check: no JSDOM, no DOM, no React render."""
+    if not VERSION_BANNER_FILE.is_file():
+        pytest.skip("VersionBanner.tsx not yet authored")
+    text = _read_stripped(VERSION_BANNER_FILE)
+    # (1) The hook must be invoked.
+    assert re.search(r"\buseSyncExternalStore\s*\(", text), (
+        "VersionBanner.tsx must call useSyncExternalStore to "
+        "subscribe to the typed store's dismissal snapshot so the "
+        "Dismiss click hides the banner immediately (no parallel "
+        "store, no one-shot snapshot)."
+    )
+    # (2) The snapshot reader must reference
+    # `getVersionBannerDismissed` (either via `store.getVersionBannerDismissed()`
+    # or `getVersionBannerDismissed()` directly inside the
+    # `useSyncExternalStore` second argument).
+    use_sync_block = re.search(
+        r"useSyncExternalStore\s*\(\s*([\s\S]*?)\)\s*[;,\n]", text
+    )
+    assert use_sync_block, (
+        "useSyncExternalStore call block not parseable in "
+        "VersionBanner.tsx; expected a single multi-line call "
+        "expression."
+    )
+    snapshot_arg = use_sync_block.group(1)
+    assert "getVersionBannerDismissed" in snapshot_arg, (
+        "useSyncExternalStore's snapshot arg must read "
+        "getVersionBannerDismissed() so a setVersionBannerDismissed(true) "
+        "call flips the banner off without a parallel store."
+    )
+    # (3) The subscribe arg must reference the typed store's
+    # subscribe method (with a no-op fallback for the pre-mount
+    # window). The `store ? store.subscribe : () => () => undefined`
+    # ternary is the canonical pattern used in
+    # `infrastructure/page-chrome.tsx` for tree-source — the banner
+    # mirrors it for the dismissal key.
+    assert re.search(
+        r"\bstore\s*\?\s*[\s\S]*?store\s*\.\s*subscribe\b",
+        snapshot_arg,
+    ), (
+        "useSyncExternalStore's subscribe arg must wire through "
+        "the typed store's subscribe method (the same instance "
+        "`useBrowserStateStore()` returns) so dismiss notifications "
+        "reach the banner; a parallel store or one-shot snapshot "
+        "is forbidden."
+    )
+
+
+def test_page_chrome_mounts_version_banner_without_duplicate_store():
+    """PR 5c.1b-B: PageChrome MUST render `<VersionBanner />` in
+    the existing `data-slot="banner-host"` slot AND MUST NOT
+    construct a second browser-state store."""
+    text = _read_stripped(PAGE_CHROME_FILE)
+    assert "VersionBanner" in text, (
+        "page-chrome.tsx must render <VersionBanner />"
+    )
+    assert "createBrowserStateStore" not in text, (
+        "page-chrome.tsx must NOT call createBrowserStateStore(); "
+        "the single store lives in AppShell.tsx."
+    )
+
+
+def test_detail_panel_renders_with_id_detail_panel():
+    """PR 5c.1b-B: DetailPanel MUST stamp `id="detail-panel"` on
+    its root element so legacy e2e / Playwright locators and CSS
+    selectors keep resolving."""
+    text = _read_stripped(DETAIL_PANEL_FILE)
+    assert 'id="detail-panel"' in text, (
+        "DetailPanel.tsx must stamp id=\"detail-panel\" on its root "
+        "aside (legacy DOM contract preserved)"
+    )
+
+
+def test_detail_panel_close_uses_data_action_close_detail():
+    """PR 5c.1b-B: DetailPanel MUST render a close button (or
+    element) with `data-action="close-detail"` so the legacy
+    Playwright binding keeps resolving."""
+    text = _read_stripped(DETAIL_PANEL_FILE)
+    assert 'data-action="close-detail"' in text, (
+        "DetailPanel.tsx must render a close button with "
+        "data-action=\"close-detail\""
+    )
+    assert "onClick" in text, (
+        "data-action=\"close-detail\" must be wired to an onClick "
+        "handler"
+    )
+
+
+def test_detail_panel_close_hides_panel_and_force_search_reopens():
+    """PR 5c.1b-B: DetailPanel MUST track a `detailOpen` state.
+    The close handler drops it to false; a later `forceOpenSearch`
+    bump MUST reset it to true so the panel reopens (closes the
+    legacy silent-no-op regression on re-selecting a previously
+    closed taxon)."""
+    text = _read_stripped(DETAIL_PANEL_FILE)
+    assert "detailOpen" in text, (
+        "DetailPanel.tsx must track a detailOpen state"
+    )
+    assert re.search(r"setDetailOpen\s*\(\s*true\s*\)", text), (
+        "DetailPanel.tsx must reset detailOpen to true inside the "
+        "forceOpenSearch effect so Search-online reopens the panel"
+    )
+    assert "forceOpenSearch" in text, (
+        "DetailPanel.tsx must read the forceOpenSearch prop to "
+        "trigger the reopen"
+    )
+    assert "data-detail-open=" in text, (
+        "DetailPanel.tsx must stamp data-detail-open on the aside"
+    )
+
+
+def test_detail_panel_renders_detail_header_and_detail_tabs_hooks():
+    """PR 5c.1b-B: DetailPanel MUST render `.detail-header` and
+    `.detail-tabs` structural elements inside the root so the
+    sticky CSS contract in `globals.css` can pin them while the
+    panel body scrolls."""
+    text = _read_stripped(DETAIL_PANEL_FILE)
+    assert "detail-header" in text, (
+        "DetailPanel.tsx must render a .detail-header structural "
+        "hook"
+    )
+    assert "detail-tabs" in text, (
+        "DetailPanel.tsx must render a .detail-tabs structural "
+        "hook"
+    )
+
+
+def test_globals_css_pins_detail_header_and_detail_tabs_as_sticky():
+    """PR 5c.1b-B: `globals.css` MUST declare `position: sticky`
+    on BOTH `.detail-header` AND `.detail-tabs` (inside the
+    `.detail-panel` scroll viewport) so the title + tabs stay
+    pinned while the body scrolls. The `top` offsets MUST be
+    pixel values that keep the header above the tabs.
+
+    Coherence fix: the tab `top` offset and the header height MUST
+    both resolve to the same pixel value so the two cannot drift.
+    The source contract accepts EITHER a literal `<length>`
+    (`49px` / `0` / `3rem` / …) OR a `var(--…)` reference that
+    resolves to a `<length>`. When a `var(--…)` is used, the
+    underlying token is asserted separately by
+    `test_globals_css_detail_header_height_token_is_single_source_of_truth`
+    so the contract is structurally enforced, not duplicated
+    across two magic numbers."""
+    # Accepts: literal px/rem/em/% AND var(--…) with optional
+    # fallback. The var branch covers the coherence fix where
+    # both selectors reference `--detail-header-height`.
+    TOP_OFFSET_RE = (
+        r"top\s*:\s*"
+        r"(?:"
+        r"-?\d+(?:\.\d+)?(?:px|rem|em|%)?"
+        r"|"
+        r"var\s*\(\s*--[\w-]+(?:\s*,[^)]*)?\)"
+        r")"
+    )
+    text = _read(GLOBALS_CSS_FILE)
+    for selector, label in (
+        (".detail-header", "detail-header"),
+        (".detail-tabs",   "detail-tabs"),
+    ):
+        block = re.search(
+            rf"{re.escape(selector)}\s*\{{([^{{}}]+?)\}}", text
+        )
+        assert block, (
+            f"globals.css must declare a {selector!r} rule block"
+        )
+        body = block.group(1)
+        assert re.search(r"position\s*:\s*sticky", body), (
+            f"{label}: globals.css rule body MUST include "
+            f"`position: sticky` (verbatim)"
+        )
+        assert re.search(TOP_OFFSET_RE, body), (
+            f"{label}: globals.css rule body MUST include a `top:` "
+            f"offset (literal pixel/rem/em/% value OR a "
+            f"`var(--<token>)` reference that resolves to one)"
+        )
+        assert re.search(r"\bz-index\s*:", body), (
+            f"{label}: globals.css rule body MUST include `z-index` "
+            f"so the sticky layer stacks above the body"
+        )
+
+
+def test_globals_css_detail_header_height_token_is_single_source_of_truth():
+    """PR 5c.1b-B (coherence fix): the DetailPanel header height
+    MUST live in ONE CSS custom property so the sticky
+    `.detail-header` `min-height` and the sticky `.detail-tabs`
+    `top` offset cannot drift when padding or font-size changes
+    downstream. The token MUST live in the `:root` block inside
+    `@layer components` (alongside the existing 3c-e1 /
+    3c-e2 aliases), MUST be a `<length>` (px / rem / em / %), and
+    BOTH selectors MUST reference it via `var(--…)`. A literal
+    duplicate (`49px` in two places) would re-introduce the
+    drift the coherence fix exists to remove."""
+    text = _read(GLOBALS_CSS_FILE)
+    # (1) The token must be declared exactly once, on `:root`,
+    # inside the `@layer components` block (where the existing
+    # aliases live). Anchor `:root` at line-start (after optional
+    # indent) so the regex doesn't pick up `:root { … }` mentions
+    # inside prose comments higher in the file.
+    root_block = re.search(
+        r"^\s*:root\s*\{([^{}]+)\}", text, flags=re.DOTALL | re.MULTILINE,
+    )
+    assert root_block, (
+        "globals.css must declare a `:root { ... }` block inside "
+        "@layer components for the detail-header-height token"
+    )
+    root_body = root_block.group(1)
+    token_re = re.compile(
+        r"(--detail-header-height\s*:\s*(-?\d+(?:\.\d+)?)(px|rem|em|%)\s*;)"
+    )
+    root_match = token_re.search(root_body)
+    assert root_match, (
+        "globals.css :root block must declare "
+        "`--detail-header-height: <number><px|rem|em|%>` as the "
+        "single source of truth for the DetailPanel header height"
+    )
+    assert len(token_re.findall(root_body)) == 1, (
+        "the `--detail-header-height` token MUST be declared "
+        "exactly once (in `:root`); a duplicate would re-introduce "
+        "drift the coherence fix exists to remove"
+    )
+    token_value = root_match.group(2) + root_match.group(3)
+    # (2) `.detail-header` MUST use the token via `var(--…)` for
+    # its `min-height` so the header always renders at the same
+    # height the tab offset expects.
+    header_block = re.search(
+        r"\.detail-header\s*\{([^{}]+)\}", text, flags=re.DOTALL,
+    )
+    assert header_block, (
+        "globals.css must declare a `.detail-header` rule block"
+    )
+    header_body = header_block.group(1)
+    assert re.search(
+        r"min-height\s*:\s*var\s*\(\s*--detail-header-height(?:\s*,[^)]*)?\)",
+        header_body,
+    ), (
+        "`.detail-header` MUST pin `min-height` to "
+        "`var(--detail-header-height)` so the header always "
+        "matches the tab `top` offset (no duplicate literal)"
+    )
+    # (3) `.detail-tabs` MUST use the SAME token via `var(--…)`
+    # for its `top` offset so the two cannot drift.
+    tabs_block = re.search(
+        r"\.detail-tabs\s*\{([^{}]+)\}", text, flags=re.DOTALL,
+    )
+    assert tabs_block, (
+        "globals.css must declare a `.detail-tabs` rule block"
+    )
+    tabs_body = tabs_block.group(1)
+    assert re.search(
+        r"top\s*:\s*var\s*\(\s*--detail-header-height(?:\s*,[^)]*)?\)",
+        tabs_body,
+    ), (
+        "`.detail-tabs` MUST pin `top` to "
+        "`var(--detail-header-height)` so the tab offset cannot "
+        "drift away from the header height"
+    )
+
+
+def test_globals_css_minimal_version_banner_style_uses_tokens_only():
+    """PR 5c.1b-B: `globals.css` MUST include a minimal
+    `#version-banner` style block so the banner is visible when
+    active. The block MUST NOT introduce raw hex literals — all
+    colors route through `var(--…)` design tokens."""
+    text = _read(GLOBALS_CSS_FILE)
+    block = re.search(
+        r"#version-banner\s*\{" + r"([^{}]+)" + r"\}", text
+    )
+    assert block, (
+        "globals.css must include a minimal #version-banner rule "
+        "block so the banner is visible when active"
+    )
+    body = block.group(1)
+    raw_hex = re.findall(r"#[0-9a-fA-F]{3,8}\b", body)
+    assert not raw_hex, (
+        f"#version-banner rule body MUST NOT use raw hex literals; "
+        f"all colors must route through var(--…) tokens. Found: "
+        f"{raw_hex!r}"
+    )
