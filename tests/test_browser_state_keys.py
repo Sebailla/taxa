@@ -361,7 +361,7 @@ def test_store_exposes_ten_mutators_and_listener():
     typed setters, a `subscribe(listener)` registration, and a `reset()`
     action. The regex matches every `camelCase(` token; we filter the
     infrastructure-internal helpers (`getBrowserStorage`, `getItem`,
-    `setItem`) so the assertion reflects the public surface, not the
+`setItem`) so the assertion reflects the public surface, not the
     import list."""
     cleaned = _read_stripped(STORE_FILE)
     INFRA_HELPERS = {"getBrowserStorage(", "getItem(", "setItem("}
@@ -383,3 +383,189 @@ def test_store_exposes_ten_mutators_and_listener():
     )
     assert "subscribe" in cleaned, "store.ts must define subscribe(listener)"
     assert "reset" in cleaned, "store.ts must define reset()"
+
+
+# ===========================================================================
+# PR 5c.1b-A — React tree-source UI + nav/breadcrumb identifiers + single-store
+# context wiring. Source-contract tests only (no DOM, no JSDOM); keep the
+# suite hermetic and consistent with the prior tests in this file. The
+# production slices live in:
+#     src/modules/app-shell/infrastructure/page-chrome.tsx
+#     src/modules/app-shell/presentation/AppShell.tsx
+#     src/modules/app-shell/presentation/browser-state-store-context.ts
+#     src/modules/app-shell/index.ts
+#     src/app/page.tsx
+#     src/modules/taxonomy/presentation/Breadcrumb.tsx
+# The legacy `#tree-source-toggle` / `#nav-*` / `#breadcrumb` DOM contract
+# is preserved by stamping ids / data-tree-source on the existing
+# React elements — NOT by restoring the legacy `<header>` /
+# `<button>` / `<nav>` shape.
+# ===========================================================================
+APP_SHELL_DIR = REPO_ROOT / "src" / "modules" / "app-shell"
+APP_SHELL_PRESENTATION = APP_SHELL_DIR / "presentation"
+PAGE_CHROME_FILE = APP_SHELL_DIR / "infrastructure" / "page-chrome.tsx"
+APP_SHELL_FILE = APP_SHELL_PRESENTATION / "AppShell.tsx"
+APP_SHELL_BARREL = APP_SHELL_DIR / "index.ts"
+PAGE_FILE = REPO_ROOT / "src" / "app" / "page.tsx"
+BREADCRUMB_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "Breadcrumb.tsx"
+
+
+def _app_shell_ts_files() -> list[Path]:
+    """All `.tsx` / `.ts` files in the app-shell module, excluding the
+    public barrel (JSDoc-only)."""
+    if not APP_SHELL_DIR.is_dir():
+        return []
+    return sorted(
+        p for p in APP_SHELL_DIR.rglob("*.ts*")
+        if p.is_file() and p.name not in {".gitkeep", "index.ts"}
+    )
+
+
+def test_tree_source_toggle_renders_with_three_buttons():
+        """PR 5c.1b-A: PageChrome MUST render the tree-source control
+        with id `tree-source-toggle` and three buttons whose
+        `data-tree-source` attributes are the three pinned literals
+        (`col`, `worms`, `freshwater`) with `aria-pressed`."""
+        text = _read_stripped(PAGE_CHROME_FILE)
+        assert re.search(r'id\s*=\s*["{]tree-source-toggle["}]', text), (
+            "page-chrome.tsx must render the tree-source toggle host with "
+            "id=\"tree-source-toggle\" (legacy DOM contract preserved)."
+        )
+        for literal in ("col", "worms", "freshwater"):
+            assert (
+                f'data-tree-source="{literal}"' in text
+                or ("data-tree-source={" in text
+                    and f'"{literal}"' in text
+                    and ("TREE_SOURCES" in text or "treeSource" in text))
+            ), (
+                f"page-chrome.tsx must render a button with "
+                f"data-tree-source=\"{literal}\" inside #tree-source-toggle"
+            )
+        literal_count = text.count('data-tree-source="')
+        expr_count = text.count("data-tree-source={")
+        assert literal_count + expr_count == 3 or expr_count == 1, (
+            f"page-chrome.tsx must render three tree-source buttons; "
+            f"found literal={literal_count}, expression={expr_count}"
+        )
+        aria_literal = text.count('aria-pressed="')
+        aria_expr = text.count("aria-pressed={")
+        assert aria_literal >= 3 or aria_expr == 1, (
+            f"page-chrome.tsx must stamp aria-pressed on every "
+            f"data-tree-source button; found literal={aria_literal}, "
+            f"expression={aria_expr}"
+        )
+
+
+def test_tree_source_toggle_persists_via_set_tree_source():
+    """PR 5c.1b-A: toggle click MUST call the typed store's
+    `setTreeSource(next)`; MUST NOT call `localStorage` directly."""
+    text = _read_stripped(PAGE_CHROME_FILE)
+    assert "setTreeSource" in text, (
+        "page-chrome.tsx must call setTreeSource(next) on click so "
+        "the typed store persists the choice (5 + 5 contract)."
+    )
+    assert "localStorage" not in text, (
+        "page-chrome.tsx must not mention localStorage; the typed "
+        "store is the only localStorage writer."
+    )
+    assert "TREE_SOURCES" in text, (
+        "page-chrome.tsx must declare a TREE_SOURCES mapping that "
+        "feeds the setTreeSource click handler"
+    )
+
+
+def test_app_shell_exposes_single_store_via_context():
+    """PR 5c.1b-A: AppShell MUST construct the typed store exactly
+    once AND MUST publish that single instance via a React context
+    so page.tsx can read without constructing a second store."""
+    callsites = []
+    for path in _app_shell_ts_files():
+        cleaned = _read_stripped(path)
+        for lineno, line in enumerate(cleaned.splitlines(), start=1):
+            if "createBrowserStateStore(" in line:
+                callsites.append((path, lineno))
+    assert len(callsites) == 1, (
+        f"app-shell must construct the typed store exactly once; "
+        f"found {len(callsites)} callsites"
+    )
+    assert callsites[0][0] == APP_SHELL_FILE, (
+        f"createBrowserStateStore( must be called from AppShell.tsx; "
+        f"found in {callsites[0][0].relative_to(REPO_ROOT).as_posix()}"
+    )
+    app_shell_text = _read_stripped(APP_SHELL_FILE)
+    assert ".Provider" in app_shell_text, (
+        "AppShell.tsx must wrap its subtree with the typed store's "
+        "React context Provider so descendants see the single instance"
+    )
+    assert "createContext" in app_shell_text or "Context" in app_shell_text, (
+        "AppShell.tsx must reference a React Context for the typed store"
+    )
+    barrel = _read_stripped(APP_SHELL_BARREL)
+    assert "useBrowserStateStore" in barrel, (
+        "app-shell barrel must re-export the useBrowserStateStore() "
+        "hook so consumers read via the public boundary"
+    )
+
+
+def test_page_consumes_tree_source_via_app_shell_context():
+    """PR 5c.1b-A: page.tsx MUST consume tree source from the
+    AppShell-exposed store via the barrel; MUST NOT hard-code
+    `source: "col"`; MUST subscribe via useSyncExternalStore."""
+    text = _read_stripped(PAGE_FILE)
+    assert 'source: "col"' not in text, (
+        "src/app/page.tsx must not hard-code source: \"col\"; "
+        "PR 5c.1b-A requires the source to flow from the AppShell-"
+        "exposed store so user selection persists via setTreeSource."
+    )
+    assert "@taxa/app-shell" in text, (
+        "src/app/page.tsx must import useBrowserStateStore from "
+        "@taxa/app-shell (the public barrel) per spec.md rule 5."
+    )
+    assert "useBrowserStateStore" in text, (
+        "src/app/page.tsx must call the useBrowserStateStore() hook "
+        "to subscribe to the tree-source value"
+    )
+    assert "useSyncExternalStore" in text, (
+        "src/app/page.tsx must subscribe via useSyncExternalStore "
+        "so a setTreeSource click re-fetches the taxonomy tree"
+    )
+    assert "createBrowserStateStore" not in text, (
+        "src/app/page.tsx must not construct a second store; "
+        "the single store lives in AppShell.tsx."
+    )
+
+
+def test_nav_button_ids_match_legacy_contract():
+    """PR 5c.1b-A: the three primary nav buttons MUST carry the
+    legacy-compatible React ids `nav-browser`, `nav-classification`,
+    `nav-settings`. Accept both JSX literal and JSX expression
+    attribute syntaxes."""
+    text = _read_stripped(PAGE_CHROME_FILE)
+    literal_ok = all(f'id="nav-{p}"' in text for p in
+                     ("browser", "classification", "settings"))
+    expr_ok = (
+        "id={`nav-${" in text
+        and "NAV_TABS" in text
+        and all(f'"{p}"' in text for p in
+                ("browser", "classification", "settings"))
+    )
+    assert literal_ok or expr_ok, (
+        "page-chrome.tsx must stamp id=\"nav-browser\", "
+        "id=\"nav-classification\", id=\"nav-settings\" on the existing "
+        "nav buttons (legacy DOM contract preserved)"
+    )
+
+
+def test_breadcrumb_renders_with_id_breadcrumb():
+    """PR 5c.1b-A: the taxonomy Breadcrumb MUST stamp
+    `id="breadcrumb"` on its `<nav>` element (both branches)."""
+    text = _read_stripped(BREADCRUMB_FILE)
+    assert 'id="breadcrumb"' in text, (
+        "taxonomy/presentation/Breadcrumb.tsx must stamp "
+        "id=\"breadcrumb\" on its <nav> element (legacy DOM "
+        "contract preserved without restoring legacy architecture)"
+    )
+    assert text.count('id="breadcrumb"') >= 2, (
+        "Breadcrumb.tsx must stamp id=\"breadcrumb\" on BOTH the "
+        "empty-state and the populated-state <nav> branches"
+    )

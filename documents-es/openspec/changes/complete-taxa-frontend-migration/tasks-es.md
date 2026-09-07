@@ -2045,8 +2045,12 @@ browser-state aterrizada"; la adenda vinculante vive en
       `setItem(` inline para la nueva llave, todos en
       `infrastructure/store.ts`); 27/27 tests pasan bajo TDD
       estricto.
-- [ ] **5c.1b (diferida)** — integración React del banner + UI de
-      fuente de árbol + actualizaciones de selectores E2E; sin
+- [x] **5c.1b-A (aterrizada)** — UI de fuente de árbol + ids de nav/breadcrumb
+      + cableado de contexto de store único (page.tsx se suscribe vía
+      `useBrowserStateStore`); sin cambios en `domain/keys.ts` /
+      `infrastructure/store.ts`.
+- [ ] **5c.1b-B (diferida)** — render de VersionBanner + trabajo de cierre/
+      sticky de panel + pulido de hidratación de fuente de árbol; sin
       cambios en `domain/keys.ts` / `infrastructure/store.ts`.
 - [ ] **5c.2 (diferida)** — cableado de research / search / folder;
       sin cambios en `domain/keys.ts` / `infrastructure/store.ts`.

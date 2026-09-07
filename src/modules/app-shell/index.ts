@@ -21,6 +21,16 @@
  * `app-shell` is the host module for the single Next.js route
  * (`src/app/page.tsx`). It composes the other capability modules
  * through their public barrels — never by deep import.
+ *
+ * PR 5c.1b-A EXTENDS the public surface with:
+ *   - `useBrowserStateStore` — React hook that reads the SINGLE typed
+ *     store the AppShell owns, exposed via `BrowserStateStoreContext`.
+ *     Cross-module consumers (currently only `src/app/page.tsx`, which
+ *     subscribes to `treeSource` via `useSyncExternalStore`) read the
+ *     current selection without constructing a parallel store. The
+ *     AppShell is still the sole `createBrowserStateStore()` call
+ *     site in the codebase.
  */
 
 export { AppShell, BrowserSurface } from "./presentation";
+export { useBrowserStateStore } from "./presentation/browser-state-store-context";
