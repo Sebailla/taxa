@@ -1,79 +1,74 @@
 #!/usr/bin/env python
 """
-Phase 6a hydration-baseline reconstruction harness (re-baselined).
+Phase 6a hydration-baseline reconstruction harness (G5 1+9 protocol).
 
-Authoritative Phase 6a contract (per the user authorization +
-openspec/changes/complete-taxa-frontend-migration/tasks.md):
+Authoritative G5 1+9 contract (per the user authorization +
+openspec/changes/complete-taxa-frontend-migration/design.md):
 
-    scripts/reconstruct_hydration_baseline.py starts a local static
-    HTTP server that serves the FROZEN
-    `tools/g3-legacy-fixture/web/` on a free loopback port, drives
-    Playwright + Chromium against the server (1 warm-up + N retained
-    navigations), reduces each metric to its empirical median, and
-    emits a schema-conformant baseline artifact at
-    `web/dist/evidence-baseline.json` with both the legacy single-
-    point fields and the Phase 6a multi-sample block
-    (raw samples + median metadata). The HTTP serving mirrors
-    `scripts/capture_hydration_candidate.py` so the comparison is
-    apples-to-apples (file:// navigation is forbidden because it
-    disables fetch + ES-module loading for the React build's static
-    export; the legacy baseline now uses the same loopback HTTP
-    origin so neither leg has an unfair advantage).
+    scripts/reconstruct_hydration_baseline.py starts a local static HTTP
+    server that serves the FROZEN `` `tools/g3-legacy-fixture/web` `` on
+    a free loopback port, drives Playwright + Chromium against the
+    server (1 warm-up + 9 retained navigations by default), measures
+    DOMContentLoaded via PerformanceNavigationTiming (with a
+    ``performance.timing`` fallback for older browsers), reduces the
+    retained values to an empirical median, and emits a schema-conformant
+    baseline artifact with per-run provenance (browser_version,
+    build_sha if available, route, capture timestamp/environment).
+    The HTTP serving mirrors ``scripts/capture_hydration_candidate.py``
+    so the comparison is apples-to-apples.
 
 Fail-closed guarantee (binding):
 
     * The harness MUST NEVER invent baseline numbers. If Playwright or
       Chromium is unavailable, the script writes a schema-conformant
-      placeholder artifact flagged with `source: "unavailable"` and
+      placeholder artifact flagged with ``source: "unavailable"`` and
       exits non-zero. The placeholder's metrics are deliberately zero
       so any downstream consumer can tell at a glance that the values
       are placeholders rather than real measurements.
-    * A `blocker` field names the missing dependency so the apply
+    * A ``blocker`` field names the missing dependency so the apply
       worker can record the environmental reason in
-      `apply-progress.md` without guessing.
+      ``apply-progress.md`` without guessing.
+    * The fail-closed placeholder MUST honor the configured counts
+      (default 9 retained + 1 warm-up). Hardcoding 5+1 (the legacy
+      multi-metric defaults) is forbidden.
 
-Multi-sample contract (Phase 6a re-baseline):
+G5 1+9 protocol contract:
 
-    * Default: 1 warm-up + 5 retained samples per metric.
-    * The retained samples block (`samples.*`) holds the raw observed
-      values for each metric.
-    * The warmup_samples block holds the discarded warm-up samples.
-    * The `median` block holds the empirical median of the retained
-      samples per metric.
-    * `samples_retained` and `warmup_count` are integer counts.
-    * The legacy back-compat `server_shell` / `client_render` blocks
-      carry the median values verbatim so consumers that don't yet
-      understand the multi-sample schema keep working.
+    * Default: 1 warm-up + 9 retained DOMContentLoaded samples.
+    * The retained samples block (``samples``) holds the raw observed
+      values with per-run provenance.
+    * The warmup_samples block holds the discarded warm-up sample with
+      the same shape.
+    * The ``median`` field is the empirical median of the retained
+      ``dom_content_loaded_ms`` values (warm-up excluded).
+    * ``samples_retained`` and ``warmup_count`` are integer counts.
+    * ``origin`` records the loopback HTTP origin URL.
+    * Console warnings are recorded verbatim.
 
 Inputs (positional / flags):
 
     python scripts/reconstruct_hydration_baseline.py \\
         [--fixture-web-root tools/g3-legacy-fixture/web] \\
         [--out web/dist/evidence-baseline.json] \\
-        [--samples-retained 5] [--warmup-count 1] \\
+        [--samples-retained 9] [--warmup-count 1] \\
         [--host 127.0.0.1] [--port 0]
 
-The frozen fixture root is the default; the flag exists so a developer
-who wants to capture against a different legacy build can override it
-without editing the script. The fixture path is validated to exist
-before any capture attempt — a missing fixture root is also a
-fail-closed blocker (the fixture is read-only per the Phase 6a spec).
-
 Exit codes:
+
     0  real capture succeeded, schema-conformant artifact written.
     2  fixture root or output directory missing/unwritable.
     3  Playwright module not importable OR Chromium binary not
        installed (the two environmental blockers the apply worker
-       must surface to apply-progress.md §Change log).
+       must surface to ``apply-progress.md`` §Change log).
     4  static server failed to start, or capture raised an unexpected
        runtime error during navigation or measurement (also written
-       into `blocker`).
+       into ``blocker``).
 
 Reference:
+    openspec/changes/complete-taxa-frontend-migration/design.md
+                                                       §"G5 — hydration baseline"
     openspec/changes/complete-taxa-frontend-migration/tasks.md
                                                        §Phase 6a
-    openspec/changes/migrate-nextjs-tailwind4/design.md
-                                                       §"Migration Evidence Baseline"
 """
 from __future__ import annotations
 
@@ -82,6 +77,7 @@ import datetime
 import json
 import socket
 import statistics
+import subprocess
 import sys
 import threading
 import time
@@ -91,14 +87,78 @@ import urllib.request
 from functools import partial
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
-from typing import Callable, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_FIXTURE_WEB_ROOT = REPO_ROOT / "tools" / "g3-legacy-fixture" / "web"
 DEFAULT_OUT_PATH = REPO_ROOT / "web" / "dist" / "evidence-baseline.json"
-DEFAULT_SAMPLES_RETAINED = 5
+
+# G5 1+9 protocol defaults — see design.md §"G5 — hydration baseline".
+DEFAULT_SAMPLES_RETAINED = 9
 DEFAULT_WARMUP_COUNT = 1
+
+
+# ---------------------------------------------------------------------------
+# Provenance helpers
+# ---------------------------------------------------------------------------
+def _detect_browser_version(page) -> str:
+    """Detect Chromium / browser version via the Playwright page.
+
+    Falls back to ``"unknown"`` if the probe raises any error so the
+    capture can stay fail-closed (provenance is recorded, the missing
+    value is exposed).
+    """
+    try:
+        return str(page.evaluate("() => navigator.userAgent"))
+    except Exception as err:  # noqa: BLE001
+        return f"unknown ({type(err).__name__}: {err})"
+
+
+def _detect_build_sha() -> Optional[str]:
+    """Best-effort detection of the current build's git SHA.
+
+    Returns ``None`` when git is unavailable / not a repo / no commits;
+    the G5 schema treats ``build_sha`` as optional per-run provenance.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            sha = result.stdout.strip()
+            if sha:
+                return sha
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def _per_sample(
+    dom_content_loaded_ms: float,
+    *,
+    browser_version: str,
+    build_sha: Optional[str],
+    route: str,
+    captured_at: str,
+    capture_environment: str = "controlled-loopback",
+) -> dict:
+    """Build a single per-run provenance record (G5 1+9 schema)."""
+    record = {
+        "dom_content_loaded_ms": float(dom_content_loaded_ms),
+        "browser_version": browser_version,
+        "route": route,
+        "captured_at": captured_at,
+        "capture_environment": capture_environment,
+    }
+    if build_sha is not None:
+        record["build_sha"] = build_sha
+    return record
 
 
 # ---------------------------------------------------------------------------
@@ -109,67 +169,50 @@ def _write_placeholder(
     blocker: str,
     fixture_web_root: Path,
     captured_at: str,
+    samples_retained: int = DEFAULT_SAMPLES_RETAINED,
+    warmup_count: int = DEFAULT_WARMUP_COUNT,
 ) -> dict:
     """Emit a schema-conformant fail-closed placeholder artifact.
 
-    The schema follows ``tests/test_hydration_timing.py`` (captured_at,
-    build, route, server_shell, client_render, console_warnings) plus
-    the Phase 6a multi-sample block (all zeros so a reviewer can tell
-    at a glance that the values are placeholders rather than real
-    measurements). Two extensions identify the placeholder:
-    ``source`` (set to ``"unavailable"``) and ``blocker`` (a human-
-    readable diagnostic).
+    Honors the configured counts (default 9 retained + 1 warm-up;
+    override via ``samples_retained`` / ``warmup_count``). The metrics
+    are deliberately zero so a reviewer can tell at a glance that the
+    values are placeholders rather than real measurements.
     """
     artifact = {
         "captured_at": captured_at,
         "build": "legacy",
         "route": "/",
-        "server_shell": {
-            "first_paint_ms": 0.0,
-            "dom_content_loaded_ms": 0.0,
-        },
-        "client_render": {
-            "tree_first_paint_ms": 0.0,
-            "tree_first_interactive_ms": 0.0,
-        },
+        "samples": [
+            _per_sample(
+                0.0,
+                browser_version="unavailable",
+                build_sha=_detect_build_sha(),
+                route="/",
+                captured_at=captured_at,
+                capture_environment="unavailable",
+            )
+            for _ in range(samples_retained)
+        ],
+        "warmup_samples": [
+            _per_sample(
+                0.0,
+                browser_version="unavailable",
+                build_sha=_detect_build_sha(),
+                route="/",
+                captured_at=captured_at,
+                capture_environment="unavailable",
+            )
+            for _ in range(warmup_count)
+        ],
+        "samples_retained": samples_retained,
+        "warmup_count": warmup_count,
+        "median": 0.0,
+        "origin": "http://127.0.0.1:0/",
         "console_warnings": [],
         "source": "unavailable",
         "blocker": blocker,
         "fixture_web_root": str(fixture_web_root),
-        # Phase 6a multi-sample fields (all zeros placeholder).
-        "samples": {
-            "server_shell": {
-                "first_paint_ms": [0.0] * DEFAULT_SAMPLES_RETAINED,
-                "dom_content_loaded_ms": [0.0] * DEFAULT_SAMPLES_RETAINED,
-            },
-            "client_render": {
-                "tree_first_paint_ms": [0.0] * DEFAULT_SAMPLES_RETAINED,
-                "tree_first_interactive_ms": [0.0] * DEFAULT_SAMPLES_RETAINED,
-            },
-        },
-        "warmup_samples": {
-            "server_shell": {
-                "first_paint_ms": [0.0] * DEFAULT_WARMUP_COUNT,
-                "dom_content_loaded_ms": [0.0] * DEFAULT_WARMUP_COUNT,
-            },
-            "client_render": {
-                "tree_first_paint_ms": [0.0] * DEFAULT_WARMUP_COUNT,
-                "tree_first_interactive_ms": [0.0] * DEFAULT_WARMUP_COUNT,
-            },
-        },
-        "samples_retained": DEFAULT_SAMPLES_RETAINED,
-        "warmup_count": DEFAULT_WARMUP_COUNT,
-        "median": {
-            "server_shell": {
-                "first_paint_ms": 0.0,
-                "dom_content_loaded_ms": 0.0,
-            },
-            "client_render": {
-                "tree_first_paint_ms": 0.0,
-                "tree_first_interactive_ms": 0.0,
-            },
-        },
-        "origin": "http://127.0.0.1:0/",
     }
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(artifact, indent=2) + "\n")
@@ -180,14 +223,9 @@ def _write_placeholder(
 # Playwright / Chromium probe
 # ---------------------------------------------------------------------------
 def _check_playwright() -> Tuple[bool, str]:
-    """Probe whether playwright + chromium are usable in this env.
-
-    Returns ``(ok, blocker_message)``. ``ok=False`` implies the harness
-    must take the fail-closed path; the message is suitable for
-    writing into the placeholder's ``blocker`` field and stderr.
-    """
+    """Probe whether playwright + chromium are usable in this env."""
     try:
-        from playwright.sync_api import (  # type: ignore[import-not-found]  # noqa: F401
+        from playwright.sync_api import (  # type: ignore[import-not-found]
             sync_playwright,
         )
     except ImportError as err:
@@ -218,9 +256,7 @@ def _check_playwright() -> Tuple[bool, str]:
 # In-process loopback HTTP server (serves the frozen fixture)
 # ---------------------------------------------------------------------------
 class _SilentHandler(SimpleHTTPRequestHandler):
-    """SimpleHTTPRequestHandler that suppresses access-log noise so a
-    reviewer reading the harness output sees only the artifact path,
-    not dozens of GET lines."""
+    """SimpleHTTPRequestHandler that suppresses access-log noise."""
 
     def log_message(self, format: str, *args) -> None:  # noqa: A002
         return
@@ -236,19 +272,14 @@ def _pick_free_port(host: str) -> int:
 def _start_static_server(
     serve_root: Path, host: str, port: int,
 ) -> Tuple[Optional[HTTPServer], Callable[[], None], int]:
-    """Start an in-process static server serving ``serve_root``.
-
-    Returns ``(server, shutdown, bound_port)``. The caller MUST call
-    ``shutdown()`` on every exit path so the listening socket is
-    released before the Python process exits.
-    """
+    """Start an in-process static server serving ``serve_root``."""
     if port == 0:
         port = _pick_free_port(host)
 
     handler = partial(_SilentHandler, directory=str(serve_root))
     try:
         server = HTTPServer((host, port), handler)
-    except OSError as err:
+    except OSError:
         return None, lambda: None, port
 
     thread = threading.Thread(
@@ -261,7 +292,7 @@ def _start_static_server(
     def shutdown() -> None:
         try:
             server.shutdown()
-        except Exception:  # noqa: BLE001 - shutdown MUST be best-effort
+        except Exception:  # noqa: BLE001
             pass
         try:
             server.server_close()
@@ -274,8 +305,7 @@ def _start_static_server(
 def _wait_for_server(
     host: str, port: int, timeout_s: float = 5.0,
 ) -> Tuple[bool, str]:
-    """Probe the static server with a HEAD-equivalent GET until it
-    answers. Returns ``(ok, blocker)``."""
+    """Probe the static server with a GET until it answers."""
     deadline = datetime.datetime.now() + datetime.timedelta(seconds=timeout_s)
     url = f"http://{host}:{port}/index.html"
     while datetime.datetime.now() < deadline:
@@ -295,50 +325,38 @@ def _wait_for_server(
 # ---------------------------------------------------------------------------
 # Multi-sample capture
 # ---------------------------------------------------------------------------
-def _navigate_once(page, host: str, port: int, warnings: list) -> dict:
-    """Drive a single Playwright navigation and return the per-metric
-    measurements (in milliseconds) plus the running warnings list.
+def _navigate_once(page, host: str, port: int) -> float:
+    """Drive a single Playwright navigation and return the
+    DOMContentLoaded delta in milliseconds.
 
-    Returns a dict like
-    ``{"first_paint_ms": ..., "dom_content_loaded_ms": ...,
-       "tree_first_paint_ms": ..., "tree_first_interactive_ms": ...}``.
-
-    The legacy fixture has no React tree or interactive handlers, so
-    ``tree_first_paint_ms`` and ``first_paint_ms`` collapse to the
-    same value (the static body paint); the same applies to
-    ``tree_first_interactive_ms`` and ``dom_content_loaded_ms``. The
-    distinction is preserved so the legacy schema stays comparable to
-    the React candidate's schema.
+    Per the G5 1+9 contract, only DOMContentLoaded is measured — the
+    legacy first_paint_ms / tree_first_interactive_ms semantics are
+    eliminated from the new comparator/status path. Performance is
+    measured via PerformanceNavigationTiming where available, falling
+    back to performance.timing.domContentLoadedEventEnd for older
+    browsers.
     """
     target_url = f"http://{host}:{port}/"
     page.goto(target_url, wait_until="load")
-    first_paint_ms = float(
+    # PerformanceNavigationTiming has high-resolution time stamps;
+    # fall back to performance.timing when unavailable.
+    return float(
         page.evaluate(
-            "() => performance.timing.responseEnd - "
-            "performance.timing.navigationStart"
+            "() => {\n"
+            "  const nav = performance.getEntriesByType('navigation')[0];\n"
+            "  if (nav && typeof nav.domContentLoadedEventEnd === 'number' "
+            "      && typeof nav.startTime === 'number') {\n"
+            "    return nav.domContentLoadedEventEnd - nav.startTime;\n"
+            "  }\n"
+            "  return performance.timing.domContentLoadedEventEnd -\n"
+            "         performance.timing.navigationStart;\n"
+            "}"
         )
     )
-    dom_content_loaded_ms = float(
-        page.evaluate(
-            "() => performance.timing.domContentLoadedEventEnd - "
-            "performance.timing.navigationStart"
-        )
-    )
-    return {
-        "first_paint_ms": first_paint_ms,
-        "dom_content_loaded_ms": dom_content_loaded_ms,
-        "tree_first_paint_ms": first_paint_ms,
-        "tree_first_interactive_ms": dom_content_loaded_ms,
-    }
 
 
-def _median_or_zero(values: list) -> float:
-    """Empirical median of a non-empty list of floats; 0.0 for empty.
-
-    statistics.median returns the average of the two middle values
-    for even-length lists, which matches the ``median(samples)``
-    contract in the multi-sample schema.
-    """
+def _median_or_zero(values: List[float]) -> float:
+    """Empirical median of a non-empty list of floats; 0.0 for empty."""
     if not values:
         return 0.0
     return float(statistics.median(values))
@@ -352,24 +370,9 @@ def _capture(
     host: str = "127.0.0.1",
     port: int = 0,
 ) -> int:
-    """Attempt a real Playwright capture against ``fixture_web_root``.
-
-    The capture serves the fixture over a loopback HTTP server (so the
-    baseline mirrors the React candidate's HTTP origin), runs
-    ``warmup_count + samples_retained`` navigations, discards the
-    warm-up, reduces the retained samples to a per-metric median, and
-    writes a schema-conformant artifact with both the legacy single-
-    point fields (set to the median) and the Phase 6a multi-sample
-    block (raw samples + warmup + median metadata + origin URL).
-
-    On any failure, the script writes a placeholder artifact and exits
-    non-zero — it MUST NEVER invent baseline numbers.
-    """
+    """Attempt a real Playwright capture against ``fixture_web_root``."""
     captured_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-    # ------------------------------------------------------------------
-    # Pre-flight checks (fail-closed before spinning up the server)
-    # ------------------------------------------------------------------
     if not fixture_web_root.is_dir():
         blocker = (
             f"fixture_web_root does not exist: {fixture_web_root} "
@@ -378,6 +381,8 @@ def _capture(
         sys.stderr.write(f"[reconstruct_hydration_baseline] {blocker}\n")
         _write_placeholder(
             out, blocker, fixture_web_root, captured_at,
+            samples_retained=samples_retained,
+            warmup_count=warmup_count,
         )
         return 2
 
@@ -391,6 +396,8 @@ def _capture(
         sys.stderr.write(f"[reconstruct_hydration_baseline] {blocker}\n")
         _write_placeholder(
             out, blocker, fixture_web_root, captured_at,
+            samples_retained=samples_retained,
+            warmup_count=warmup_count,
         )
         return 2
 
@@ -402,12 +409,11 @@ def _capture(
         )
         _write_placeholder(
             out, blocker, fixture_web_root, captured_at,
+            samples_retained=samples_retained,
+            warmup_count=warmup_count,
         )
         return 3
 
-    # ------------------------------------------------------------------
-    # Start loopback static HTTP server
-    # ------------------------------------------------------------------
     server, shutdown, bound_port = _start_static_server(
         fixture_web_root, host, port,
     )
@@ -421,6 +427,8 @@ def _capture(
         sys.stderr.write(f"[reconstruct_hydration_baseline] {blocker}\n")
         _write_placeholder(
             out, blocker, fixture_web_root, captured_at,
+            samples_retained=samples_retained,
+            warmup_count=warmup_count,
         )
         return 4
 
@@ -434,26 +442,21 @@ def _capture(
             )
             _write_placeholder(
                 out, wait_blocker, fixture_web_root, captured_at,
+                samples_retained=samples_retained,
+                warmup_count=warmup_count,
             )
             return 4
 
-        # ------------------------------------------------------------------
-        # Real capture: 1 warm-up + N retained navigations
-        # ------------------------------------------------------------------
         from playwright.sync_api import (  # type: ignore[import-not-found]
             sync_playwright,
         )
 
-        warmup_samples: dict = {
-            "server_shell": {"first_paint_ms": [], "dom_content_loaded_ms": []},
-            "client_render": {"tree_first_paint_ms": [], "tree_first_interactive_ms": []},
-        }
-        retained_samples: dict = {
-            "server_shell": {"first_paint_ms": [], "dom_content_loaded_ms": []},
-            "client_render": {"tree_first_paint_ms": [], "tree_first_interactive_ms": []},
-        }
-        warnings: list[str] = []
-        captured_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        warnings: List[str] = []
+        warmup_values: List[float] = []
+        retained_values: List[float] = []
+        browser_version = "unknown"
+        build_sha = _detect_build_sha()
+        route = "/"
 
         try:
             with sync_playwright() as pw:
@@ -463,44 +466,24 @@ def _capture(
                 page.on(
                     "console",
                     lambda msg: warnings.append(msg.text)
-                    if msg.type == "warning"
-                    else None,
+                    if msg.type == "warning" else None,
                 )
+                browser_version = _detect_browser_version(page)
 
                 # Warm-up navigations (discarded).
                 for _ in range(max(0, warmup_count)):
-                    m = _navigate_once(page, host, bound_port, warnings)
-                    warmup_samples["server_shell"]["first_paint_ms"].append(
-                        m["first_paint_ms"]
-                    )
-                    warmup_samples["server_shell"]["dom_content_loaded_ms"].append(
-                        m["dom_content_loaded_ms"]
-                    )
-                    warmup_samples["client_render"]["tree_first_paint_ms"].append(
-                        m["tree_first_paint_ms"]
-                    )
-                    warmup_samples["client_render"]["tree_first_interactive_ms"].append(
-                        m["tree_first_interactive_ms"]
+                    warmup_values.append(
+                        _navigate_once(page, host, bound_port)
                     )
 
                 # Retained navigations (the canonical samples).
                 for _ in range(max(0, samples_retained)):
-                    m = _navigate_once(page, host, bound_port, warnings)
-                    retained_samples["server_shell"]["first_paint_ms"].append(
-                        m["first_paint_ms"]
-                    )
-                    retained_samples["server_shell"]["dom_content_loaded_ms"].append(
-                        m["dom_content_loaded_ms"]
-                    )
-                    retained_samples["client_render"]["tree_first_paint_ms"].append(
-                        m["tree_first_paint_ms"]
-                    )
-                    retained_samples["client_render"]["tree_first_interactive_ms"].append(
-                        m["tree_first_interactive_ms"]
+                    retained_values.append(
+                        _navigate_once(page, host, bound_port)
                     )
 
                 browser.close()
-        except Exception as err:  # noqa: BLE001 - any runtime failure
+        except Exception as err:  # noqa: BLE001
             blocker = (
                 f"capture raised {type(err).__name__}: {err}; traceback: "
                 f"{traceback.format_exc(limit=4)}"
@@ -510,61 +493,53 @@ def _capture(
             )
             _write_placeholder(
                 out, blocker, fixture_web_root, captured_at,
+                samples_retained=samples_retained,
+                warmup_count=warmup_count,
             )
             return 4
 
-        # ------------------------------------------------------------------
-        # Reduce to median + emit artifact
-        # ------------------------------------------------------------------
-        median_server_first = _median_or_zero(
-            retained_samples["server_shell"]["first_paint_ms"]
-        )
-        median_server_dcl = _median_or_zero(
-            retained_samples["server_shell"]["dom_content_loaded_ms"]
-        )
-        median_client_first = _median_or_zero(
-            retained_samples["client_render"]["tree_first_paint_ms"]
-        )
-        median_client_interactive = _median_or_zero(
-            retained_samples["client_render"]["tree_first_interactive_ms"]
-        )
+        median_ms = _median_or_zero(retained_values)
+        # Pass provenance fields directly so each parameter receives its
+        # own typed expression; building a single kwargs dict would
+        # promote the value type to ``str | None`` (because ``build_sha``
+        # is legitimately optional) and Pyright would then flag every
+        # required ``str`` parameter.
+        samples = [
+            _per_sample(
+                v,
+                browser_version=browser_version,
+                build_sha=build_sha,
+                route=route,
+                captured_at=captured_at,
+                capture_environment="controlled-loopback",
+            )
+            for v in retained_values
+        ]
+        warmup_samples = [
+            _per_sample(
+                v,
+                browser_version=browser_version,
+                build_sha=build_sha,
+                route=route,
+                captured_at=captured_at,
+                capture_environment="controlled-loopback",
+            )
+            for v in warmup_values
+        ]
 
         artifact = {
             "captured_at": captured_at,
             "build": "legacy",
-            "route": "/",
-            # Legacy back-compat single-point fields (== median).
-            "server_shell": {
-                "first_paint_ms": median_server_first,
-                "dom_content_loaded_ms": median_server_dcl,
-            },
-            "client_render": {
-                "tree_first_paint_ms": median_client_first,
-                "tree_first_interactive_ms": median_client_interactive,
-            },
+            "route": route,
+            "samples": samples,
+            "warmup_samples": warmup_samples,
+            "samples_retained": len(retained_values),
+            "warmup_count": len(warmup_values),
+            "median": median_ms,
+            "origin": origin_url,
             "console_warnings": warnings,
             "source": "captured",
             "fixture_web_root": str(fixture_web_root),
-            # Phase 6a re-baseline: raw sample arrays.
-            "samples": retained_samples,
-            "warmup_samples": warmup_samples,
-            "samples_retained": len(
-                retained_samples["client_render"]["tree_first_paint_ms"]
-            ),
-            "warmup_count": len(
-                warmup_samples["client_render"]["tree_first_paint_ms"]
-            ),
-            "median": {
-                "server_shell": {
-                    "first_paint_ms": median_server_first,
-                    "dom_content_loaded_ms": median_server_dcl,
-                },
-                "client_render": {
-                    "tree_first_paint_ms": median_client_first,
-                    "tree_first_interactive_ms": median_client_interactive,
-                },
-            },
-            "origin": origin_url,
         }
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(artifact, indent=2) + "\n")
@@ -591,9 +566,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=DEFAULT_OUT_PATH,
         help=(
-            "Output artifact path (schema-pinned by "
-            "tests/test_hydration_timing.py). Default: "
-            "web/dist/evidence-baseline.json"
+            "Output artifact path. Default: web/dist/evidence-baseline.json"
         ),
     )
     ap.add_argument(
@@ -601,10 +574,8 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_SAMPLES_RETAINED,
         help=(
-            "Number of retained samples per metric after the warm-up. "
-            "Must be >= 3 for variance reduction. "
-            "Default: 5 (Phase 6a re-baseline contract: 'default 5 "
-            "retained samples with one warm-up')."
+            "Number of retained samples after the warm-up. "
+            "Default: 9 (G5 1+9 protocol)."
         ),
     )
     ap.add_argument(
@@ -613,7 +584,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_WARMUP_COUNT,
         help=(
             "Number of warm-up navigations discarded before retained "
-            "samples. Default: 1."
+            "samples. Default: 1 (G5 1+9 protocol)."
         ),
     )
     ap.add_argument(
@@ -636,7 +607,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return ap
 
 
-def main(argv: list[str]) -> int:
+def main(argv: List[str]) -> int:
     args = _build_parser().parse_args(argv[1:])
     return _capture(
         args.fixture_web_root,
