@@ -1803,8 +1803,11 @@ landed"; binding addendum lives in `design.md`; **G4 remains blocked**.
       restored (1 inline `getItem(` + 1 inline `setItem(` for the new
       key, all in `infrastructure/store.ts`); 27/27 tests pass under
       strict TDD.
-- [ ] **5c.1b (deferred)** — React integration of banner + tree-source
-      UI + E2E selector updates; no `domain/keys.ts` /
+- [x] **5c.1b-A (landed)** — tree-source UI + nav/breadcrumb ids + single-store
+      context wire (page.tsx subscribes via `useBrowserStateStore`);
+      no `domain/keys.ts` / `infrastructure/store.ts` change.
+- [ ] **5c.1b-B (deferred)** — VersionBanner render + panel close/sticky work;
+      tree-source hydration polish; no `domain/keys.ts` /
       `infrastructure/store.ts` change.
 - [ ] **5c.2 (deferred)** — research / search / folder wiring; no
       `domain/keys.ts` / `infrastructure/store.ts` change.

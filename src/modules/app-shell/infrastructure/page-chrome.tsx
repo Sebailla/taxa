@@ -26,10 +26,11 @@
 
 "use client";
 
-import { useCallback, type ReactElement, type ReactNode } from "react";
+import { useCallback, useSyncExternalStore, type ReactElement, type ReactNode } from "react";
 
 import {
   type BrowserStateStore,
+  type TreeSource,
 } from "@taxa/browser-state";
 
 /** Pinned tab list — order is part of the G2 chrome contract. */
@@ -37,6 +38,15 @@ const NAV_TABS: ReadonlyArray<{ path: string; label: string }> = [
   { path: "browser", label: "Browser" },
   { path: "classification", label: "Classification" },
   { path: "settings", label: "Settings" },
+];
+
+/** Pinned tree-source buttons — order is part of the legacy DOM contract
+ *  and matches the `col | worms | freshwater` union from
+ *  `domain/keys.ts`. */
+const TREE_SOURCES: ReadonlyArray<{ source: TreeSource; label: string }> = [
+  { source: "col", label: "CoL" },
+  { source: "worms", label: "WoRMS" },
+  { source: "freshwater", label: "Freshwater" },
 ];
 
 /** Canonical default for the primary-tab state. Classification is
@@ -97,6 +107,21 @@ export function PageChrome({
     onNavTab(path);
   }, [onNavTab]);
 
+      // PR 5c.1b-A — tree-source UI. The toggle reads its current selection
+  // via `useSyncExternalStore` on the SAME store instance AppShell owns
+  // (passed in via `store`), then calls the typed `setTreeSource(next)`
+  // setter on click. Before mount the toggle is a no-op (SSR + initial
+  // CSR render with the default `col` so hydration stays byte-identical).
+      const treeSource: TreeSource = useSyncExternalStore(
+    store ? store.subscribe : () => () => undefined,
+    () => (store ? store.getTreeSource() : "col"),
+    () => "col",
+  );
+  const handleSelectTreeSource = useCallback((next: TreeSource): void => {
+    if (!store) return;
+    store.setTreeSource(next);
+  }, [store]);
+
   return (
     <>
       <header data-mounted={mounted ? "true" : "false"}
@@ -107,6 +132,7 @@ export function PageChrome({
             return (
               <button
                 key={tab.path}
+                id={`nav-${tab.path}`}
                 type="button"
                 role="tab"
                 data-action="nav-tab"
@@ -130,6 +156,27 @@ export function PageChrome({
           Theme
         </button>
       </header>
+      <div id="tree-source-toggle"
+           role="group"
+           aria-label="Tree source"
+           data-tree-source-active={treeSource ?? "col"}>
+        {TREE_SOURCES.map(({ source, label }) => {
+          const isActive = source === treeSource;
+          return (
+            <button
+              key={source}
+              type="button"
+              data-tree-source={source}
+              data-tree-source-active={isActive ? "true" : "false"}
+              aria-pressed={isActive ? "true" : "false"}
+              onClick={() => handleSelectTreeSource(source)}
+              disabled={!mounted}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
       <main
         data-selected={state.selected ?? ""}
         data-tree={state.tree ?? ""}

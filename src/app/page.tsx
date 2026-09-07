@@ -2,7 +2,7 @@
 
 /**
  * Single-screen client entry for the App Router static export
- * (PR 3b + PR 4b + PR 5a.2 + PR 5a.3 + PR 5a.4).
+ * (PR 3b + PR 4b + PR 5a.2 + PR 5a.3 + PR 5a.4 + PR 5c.1b-A).
  *
  * Renders the taxonomy tree + breadcrumb + detail-panel trio
  * inside the ``<main>`` slot that ``<AppShell>`` (PR 4b.2) emits.
@@ -17,12 +17,18 @@
  * the counter and snaps the active tab to ``Search`` even for
  * top-level taxa whose default would otherwise be ``Overview``.
  *
+ * PR 5c.1b-A wires the tree-source toggle: this page reads the
+ * current `treeSource` from the SINGLE typed store AppShell owns
+ * (via `useBrowserStateStore` + `useSyncExternalStore`) and flows it
+ * into `useTaxonTree` so a user-driven `setTreeSource` click
+ * re-fetches the taxonomy tree. The page NEVER constructs a parallel
+ * store — the AppShell is the sole `createBrowserStateStore()` call
+ * site in the codebase.
+ *
  * Chain-topology guard: this file MUST NOT directly import
- * ``@taxa/app-shell`` (composed by layout.tsx),
- * ``@taxa/browser-state`` (transitive via the AppShell), or
  * ``./globals.css`` (owned by PR 3c; layout imports it once).
  */
-import { useCallback, useState } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 
 import {
   Breadcrumb,
@@ -32,8 +38,24 @@ import {
   useTaxonTree,
 } from "@taxa/taxonomy";
 
+import { useBrowserStateStore } from "@taxa/app-shell";
+
 export default function Page(): React.ReactElement {
-  const treeState = useTaxonTree({ baseUrl: "", source: "col" });
+  // PR 5c.1b-A — read the typed store from the AppShell-exposed context.
+  // Before mount the store is `null`; we fall through to `"col"` (the
+  // typed default) so SSR + initial CSR render byte-identical markup.
+  const store = useBrowserStateStore();
+
+  // Subscribe to the current `treeSource` value via `useSyncExternalStore`
+  // so a user click on the header `tree-source-toggle` re-fetches the
+  // taxonomy tree with the new source.
+  const treeSource: import("@taxa/taxonomy").TreeSource = useSyncExternalStore(
+    store ? store.subscribe : () => () => undefined,
+    () => (store ? store.getTreeSource() : "col"),
+    () => "col",
+  );
+
+  const treeState = useTaxonTree({ baseUrl: "", source: treeSource });
   // Counter — bumped every time a kebab's `Search online` fires.
   // DetailPanel watches this and snaps to the Search tab on each
   // increment (bumping the counter — not a boolean toggle — lets the

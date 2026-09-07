@@ -50,6 +50,7 @@ import {
   type ShellState,
 } from "../infrastructure/page-chrome";
 
+import { BrowserStateStoreContext } from "./browser-state-store-context";
 import { BrowserSurface } from "./BrowserSurface";
 
 /** Empty state — every shell attribute defaults to null on first paint. */
@@ -129,15 +130,21 @@ export function AppShell({
     ? <BrowserSurface baseUrl="" />
     : children;
 
+  // PR 5c.1b-A — publish the SINGLE typed store via React context so
+  // page.tsx can subscribe to treeSource without a second store.
+  const contextStore: BrowserStateStore | null = mounted ? store : null;
+
   return (
-    <PageChrome
-      mounted={mounted}
-      state={state}
-      store={mounted ? store : null}
-      activeTab={activeTab}
-      onNavTab={onNavTab}
-    >
-      {content}
-    </PageChrome>
+    <BrowserStateStoreContext.Provider value={contextStore}>
+      <PageChrome
+        mounted={mounted}
+        state={state}
+        store={contextStore}
+        activeTab={activeTab}
+        onNavTab={onNavTab}
+      >
+        {content}
+      </PageChrome>
+    </BrowserStateStoreContext.Provider>
   );
 }
