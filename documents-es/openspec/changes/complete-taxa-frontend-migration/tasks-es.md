@@ -2052,8 +2052,26 @@ browser-state aterrizada"; la adenda vinculante vive en
 - [x] **5c.1b-B (aterrizada)** — render de VersionBanner + trabajo de cierre/
       sticky de panel + pulido de hidratación de fuente de árbol; sin
       cambios en `domain/keys.ts` / `infrastructure/store.ts`.
+- [x] **5c.2-A (aterrizada)** — alineación del contrato de motores
+      de búsqueda: `api/server.py::_SEARCH_ENGINES` y
+      `src/data/search-engines.js::SEARCH_ENGINES` ahora albergan
+      exactamente los 14 motores canónicos (google, imagen,
+      documentos, pdf, wikipedia, bhl, researchgate, plos,
+      academia, scielo, scholar, youtube, zootaxa, scribd) en los
+      mismos campos ordenados; las tres entradas retiradas de
+      `general` social/share (`threads_acipenser`,
+      `facebook_acipenser_baerii`, `threads_shared_post`) se
+      eliminan de ambos espejos. `tests/test_smoke.py::test_search_engine_contract`
+      ahora fija el conteo exacto (14) y la lista ordenada de
+      llaves además de la verificación de paridad key/label/with_authorship
+      existente.
 - [ ] **5c.2 (diferida)** — cableado de research / search / folder;
       sin cambios en `domain/keys.ts` / `infrastructure/store.ts`.
+      **5c.2-A** aterrizó la alineación del contrato de motores
+      de búsqueda; el resto (montaje global de FileExplorer,
+      actualizaciones de selectores/arnés e2e, y borrado legacy
+      `web/*.{html,js,css}` + `tailwind.config.js`) sigue diferido.
+      G4 / G3 Tier-2 / cutover permanecen bloqueadas.
 
 - [ ] 5c.1 R — `tests/test_e2e_file_explorer.py`
       (modificado, el test existe pero los selectores son

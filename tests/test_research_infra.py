@@ -157,11 +157,18 @@ def test_reexport_module_imports_canonical():
 
 def test_canonical_ac21_source_is_untouched():
     engines = AC21.findall(SE_C.read_text(encoding="utf-8"))
-    assert len(engines) == 17, (
-        f"AC-21 source must hold 17 engines; got {len(engines)}")
+    assert len(engines) == 14, (
+        f"AC-21 source must hold 14 engines; got {len(engines)}")
     assert engines[0][0] == "google"
-    assert engines[-1][0] == "threads_shared_post"
+    assert engines[-1][0] == "scribd"
     keys = [e[0] for e in engines]
+    expected_keys = [
+        "google", "imagen", "documentos", "pdf", "wikipedia", "bhl",
+        "researchgate", "plos", "academia", "scielo", "scholar",
+        "youtube", "zootaxa", "scribd",
+    ]
+    assert keys == expected_keys, (
+        f"engine order drifted:\n  expected: {expected_keys}\n  actual:   {keys}")
     assert keys.index("wikipedia") < keys.index("bhl"), (
         f"engine order drifted: {keys!r}")
 

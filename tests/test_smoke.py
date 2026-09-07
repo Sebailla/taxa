@@ -74,6 +74,21 @@ def test_openapi_schema_is_valid_json():
     )
 
 
+# PR 5c.2-A: canonical 14-engine roster (alphabetical by category
+# position). Both `api/server.py::_SEARCH_ENGINES` and
+# `src/data/search-engines.js::SEARCH_ENGINES` MUST declare exactly
+# these keys, in this exact order. The earlier 17-engine roster
+# included three `general` social/share entries (threads_acipenser,
+# facebook_acipenser_baerii, threads_shared_post) that did not fit
+# the 5-category UI; they were retired in this slice and are no
+# longer in either mirror.
+_CANONICAL_ENGINE_KEYS = [
+    "google", "imagen", "documentos", "pdf", "wikipedia",
+    "bhl", "researchgate", "plos", "academia", "scielo", "scholar",
+    "youtube", "zootaxa", "scribd",
+]
+
+
 def test_search_engine_contract():
     """AC-21: api/server.py::_SEARCH_ENGINES and src/data/search-engines.js::SEARCH_ENGINES
     must agree on `key`, `label`, and `with_authorship` in the same order.
@@ -84,6 +99,14 @@ def test_search_engine_contract():
     fields. The `template` and `icon` fields are not compared (template is
     server-only; icon is intentionally free to differ between the server's
     material-symbols-outlined glyph and the frontend's unicode fallback).
+
+    PR 5c.2-A adds two explicit pins on top of the parity check:
+      1. both mirrors MUST hold exactly 14 entries (the count, not
+         just parity);
+      2. the ordered key list MUST match the canonical roster above.
+    These pins close the engine-count and engine-order drift holes
+    that the parity check alone cannot catch (parity only fires when
+    both sides drift in lock-step).
     """
     import re
     import ast
@@ -121,6 +144,34 @@ def test_search_engine_contract():
         re.DOTALL,  # entries span multiple lines (template strings have \n)
     )
 
+    # PR 5c.2-A — pin 1: exact engine count on both mirrors. The
+    # parity check below would still pass if both mirrors drift
+    # together (e.g. both shrink from 17 to 5), so the count pin is
+    # the only thing that catches a same-direction drift.
+    assert len(py_entries) == len(_CANONICAL_ENGINE_KEYS), (
+        f"PR 5c.2-A: api/server.py::_SEARCH_ENGINES must hold "
+        f"{len(_CANONICAL_ENGINE_KEYS)} engines (the canonical "
+        f"14-engine roster); got {len(py_entries)}"
+    )
+    assert len(js_entries) == len(_CANONICAL_ENGINE_KEYS), (
+        f"PR 5c.2-A: src/data/search-engines.js::SEARCH_ENGINES must "
+        f"hold {len(_CANONICAL_ENGINE_KEYS)} engines (the canonical "
+        f"14-engine roster); got {len(js_entries)}"
+    )
+    # PR 5c.2-A — pin 2: ordered key list. Catch order drift even if
+    # the count is right and the keys all exist somewhere.
+    py_keys = [e["key"] for e in py_entries]
+    js_keys = [e[0] for e in js_entries]
+    assert py_keys == _CANONICAL_ENGINE_KEYS, (
+        f"PR 5c.2-A: api/server.py::_SEARCH_ENGINES key order drift; "
+        f"expected {_CANONICAL_ENGINE_KEYS!r}, got {py_keys!r}"
+    )
+    assert js_keys == _CANONICAL_ENGINE_KEYS, (
+        f"PR 5c.2-A: src/data/search-engines.js::SEARCH_ENGINES key "
+        f"order drift; expected {_CANONICAL_ENGINE_KEYS!r}, "
+        f"got {js_keys!r}"
+    )
+
     assert len(py_entries) == len(js_entries), (
         f"entry count drift: py={len(py_entries)} js={len(js_entries)}; "
         "both must contain the same engines"
@@ -136,22 +187,6 @@ def test_search_engine_contract():
             f"with_authorship drift at index {i}: "
             f"py={py['with_authorship']} js={js[2]}"
         )
-
-
-def test_fixed_search_destinations_are_returned_unchanged():
-    """The curated external destinations remain available in the Search tab."""
-    from api.server import _build_search
-
-    links = {link.engine: link.url for link in _build_search("Any taxon", None)}
-
-    assert links["threads_acipenser"] == (
-        "https://www.threads.com/search?q=acipenser&serp_type=default&"
-        "xmt=AQG0AC54-jrPT9LBkalK5Lx_FGM7VtC3KUhDTE2hJLKTAwE"
-    )
-    assert links["facebook_acipenser_baerii"] == (
-        "https://www.facebook.com/search/top?q=acipenser%20baerii"
-    )
-    assert links["threads_shared_post"] == "https://www.threads.com/share/BAnZDpDtPZ/"
 
 
 def test_static_index_html_served():
