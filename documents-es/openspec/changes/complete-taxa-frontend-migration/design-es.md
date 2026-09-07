@@ -15,7 +15,7 @@
 | Origen | FastAPI origen único; **sin** segundo puerto de dev-server. |
 | Unidad de cutover | **Atómica.** `WEB_DIR` + 26 consumidores §3.1 + `Makefile::api` + `out/` cambian en un solo release. No se permite revertir un subconjunto. |
 | Unidad de rollback | **`git revert <cutover-sha>`**. Restaura el build vanilla legacy atómicamente. No se requiere migración de BD. |
-| Puertas de evidencia | **G1, G2, G3 Tier-1 PASS** (trasladadas del predecesor). **G4, G5, G6** se cierran en la fase de apply; este diseño planifica su cierre. |
+| Puertas de evidencia | **G1, G2, G3 Tier-1 PASS** (trasladadas del predecesor). **G3 Tier-2, G4, G5 y G6 aún no son PASS**; G5 permanece **bloqueada** hasta que una nueva captura corra bajo el **protocolo de reemplazo aprobado por el usuario** registrado en §"G5 — Línea base de hidratación" (métrica observable `DOMContentLoaded`; ambos lados servidos por HTTP controlado; 1 warm-up + 9 corridas medidas por lado; agregación por mediana con muestras crudas y procedencia; tolerancia absoluta candidato − línea base ≤ 10 ms; el fallo se mantiene bloqueado y requiere una nueva solicitud, nunca un PASS automático). |
 | Predecesor | **Congelado.** `openspec/changes/migrate-nextjs-tailwind4/**` es byte-idéntico antes y después de la fase de apply. |
 
 ---
@@ -254,7 +254,13 @@ de cut atómico y emite un nuevo `CONSUMER-READINESS.json`.
 - [ ] **G4 PASS** — el arnés de paridad Playwright + Lighthouse se
       cierra en la fase de apply (cierre de G4 planificado abajo).
 - [ ] **G5 reproducible** — la línea base legacy se reconstruye o
-      reemplaza en la fase de apply (cierre de G5 planificado abajo).
+      reemplaza en la fase de apply bajo el **protocolo de reemplazo
+      aprobado por el usuario** registrado en §"G5 — Línea base de
+      hidratación" abajo (métrica observable `DOMContentLoaded`; ambos
+      lados servidos por HTTP controlado; 1 warm-up + 9 corridas
+      medidas por lado; agregación por mediana con muestras crudas y
+      procedencia; tolerancia absoluta candidato − línea base ≤ 10 ms;
+      el fallo se mantiene bloqueado y requiere una nueva solicitud).
 - [ ] **G6 PASS** — `scripts/rehearse_cutover.py` sale 0 contra el
       manifiesto activado (cierre de G6 planificado abajo).
 
@@ -310,7 +316,7 @@ manifest de la extensión.
 | G3 Tier-1 (consumer readiness, legacy pre-cut) | **PASS registrado** — los 26 consumidores §3.1 en verde vía el fixture controlado, `scripts/verify_consumers.py` | Predecesor `apply-progress.md` (PR #109 + #111 + #115 + #116) |
 | G3 Tier-2 (selección de cut atómico) | **NO PASSED** — requiere cierre de G4 + G5 + G6 | Fase de apply de este cambio |
 | G4 (paridad Playwright + Lighthouse) | **bloqueado — verificador no autorizado** | Fase de apply de este cambio (planificado abajo) |
-| G5 (línea base de hidratación) | **no reproducible — la línea base legacy no está en disco** | Fase de apply de este cambio (planificado abajo) |
+| G5 (línea base de hidratación) | **bloqueada — bajo la regla previa de porcentaje/mediana, capturas reales comparables dieron veredictos `ready` / `blocked` / `blocked` con varianza de ±1 ms a 0–4 ms**; ningún PASS autorizado | Disposición de Fase 6a registrada abajo; el reintento corre bajo el **protocolo de reemplazo aprobado por el usuario** (ver §"G5 — Línea base de hidratación" abajo) y requiere una captura fresca — el protocolo por sí solo no invierte la puerta |
 | G6 (ensayo de cutover) | **bloqueado — verificador no autorizado** | Fase de apply de este cambio (planificado abajo) |
 
 ### Artefactos de planificación trasladados (entradas congeladas)
@@ -411,7 +417,7 @@ que el predecesor ya produjo.
 | Puerta | Verificador | Artefacto | Umbral |
 | --- | --- | --- | --- |
 | G4 (paridad Playwright + Lighthouse) | Autorizado en apply | `tests/test_e2e_file_explorer.py` + traza Playwright + JSON de Lighthouse | Δ ≤ 0 % en paint inicial + latencia de interacción vs. fixture chromium legacy |
-| G5 (línea base de hidratación) | `scripts/measure_hydration.py` (ya autorizado) re-ejecutado contra línea base reconstruida | JSON de línea base de hidratación | Δ ≤ 0 % vs. línea base legacy reconstruida |
+| G5 (línea base de hidratación) | `scripts/measure_hydration.py` (ya autorizado) re-ejecutado bajo el **protocolo de reemplazo aprobado por el usuario** | JSON de línea base de hidratación + muestras crudas/procedencia | Métrica observable = `DOMContentLoaded`; tanto la línea base como el candidato servidos por HTTP controlado (sin `file://`); 1 warm-up + 9 corridas medidas por lado; agregación = mediana por lado con muestras crudas + procedencia preservadas; **absoluta (candidato − línea base) ≤ 10 ms**; el fallo se mantiene bloqueado, sin PASS automático |
 | G6 (ensayo de cutover) | `scripts/rehearse_cutover.py` (a autorizar) | `cutover-rehearsal.json` | Sale 0; sin rutas de fallback silencioso; unidad de cutover atómico + unidad de rollback consistentes |
 
 ---
@@ -435,11 +441,22 @@ cierre; la implementación ocurre durante apply.
 
 | Paso | Propietario | Salida |
 | --- | --- | --- |
-| Auditar `web/dist/evidence-baseline.json` para confirmar si la línea base legacy está en disco (la auditoría §3.3.5 del predecesor la lista como **no reproducible**) | Apply | Reporte de auditoría |
-| Si es reproducible: capturar la línea base legacy vía `scripts/measure_hydration.py` contra el fixture chromium legacy | Apply | JSON de hidratación legacy |
-| Si no es reproducible: reconstruir desde paint inicial de `web/index.html` + `delta_server_to_tree_first_paint_ms` legacy documentado en `design.md::§"Migration Evidence Baseline"` | Apply | JSON de línea base reconstruida |
-| Re-ejecutar `scripts/measure_hydration.py` contra el nuevo build | Apply | JSON de hidratación nueva |
-| Δ ≤ 0 % vs. línea base reconstruida → **G5 reproducible** | Apply | Inversión de estado |
+| Auditar `web/dist/evidence-baseline.json` para confirmar si la línea base legacy está en disco; bajo la regla previa de porcentaje/mediana, capturas reales comparables dieron veredictos `ready` / `blocked` / `blocked` con varianza de ±1 ms a 0–4 ms (la auditoría §3.3.5 del predecesor la lista como **no reproducible**). | Apply | Reporte de auditoría |
+| Capturar la línea base legacy vía `scripts/measure_hydration.py` contra el fixture chromium legacy bajo el **protocolo de reemplazo aprobado por el usuario** | Apply | JSON de hidratación legacy |
+| Si no es reproducible bajo el nuevo protocolo: reconstruir desde paint inicial de `web/index.html` + `delta_server_to_tree_first_paint_ms` legacy documentado en `design.md::§"Migration Evidence Baseline"`, sirviendo por HTTP controlado | Apply | JSON de línea base reconstruida |
+| Re-ejecutar `scripts/measure_hydration.py` contra el nuevo build bajo el protocolo aprobado | Apply | JSON de hidratación nueva |
+| Bajo el protocolo aprobado: `mediana(candidato) − mediana(línea base) ≤ 10 ms`; el fallo se mantiene bloqueado y requiere una nueva solicitud (sin PASS automático, sin cierre, sin activación de cutover). | Apply | Inversión/actualización de estado |
+
+**Protocolo de reemplazo de G5 aprobado por el usuario (registrado aquí como registro canónico del diseño; aprobado tras la inestabilidad de G5 bajo la regla previa, pero no es una captura de G5 ni una autorización de PASS).** Capturas reales comparables bajo la regla previa de porcentaje empírico + mediana dieron veredictos `ready`, `blocked` y `blocked`: a 0–4 ms, las mediciones de cada corrida pueden moverse ±1 ms, por lo que la regla previa no es reproducible. El protocolo de reemplazo aprobado por el usuario que sigue **supera** esa regla y ata cada reintento de G5.
+
+- **Transporte — ambos lados servidos por HTTP controlado.** El fixture de línea base legacy y el build candidato se sirven a través de un servidor HTTP estático local en proceso (sin URIs `file://`). El servicio HTTP es el mismo transporte HTTP controlado para ambos lados; la única diferencia es el directorio servido (fixture legacy vs. `out/` del candidato). Esto elimina la deriva de origen de reloj por `file://` de la comparación.
+- **Métrica observable — `DOMContentLoaded`.** El evento observable nombrado es la marca de tiempo `DOMContentLoaded` del navegador, capturada vía la API PerformanceNavigationTiming sobre el servicio HTTP controlado. `DOMContentLoaded` reemplaza al par previo de paint-inicial + latencia-de-interacción, que estaba dominado por ruido sub-milisegundo a la escala de 0–4 ms.
+- **Muestreo — 1 warm-up + 9 corridas medidas por lado.** Cada lado (línea base legacy, candidato) ejecuta exactamente **1 corrida de warm-up** seguida de **9 corridas medidas**. El warm-up prepara la caché del navegador y el JIT; solo las 9 corridas medidas contribuyen a la agregación. Total por lado: 10 navegaciones (1 warm-up + 9 medidas). Los conteos de muestra están pineados en el script de medición y afirmados en el validador.
+- **Agregación — mediana por lado, muestras crudas + procedencia preservadas.** Para cada lado, el valor de `DOMContentLoaded` por corrida a lo largo de las 9 corridas medidas se agrega como la **mediana** (no la media), porque la mediana es robusta a un único outlier y coincide con la intención declarada de la regla previa. El artefacto debe persistir **cada muestra cruda** más la **procedencia por corrida** (versión del navegador, SHA del build, ruta, marca de tiempo de captura, entorno de captura) junto a la mediana calculada. Sin submuestreo, sin resumen sin muestras crudas.
+- **Tolerancia — absoluta (candidato − línea base) ≤ 10 ms.** La regla de PASS/fallo es una única tolerancia absoluta en milisegundos: `mediana(candidato) − mediana(línea base) ≤ 10 ms`. No hay umbral porcentual ni holgura en dirección negativa: cualquier regresión positiva de la mediana mayor a 10 ms es un fallo. El tope de 10 ms es el límite absoluto; las deltas absolutas menores pasan.
+- **Semántica de fallo — se mantiene bloqueada, nunca un PASS automático.** Una corrida fallida bajo este protocolo **no** invierte G5 a PASS, **no** concede cierre, **no** levanta la tolerancia, y **no** autoriza activación de cutover. El status-footer permanece `blocked`. Un reintento posterior requiere una **nueva solicitud del usuario** (una nueva captura se inicia solo bajo solicitud explícita); el protocolo aprobado no se re-ejecuta automáticamente, y un PASS previo nunca se traslada a través de un fallo.
+- **Predecesor congelado.** Este protocolo supera a la **solicitud** previa de excepción metodológica; **no** modifica `openspec/changes/migrate-nextjs-tailwind4/**`. Los scripts bajo `scripts/` (ya autorizados: `scripts/reconstruct_hydration_baseline.py`, `scripts/capture_hydration_candidate.py`, `scripts/measure_hydration.py`, `scripts/g5_close.sh`) y `tests/test_hydration_timing.py` se extienden en la fase de apply para atar el protocolo de arriba; este diseño registra el protocolo, el apply worker extiende el arnés.
+- **G5 permanece bloqueada.** Registrar este protocolo **no** es una captura ni una autorización de PASS. G5 se mantiene `blocked` en `evidence/g5/status.json` y en el status-footer hasta que una captura fresca bajo este protocolo corra y salga dentro de la tolerancia absoluta de 10 ms. Un PASS se registra solo cuando esa captura fresca tenga éxito.
 
 ### G6 — Ensayo de cutover
 
@@ -827,6 +844,7 @@ mismo aterriza después de las verificaciones de cierre).
 | El tamaño del bundle de dependencias de Next.js + React regresiona el paint inicial | Baja | Perfil de `next build` capturado antes/después; muestra de Playwright + Lighthouse sobre el fixture chromium existente; ≤ 0 % de regresión es el criterio de éxito |
 | El contrato de puerto único se rompe si `host_permissions` de la extensión cambia accidentalmente | Baja | Regla dura en Makefile + check de humo en CI: `make api` solo enlaza 8765; ningún segundo origen añadido; `manifest.json` sin cambios en este cambio |
 | Los artefactos del predecesor derivan durante la fase de apply | Baja | Regla de CI / protección de rama: los PRs de este cambio NO DEBEN modificar `openspec/changes/migrate-nextjs-tailwind4/**`; hook de lint rechaza |
+| El protocolo previo de G5 (porcentaje/mediana) es inestable a 0–4 ms; capturas reales comparables dieron veredictos **`ready` / `blocked` / `blocked`** con movimiento de ±1 ms. | Alta | La disposición de riesgo de Fase 6a fue una **solicitud** de excepción metodológica que ha sido **superada por el protocolo de reemplazo de G5 aprobado por el usuario** registrado en §"G5 — Línea base de hidratación": métrica observable `DOMContentLoaded`, ambos lados servidos por HTTP controlado, 1 warm-up + 9 corridas medidas por lado, agregación por mediana con muestras crudas/procedencia, tolerancia absoluta (candidato − línea base) ≤ 10 ms, y semántica de fallo-bloqueado / nueva-solicitud. G5 permanece bloqueada; ningún PASS, cierre o activación de cutover se concede por registrar el protocolo — se requiere una captura fresca bajo el protocolo. |
 | **Regresión de la estructura de pestañas del panel de detalle** (comportamiento actual en vivo): la acción kebab `Search online` aterriza en `Overview` en lugar de forzar `Search`, y `Browser` queda scoped al taxón seleccionado. | Media | El §"Superficie de UI y estructura de pestañas" del diseño ancla el contrato (Overview siempre disponible/visible; Search es una pestaña primaria; Search online → Search; Browser es Research global). Las tareas de PR 5a / PR 5b aseguran el comportamiento; el testigo Playwright en PR 5c cubre regresión. La interacción corregida cierra la regresión actual en la misma fase de apply que aterriza el cutover a React. |
 | `Search` se degrada de pestaña primaria a lista de tarjetas secundaria. | Media | El diseño ancla `Search` como hermana de `Overview` / `Folder` dentro del strip de pestañas del panel de detalle; la narrativa del spec por dominio se actualiza a través de esta revisión de diseño (solo a nivel alto — los specs por dominio están fuera del alcance de esta revisión). El testigo Playwright del strip de pestañas en PR 5c asegura tres hermanas en el orden legacy. |
 
@@ -843,14 +861,22 @@ el runtime legacy pre-cut vía el fixture controlado,
 G3 Tier-2 (selección de cut atómico) NO PASSED — bloqueada por el
 cierre de G4 + G5 + G6. G4 (paridad Playwright + Lighthouse)
 **bloqueada — verificador no autorizado**; debe cerrarse en la
-fase de apply. G5 (línea base de hidratación) **no reproducible —
-la línea base legacy no está en disco**; debe reconstruirse o
-reemplazarse durante la fase de apply. G6 (ensayo de cutover)
-**bloqueada — verificador no autorizado**; debe cerrarse en la fase
-de apply. Predecesor `openspec/changes/migrate-nextjs-tailwind4/**`
-congelado. Ninguna activación de FastAPI en esta pasada de diseño;
-el PR3e de cutover atómico se envía solo cuando las seis puertas
-estén verdes.
+fase de apply. G5 (línea base de hidratación) **bloqueada — bajo la
+regla previa de porcentaje/mediana, las capturas reales dieron
+veredictos `ready` / `blocked` / `blocked` con varianza de ±1 ms a
+0–4 ms**; el **protocolo de reemplazo aprobado por el usuario**
+(métrica observable `DOMContentLoaded`; ambos lados servidos por
+HTTP controlado; 1 warm-up + 9 corridas medidas por lado;
+agregación por mediana con muestras crudas y procedencia;
+tolerancia absoluta candidato − línea base ≤ 10 ms; el fallo se
+mantiene bloqueado y requiere una nueva solicitud) está registrado en
+§"G5 — Línea base de hidratación", pero G5 permanece bloqueada hasta
+que una captura fresca bajo ese protocolo corra y salga dentro de la
+tolerancia. G6 (ensayo de cutover) **bloqueada — verificador no
+autorizado**; debe cerrarse en la fase de apply. Predecesor
+`openspec/changes/migrate-nextjs-tailwind4/**` congelado. Ninguna
+activación de FastAPI en esta pasada de diseño; el PR3e de cutover
+atómico se envía solo cuando las seis puertas estén verdes.
 
 ---
 

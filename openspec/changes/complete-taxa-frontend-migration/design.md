@@ -15,7 +15,7 @@
 | Origin | FastAPI sole origin; **no** second dev-server port. |
 | Cutover unit | **Atomic.** `WEB_DIR` + 26 §3.1 consumers + `Makefile::api` + `out/` change in one release. No subset revert. |
 | Rollback unit | **`git revert <cutover-sha>`**. Restores legacy vanilla build atomically. No DB migration required. |
-| Evidence gates | **G1, G2, G3 Tier-1 PASS** (carried from predecessor). **G3 Tier-2, G4, G5, and G6 are not yet passed**; G5 remains blocked on the unstable current hydration protocol, and a new observable metric plus a versioned absolute tolerance/protocol must be specified before reattempt. |
+| Evidence gates | **G1, G2, G3 Tier-1 PASS** (carried from predecessor). **G3 Tier-2, G4, G5, and G6 are not yet passed**; G5 remains **blocked** until a new capture runs under the user-approved replacement protocol (DOMContentLoaded metric; both sides served through controlled HTTP; one warm-up + 9 measured runs per side; median aggregation with raw samples/provenance; absolute candidate−baseline tolerance ≤ 10 ms; failure stays blocked, never an automatic PASS). |
 | Predecessor | **Frozen.** `openspec/changes/migrate-nextjs-tailwind4/**` is byte-identical before and after the apply phase. |
 
 ---
@@ -242,7 +242,12 @@ the atomic-cut selection and emits a fresh `CONSUMER-READINESS.json`.
 - [ ] **G4 PASS** — Playwright + Lighthouse parity harness closes
       in apply phase (planned §G4 closure below).
 - [ ] **G5 reproducible** — legacy baseline reconstructed or
-      replaced in apply phase (planned §G5 closure below).
+      replaced in apply phase under the **user-approved replacement
+      protocol** recorded in §"G5 — hydration baseline" below
+      (DOMContentLoaded; both sides served through controlled HTTP;
+      one warm-up + 9 measured runs per side; median aggregation with
+      raw samples/provenance; absolute candidate−baseline tolerance
+      ≤ 10 ms; failure stays blocked and requires a new capture).
 - [ ] **G6 PASS** — `scripts/rehearse_cutover.py` exits 0 against
       the activated manifest (planned §G6 closure below).
 
@@ -297,7 +302,7 @@ path is left open. No extension manifest update is required.
 | G3 Tier-1 (consumer readiness, legacy pre-cut) | **PASS recorded** — all 26 §3.1 consumers green via the controlled fixture, `scripts/verify_consumers.py` | Predecessor `apply-progress.md` (PR #109 + #111 + #115 + #116) |
 | G3 Tier-2 (atomic-cut selection) | **NOT PASSED** — requires G4 + G5 + G6 closure | This change's apply phase |
 | G4 (Playwright + Lighthouse parity) | **blocked — verifier not authored** | This change's apply phase (planned below) |
-| G5 (hydration baseline) | **blocked — real-capture verdicts ready / blocked / blocked; ±1 ms variance at 0–4 ms**; no PASS authorized | Phase 6a disposition recorded below; reattempt requires a new observable metric and versioned absolute tolerance/protocol |
+| G5 (hydration baseline) | **blocked — real-capture verdicts ready / blocked / blocked; ±1 ms variance at 0–4 ms** under the previous percentage/median rule; no PASS authorized | Phase 6a disposition recorded below; reattempt runs under the user-approved replacement protocol (see §"G5 — hydration baseline" below) and requires a fresh capture — the protocol alone does not flip the gate |
 | G6 (cutover rehearsal) | **blocked — verifier not authored** | This change's apply phase (planned below) |
 
 ### Carried planning artifacts (frozen inputs)
@@ -391,7 +396,7 @@ produced.
 | Gate | Verifier | Artifact | Threshold |
 | --- | --- | --- | --- |
 | G4 (Playwright + Lighthouse parity) | Authored in apply | `tests/test_e2e_file_explorer.py` + Playwright trace + Lighthouse JSON | Δ ≤ 0 % on initial paint + interaction latency vs. legacy chromium fixture |
-| G5 (hydration baseline) | `scripts/measure_hydration.py` (already authored) re-run under a versioned protocol | hydration baseline JSON | Current Δ ≤ 0 % threshold remains binding; a future protocol requires a new observable metric and versioned absolute tolerance |
+| G5 (hydration baseline) | `scripts/measure_hydration.py` (already authored) re-run under the user-approved replacement protocol | hydration baseline JSON + raw samples/provenance | Observable metric = `DOMContentLoaded`; both baseline and candidate served through controlled HTTP (no `file://`); one warm-up + 9 measured runs per side; aggregation = per-side median with raw samples + provenance preserved; **absolute (candidate − baseline) ≤ 10 ms**; failure stays blocked, no automatic PASS |
 | G6 (cutover rehearsal) | `scripts/rehearse_cutover.py` (to be authored) | `cutover-rehearsal.json` | Exits 0; no silent fallback paths; atomic cutover unit + rollback unit consistent |
 
 ---
@@ -415,13 +420,22 @@ the implementation happens during apply.
 
 | Step | Owner | Output |
 | --- | --- | --- |
-| Audit `web/dist/evidence-baseline.json` and capture provenance; Phase 6a real captures exist, but the current 0–4 ms comparison is unstable (**ready / blocked / blocked**, ±1 ms variance). | Apply | Audit report |
+| Audit `web/dist/evidence-baseline.json` and capture provenance; Phase 6a real captures exist, but the current 0–4 ms comparison is unstable (**ready / blocked / blocked**, ±1 ms variance) under the previous percentage/median rule. | Apply | Audit report |
 | Capture the legacy baseline via `scripts/measure_hydration.py` against the legacy chromium fixture | Apply | legacy hydration JSON |
-| If the baseline cannot be reproduced under a versioned protocol, do not tune 6a or force a pass; record the methodological-exception request | Apply | risk-register update |
-| Re-run `scripts/measure_hydration.py` against the new build | Apply | new hydration JSON |
-| Current Δ ≤ 0 % vs. reconstructed baseline remains binding; only a future versioned protocol may change the threshold after approval | Apply | blocked/status update |
+| The previous methodological-exception **request** (Phase 6a, 2026-09-06) is **superseded** by the user-approved replacement protocol below; do not tune 6a or force a pass against the previous rule. | Apply | risk-register update |
+| Re-run `scripts/measure_hydration.py` against the new build under the user-approved replacement protocol | Apply | new hydration JSON |
+| Under the user-approved replacement protocol: `median(candidate) − median(baseline) ≤ 10 ms`; failure stays blocked and requires a new capture (no automatic PASS, no closure, no cutover activation). | Apply | blocked/status update |
 
-**Methodological exception request (Phase 6a, 2026-09-06; NOT APPROVED).** Comparable real-capture runs have produced verdicts `ready`, `blocked`, and `blocked`: at 0–4 ms, each run's measurements can move by ±1 ms, so the current empirical-median percentage rule is not reproducible. This is a request to define a **new observable hydration metric** and a **versioned absolute tolerance/protocol** before G5 is reattempted. The metric/protocol record must include: a named observable event and clock origin; browser/build/route versions and capture environment; warm-up and retained-sample counts, outlier policy, and aggregation; absolute millisecond tolerance(s), pass/fail aggregation, and artifact/version provenance. Until that record is approved and rerun, the existing ≤0 % threshold remains binding. This request does **not** waive the threshold, does **not** grant G5 PASS or closure, and does **not** authorize cutover activation.
+**User-approved replacement G5 protocol (recorded here as the canonical design record; approved after G5 instability on the previous rule, but not a G5 capture or PASS authorization).** Comparable real-capture runs under the previous empirical-median percentage rule produced verdicts `ready`, `blocked`, and `blocked`: at 0–4 ms, each run's measurements can move by ±1 ms, so the previous rule is not reproducible. The user-approved replacement protocol below supersedes that rule and binds every reattempt of G5.
+
+- **Transport — both sides served through controlled HTTP.** The legacy baseline fixture and the candidate build are served through an in-process local static HTTP server (no `file://` URIs). The HTTP serve is the same controlled HTTP transport for both sides; the only difference is the served directory (legacy fixture vs. candidate `out/`). This removes `file://` clock-origin drift from the comparison.
+- **Observable metric — `DOMContentLoaded`.** The named observable event is the browser's `DOMContentLoaded` timestamp, captured via the PerformanceNavigationTiming API over the controlled HTTP serve. `DOMContentLoaded` replaces the previous initial-paint + interaction-latency pair, which was dominated by sub-millisecond noise at the 0–4 ms scale.
+- **Sampling — one warm-up plus 9 measured runs per side.** Each side (legacy baseline, candidate) executes exactly **1 warm-up run** followed by **9 measured runs**. The warm-up primes the browser cache and JIT; only the 9 measured runs contribute to aggregation. Total per side: 10 navigations (1 warm-up + 9 measured). Sample counts are pinned in the measurement script and asserted in the validator.
+- **Aggregation — per-side median, raw samples + provenance preserved.** For each side, the per-run `DOMContentLoaded` value across the 9 measured runs is aggregated as the **median** (not the mean), because median is robust to a single outlier and matches the previous rule's stated intent. The artifact must persist **every raw sample** plus the **per-run provenance** (browser version, build SHA, route, capture timestamp, capture environment) alongside the computed median. No down-sampling, no summarization without raw samples.
+- **Tolerance — absolute (candidate − baseline) ≤ 10 ms.** The pass/fail rule is a single absolute millisecond tolerance: `median(candidate) − median(baseline) ≤ 10 ms`. There is no percentage threshold and no negative-direction slack: any positive median regression greater than 10 ms is a fail. The 10 ms ceiling is the absolute bound; smaller absolute deltas pass.
+- **Failure semantics — stays blocked, never an automatic PASS.** A failed run under this protocol does **not** flip G5 to PASS, does **not** grant closure, does **not** waive the tolerance, and does **not** authorize cutover activation. The status-footer stays `blocked`. A subsequent reattempt requires a **new user request** (a new capture is initiated only on explicit request); the approved protocol does not auto-rerun, and a previous PASS is never carried forward across a failure.
+- **Predecessor frozen.** This protocol supersedes the previous methodological-exception **request**; it does **not** modify `openspec/changes/migrate-nextjs-tailwind4/**`. Scripts under `scripts/` (already authored: `scripts/reconstruct_hydration_baseline.py`, `scripts/capture_hydration_candidate.py`, `scripts/measure_hydration.py`, `scripts/g5_close.sh`) and `tests/test_hydration_timing.py` are extended in apply phase to bind the protocol above; this design records the protocol, the apply worker extends the harness.
+- **G5 remains blocked.** Recording this protocol is **not** a capture and is **not** a PASS authorization. G5 stays `blocked` in `evidence/g5/status.json` and in the status-footer until a fresh capture under this protocol runs and exits within the 10 ms absolute tolerance. A PASS is recorded only when that fresh capture succeeds.
 
 ### G6 — cutover rehearsal
 
@@ -777,7 +791,7 @@ verifications).
 | `color-mix()` cascade reordering in the 80 KB inline `<style>` block causes visual drift | Medium | Migrate bespoke rules into `globals.css` inside `@layer base` so source order matches; Playwright visual regression on the existing chromium fixture |
 | AC-21 search-engine contract test fails because `web/search_urls.js` location moved | Medium | Keep the literal under `src/data/search-engines.js` with the same shape; test's `open()` path updates in the same release |
 | Hydration mismatch from `localStorage` reads on server vs client | Medium | Initial render uses a `mounted` flag; storage reads happen inside `useEffect`; tree structure defaults to the empty state on first paint |
-| G5 current median/percentage protocol is unstable at 0–4 ms; comparable real captures produced **ready / blocked / blocked** verdicts with ±1 ms movement. | High | The Phase 6a risk disposition is a methodological-exception **request, not approval**: before reattempting G5, version a new observable hydration metric and a versioned absolute tolerance/protocol covering clock origin, capture environment, sampling/outlier rules, units, and pass/fail aggregation. G5 remains blocked; no PASS, closure, or cutover activation is granted. |
+| G5 current median/percentage protocol is unstable at 0–4 ms; comparable real captures produced **ready / blocked / blocked** verdicts with ±1 ms movement. | High | The Phase 6a risk disposition was a methodological-exception request that has been **superseded by the user-approved replacement G5 protocol** recorded in §"G5 — hydration baseline": DOMContentLoaded observable, both sides served through controlled HTTP, 1 warm-up + 9 measured runs per side, median aggregation with raw samples/provenance, absolute (candidate − baseline) ≤ 10 ms, and failure-stays-blocked / new-request semantics. G5 remains blocked; no PASS, closure, or cutover activation is granted by recording the protocol — a fresh capture under the protocol is required. |
 | Static export forfeits dynamic routes / image optimization used by future work | Low | Acceptable for v1; switching to full Next.js dev server (Approach B) is the next-change cost if needed |
 | Next.js + React dependency bundle size regresses initial paint | Low | `next build` profile captured before/after; Playwright + Lighthouse sample on the existing chromium fixture; ≤ 0 % regression is the success criterion |
 | Single-port contract breaks if extension's `host_permissions` change accidentally | Low | Hard rule in Makefile + CI smoke check: `make api` only binds 8765; no second origin added; `manifest.json` is unchanged in this change |
@@ -798,12 +812,16 @@ controlled fixture, `scripts/verify_consumers.py`, PR #109 + #111 +
 by G4 + G5 + G6 closure. G4 (Playwright + Lighthouse parity) **blocked —
 verifier not authored**; must close in apply phase. G5 (hydration
 baseline) **blocked — real-capture verdicts were ready / blocked /
-blocked with ±1 ms variance at 0–4 ms**; the latest comparable
-evidence is blocked (0→1 ms initial paint, 3→4 ms interaction
-latency, comparison exit 4). G5 may be reattempted only after a new
-observable hydration metric and versioned absolute tolerance/protocol
-are approved. G6 (cutover rehearsal) **blocked — verifier not
-authored**; must close in apply phase. Predecessor
+blocked with ±1 ms variance at 0–4 ms** under the previous
+percentage/median rule; the user-approved replacement protocol
+(DOMContentLoaded observable; both sides served through controlled
+HTTP; 1 warm-up + 9 measured runs per side; median aggregation with
+raw samples/provenance; absolute candidate−baseline tolerance ≤ 10 ms;
+failure stays blocked, requires a new request) is recorded in §"G5 —
+hydration baseline", but G5 remains blocked until a fresh capture
+under that protocol runs and exits within tolerance. G6 (cutover
+rehearsal) **blocked — verifier not authored**; must close in apply
+phase. Predecessor
 `openspec/changes/migrate-nextjs-tailwind4/**` is frozen.
 No FastAPI activation in this design pass; the atomic cutover PR3e
 ships only when all six gates are green.
