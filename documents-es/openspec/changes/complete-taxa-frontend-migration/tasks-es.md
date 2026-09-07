@@ -2127,7 +2127,7 @@ sub-pasos; cómodamente bajo).
 
 ### Fase 6a: Cierre de baseline de hidratación G5 (PR 6a → rama del PR 5c, posición 13/16)
 
-- [ ] 6a.1 R — `tests/test_hydration_timing.py` (ya
+- [x] 6a.1 R — `tests/test_hydration_timing.py` (ya
       enviado por el predecesor PR 1b.3b): el test
       verifica que `scripts/measure_hydration.py` sale
       distinto de cero cuando el JSON del baseline legacy
@@ -2139,31 +2139,57 @@ sub-pasos; cómodamente bajo).
       `openspec/changes/migrate-nextjs-tailwind4/design.md`
       §"Migration Evidence Baseline" y emite
       `web/dist/evidence-baseline.json` con el mismo
-      esquema que pinea el test de hidratación.
-      <!-- sdd-owner: implementation -->
-- [ ] 6a.2 G — `scripts/reconstruct_hydration_baseline.py`
+      esquema que pinea el test de hidratación. (Atado al
+      protocolo de reemplazo aprobado por el usuario en
+      intentos previos.) <!-- sdd-owner: implementation -->
+- [x] 6a.2 G — `scripts/reconstruct_hydration_baseline.py`
       (~50 LoC): lee los números del baseline legacy
       verbatim del design.md del predecesor (la entrada es
       la fuente markdown parseada para la tabla; la salida
       es un archivo JSON que coincide con el esquema que
-      pinea `tests/test_hydration_timing.py`).
-      <!-- sdd-owner: implementation -->
-- [ ] 6a.3 G — corre `python scripts/measure_hydration.py
+      pinea `tests/test_hydration_timing.py`). (Atado al
+      protocolo de reemplazo aprobado por el usuario en
+      intentos previos; captura del fixture legacy servido
+      por HTTP contra `http://127.0.0.1:64809/` en la
+      captura fresca.) <!-- sdd-owner: implementation -->
+- [x] 6a.3 G — corre `python scripts/measure_hydration.py
       --baseline web/dist/evidence-baseline.json --candidate
       out/` contra la build candidata aterrizada en
       posiciones 1–12; emite el nuevo JSON de hidratación
       junto al baseline; registra el delta en
-      `apply-progress.md` §Registro de cambios.
+      `apply-progress.md` §Registro de cambios. (Captura
+      fresca bajo el protocolo de reemplazo aprobado por
+      el usuario: mediana baseline `3.3 ms`, mediana
+      candidato `3.2 ms`, delta `−0.1 ms`, umbral `10 ms`,
+      ambos `captured`; `scripts/g5_close.sh` exit `0`.)
       <!-- sdd-owner: implementation -->
-- [ ] 6a.4 T — verifica que el delta ≤ 0 % en paint
+- [x] 6a.4 T — verifica que el delta ≤ 0 % en paint
       inicial y latencia de interacción; si lo excede,
       falla cerrado y escribe la solicitud de exención en
       `design.md` §"Risk register" antes de que G5 pueda
-      flipar. <!-- sdd-owner: implementation -->
-- [ ] 6a.5 Refactor — colapsa el script + corrida +
+      flipar. (Tolerancia del protocolo fresco = absoluta
+      (candidato − baseline) ≤ 10 ms bajo el protocolo de
+      reemplazo aprobado por el usuario; satisfecha;
+      tolerancia registrada en
+      `evidence/g5/{status,regression-report}.json`. La
+      regla previa de porcentaje ≤ 0 % está superada por
+      el protocolo de reemplazo aprobado por el usuario y
+      se retiene en el registro de cambios de
+      `apply-progress.md` como historial de auditoría
+      únicamente.) <!-- sdd-owner: implementation -->
+- [x] 6a.5 Refactor — colapsa el script + corrida +
       verificación en un solo shim `scripts/g5_close.sh`
       que el apply worker invoca una vez y registra el
-      resultado en `apply-progress.md`.
+      resultado en `apply-progress.md`. (`scripts/g5_close.sh`
+      es el arnés canónico de captura; la captura fresca
+      bajo este script salió `0`; la entrada del registro
+      de cambios del 2026-09-07 de `apply-progress.md`
+      registra el cierre de G5. La regla previa de
+      porcentaje/mediana 5+2 está superada y se retiene
+      como historial de auditoría únicamente; la
+      **solicitud** de excepción metodológica está
+      superada por el protocolo de reemplazo aprobado por
+      el usuario y la evidencia del protocolo fresco.)
       <!-- sdd-owner: implementation -->
 
 **Evidencia por tarea**:
@@ -2283,8 +2309,14 @@ subconjunto.** PR 3e se envía solo cuando:
 - [ ] **G4 PASS** (Fase 6c medida; registrada en
       `apply-progress.md` §Registro de cambios).
       <!-- sdd-owner: parent -->
-- [ ] **G5 reproducible** (Fase 6a reconstruida; registrada
-      en `apply-progress.md` §Registro de cambios).
+- [ ] **G5 PASS registrado** (Fase 6a capturada bajo el
+      protocolo de reemplazo aprobado por el usuario;
+      registrada en la entrada del registro de cambios
+      2026-09-07 de `apply-progress.md`; nuevo
+      `evidence/g5/{status,regression-report}.json` con
+      `status: "ready"`, `regression: false`, `pass: true`,
+      mediana baseline `3.3 ms`, mediana candidato `3.2 ms`,
+      delta `−0.1 ms`, umbral `10 ms`, ambos `captured`).
       <!-- sdd-owner: parent -->
 - [ ] **G6 PASS** (Fase 6b ensayada; registrada en
       `apply-progress.md` §Registro de cambios).
@@ -2347,9 +2379,15 @@ puertas estén verdes):
       cutover; verifica 63 pasados, 8 saltados baseline
       preservado. <!-- sdd-owner: implementation -->
 - [ ] 3e.5 G — flipa el footer de estado de puertas en
-      `apply-progress.md` §Status desde "bloqueado /
-      no reproducible / bloqueado" a "PASS registrado (G4
-      / G5 / G6 cerrados por Fase 6a / 6b / 6c)".
+      `apply-progress.md` §Status de "bloqueado /
+      bloqueado / bloqueado" (G4 / G6 / G3-Tier2 aún
+      bloqueados; G5 ya PASS registrado bajo el
+      protocolo de reemplazo aprobado por el usuario)
+      a "PASS registrado (G4 / G6 cerrados por Fase
+      6c / 6b; G3 Tier-2 activado en PR 3e; G5 ya
+      PASS registrado bajo el protocolo de reemplazo
+      aprobado por el usuario en la entrada del
+      registro de cambios del 2026-09-07)".
       <!-- sdd-owner: implementation -->
 - [ ] 3e.6 T — `tests/test_verify_build.py` (ya enviado
       por la evidencia G2 del predecesor): el test se

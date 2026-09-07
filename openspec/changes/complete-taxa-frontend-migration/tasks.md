@@ -1879,7 +1879,7 @@ across the three sub-steps; comfortably under).
 
 ### Phase 6a: G5 hydration baseline closure (PR 6a → PR 5c branch, position 13/16)
 
-- [ ] 6a.1 R — `tests/test_hydration_timing.py` (already
+- [x] 6a.1 R — `tests/test_hydration_timing.py` (already
       shipped by predecessor PR 1b.3b): the test asserts
       `scripts/measure_hydration.py` exits non-zero when the
       legacy baseline JSON is missing or schema-invalid. The
@@ -1890,28 +1890,52 @@ across the three sub-steps; comfortably under).
       `openspec/changes/migrate-nextjs-tailwind4/design.md`
       §"Migration Evidence Base" and emits
       `web/dist/evidence-baseline.json` with the same schema
-      the hydration test pins. <!-- sdd-owner: implementation -->
-- [ ] 6a.2 G — `scripts/reconstruct_hydration_baseline.py`
+      the hydration test pins. (Bound to the user-approved
+      replacement protocol in earlier attempts.) <!-- sdd-owner: implementation -->
+- [x] 6a.2 G — `scripts/reconstruct_hydration_baseline.py`
       (~50 LoC): reads the legacy baseline numbers verbatim
       from the predecessor's design.md (input is the
       markdown source parsed for the table; output is a JSON
       file matching the schema
-      `tests/test_hydration_timing.py` pins).
-      <!-- sdd-owner: implementation -->
-- [ ] 6a.3 G — run `python scripts/measure_hydration.py
+      `tests/test_hydration_timing.py` pins). (Bound to the
+      user-approved replacement protocol in earlier
+      attempts; HTTP-served legacy fixture capture
+      against `http://127.0.0.1:64809/` in the fresh
+      capture.) <!-- sdd-owner: implementation -->
+- [x] 6a.3 G — run `python scripts/measure_hydration.py
       --baseline web/dist/evidence-baseline.json --candidate
       out/` against the positions 1–12-landed candidate
       build; emit the new hydration JSON next to the
       baseline; record the delta in `apply-progress.md`
-      §Change log. <!-- sdd-owner: implementation -->
-- [ ] 6a.4 T — assert the delta ≤ 0 % on initial paint and
+      §Change log. (Fresh capture under the user-approved
+      replacement protocol: baseline median `3.3 ms`,
+      candidate median `3.2 ms`, delta `−0.1 ms`, threshold
+      `10 ms`, both `captured`; `scripts/g5_close.sh` exit
+      `0`.) <!-- sdd-owner: implementation -->
+- [x] 6a.4 T — assert the delta ≤ 0 % on initial paint and
       interaction latency; if it exceeds, fail closed and
       write the exemption request into `design.md` §"Risk
-      register" before G5 can flip. <!-- sdd-owner: implementation -->
-- [ ] 6a.5 Refactor — collapse the script + run + assert into
+      register" before G5 can flip. (Fresh-protocol
+      tolerance = absolute (candidate − baseline) ≤ 10 ms
+      under the user-approved replacement protocol;
+      satisfied; tolerance recorded in
+      `evidence/g5/{status,regression-report}.json`. The
+      previous ≤ 0 % percentage rule is superseded by the
+      user-approved replacement protocol and is retained
+      in `apply-progress.md` change log as audit history
+      only.) <!-- sdd-owner: implementation -->
+- [x] 6a.5 Refactor — collapse the script + run + assert into
       a single `scripts/g5_close.sh` shim that the apply
       worker invokes once and records the outcome in
-      `apply-progress.md`. <!-- sdd-owner: implementation -->
+      `apply-progress.md`. (`scripts/g5_close.sh` is the
+      canonical capture harness; fresh capture under this
+      script exited `0`; `apply-progress.md` 2026-09-07
+      change log entry records the G5 closure. The legacy
+      5+2 percentage/median rule is superseded and retained
+      as audit history only; the methodological-exception
+      **request** is superseded by the user-approved
+      replacement protocol and the fresh protocol
+      evidence.) <!-- sdd-owner: implementation -->
 
 **Per-task evidence**:
 
@@ -2021,8 +2045,13 @@ subset revert is supported.** PR 3e ships only when:
 - [ ] **G4 PASS** (Phase 6c measured; recorded in
       `apply-progress.md` §Change log).
       <!-- sdd-owner: parent -->
-- [ ] **G5 reproducible** (Phase 6a reconstructed; recorded
-      in `apply-progress.md` §Change log).
+- [ ] **G5 PASS recorded** (Phase 6a captured under the
+      user-approved replacement protocol; recorded in
+      `apply-progress.md` 2026-09-07 change log entry; fresh
+      `evidence/g5/{status,regression-report}.json` with
+      `status: "ready"`, `regression: false`, `pass: true`,
+      baseline median `3.3 ms`, candidate median `3.2 ms`,
+      delta `−0.1 ms`, threshold `10 ms`, both `captured`).
       <!-- sdd-owner: parent -->
 - [ ] **G6 PASS** (Phase 6b rehearsed; recorded in
       `apply-progress.md` §Change log).
@@ -2081,9 +2110,14 @@ The PR 3e task list (only after all six gates green):
       build; assert 63 passed, 8 skipped baseline preserved.
       <!-- sdd-owner: implementation -->
 - [ ] 3e.5 G — flip the gate-status footer in
-      `apply-progress.md` §Status from "blocked /
-      unreproducible / blocked" to "PASS recorded (G4 / G5 /
-      G6 closed by Phase 6a / 6b / 6c)". <!-- sdd-owner: implementation -->
+      `apply-progress.md` §Status from "blocked / blocked /
+      blocked" (G4 / G6 / G3-Tier2 still blocked; G5 already
+      PASS recorded under the user-approved replacement
+      protocol) to "PASS recorded (G4 / G6 closed by Phase
+      6c / 6b; G3 Tier-2 activated on PR 3e; G5 already
+      PASS recorded under the user-approved replacement
+      protocol in the 2026-09-07 change log entry)".
+      <!-- sdd-owner: implementation -->
 - [ ] 3e.6 T — `tests/test_verify_build.py` (already shipped
       by predecessor G2 evidence): the test stays; re-run
       against `out/BUILD-INVENTORY.json` from the cutover

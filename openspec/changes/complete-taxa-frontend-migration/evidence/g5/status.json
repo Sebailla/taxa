@@ -1,18 +1,15 @@
 {
   "gate": "G5",
-  "status": "blocked",
-  "captured_at": "2026-09-06T01:37:38Z",
-  "baseline_path": "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-22-6a/web/dist/evidence-baseline.json",
+  "status": "ready",
+  "captured_at": "2026-09-07T15:41:38Z",
+  "baseline_path": "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-24-6c/web/dist/evidence-baseline.json",
   "baseline_source": "captured",
-  "candidate_path": "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-22-6a/out/hydration-candidate.json",
-  "regression": true,
-  "regressing_axes": [
-    "initial_paint",
-    "interaction_latency"
-  ],
-  "initial_paint_delta_pct": Infinity,
-  "interaction_latency_delta_pct": 33.33333333333333,
-  "comparison_exit_code": 4,
-  "blocker": "measure_hydration.py exited 4; baseline vs candidate comparison regressed on initial_paint, interaction_latency. G5 must NOT flip until both deltas are <= 0 %.",
-  "action_required": "fix the candidate so neither initial_paint nor interaction_latency regress vs baseline, then re-capture and re-run scripts/g5_close.sh."
+  "candidate_path": "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-24-6c/out/hydration-candidate.json",
+  "regression": false,
+  "threshold_ms": 10.0,
+  "baseline_median_ms": 3.299999952316284,
+  "candidate_median_ms": 3.200000047683716,
+  "delta_ms": -0.09999990463256836,
+  "blocker": null,
+  "action_required": "apply worker may now flip G5 to PASS in apply-progress.md \u00a7Status (see openspec/.../tasks.md \u00a7Cutover activation sequence step 5)."
 }
