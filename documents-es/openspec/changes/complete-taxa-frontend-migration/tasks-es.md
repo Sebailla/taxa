@@ -2258,6 +2258,45 @@ sub-pasos; cómodamente bajo).
 
 ### Fase 6c: Medición de paridad G4 Playwright + Lighthouse (PR 6c → rama del PR 6b, posición 15/16)
 
+La Fase 6c entrega la medición de paridad G4 de extremo a
+extremo a través de los cinco sub-reportes (`navigation`,
+`api`, `search`, `a11y`, `browser-state`). Se divide en
+sub-slices; el **primero** es el productor solo de
+navegación (ya aterrizado — ver slice 6c.0 abajo). Los
+sub-slices restantes (6c.2–6c.5) capturan los otros cuatro
+reportes. **Ningún sub-slice flipa G4 a PASS**; la
+compuerta permanece bloqueada hasta que los cinco reportes
+se capturen y el agregador por pares salga 0. El script
+umbrella `scripts/g4_measure.sh` llega al final para que
+el apply worker tenga un único punto de entrada.
+
+#### Slice 6c.0 — productor solo de navegación (aterrizado, no cierra)
+
+- [x] 6c.0.1 R — `tests/test_capture_parity.py` carga 25
+      tests herméticos de paridad de navegación (`runFn`
+      inyectado + `now()` fijo; sin navegador, sin red en
+      vivo). <!-- sdd-owner: implementation -->
+- [x] 6c.0.2 G — `tools/g4-capture/scripts/parity_navigation.mjs`
+      (driver Playwright; dynamic-imported; `playwright@1.49.1`
+      pinned aislado junto a `lighthouse@12.2.1` +
+      `chrome-launcher@1.2.1`; sin cambios en dependencias
+      raíz). Escribe `<outputRoot>/<UTC-timestamp>/{legacy,
+      candidate}/` atómicamente (la estrategia sibling-backup
+      refleja `capture.mjs`). <!-- sdd-owner: implementation -->
+- [x] 6c.0.3 T — salida atómica verificada; ambos lados
+      escritos en un solo run; fail-closed en orígenes
+      faltantes/inválidos, runner no disponible, errores 5xx /
+      de red, desajuste de path del manifest, colisión de
+      salida, y drift de outcome por path. <!-- sdd-owner: implementation -->
+- [x] 6c.0.4 Refactor — `make parity-navigation` acepta
+      `LEGACY_ORIGIN` / `CANDIDATE_ORIGIN` / `PATHS` /
+      `MANIFEST` / `OUTPUT_ROOT` explícitos; sin puertos de
+      producción horneados; sin `make parity` umbrella aún.
+      README documenta el slice como no-cierre.
+      <!-- sdd-owner: implementation -->
+
+#### Slice 6c.1+ — api / search / a11y / browser-state + flip de compuerta (pendiente)
+
 - [ ] 6c.1 R — `tests/test_e2e_file_explorer.py` (ya
       actualizado por Fase 5c) y `tests/test_web_toggle.py`
       (ya actualizado por Fase 5c): los tests se quedan;
@@ -2286,7 +2325,8 @@ sub-pasos; cómodamente bajo).
 
 | Tarea | Comando de test enfocado | Harness de runtime | Frontera de reversión |
 |------|--------------------------|--------------------|------------------------|
-| 6c.1–6c.4 | `.venv/bin/python3 -m pytest tests/test_e2e_file_explorer.py tests/test_web_toggle.py -v` | `scripts/g4_measure.sh` exit 0; `out/g4-parity-report.json` lleva paint inicial + latencia de interacción; `apply-progress.md` §Registro de cambios registra el flip de puerta | `git revert <6c-sha>` elimina el delta de `apply-progress.md`; sin cambio en `tests/` o `scripts/` (el script de medición se queda como guardia de regresión futura) |
+| 6c.0 (aterrizado) | `.venv/bin/python -m pytest tests/test_capture_parity.py -k parity_navigation -v` | `make parity-navigation` (sin puertos de producción horneados); `<outputRoot>/<UTC-timestamp>/{legacy,candidate}/{navigation,manifest.snapshot,run}.json`; `apply-progress.md` registra el slice 6c.0 como no-cierre | `git revert <6c-sha>` elimina el delta del productor + tests + Makefile + lockfile; slice 6c.1–6c.4 queda intacto; sin flip G4 / G3 Tier-2 / cutover-status |
+| 6c.1–6c.4 (pendiente) | `.venv/bin/python3 -m pytest tests/test_e2e_file_explorer.py tests/test_web_toggle.py -v` | `scripts/g4_measure.sh` exit 0; `out/g4-parity-report.json` lleva paint inicial + latencia de interacción; `apply-progress.md` §Registro de cambios registra el flip de puerta | `git revert <6c-sha>` elimina el delta de `apply-progress.md`; sin cambio en `tests/` o `scripts/` (el script de medición se queda como guardia de regresión futura) |
 
 ## Fase 3e: Cutover atómico (PR 3e → rama del PR 6c, posición 16/16, con compuerta en las seis puertas verdes)
 

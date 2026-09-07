@@ -1998,6 +1998,43 @@ across the three sub-steps; comfortably under).
 
 ### Phase 6c: G4 Playwright + Lighthouse parity measurement (PR 6c → PR 6b branch, position 15/16)
 
+Phase 6c ships the G4 parity measurement end-to-end across the four
+sub-reports (`navigation`, `api`, `search`, `a11y`, `browser-state`).
+It is split into sub-slices; the **first** sub-slice is the
+navigation-only producer (already landed — see slice 6c.0 below). The
+remaining sub-slices (6c.2–6c.5) capture the other four reports.
+**No sub-slice flips G4 to PASS**; the gate stays blocked until all five
+reports are captured and the pairwise aggregator exits 0. The umbrella
+`scripts/g4_measure.sh` lands last so the apply worker has a single entry
+point.
+
+#### Slice 6c.0 — navigation-only producer (landed, non-closing)
+
+- [x] 6c.0.1 R — `tests/test_capture_parity.py` carries
+      25 hermetic parity-navigation tests (injected
+      `runFn` + fixed `now()`; no browser, no live network).
+      <!-- sdd-owner: implementation -->
+- [x] 6c.0.2 G — `tools/g4-capture/scripts/parity_navigation.mjs`
+      (Playwright driver; dynamic-imported; isolated pinned
+      `playwright@1.49.1` alongside `lighthouse@12.2.1` +
+      `chrome-launcher@1.2.1`; no root dependency changes).
+      Writes `<outputRoot>/<UTC-timestamp>/{legacy,candidate}/`
+      atomically (sibling-backup strategy mirrors `capture.mjs`).
+      <!-- sdd-owner: implementation -->
+- [x] 6c.0.3 T — atomic output verified; both sides written
+      in a single run; fail-closed on missing/invalid origins,
+      unavailable runner, 5xx / network errors, manifest path
+      mismatch, output collision, and per-path outcome drift.
+      <!-- sdd-owner: implementation -->
+- [x] 6c.0.4 Refactor — `make parity-navigation` accepts explicit
+      `LEGACY_ORIGIN` / `CANDIDATE_ORIGIN` / `PATHS` /
+      `MANIFEST` / `OUTPUT_ROOT`; no production ports baked in;
+      no umbrella `make parity` yet. README documents the slice
+      as non-closing.
+      <!-- sdd-owner: implementation -->
+
+#### Slice 6c.1+ — api / search / a11y / browser-state + gate flip (pending)
+
 - [ ] 6c.1 R — `tests/test_e2e_file_explorer.py` (already
       updated by Phase 5c) and `tests/test_web_toggle.py`
       (already updated by Phase 5c): the tests stay; no
@@ -2024,7 +2061,8 @@ across the three sub-steps; comfortably under).
 
 | Task | Focused test command | Runtime harness | Rollback boundary |
 |------|----------------------|-----------------|-------------------|
-| 6c.1–6c.4 | `.venv/bin/python3 -m pytest tests/test_e2e_file_explorer.py tests/test_web_toggle.py -v` | `scripts/g4_measure.sh` exits 0; `out/g4-parity-report.json` carries initial paint + interaction latency; `apply-progress.md` §Change log records the gate flip | `git revert <6c-sha>` removes the `apply-progress.md` delta; no `tests/` or `scripts/` change (the measurement script stays as a future regression guard) |
+| 6c.0 (landed) | `.venv/bin/python -m pytest tests/test_capture_parity.py -k parity_navigation -v` | `make parity-navigation` (no production ports baked in); `<outputRoot>/<UTC-timestamp>/{legacy,candidate}/{navigation,manifest.snapshot,run}.json`; `apply-progress.md` records slice 6c.0 as non-closing | `git revert <6c-sha>` removes the producer + tests + Makefile delta + lockfile delta; slice 6c.1–6c.4 stay untouched; no G4 / G3 Tier-2 / cutover-status flip |
+| 6c.1–6c.4 (pending) | `.venv/bin/python3 -m pytest tests/test_e2e_file_explorer.py tests/test_web_toggle.py -v` | `scripts/g4_measure.sh` exits 0; `out/g4-parity-report.json` carries initial paint + interaction latency; `apply-progress.md` §Change log records the gate flip | `git revert <6c-sha>` removes the `apply-progress.md` delta; no `tests/` or `scripts/` change (the measurement script stays as a future regression guard) |
 
 ## Phase 3e: Atomic cutover (PR 3e → PR 6c branch, position 16/16, gated on all six gates green)
 

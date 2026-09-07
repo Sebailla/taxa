@@ -193,6 +193,7 @@
 | Fase 6a | Cierre de baseline de hidratación G5 (sin cambios) | ~50 (mayormente medición) | `scripts/reconstruct_hydration_baseline.py` (nuevo) + `scripts/g5_close.sh` (nuevo) + `web/dist/evidence-baseline.json` (regenerado, esquema fijado por `tests/test_hydration_timing.py`) + delta de `apply-progress.md` §Registro de cambios | pendiente de reconstrucción (trabajo de validación tras camino candidato) |
 | Fase 6b | Ensayo de cutover G6 (sin cambios) | ~120 | `scripts/rehearse_cutover.py` (nuevo) + `tests/test_rehearse_cutover.py` (nuevo) + `openspec/changes/complete-taxa-frontend-migration/cutover-manifest.json` (copia de trabajo; la copia del predecesor queda byte-idéntica congelada) + delta de `apply-progress.md` §Registro de cambios | pendiente de reconstrucción (trabajo de validación tras camino candidato) |
 | Fase 6c | Paridad G4 Playwright + Lighthouse (sin cambios) | ~20 (mayormente medición) | `scripts/g4_measure.sh` (nuevo) + `out/g4-parity-report.json` (artefacto Playwright + Lighthouse) + delta de `apply-progress.md` §Registro de cambios | pendiente de reconstrucción (trabajo de validación tras camino candidato) |
+| Fase 6c slice 6c.0 (aterrizado, no-cierre) | Sub-slice de paridad de navegación G4 | ~400 (productor) + ~200 (tests) + ~15 (Makefile) | `tools/g4-capture/scripts/parity_navigation.mjs` (nuevo; driver Playwright; `playwright@1.49.1` pinned aislado) + `tools/g4-capture/package.json` (delta de 1 línea; `playwright@1.49.1`) + `tools/g4-capture/package-lock.json` (regenerado vía `npm install --package-lock-only`) + `tests/test_capture_parity.py` (25 nuevos tests herméticos) + `Makefile` (target `parity-navigation`) + `tools/g4-capture/README.md` (contrato del slice 3 documentado como no-cierre) + delta de `apply-progress.md` §Registro de cambios | aterrizado (solo navegación; G4 permanece bloqueado; sin flip G3 Tier-2 / cutover status) |
 | PR 3e | Cutover atómico (sin cambios) | ~120 (mayormente delta de `apply-progress.md`) | `apply-progress.md` (flip de footer de estado de puertas + entrada de registro de cambios) + re-corridas de `tests/test_verify_consumers.py`, `tests/test_verify_build.py`, `make api`, `make smoke` | pendiente de reconstrucción (con compuerta en las seis puertas verdes) |
 
 **Conteo de sub-PRs**: **16** (1 bootstrap de toolchain +
@@ -424,12 +425,58 @@ admite reversión de subconjunto**.
 
 ## Registro de cambios
 
-La fase de apply puebla esta sección por sub-PR. Cada
-entrada registra el id del sub-PR, el hash del commit,
-los flips de puerta (si los hay) y cualquier justificación
-de `size:exception` (no se espera ninguna; el sub-PR más
-grande es 5b a ~360 LoC, bajo el presupuesto de 400
-líneas).
+    La fase de apply puebla esta sección por sub-PR. Cada
+    entrada registra el id del sub-PR, el hash del commit,
+    los flips de puerta (si los hay) y cualquier justificación
+    de `size:exception` (no se espera ninguna; el sub-PR más
+    grande es 5b a ~360 LoC, bajo el presupuesto de 400
+    líneas).
+
+    ### 2026-09-08 — Slice 6c.0 productor solo de navegación de Fase 6c (no-cierre)
+
+    - `tools/g4-capture/scripts/parity_navigation.mjs` (nuevo;
+      ~400 LoC bajo el presupuesto de 400 líneas; productor
+      de paridad de navegación dirigido por Playwright;
+      dynamic-imports `playwright` desde el workspace
+      `tools/g4-capture/node_modules/` aislado; sin cambios
+      en dependencias raíz). Escribe
+      `<outputRoot>/<UTC-timestamp>/{legacy,candidate}/
+      {navigation.json,manifest.snapshot.json,run.json}`
+      atómicamente (la estrategia sibling-backup refleja
+      `capture.mjs`).
+    - `tools/g4-capture/package.json` (modificado, delta de 1
+      línea: `playwright@1.49.1` exact-pinned junto al
+      `lighthouse@12.2.1` + `chrome-launcher@1.2.1` existente;
+      private + ESM sin cambios).
+    - `tools/g4-capture/package-lock.json` (regenerado vía
+      `npm install --package-lock-only` para pinear
+      `playwright@1.49.1` y sus deps transitivas; la
+      actualización del lockfile se circunscribe a
+      `tools/g4-capture` y no toca dependencias raíz).
+    - `tests/test_capture_parity.py` (modificado, 25 nuevos
+      tests herméticos `parity_navigation`; `runFn` inyectado
+      + `now()` fijo para que el productor corra sin
+      navegador real, sin red en vivo, y sin binario chromium
+      instalado).
+    - `Makefile` (modificado, target `make parity-navigation`
+      añadido; acepta `LEGACY_ORIGIN` / `CANDIDATE_ORIGIN` /
+      `PATHS` / `MANIFEST` / `OUTPUT_ROOT` explícitos; sin
+      puertos de producción horneados; sin target umbrella
+      `make parity` aún).
+    - `tools/g4-capture/README.md` (extendido, contrato del
+      slice 3 documentado como no-cierre; los otros cuatro
+      reportes G4 permanecen pendientes).
+    - **No-cierre**: el slice 6c.0 entrega solo el reporte de
+      navegación; el agregador (`scripts/verify_parity.py`)
+      aún requiere los otros cuatro reportes antes de poder
+      correr de extremo a extremo. G4 permanece **bloqueado**;
+      G3 Tier-2 permanece NOT PASSED; sin flip de cutover
+      status. Los sub-slices restantes 6c.1–6c.4 capturan
+      `api` / `search` / `a11y` / `browser-state` y el flip
+      de la compuerta. Reversión: `git revert <6c-sha>`
+      elimina el productor + tests + delta del Makefile +
+      delta del lockfile; los sub-slices 6c restantes quedan
+      intactos.
 
 ### 2026-09-02 — Estado de planificación inicial
 

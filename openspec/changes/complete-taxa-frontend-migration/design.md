@@ -408,13 +408,61 @@ the implementation happens during apply.
 
 ### G4 — Playwright + Lighthouse parity harness
 
-| Step | Owner | Output |
-| --- | --- | --- |
-| Update `tests/test_e2e_file_explorer.py` selectors for the React component tree (`data-*` attributes preserved per canonical research spec) | Apply | `tests/test_e2e_file_explorer.py` |
-| Update `tests/test_web_toggle.py` selectors; assert theme toggle persists via `localStorage.taxa.settings.theme` and stamps `data-theme` on `<html>` | Apply | `tests/test_web_toggle.py` |
-| Re-run the predecessor chromium fixture against the new build; capture initial paint + interaction latency under Playwright + Lighthouse | Apply | Playwright trace + Lighthouse JSON |
-| Compare against the predecessor's `web/dist/evidence-baseline.json` | Apply | Δ report |
-| Δ ≤ 0 % on initial paint + interaction latency without documented exemption → **G4 PASS** | Apply | Status flip |
+    | Step | Owner | Output |
+    | --- | --- | --- |
+    | Update `tests/test_e2e_file_explorer.py` selectors for the React component tree (`data-*` attributes preserved per canonical research spec) | Apply | `tests/test_e2e_file_explorer.py` |
+    | Update `tests/test_web_toggle.py` selectors; assert theme toggle persists via `localStorage.taxa.settings.theme` and stamps `data-theme` on `<html>` | Apply | `tests/test_web_toggle.py` |
+    | Re-run the predecessor chromium fixture against the new build; capture initial paint + interaction latency under Playwright + Lighthouse | Apply | Playwright trace + Lighthouse JSON |
+    | Compare against the predecessor's `web/dist/evidence-baseline.json` | Apply | Δ report |
+    | Δ ≤ 0 % on initial paint + interaction latency without documented exemption → **G4 PASS** | Apply | Status flip |
+
+    #### Slice 6c.0 — navigation-only sub-slice (landed, non-closing)
+
+    The first G4 sub-slice ships the navigation-only producer. It is **not**
+    a G4 PASS — it captures only one of the five reports the
+    `scripts/verify_parity.py` aggregator expects, and the gate stays
+    blocked until the remaining four reports land.
+
+    - **Producer**: `tools/g4-capture/scripts/parity_navigation.mjs`
+      (Playwright driver; dynamic-imported; isolated pinned
+      `playwright@1.49.1` alongside the existing `lighthouse@12.2.1`
+      + `chrome-launcher@1.2.1`; no root dependency changes).
+    - **CLI**: `--legacy-origin`, `--candidate-origin`, `--paths`
+      (comma-separated), `--output-root`, optional `--manifest`.
+      Production ports are NOT baked in.
+    - **Output layout**: `<outputRoot>/<UTC-timestamp>/{legacy,candidate}/
+      {navigation.json,manifest.snapshot.json,run.json}`. The run
+      timestamp is `YYYY-MM-DDTHH-MM-SSZ` (filename-safe; the colon
+      is replaced with a hyphen because Windows rejects `:` in path
+      components). The `captured_at` JSON value uses the
+      seconds-precision `YYYY-MM-DDTHH:MM:SSZ` form per
+      `scripts/verify_parity.py::ISO_FMT`.
+    - **Schema**: `navigation.json` matches the versioned common header
+      (`schema_version: "1.0.0"`, `captured_at`) plus the navigation
+      record list (`paths: [{path: str, status: int}, ...]`) the
+      aggregator already validates. The producer-side `schema` field
+      names the slice-specific contract (`taxa.g4-parity.navigation/1`).
+    - **Transport**: both sides driven through controlled HTTP
+      (`http(s)://` only; `file://` and any other scheme explicitly
+      rejected). Legacy and candidate MUST differ — equal sides are
+      rejected so a broken candidate can never silently "pass"
+      against itself.
+    - **Fail-closed guards**: missing/invalid origins, origin with
+      a path component, equal sides, empty `paths`, manifest path
+      mismatch, 5xx or status `0` (network error, navigation
+      timeout) on either side, per-path outcome drift between sides,
+      and a pre-existing `<outputRoot>/<UTC-timestamp>/` directory
+      (output collision guard). Each guard is exercised by a
+      hermetic test in `tests/test_capture_parity.py`.
+    - **Hermetic tests**: 25 tests inject a synthetic `runFn`
+      (canned `(path, status)` results, throws, or drift cases) and
+      a fixed `now()` so the producer runs without a real browser
+      or live network. The Playwright runner is dynamic-imported
+      inside `defaultRunNavigation` so the test harness stays free
+      of browser deps until the real path runs.
+    - **Rollback**: `git revert <6c-sha>` removes the producer,
+      tests, Makefile delta, and lockfile delta. Slice 6c.1–6c.4
+      stay untouched. No G4 / G3 Tier-2 / cutover status flip.
 
 ### G5 — hydration baseline
 

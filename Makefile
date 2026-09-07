@@ -7,7 +7,7 @@
 # assignment. All three are false positives when shellcheck runs against
 # a Makefile that uses .ONESHELL: + $(VAR) expansion + URL variables.
 
-.PHONY: venv download etl coldp worms col load api clean test smoke css
+.PHONY: venv download etl coldp worms col load api clean test smoke css parity-navigation
 
 # Pass each recipe to a single shell invocation so multi-line shell
 # constructs (if/then/else/fi, for/done) parse cleanly without `\<newline>`
@@ -136,3 +136,37 @@ clean:
 	rm -f data/etl.log data/api.log data/load.log
 	rm -rf data/db data/raw
 	rm -rf .venv __pycache__ */__pycache__
+
+# G4 navigation-parity producer (first G4 parity slice).
+#
+# Drives both a legacy and a candidate HTTP origin through the navigation
+# paths declared in the supplied manifest, and writes a fail-closed
+# `navigation.json` per side under <OUTPUT_ROOT>/<UTC-timestamp>/{legacy,
+# candidate}/. Producer lives at tools/g4-capture/scripts/parity_navigation.mjs
+# (isolated pinned Playwright workspace). Pass production ports explicitly;
+# the recipe never bakes default origins.
+#
+#   make parity-navigation \
+#       LEGACY_ORIGIN=http://127.0.0.1:8765 \
+#       CANDIDATE_ORIGIN=http://127.0.0.1:8766 \
+#       PATHS=/index.html,/api/health,/api/domains \
+#       MANIFEST=tests/fixtures/g4/nav-manifest.json \
+#       OUTPUT_ROOT=parity-reports/navigation
+#
+# Other slices (api / search / a11y / browser-state) and the umbrella
+# `make parity` target remain pending; this is the navigation-only slice.
+parity-navigation:
+	@if [ -z "$(LEGACY_ORIGIN)" ] || [ -z "$(CANDIDATE_ORIGIN)" ] || [ -z "$(PATHS)" ] || [ -z "$(OUTPUT_ROOT)" ]; then \
+		echo "Usage: make parity-navigation LEGACY_ORIGIN=<url> CANDIDATE_ORIGIN=<url> PATHS=/a,/b MANIFEST=<path> OUTPUT_ROOT=<dir>" >&2; \
+		exit 1; \
+	fi
+	@if [ ! -d "tools/g4-capture/node_modules/playwright" ]; then \
+		echo "[make parity-navigation] installing isolated Playwright workspace (tools/g4-capture)" >&2; \
+		cd tools/g4-capture && npm ci --no-audit --no-fund; \
+	fi
+	node tools/g4-capture/scripts/parity_navigation.mjs \
+		--legacy-origin "$(LEGACY_ORIGIN)" \
+		--candidate-origin "$(CANDIDATE_ORIGIN)" \
+		--paths "$(PATHS)" \
+		--output-root "$(OUTPUT_ROOT)" \
+		$(if $(MANIFEST),--manifest "$(MANIFEST)",)
