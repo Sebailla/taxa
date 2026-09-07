@@ -770,7 +770,7 @@ publica solo cuando cada puerta de abajo está PASS:
 | G2 (build fundacional) | **PASS registrado** contra la build limpia verificada de Next 16.3.3 / Turbopack | Entrada del predecesor `apply-progress.md` del 2026-08-30 |
 | G3 Tier-1 (preparación de consumidores, legacy pre-cut) | **PASS registrado** — los 26 consumidores §3.1 en verde vía el fixture controlado, `scripts/verify_consumers.py` | Predecesor `apply-progress.md` (PR #109 + #111 + #115 + #116) |
 | G4 (paridad Playwright + Lighthouse) | **bloqueado — verificador no autordado**; debe cerrar en la fase de apply | Fase 6c — `scripts/g4_measure.sh` contra la build candidata aterrizada en posiciones 1–9 |
-| G5 (baseline de hidratación) | **no reproducible — baseline legacy no en disco**; debe reconstruirse o reemplazarse durante la fase de apply | Fase 6a — `scripts/reconstruct_hydration_baseline.py` lee los números documentados del predecesor desde `design.md` §"Migration Evidence Baseline" |
+| G5 (baseline de hidratación) | **PASS registrado — captura fresca bajo el protocolo de reemplazo aprobado por el usuario** (`scripts/g5_close.sh` exit 0; tanto el baseline como el candidato servidos por HTTP controlado — `http://127.0.0.1:64809/` y `http://127.0.0.1:64824/`; métrica observable `DOMContentLoaded`; 1 warm-up + 9 muestras medidas retenidas por lado; agregación por mediana por lado con muestras crudas y procedencia preservadas; tolerancia absoluta (candidato − baseline) ≤ 10 ms satisfecha — mediana baseline `3.3 ms`, mediana candidato `3.2 ms`, delta `−0.1 ms`, umbral `10 ms`; `baseline_source: "captured"` en `evidence/g5/status.json` y `source: "captured"` en `out/hydration-candidate.json`; `evidence/g5/status.json` registra `status: "ready"`, `regression: false`, sin `blocker`; `evidence/g5/regression-report.json` registra `pass: true` con el contrato completo de muestras/warmup/origen/mediana por lado y el delta absoluto). La regla previa de porcentaje/mediana 5+2 (baseline 0.0 / 3.0 ms vs candidato 1.0 / 4.0 ms; `initial_paint_delta_pct: Infinity`, `interaction_latency_delta_pct: 33.33%`; exit de comparación 4) está **superada** por este protocolo fresco y se retiene en el registro de cambios como historial de auditoría. **G5 está cerrada** bajo el protocolo de reemplazo aprobado por el usuario. | Fase 6a — `scripts/reconstruct_hydration_baseline.py` (captura HTTP del fixture legacy), `scripts/capture_hydration_candidate.py` (captura HTTP del candidato `out/`) y `scripts/g5_close.sh` (el arnés de runtime) produjeron juntos la evidencia del protocolo fresco registrada en `evidence/g5/{status,regression-report}.json`. El protocolo de reemplazo aprobado por el usuario registrado en `design.md` §"G5 — baseline de hidratación" ata cada reintento futuro: el fallo se mantiene bloqueado, sin PASS automático, sin PASS previo trasladado a través de un fallo. |
 | G6 (ensayo de cutover) | **bloqueado — verificador no autordado**; debe cerrar en la fase de apply | Fase 6b — `scripts/rehearse_cutover.py` dry-runea la unidad atómica de cutover contra el manifesto activado de la copia de trabajo |
 
 **Secuencia de activación de cutover** (cuando las seis
@@ -929,7 +929,7 @@ puertas estén verdes):
 | Secuencia de reconstrucción interrumpida; fusión parcial del bootstrap de toolchain + sub-PRs del App Router deja el proyecto en estado inconsistente. | Media | El test enfocado de cada sub-PR pasa independientemente de sub-PRs subsiguientes. Bajo el Feature Branch Chain ningún estado parcial puede llegar a `develop`: los hijos se acumulan solo en el tracker draft/no-merge. Un hijo atascado bloquea a sus sucesores dentro de la cadena, nunca a `develop`. |
 | Directorio del predecesor `migrate-nextjs-tailwind4/` editado accidentalmente durante la reconstrucción; los archivos fuente se desvían de la historia de planificación congelada. | Alta | El directorio del predecesor está marcado como solo lectura a nivel de sistema de archivos; CI / protección de rama rechaza cualquier PR que lo modifique. El cuerpo del PR de cada sub-PR debe incluir una sección `## Lo que NO cambió` confirmando que el predecesor quedó byte-idéntico. |
 | Trabajo de validación de Fase 6 genera accidentalmente código nuevo en `web/**`, handlers de ruta nuevos en `api/server.py`, o archivos nuevos en `extension/**` (viola el contrato "solo validación, no migración"). | Media | Las tareas de Fase 6 están limitadas a shims `scripts/*`, artefactos de medición en `out/`, y deltas de `apply-progress.md`. No se permiten ediciones en `web/**`, handlers de ruta de `api/server.py` o `extension/**` en Fase 6. El borrado 5c.6 vive en PR 5c, NO en Fase 6. |
-| Reconstrucción de G5 produce un baseline que se deriva de los números documentados del predecesor (la auditoría §3.3.5 del predecesor lista el baseline legacy como **no reproducible**). | Media | `scripts/reconstruct_hydration_baseline.py` lee los números documentados literalmente desde `openspec/changes/migrate-nextjs-tailwind4/design.md` §"Migration Evidence Baseline"; cualquier deriva se registra como actualización del registro de riesgos en `design.md` antes de que G5 pueda voltearse. |
+| Reconstrucción de G5 produce un baseline que se deriva de los números documentados del predecesor (la auditoría §3.3.5 del predecesor lista el baseline legacy como **no reproducible**). | **Retirada / superada** | La regla previa de porcentaje/mediana 5+2 está **superada** por el protocolo de reemplazo aprobado por el usuario registrado en `design.md` §"G5 — baseline de hidratación" y atada por la captura fresca bajo ese protocolo. La evidencia del protocolo fresco (métrica observable `DOMContentLoaded`; ambos lados servidos por HTTP controlado — `http://127.0.0.1:64809/` y `http://127.0.0.1:64824/`; 1 warm-up + 9 muestras medidas retenidas por lado; agregación por mediana por lado con muestras crudas y procedencia preservadas; tolerancia absoluta (candidato − baseline) ≤ 10 ms satisfecha; mediana baseline `3.3 ms`, mediana candidato `3.2 ms`, delta `−0.1 ms`, umbral `10 ms`) está registrada en `openspec/changes/complete-taxa-frontend-migration/evidence/g5/{status,regression-report}.json` y G5 está **PASS registrada / cerrada** bajo el protocolo de reemplazo aprobado por el usuario. La regla previa 5+2 se retiene en el registro de cambios de abajo como historial de auditoría; la **solicitud** de excepción metodológica está superada por el protocolo registrado y la evidencia del protocolo fresco. |
 | Ensayo de G6 falla cerrado (dry-run de solo subconjunto sale distinto de cero) y bloquea el cutover. | Baja | El invariante fail-closed es el spec — las reversiones de subconjunto rompen el shell SPA. PR 3e se publica solo cuando el ensayo atómico completo sale 0. |
 | Medición de G4 excede el presupuesto de delta ≤ 0 % en initial paint o latencia de interacción. | Media | `scripts/g4_measure.sh` registra el delta; si excede 0 %, el worker de apply escribe una solicitud de exención en `design.md` §"Risk register" y la puerta queda bloqueada hasta que un mantenedor la apruebe. |
 | Sub-PR 5b (port del módulo research + pin CDN) infla el sub-PR más grande a ~360 LoC; los revisores siguen viendo una unidad de trabajo enfocada. | Baja | El sub-PR 5b es un port cohesivo de `web/{file_explorer,file_viewer,format,keymap}.js`; la organización 5 × 4 del módulo research coincide con el spec canónico modular-architecture. El presupuesto de 400 líneas se mantiene con -40 LoC de holgura. |
@@ -980,9 +980,34 @@ legacy pre-cut vía el fixture controlado,
 con compuerta en el cierre de G4 + G5 + G6. G4 (paridad
 Playwright + Lighthouse) **bloqueado — verificador no
 autordado**; debe cerrar en la fase de apply vía Fase
-6c. G5 (baseline de hidratación) **no reproducible —
-baseline legacy no en disco**; debe reconstruirse o
-reemplazarse durante la fase de apply vía Fase 6a. G6
+6c. G5 (baseline de hidratación) **PASS registrado /
+cerrada — captura fresca bajo el protocolo de reemplazo
+aprobado por el usuario** (`scripts/g5_close.sh` exit 0;
+tanto el baseline como el candidato servidos por HTTP
+controlado — `http://127.0.0.1:64809/` y `http://127.0.0.1:64824/`;
+métrica observable `DOMContentLoaded`; 1 warm-up + 9
+muestras medidas retenidas por lado; agregación por mediana
+por lado con muestras crudas y procedencia preservadas;
+tolerancia absoluta (candidato − baseline) ≤ 10 ms satisfecha —
+mediana baseline `3.3 ms`, mediana candidato `3.2 ms`, delta
+`−0.1 ms`, umbral `10 ms`; `baseline_source: "captured"` en
+`evidence/g5/status.json` y `source: "captured"` en
+`out/hydration-candidate.json`; `evidence/g5/status.json`
+registra `status: "ready"`, `regression: false`, sin `blocker`;
+`evidence/g5/regression-report.json` registra `pass: true` con
+el contrato completo de muestras/warmup/origen/mediana por
+lado y el delta absoluto). La regla previa de
+porcentaje/mediana 5+2 (el baseline previo 0.0 / 3.0 ms vs
+candidato 1.0 / 4.0 ms; regresión en ambos ejes; exit de
+comparación 4) está **superada** por este protocolo fresco y
+se retiene en el registro de cambios de abajo como historial
+de auditoría únicamente. La **solicitud** de excepción
+metodológica registrada en entradas previas del registro de
+cambios está superada por el protocolo de reemplazo aprobado
+por el usuario y la evidencia del protocolo fresco. G5
+permanece sujeta al protocolo de reemplazo aprobado por el
+usuario: el fallo se mantiene bloqueado, sin PASS automático,
+sin PASS previo trasladado a través de un fallo. G6
 (ensayo de cutover) **bloqueado — verificador no
 autordado**; debe cerrar en la fase de apply vía Fase
 6b. El predecesor
@@ -1136,11 +1161,13 @@ autoritativo desde `tasks.md`.
 > **Footer (flips de la fase de apply)**: G1: PASS
 > registrado · G2: PASS registrado · G3 Tier-1: PASS
 > registrado · G3 Tier-2: NO PASADO (con compuerta) ·
-> G4: bloqueado — verificador no autordado · G5: no
-> reproducible — baseline legacy no en disco · G6:
-> bloqueado — verificador no autordado. El footer
-> voltea a PASS registrado para G4 / G5 / G6 solo
+> G4: bloqueado — verificador no autordado ·
+> G5: PASS registrado — captura fresca bajo el protocolo de reemplazo aprobado por el usuario (DOMContentLoaded; HTTP controlado; 1 warm-up + 9 medidas por lado; mediana; mediana baseline 3.3 ms, mediana candidato 3.2 ms, delta −0.1 ms vs umbral 10 ms; regla previa 5+2 de porcentaje/mediana superada, retenida como historial de auditoría únicamente) ·
+> G6: bloqueado — verificador no autordado. El footer
+> voltea a PASS registrado para G4 / G6 solo
 > después de que Fase 6 cierre y PR 3e se publique.
+> G3 Tier-2 voltea a PASS registrado solo en PR 3e
+> después de que G4 + G6 cierren.
 
 ---
 
@@ -1351,3 +1378,28 @@ contexto histórico.
   `documents-es/.../{tasks-es.md,apply-progress-es.md,design-es.md}`
   y carga la misma semántica; cualquier deriva se resuelve a favor del
   inglés.
+
+
+### 2026-09-07 — Fase 6a: cierre de G5 bajo el protocolo de reemplazo aprobado por el usuario (G5 PASS registrado / cerrada)
+
+- **Captura fresca bajo el protocolo de reemplazo aprobado por el usuario** (esta entrada). El protocolo de reemplazo G5 aprobado por el usuario registrado en `design.md` §"G5 — baseline de hidratación" fue atado por una captura fresca ejecutada bajo ese protocolo; el script canónico de captura (`scripts/g5_close.sh`) salió `0`. La evidencia del protocolo fresco es ahora el registro autoritativo verificado para G5:
+  - **Transporte**: tanto el baseline como el candidato servidos por HTTP controlado (sin `file://`). `baseline_origin: "http://127.0.0.1:64809/"`; `candidate_origin: "http://127.0.0.1:64824/"`.
+  - **Métrica observable**: `DOMContentLoaded` (capturada vía PerformanceNavigationTiming sobre el servicio HTTP controlado; reemplaza al par previo de paint-inicial + latencia-de-interacción).
+  - **Muestreo**: 1 warm-up + 9 muestras medidas retenidas por lado; agregación por lado = mediana con muestras crudas + muestras de warmup + procedencia preservadas en el artefacto.
+  - **Tolerancia**: absoluta (candidato − baseline) ≤ 10 ms; mediana baseline `3.3 ms` (crudas: 4.10, 3.40, 3.30, 3.00, 3.60, 2.80, 3.30, 3.00, 3.50; warmup: 39.70), mediana candidato `3.2 ms` (crudas: 5.30, 2.90, 3.10, 3.50, 3.10, 3.20, 3.20, 3.70, 3.30; warmup: 8.20), delta `−0.1 ms` (mediana candidato < mediana baseline; delta negativo es mejora), umbral `10 ms` — tolerancia satisfecha.
+  - **Atribución de fuente**: `baseline_source: "captured"` en `evidence/g5/status.json` y `source: "captured"` en `out/hydration-candidate.json` (capturas reales, no derivadas de números documentados del predecesor; no son placeholders).
+  - **`evidence/g5/status.json`** (re-capturado bajo este intento): `gate: "G5"`, `status: "ready"`, `captured_at: "2026-09-07T15:41:38Z"`, `baseline_path: web/dist/evidence-baseline.json` (`baseline_source: "captured"`), `candidate_path: out/hydration-candidate.json`, `regression: false`, `threshold_ms: 10.0`, `baseline_median_ms: 3.299999952316284`, `candidate_median_ms: 3.200000047683716`, `delta_ms: -0.09999990463256836`, `blocker: null`.
+  - **`evidence/g5/regression-report.json`** (re-capturado bajo este intento): esquema completo por lado con `baseline.samples` (9), `baseline.warmup_samples` (1), `candidate.samples` (9), `candidate.warmup_samples` (1), `baseline_origin` / `candidate_origin`, `baseline_build: "legacy"` / `candidate_build: "migrated"`, `pass: true`, el `delta_ms` y `threshold_ms` absolutos registrados arriba. Conforme al esquema del protocolo fresco; no al esquema del contrato previo de porcentaje/mediana 5+2.
+
+- **Supersesión de la evidencia previa de porcentaje/mediana 5+2 (historial de auditoría retenido)**. La regla previa de captura 5+2 (muestras retenidas del baseline `5`; muestras retenidas del candidato `5`; comparación porcentual `initial_paint_delta_pct` / `interaction_latency_delta_pct`; medianas baseline 0.0 / 3.0 ms; medianas candidato 1.0 / 4.0 ms; `initial_paint_delta_pct: Infinity`; `interaction_latency_delta_pct: 33.33333333333333`; `regression: true`; `regressing_axes: ["initial_paint", "interaction_latency"]`; exit de comparación `4`) está **superada** por la evidencia del protocolo fresco de arriba. El contenido previo de `evidence/g5/{status,regression-report}.json` (el snapshot bloqueado del `2026-09-06T01:37:38Z` en `taxa-worktrees/complete-taxa-frontend-migration-22-6a/`) **no se elimina**; se preserva en el historial de git y en las entradas previas del registro de cambios (2026-09-05 / 2026-09-06) como historial de auditoría. La **solicitud** de excepción metodológica registrada en las entradas 2026-09-05 / 2026-09-06 está superada por el protocolo de reemplazo aprobado por el usuario y la evidencia del protocolo fresco; la solicitud no concede ni exime PASS, cierre o activación de cutover.
+
+- **Actualización de la tabla de puertas de pre-flight**: `G5 (baseline de hidratación)`: `PASS registrado — captura fresca bajo el protocolo de reemplazo aprobado por el usuario` (cita 1 warm-up + 9 medidas por lado, DOMContentLoaded, HTTP controlado, mediana baseline 3.3 ms, mediana candidato 3.2 ms, delta −0.1 ms, umbral 10 ms, ambos `captured`; la regla previa 5+2 de porcentaje/mediana está superada y se retiene como historial de auditoría únicamente). Las otras cinco filas de puertas (G1 / G2 / G3 Tier-1 / G3 Tier-2 / G4 / G6) se preservan exactamente como se registraron previamente; G4 y G3 Tier-2 (con compuerta en el cierre de G4 + G6) y la autoridad de cutover atómico de PR 3e permanecen como bloqueadores independientes.
+
+- **Actualización de narrativa §Status + footer**: la redacción de G5 en la narrativa §Status se volteó a `PASS registrado / cerrada — captura fresca bajo el protocolo de reemplazo aprobado por el usuario` y cita el protocolo 1+9 DOMContentLoaded, el umbral, las medianas y el delta. §Status footer: `G5: PASS registrado — captura fresca bajo el protocolo de reemplazo aprobado por el usuario (DOMContentLoaded; HTTP controlado; 1 warm-up + 9 medidas por lado; mediana; mediana baseline 3.3 ms, mediana candidato 3.2 ms, delta −0.1 ms vs umbral 10 ms; regla previa 5+2 de porcentaje/mediana superada, retenida como historial de auditoría únicamente)`. La redacción del footer para G4, G3 Tier-2 y la autoridad de cutover de PR 3e se preserva exactamente como se registró previamente; G4 / G6 / G3 Tier-2 (con compuerta) permanecen bloqueados, y PR 3e se publica solo cuando las seis puertas estén verdes.
+
+- **Actualización de la tabla §Riesgos**: la fila de riesgo de inestabilidad de G5 se actualiza de `Alta` (solicitud de excepción metodológica, sin PASS) a `Retirada / superada` (protocolo de reemplazo aprobado por el usuario + evidencia del protocolo fresco; PASS registrado; regla previa 5+2 retenida como historial de auditoría). La fila de riesgo aún apunta a `design.md` §"G5 — baseline de hidratación" para el contrato de protocolo vinculante.
+
+- **Alcance de este intento (vinculante)**:
+  - **Sin ediciones de fuente / test / salida de build.** No se hace ningún cambio de código, test, ni `scripts/` / `tests/` en este intento; el arnés (`scripts/reconstruct_hydration_baseline.py`, `scripts/capture_hydration_candidate.py`, `scripts/measure_hydration.py`, `scripts/g5_close.sh`) y `tests/test_hydration_timing.py` ya estaban atados al protocolo de reemplazo aprobado por el usuario en intentos previos y no se re-editaron aquí.
+  - **Sin cutover de producción, sin restauración de web, sin cambios de backend / ETL / extension, sin commit, sin push.** La huella de Fase 6a se limita a las superficies de edición permitidas listadas en la tarea delegada: `apply-progress.md` (§Registro de cambios + tabla de puertas §Pre-flight + §Riesgos + narrativa §Status + footer §Status), `design.md` (§Evidencia trasladada + §Riesgos + §Estado), `tasks.md` (estado de tareas Fase 6a + lista de puertas de PR 3e + footer §Status), los espejos en español `apply-progress-es.md` / `design-es.md` / `tasks-es.md`, y los artefactos de evidencia canónicos `evidence/g5/{status,regression-report}.json`. El fixture legacy bajo `tools/g3-legacy-fixture/web/`, el código de la app React bajo `src/`, `next.config.mjs`, `package.json`, el artefacto de build bajo `out/`, el predecesor `openspec/changes/migrate-nextjs-tailwind4/**`, el FastAPI `api/server.py`, y la extensión Chrome bajo `extension/**` NO se modifican por este intento. La evidencia previa de porcentaje/mediana 5+2 se preserva en el historial de git (el contenido previo de `evidence/g5/{status,regression-report}.json` bajo `taxa-worktrees/complete-taxa-frontend-migration-22-6a/`) y en las entradas previas del registro de cambios como historial de auditoría únicamente.
+  - **No se concede autoridad de cutover.** Esta entrada registra el cierre de G5 bajo el protocolo de reemplazo aprobado por el usuario únicamente. El cutover atómico PR 3e se publica solo cuando G1 + G2 + G3 Tier-1 + G3 Tier-2 + G4 + G5 + G6 estén todos verdes; G4 permanece bloqueado (verificador no autordado), G3 Tier-2 permanece con compuerta en el cierre de G4 + G6, G6 permanece bloqueado (verificador no autordado), y la autoridad de cutover de PR 3e queda sin cambios.

@@ -1,63 +1,49 @@
 {
-  "baseline_path": "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-22-6a/web/dist/evidence-baseline.json",
-  "candidate_path": "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-22-6a/out/hydration-candidate.json",
+  "baseline_path": "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-24-6c/web/dist/evidence-baseline.json",
+  "candidate_path": "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-24-6c/out/hydration-candidate.json",
   "baseline_build": "legacy",
   "candidate_build": "migrated",
-  "initial_paint_delta_pct": Infinity,
-  "interaction_latency_delta_pct": 33.33333333333333,
-  "initial_paint_baseline_ms": 0.0,
-  "initial_paint_candidate_ms": 1.0,
-  "interaction_latency_baseline_ms": 3.0,
-  "interaction_latency_candidate_ms": 4.0,
-  "regression": true,
-  "regressing_axes": [
-    "initial_paint",
-    "interaction_latency"
-  ],
-  "baseline_origin": "http://127.0.0.1:59691/",
-  "candidate_origin": "http://127.0.0.1:59603/",
-  "baseline_samples_retained": 5,
-  "candidate_samples_retained": 5,
+  "baseline_origin": "http://127.0.0.1:64809/",
+  "candidate_origin": "http://127.0.0.1:64824/",
+  "baseline_samples_retained": 9,
+  "candidate_samples_retained": 9,
   "baseline_warmup_count": 1,
   "candidate_warmup_count": 1,
-  "baseline_median_initial_paint_ms": 0.0,
-  "baseline_median_interaction_latency_ms": 3.0,
-  "candidate_median_initial_paint_ms": 1.0,
-  "candidate_median_interaction_latency_ms": 4.0,
+  "threshold_ms": 10.0,
+  "baseline_median_ms": 3.299999952316284,
+  "candidate_median_ms": 3.200000047683716,
+  "delta_ms": -0.09999990463256836,
+  "pass": true,
   "baseline": {
-    "samples": {
-      "tree_first_paint_ms": [
-        1.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0
-      ],
-      "tree_first_interactive_ms": [
-        4.0,
-        3.0,
-        3.0,
-        3.0,
-        3.0
-      ]
-    }
+    "samples": [
+      4.1000001430511475,
+      3.3999998569488525,
+      3.299999952316284,
+      3.0,
+      3.6000001430511475,
+      2.799999952316284,
+      3.299999952316284,
+      3.0,
+      3.5
+    ],
+    "warmup_samples": [
+      39.700000047683716
+    ]
   },
   "candidate": {
-    "samples": {
-      "tree_first_paint_ms": [
-        1.0,
-        3.0,
-        2.0,
-        0.0,
-        0.0
-      ],
-      "tree_first_interactive_ms": [
-        4.0,
-        5.0,
-        5.0,
-        3.0,
-        3.0
-      ]
-    }
+    "samples": [
+      5.299999952316284,
+      2.8999998569488525,
+      3.0999999046325684,
+      3.5,
+      3.0999999046325684,
+      3.200000047683716,
+      3.200000047683716,
+      3.700000047683716,
+      3.299999952316284
+    ],
+    "warmup_samples": [
+      8.200000047683716
+    ]
   }
 }

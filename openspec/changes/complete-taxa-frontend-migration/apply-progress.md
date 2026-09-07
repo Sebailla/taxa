@@ -808,7 +808,7 @@ every gate below is PASS:
 | G2 (foundation build) | **PASS recorded** against the verified Next 16.3.3 / Turbopack clean build | Predecessor `apply-progress.md` 2026-08-30 entry |
 | G3 Tier-1 (consumer readiness, legacy pre-cut) | **PASS recorded** — all 26 §3.1 consumers green via the controlled fixture, `scripts/verify_consumers.py` | Predecessor `apply-progress.md` (PR #109 + #111 + #115 + #116) |
 | G4 (Playwright + Lighthouse parity) | **blocked — verifier not authored**; must close in apply phase | Phase 6c — `scripts/g4_measure.sh` against the positions 1–9-landed candidate build |
-| G5 (hydration baseline) | **blocked — latest comparable capture exits 4 with regression** (three comparable real-capture verdicts were `ready`, `blocked`, `blocked`; ±1 ms variation at 0–4 ms makes the current median/percentage comparison non-reproducible). No G5 PASS or closure is authorized. | Phase 6a — `scripts/reconstruct_hydration_baseline.py` and `scripts/capture_hydration_candidate.py` provide the current HTTP/multi-sample captures; `scripts/g5_close.sh` writes the versioned `evidence/g5/{status,regression-report}.json`. Do not flip the gate until a new observable metric and versioned absolute tolerance/protocol are approved and rerun. |
+| G5 (hydration baseline) | **PASS recorded — fresh capture under the user-approved replacement protocol** (`scripts/g5_close.sh` exit 0; both baseline and candidate served through controlled HTTP — `http://127.0.0.1:64809/` and `http://127.0.0.1:64824/`; observable metric `DOMContentLoaded`; 1 warm-up + 9 retained measured samples per side; per-side median aggregation with raw samples + provenance preserved; absolute (candidate − baseline) ≤ 10 ms tolerance satisfied — baseline median `3.3 ms`, candidate median `3.2 ms`, delta `−0.1 ms`, threshold `10 ms`; `baseline_source: "captured"` in `evidence/g5/status.json` and `source: "captured"` in `out/hydration-candidate.json`; `evidence/g5/status.json` records `status: "ready"`, `regression: false`, no `blocker`; `evidence/g5/regression-report.json` records `pass: true`, the full per-side samples/warmup/origin/median contract, and the absolute delta). The previous 5+2 percentage/median rule (baseline 0.0 / 3.0 ms vs candidate 1.0 / 4.0 ms; `initial_paint_delta_pct: Infinity`, `interaction_latency_delta_pct: 33.33%`; comparison exit 4) is **superseded** by this fresh protocol and is retained in the change log as audit history only. **G5 is closed** under the user-approved replacement protocol. | Phase 6a — `scripts/reconstruct_hydration_baseline.py` (HTTP-served legacy fixture capture), `scripts/capture_hydration_candidate.py` (HTTP-served candidate `out/` capture), and `scripts/g5_close.sh` (the runtime harness) together produced the fresh protocol evidence recorded in `evidence/g5/{status,regression-report}.json`. The user-approved replacement protocol recorded in `design.md` §"G5 — hydration baseline" binds every future reattempt: failure stays blocked, no automatic PASS, no previous PASS carried across a failure. |
 | G6 (cutover rehearsal) | **PASS recorded — `cutover-rehearsal.json` captured at `2026-09-06T15:10:54Z`** (controlled port 55637 — never the ambient FastAPI 8765; `activation_complete: true`; all 26 §3.1 consumers selected; `unselected_count: 0`; `silent_fallback_paths: []`; `g3_tier2_exit_code: 0`); atomic cutover unit + rollback unit consistent | Phase 6b — `scripts/rehearse_cutover.py` dry-runs the atomic cutover unit against the activated working-copy manifest; the activated working-copy manifest (`openspec/changes/complete-taxa-frontend-migration/cutover-manifest.json`) carries the Tier-2 flip for all 26 §3.1 consumers; predecessor `openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json` stays byte-identical frozen |
 
 **Cutover activation sequence** (when all six gates green):
@@ -952,7 +952,7 @@ every gate below is PASS:
 | Reconstruction sequence interrupted; partial merge of the toolchain bootstrap + App Router sub-PRs leaves the project in an inconsistent state. | Medium | Each sub-PR's focused test passes independently of subsequent sub-PRs. Under the Feature Branch Chain no partial state can reach `develop`: children accumulate on the draft/no-merge tracker only. A stuck child blocks its successors inside the chain, never `develop`. |
 | Predecessor `migrate-nextjs-tailwind4/` directory accidentally edited during reconstruction; source files deviate from the frozen planning history. | High | Predecessor directory is marked read-only at filesystem level; CI / branch-protection rejects any PR that modifies it. Every sub-PR's PR body must include a `## Lo que NO cambió` section confirming the predecessor stayed byte-identical. |
 | Phase 6 validation work accidentally generates new `web/**` source, new `api/server.py` route handlers, or new `extension/**` files (violates the "validation only, not migration" contract). | Medium | Phase 6 tasks are constrained to `scripts/*` shims, measurement artifacts in `out/`, and `apply-progress.md` deltas. No `web/**`, `api/server.py` route handlers, or `extension/**` edits are permitted in Phase 6. The 5c.6 deletion lives in PR 5c, NOT in Phase 6. |
-| G5's current median/percentage hydration comparison is unstable at sub-millisecond scale; comparable runs produced **ready / blocked / blocked** verdicts with ±1 ms movement at 0–4 ms. | High | The latest evidence remains **blocked** (regression on `initial_paint` 0→1 ms and `interaction_latency` 3→4 ms; comparison exit 4). The risk-register disposition is a methodological-exception **request, not approval**: before G5 is reattempted, version a new observable hydration metric and a versioned absolute tolerance/protocol (including clock origin, sampling/outlier rules, units, and pass/fail aggregation). No G5 PASS, closure, or cutover activation is granted. |
+| G5's current median/percentage hydration comparison is unstable at sub-millisecond scale; comparable runs produced **ready / blocked / blocked** verdicts with ±1 ms movement at 0–4 ms. | **Retired / superseded** | The legacy 5+2 percentage/median rule is **superseded** by the user-approved replacement protocol recorded in `design.md` §"G5 — hydration baseline" and bound by the fresh capture under that protocol. The fresh protocol evidence (`DOMContentLoaded` observable; both sides served through controlled HTTP — `http://127.0.0.1:64809/` and `http://127.0.0.1:64824/`; 1 warm-up + 9 retained measured samples per side; per-side median aggregation with raw samples + provenance preserved; absolute (candidate − baseline) ≤ 10 ms tolerance; baseline median `3.3 ms`, candidate median `3.2 ms`, delta `−0.1 ms`, threshold `10 ms`) is recorded in `openspec/changes/complete-taxa-frontend-migration/evidence/g5/{status,regression-report}.json` and G5 is **PASS recorded / closed** under the user-approved replacement protocol. The previous 5+2 rule is retained in the change log below as audit history only; the methodology-exception **request** is superseded by the recorded protocol and the fresh protocol evidence. |
 | G6 rehearsal fails closed (subset-only dry-run exits non-zero) and blocks the cutover. | Low | The fail-closed invariant is the spec — subset reverts break the SPA shell. PR 3e ships only when the full atomic rehearsal exits 0. |
 | G4 measurement exceeds the ≤ 0 % delta budget on initial paint or interaction latency. | Medium | `scripts/g4_measure.sh` records the delta; if it exceeds 0 %, the apply worker writes an exemption request into `design.md` §"Risk register" and the gate stays blocked until a maintainer signs off. |
 | Sub-PR 5b (research port + CDN pin) inflates the largest sub-PR to ~360 LoC; reviewers still see one focused work unit. | Low | Sub-PR 5b is one cohesive port of `web/{file_explorer,file_viewer,format,keymap}.js`; the research module's 5 × 4 layering matches the canonical modular-architecture spec. The 400-line budget holds with -40 LoC headroom. |
@@ -998,16 +998,30 @@ G3 Tier-2 (atomic-cut selection) **NOT PASSED** — gated by
 G4 + G5 + G6 closure. G4 (Playwright + Lighthouse parity)
 **blocked — verifier not authored**; must close in apply
 phase via Phase 6c. G5 (hydration baseline)
-**blocked — real captures are not reproducible under the current
-protocol**. Three comparable runs produced `ready`, `blocked`, and
-`blocked` verdicts because the 0–4 ms measurements moved by ±1 ms;
-the latest captured evidence records baseline medians 0.0/3.0 ms,
-candidate medians 1.0/4.0 ms, regression on both axes, and
-comparison exit 4. The methodological-exception request recorded in
-`design.md` does not grant PASS or closure; G5 must be reattempted
-only after a new observable metric and versioned absolute
-tolerance/protocol are approved.
-G6 (cutover rehearsal) **PASS recorded — `cutover-rehearsal.json` captured at `2026-09-06T15:10:54Z` (see `/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-23-6b-post-6a/openspec/changes/complete-taxa-frontend-migration/evidence/g6/cutover-rehearsal.json`); atomic cutover unit + rollback unit consistent; 0 silent fallback paths detected; apply worker may proceed to PR 3e.**.
+**PASS recorded / closed — fresh capture under the user-approved
+replacement protocol** (`scripts/g5_close.sh` exit 0; both baseline
+and candidate served through controlled HTTP — `http://127.0.0.1:64809/`
+and `http://127.0.0.1:64824/`; observable metric `DOMContentLoaded`;
+1 warm-up + 9 retained measured samples per side; per-side median
+aggregation with raw samples + provenance preserved; absolute
+(candidate − baseline) ≤ 10 ms tolerance satisfied — baseline
+median `3.3 ms`, candidate median `3.2 ms`, delta `−0.1 ms`,
+threshold `10 ms`; `baseline_source: "captured"` in
+`evidence/g5/status.json` and `source: "captured"` in
+`out/hydration-candidate.json`; `evidence/g5/status.json` records
+`status: "ready"`, `regression: false`, no `blocker`; the
+`evidence/g5/regression-report.json` records `pass: true`, the
+full per-side samples/warmup/origin/median contract, and the
+absolute delta). The legacy 5+2 percentage/median rule (the
+previous baseline 0.0 / 3.0 ms vs candidate 1.0 / 4.0 ms; regression
+on both axes; comparison exit 4) is **superseded** by this fresh
+protocol and is retained in the change log below as audit history
+only. The methodological-exception **request** recorded in the
+previous change log entries is superseded by the user-approved
+replacement protocol and the fresh protocol evidence. G5 remains
+subject to the user-approved replacement protocol: failure stays
+blocked, no automatic PASS, no previous PASS carried across a
+failure. G6 (cutover rehearsal) **PASS recorded — `cutover-rehearsal.json` captured at `2026-09-06T15:10:54Z` (see `/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-23-6b-post-6a/openspec/changes/complete-taxa-frontend-migration/evidence/g6/cutover-rehearsal.json`); atomic cutover unit + rollback unit consistent; 0 silent fallback paths detected; apply worker may proceed to PR 3e.**.
 Predecessor `openspec/changes/migrate-nextjs-tailwind4/**` is **frozen**.
 No FastAPI activation in this design pass; the atomic cutover
 PR 3e ships only when all six gates are green.
@@ -1139,10 +1153,11 @@ authoritative scope from `tasks.md`.
 > **Footer (apply phase flips)**: G1: PASS recorded · G2:
 > PASS recorded · G3 Tier-1: PASS recorded · G3 Tier-2: NOT
 > PASSED (gated) · G4: blocked — verifier not authored ·
-> G5: blocked — latest comparable real capture regressed (three runs: ready / blocked / blocked; ±1 ms variance at 0–4 ms; no PASS authorized) ·
+> G5: PASS recorded — fresh capture under the user-approved replacement protocol (DOMContentLoaded; HTTP-controlled; 1 warm-up + 9 measured per side; median; baseline median 3.3 ms, candidate median 3.2 ms, delta −0.1 ms vs threshold 10 ms; legacy 5+2 percentage/median rule superseded, retained as audit history only) ·
 > G6: blocked — verifier not authored. Footer flips to PASS
-> recorded for G4 / G5 / G6 only after Phase 6 closes and PR
-> 3e ships.
+> recorded for G4 / G6 only after Phase 6 closes and PR
+> 3e ships. G3 Tier-2 flips to PASS recorded only on PR 3e
+> after G4 + G6 close.
 
 ---
 
@@ -1935,3 +1950,28 @@ as historical context.
           rather than expanding scope if the public interface made
           sharing Tier-2 invocation impossible — it does not, so no
           blocker is reported).
+
+
+    ### 2026-09-07 — Phase 6a: G5 closure under the user-approved replacement protocol (G5 PASS recorded / closed)
+
+    - **Fresh capture under the user-approved replacement protocol** (this entry). The user-approved replacement G5 protocol recorded in `design.md` §"G5 — hydration baseline" was bound by a fresh capture executed under that protocol; the canonical capture script (`scripts/g5_close.sh`) exited `0`. The fresh protocol evidence is now the verified authoritative record for G5:
+      - **Transport**: both baseline and candidate served through controlled HTTP (no `file://`). `baseline_origin: "http://127.0.0.1:64809/"`; `candidate_origin: "http://127.0.0.1:64824/"`.
+      - **Observable metric**: `DOMContentLoaded` (captured via PerformanceNavigationTiming over the controlled HTTP serve; replaces the previous initial-paint + interaction-latency pair).
+      - **Sampling**: 1 warm-up + 9 retained measured samples per side; per-side aggregation = median with raw samples + warmup samples + provenance preserved in the artifact.
+      - **Tolerance**: absolute (candidate − baseline) ≤ 10 ms; baseline median `3.3 ms` (raw: 4.10, 3.40, 3.30, 3.00, 3.60, 2.80, 3.30, 3.00, 3.50; warmup: 39.70), candidate median `3.2 ms` (raw: 5.30, 2.90, 3.10, 3.50, 3.10, 3.20, 3.20, 3.70, 3.30; warmup: 8.20), delta `−0.1 ms` (candidate median < baseline median; negative delta is improvement), threshold `10 ms` — tolerance satisfied.
+      - **Source attribution**: `baseline_source: "captured"` in `evidence/g5/status.json` and `source: "captured"` in `out/hydration-candidate.json` (real captures, not derived from documented predecessor numbers; not placeholders).
+      - **`evidence/g5/status.json`** (re-captured under this attempt): `gate: "G5"`, `status: "ready"`, `captured_at: "2026-09-07T15:41:38Z"`, `baseline_path: web/dist/evidence-baseline.json` (`baseline_source: "captured"`), `candidate_path: out/hydration-candidate.json`, `regression: false`, `threshold_ms: 10.0`, `baseline_median_ms: 3.299999952316284`, `candidate_median_ms: 3.200000047683716`, `delta_ms: -0.09999990463256836`, `blocker: null`.
+      - **`evidence/g5/regression-report.json`** (re-captured under this attempt): full per-side schema with `baseline.samples` (9), `baseline.warmup_samples` (1), `candidate.samples` (9), `candidate.warmup_samples` (1), `baseline_origin` / `candidate_origin`, `baseline_build: "legacy"` / `candidate_build: "migrated"`, `pass: true`, the absolute `delta_ms` and `threshold_ms` recorded above. Schema-conformant to the fresh-protocol contract; not the legacy 5+2 percentage/median contract.
+
+    - **Supersession of the legacy 5+2 percentage/median evidence (audit history retained)**. The previous 5+2 capture rule (baseline samples retained `5`; candidate samples retained `5`; `initial_paint_delta_pct` / `interaction_latency_delta_pct` percentage comparison; baseline medians 0.0 / 3.0 ms; candidate medians 1.0 / 4.0 ms; `initial_paint_delta_pct: Infinity`; `interaction_latency_delta_pct: 33.33333333333333`; `regression: true`; `regressing_axes: ["initial_paint", "interaction_latency"]`; comparison exit `4`) is **superseded** by the fresh protocol evidence above. The previous `evidence/g5/{status,regression-report}.json` content (the `2026-09-06T01:37:38Z` blocked snapshot at `taxa-worktrees/complete-taxa-frontend-migration-22-6a/`) is **not deleted**; it is preserved in git history and in the change log entries above (2026-09-05 / 2026-09-06) as audit history. The methodological-exception **request** recorded in the 2026-09-05 / 2026-09-06 entries is superseded by the user-approved replacement protocol and the fresh protocol evidence; the request does not grant or waive PASS, closure, or cutover activation.
+
+    - **§Pre-flight gate table update**: `G5 (hydration baseline)`: `PASS recorded — fresh capture under the user-approved replacement protocol` (cites the 1 warm-up + 9 measured per side, DOMContentLoaded, HTTP-controlled, baseline median 3.3 ms, candidate median 3.2 ms, delta −0.1 ms, threshold 10 ms, both `captured`; the previous 5+2 percentage/median rule is superseded and retained as audit history only). The other five gate rows (G1 / G2 / G3 Tier-1 / G3 Tier-2 / G4 / G6) are preserved exactly as previously recorded; G4 and G3 Tier-2 (gated on G4 + G6 closure) and PR 3e atomic-cutover authority remain independent blockers.
+
+    - **§Status narrative + footer update**: G5 wording in §Status narrative flipped to `PASS recorded / closed — fresh capture under the user-approved replacement protocol` and cites the 1+9 DOMContentLoaded protocol, threshold, medians, and delta. §Status footer: `G5: PASS recorded — fresh capture under the user-approved replacement protocol (DOMContentLoaded; HTTP-controlled; 1 warm-up + 9 measured per side; median; baseline median 3.3 ms, candidate median 3.2 ms, delta −0.1 ms vs threshold 10 ms; legacy 5+2 percentage/median rule superseded, retained as audit history only)`. The footer wording for G4, G3 Tier-2, and the PR 3e cutover authority is preserved exactly as previously recorded; G4 / G6 / G3 Tier-2 (gated) remain blocked, and PR 3e ships only when all six gates are green.
+
+    - **§Risks table update**: the G5 instability risk row is updated from `High` (methodological-exception request, no PASS) to `Retired / superseded` (user-approved replacement protocol + fresh protocol evidence; PASS recorded; legacy 5+2 rule retained as audit history). The risk row still points to `design.md` §"G5 — hydration baseline" for the binding protocol contract.
+
+    - **Scope of this attempt (binding)**:
+      - **No source / test / build output edits.** No code, no test, no `scripts/` / `tests/` change is made in this attempt; the harness (`scripts/reconstruct_hydration_baseline.py`, `scripts/capture_hydration_candidate.py`, `scripts/measure_hydration.py`, `scripts/g5_close.sh`) and `tests/test_hydration_timing.py` were already bound to the user-approved replacement protocol in prior attempts and were not re-edited here.
+      - **No production cutover, no web restoration, no backend / ETL / extension changes, no commit, no push.** The Phase 6a footprint is limited to the allowed edit surfaces listed in the delegated task: `apply-progress.md` (§Change log + §Pre-flight gate table + §Risks + §Status narrative + §Status footer), `design.md` (§Carried evidence + §Risks + §Status), `tasks.md` (Phase 6a tasks status + PR 3e gate list + §Status footer), the Spanish mirrors `apply-progress-es.md` / `design-es.md` / `tasks-es.md`, and the canonical evidence artifacts `evidence/g5/{status,regression-report}.json`. The legacy fixture under `tools/g3-legacy-fixture/web/`, the React app source under `src/`, `next.config.mjs`, `package.json`, the build artifact under `out/`, the predecessor `openspec/changes/migrate-nextjs-tailwind4/**`, the FastAPI `api/server.py`, and the Chrome extension under `extension/**` are NOT modified by this attempt. The legacy 5+2 percentage/median evidence is preserved in git history (the previous `evidence/g5/{status,regression-report}.json` content under `taxa-worktrees/complete-taxa-frontend-migration-22-6a/`) and in the change log entries above as audit history only.
+      - **No cutover authority granted.** This entry records G5 closure under the user-approved replacement protocol only. The atomic cutover PR 3e ships only when G1 + G2 + G3 Tier-1 + G3 Tier-2 + G4 + G5 + G6 are all green; G4 remains blocked (verifier not authored), G3 Tier-2 remains gated on G4 + G6 closure, G6 remains blocked (verifier not authored), and PR 3e cutover authority is unchanged.
