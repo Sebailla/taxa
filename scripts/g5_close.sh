@@ -1,30 +1,34 @@
 #!/usr/bin/env bash
-# Phase 6a G5 hydration-baseline runtime harness.
+# Phase 6a G5 hydration-baseline runtime harness (G5 1+9 protocol).
 #
-# Authoritative contract (per openspec/changes/complete-taxa-frontend-migration
-# /tasks.md §Phase 6a, and the user authorization for Phase 6a):
+# Authoritative G5 1+9 contract (per the user authorization +
+# openspec/changes/complete-taxa-frontend-migration/design.md
+# §"G5 — hydration baseline" and tasks.md §Phase 6a):
 #
-#   1. Run `scripts/reconstruct_hydration_baseline.py` to produce the
-#      legacy baseline artifact (or a fail-closed placeholder).
+#   1. Run `scripts/reconstruct_hydration_baseline.py
+#      --warmup-count 1 --samples-retained 9` to produce the legacy
+#      baseline artifact (or a fail-closed placeholder).
 #   2. If the React candidate build (`out/`) exists and the candidate
 #      artifact (`out/hydration-candidate.json`) is missing, run
-#      `scripts/capture_hydration_candidate.py` to drive Playwright +
+#      `scripts/capture_hydration_candidate.py
+#      --warmup-count 1 --samples-retained 9` to drive Playwright +
 #      Chromium against a local static server that serves `out/`, and
 #      emit the candidate artifact (or a fail-closed placeholder).
 #   3. Run `scripts/measure_hydration.py --baseline <b> --candidate <c>
-#      --report-out <r>` against the positions 1-12-landed candidate
-#      build (Phase 6a only runs after positions 1-12 land; in the
-#      current apply phase the candidate is also gated by the same
-#      "candidate must exist" precondition).
+#      --report-out <r>` to compare baseline vs candidate on the
+#      DOMContentLoaded median. The gate is the absolute median delta
+#      <= 10 ms (G5 1+9 protocol).
 #   4. Write a versioned status record under
 #      `openspec/changes/complete-taxa-frontend-migration/evidence/g5/`
 #      so the apply worker can audit the harness without re-running it.
+#      The status.json carries threshold_ms (10.0), medians, delta,
+#      pass verdict, and provenance so a reviewer can audit the gate.
 #
 # The harness is fail-closed by construction. It MUST NEVER flip G5:
 # the apply worker is the only authority that may flip the gate, and
 # only after both:
 #   * the captured baseline is `source: "captured"` (NOT a placeholder)
-#   * the baseline vs candidate comparison exits 0 (no regression)
+#   * the baseline vs candidate comparison exits 0 (delta_ms <= 10 ms)
 #
 # When either precondition fails, the harness writes a `status.json`
 # that explicitly records G5 as `blocked` with a `blocker` field naming
@@ -49,9 +53,9 @@
 #                          captured one)
 #
 # Exit codes:
-#   0  Both preconditions met (real baseline + non-regressing
-#      comparison). G5 may flip on the apply worker's separate
-#      authority; this script does NOT flip the gate.
+#   0  Both preconditions met (real baseline + delta_ms <= 10 ms).
+#      G5 may flip on the apply worker's separate authority; this
+#      script does NOT flip the gate.
 #   2  Precondition not met (placeholder baseline or regression
 #      detected); status.json records the reason.
 
@@ -65,15 +69,15 @@ BASELINE_OUT="${G5_OUT:-${REPO_ROOT}/web/dist/evidence-baseline.json}"
 BUILD_DIR="${G5_BUILD_DIR:-${REPO_ROOT}/out}"
 CANDIDATE_OUT_DEFAULT="${REPO_ROOT}/out/hydration-candidate.json"
 
+# G5 1+9 protocol constants — see design.md §"G5 — hydration baseline".
+G5_WARMUP_COUNT=1
+G5_SAMPLES_RETAINED=9
+G5_THRESHOLD_MS=10.0
+
 CANDIDATE_JSON=""
 if [[ -n "${G5_CANDIDATE:-}" ]]; then
   CANDIDATE_JSON="${G5_CANDIDATE}"
 elif [[ -f "${CANDIDATE_OUT_DEFAULT}" ]]; then
-  # Convention: positions 1-12 build's Playwright capture is written
-  # here by the apply worker's separate capture step (or by Step 2
-  # below when the build directory exists but the artifact is
-  # missing). If absent after Step 2, there is nothing to compare
-  # against and G5 stays blocked.
   CANDIDATE_JSON="${CANDIDATE_OUT_DEFAULT}"
 fi
 
@@ -89,21 +93,25 @@ log() { printf "[g5_close.sh] %s\n" "$*" >&2; }
 # ---------------------------------------------------------------------------
 # Step 1 - attempt the legacy baseline reconstruction
 # ---------------------------------------------------------------------------
-log "Phase 6a step 1/4: reconstruct legacy baseline"
-log "  fixture_web_root: ${FIXTURE_WEB_ROOT}"
-log "  out:              ${BASELINE_OUT}"
+log "G5 1+9 step 1/4: reconstruct legacy baseline"
+log "  fixture_web_root:    ${FIXTURE_WEB_ROOT}"
+log "  out:                 ${BASELINE_OUT}"
+log "  warmup_count:        ${G5_WARMUP_COUNT}"
+log "  samples_retained:    ${G5_SAMPLES_RETAINED}"
 
 CAPTURE_EXIT=0
 python3 "${REPO_ROOT}/scripts/reconstruct_hydration_baseline.py" \
     --fixture-web-root "${FIXTURE_WEB_ROOT}" \
-    --out "${BASELINE_OUT}" || CAPTURE_EXIT=$?
+    --out "${BASELINE_OUT}" \
+    --warmup-count "${G5_WARMUP_COUNT}" \
+    --samples-retained "${G5_SAMPLES_RETAINED}" || CAPTURE_EXIT=$?
 
 BASELINE_SOURCE="$(python3 -c "
-import json, sys
+import json
 try:
     doc = json.load(open('${BASELINE_OUT}'))
     print(doc.get('source', 'unknown'))
-except Exception as e:
+except Exception:
     print('unreadable')
 " 2>/dev/null || echo "unreadable")"
 
@@ -120,28 +128,38 @@ if [[ "${CAPTURE_EXIT}" -ne 0 || "${BASELINE_SOURCE}" != "captured" ]]; then
   log "baseline reconstruction did NOT produce a captured artifact"
   log "  exit=${CAPTURE_EXIT}  source=${BASELINE_SOURCE}"
   log "  blocker=${BASELINE_BLOCKER}"
-  python3 - "${STATUS_JSON}" "${CAPTURED_AT}" "${BASELINE_OUT}" "${CANDIDATE_JSON:-}" <<'PY'
-import json, sys, datetime, os
-status_path, captured_at, baseline_out, candidate = sys.argv[1:5]
+  STATUS_JSON="${STATUS_JSON}" CAPTURED_AT="${CAPTURED_AT}" \
+    BASELINE_OUT="${BASELINE_OUT}" CANDIDATE_JSON="${CANDIDATE_JSON:-}" \
+    G5_THRESHOLD_MS="${G5_THRESHOLD_MS}" \
+    python3 <<'PY'
+import json, os
+status_path = os.environ["STATUS_JSON"]
+captured_at = os.environ["CAPTURED_AT"]
+baseline_out = os.environ["BASELINE_OUT"]
+candidate = os.environ.get("CANDIDATE_JSON") or None
+threshold_ms = float(os.environ["G5_THRESHOLD_MS"])
 baseline_doc = {}
 try:
     baseline_doc = json.load(open(baseline_out))
 except Exception:
     pass
 blocker = baseline_doc.get("blocker") or (
-    f"reconstruct_hydration_baseline.py exited non-zero or emitted a "
-    f"placeholder (source={baseline_doc.get('source','unknown')}); see "
-    f"{baseline_out} and the apply environment's playwright/chromium "
-    f"installation."
-)
+    "reconstruct_hydration_baseline.py exited non-zero or emitted a "
+    "placeholder (source={}); see {} and the apply environment's "
+    "playwright/chromium installation."
+).format(baseline_doc.get("source", "unknown"), baseline_out)
 status = {
     "gate": "G5",
     "status": "blocked",
     "captured_at": captured_at,
     "baseline_path": baseline_out,
     "baseline_source": baseline_doc.get("source", "unknown"),
-    "candidate_path": candidate or None,
+    "candidate_path": candidate,
     "regression": None,
+    "threshold_ms": threshold_ms,
+    "baseline_median_ms": None,
+    "candidate_median_ms": None,
+    "delta_ms": None,
     "blocker": blocker,
     "action_required": (
         "install playwright + chromium (per requirements-dev.txt) on the "
@@ -158,50 +176,51 @@ fi
 
 # ---------------------------------------------------------------------------
 # Step 2 - if the React candidate build (`out/`) exists and the candidate
-# artifact is missing, drive the candidate capture. This step is the
-# minimal extension that closes the Phase 6a gap: the harness now
-# produces BOTH halves of the comparison instead of waiting for a
-# separate apply-worker invocation. The capture itself is fail-closed
-# (it writes a placeholder on any failure); the harness then surfaces
-# the candidate source in `status.json` so the apply worker can
-# distinguish a captured candidate from a placeholder.
+# artifact is missing, drive the candidate capture.
 # ---------------------------------------------------------------------------
 CANDIDATE_BUILD_DIR="${BUILD_DIR}"
 CANDIDATE_OUT="${CANDIDATE_OUT_DEFAULT}"
 
 if [[ -d "${CANDIDATE_BUILD_DIR}" && ! -f "${CANDIDATE_OUT}" ]]; then
-  log "Phase 6a step 2/4: candidate capture (build_dir=${CANDIDATE_BUILD_DIR})"
+  log "G5 1+9 step 2/4: candidate capture (build_dir=${CANDIDATE_BUILD_DIR})"
+  log "  warmup_count:        ${G5_WARMUP_COUNT}"
+  log "  samples_retained:    ${G5_SAMPLES_RETAINED}"
   CANDIDATE_CAPTURE_EXIT=0
   python3 "${REPO_ROOT}/scripts/capture_hydration_candidate.py" \
       --build-dir "${CANDIDATE_BUILD_DIR}" \
       --out "${CANDIDATE_OUT}" \
+      --warmup-count "${G5_WARMUP_COUNT}" \
+      --samples-retained "${G5_SAMPLES_RETAINED}" \
       || CANDIDATE_CAPTURE_EXIT=$?
   if [[ "${CANDIDATE_CAPTURE_EXIT}" -ne 0 ]]; then
     log "candidate capture failed (exit=${CANDIDATE_CAPTURE_EXIT}); leaving G5 blocked"
   fi
-  # Re-resolve CANDIDATE_JSON in case the capture wrote the artifact
-  # even on a non-zero exit (placeholder path).
   if [[ -z "${G5_CANDIDATE:-}" && -f "${CANDIDATE_OUT}" ]]; then
     CANDIDATE_JSON="${CANDIDATE_OUT}"
   fi
 elif [[ ! -d "${CANDIDATE_BUILD_DIR}" ]]; then
-  log "Phase 6a step 2/4: no candidate build_dir at ${CANDIDATE_BUILD_DIR}; skipping capture"
+  log "G5 1+9 step 2/4: no candidate build_dir at ${CANDIDATE_BUILD_DIR}; skipping capture"
 else
-  log "Phase 6a step 2/4: candidate artifact already present at ${CANDIDATE_OUT}; skipping capture"
+  log "G5 1+9 step 2/4: candidate artifact already present at ${CANDIDATE_OUT}; skipping capture"
 fi
 
 # ---------------------------------------------------------------------------
 # Step 3 - run baseline vs candidate regression comparison (if candidate
-# is available). If absent, this is also a fail-closed precondition.
+# is available).
 # ---------------------------------------------------------------------------
 COMPARISON_EXIT=0
 REGRESSION_JSON="{}"
 
 if [[ -z "${CANDIDATE_JSON}" || ! -f "${CANDIDATE_JSON}" ]]; then
   log "no candidate artifact at ${CANDIDATE_JSON:-<unset>}; cannot compare"
-  python3 - "${STATUS_JSON}" "${CAPTURED_AT}" "${BASELINE_OUT}" "" <<'PY'
-import json, sys
-status_path, captured_at, baseline_out, _ = sys.argv[1:5]
+  STATUS_JSON="${STATUS_JSON}" CAPTURED_AT="${CAPTURED_AT}" \
+    BASELINE_OUT="${BASELINE_OUT}" G5_THRESHOLD_MS="${G5_THRESHOLD_MS}" \
+    python3 <<'PY'
+import json, os
+status_path = os.environ["STATUS_JSON"]
+captured_at = os.environ["CAPTURED_AT"]
+baseline_out = os.environ["BASELINE_OUT"]
+threshold_ms = float(os.environ["G5_THRESHOLD_MS"])
 status = {
     "gate": "G5",
     "status": "blocked",
@@ -210,11 +229,15 @@ status = {
     "baseline_source": "captured",
     "candidate_path": None,
     "regression": None,
+    "threshold_ms": threshold_ms,
+    "baseline_median_ms": None,
+    "candidate_median_ms": None,
+    "delta_ms": None,
     "blocker": (
-        "no candidate artifact available; the positions 1-12-landed "
-        "candidate build has not yet been captured by the apply worker. "
-        "Run the candidate capture (out/hydration-candidate.json) and "
-        "re-run scripts/g5_close.sh."
+        "no candidate artifact available; the React candidate build "
+        "has not yet been captured by the apply worker. Run the "
+        "candidate capture (out/hydration-candidate.json) and re-run "
+        "scripts/g5_close.sh."
     ),
     "action_required": (
         "produce out/hydration-candidate.json via the candidate capture "
@@ -229,16 +252,11 @@ PY
   exit 2
 fi
 
-log "Phase 6a step 3/4: regression comparison"
-log "  baseline: ${BASELINE_OUT}"
-log "  candidate: ${CANDIDATE_JSON}"
+log "G5 1+9 step 3/4: regression comparison"
+log "  baseline:   ${BASELINE_OUT}"
+log "  candidate:  ${CANDIDATE_JSON}"
+log "  threshold:  ${G5_THRESHOLD_MS} ms"
 
-# Source gate: the comparison MUST only run when the candidate is a
-# real capture (`source: "captured"`). A placeholder has source
-# "unavailable" and all-zero metrics; comparing it against the real
-# baseline would report an arbitrary improvement (delta = -100%)
-# that masks the actual environmental blocker. Treat the placeholder
-# as a fail-closed precondition.
 CANDIDATE_SOURCE="$(python3 -c "
 import json
 try:
@@ -260,9 +278,19 @@ except Exception:
 if [[ "${CANDIDATE_SOURCE}" != "captured" ]]; then
   log "candidate artifact is NOT a real capture (source=${CANDIDATE_SOURCE}); G5 blocked"
   log "  blocker=${CANDIDATE_BLOCKER}"
-  python3 - "${STATUS_JSON}" "${CAPTURED_AT}" "${BASELINE_OUT}" "${CANDIDATE_JSON}" "${CANDIDATE_SOURCE}" "${CANDIDATE_BLOCKER}" <<'PY'
-import json, sys
-(status_path, captured_at, baseline_out, candidate, candidate_source, candidate_blocker) = sys.argv[1:7]
+  STATUS_JSON="${STATUS_JSON}" CAPTURED_AT="${CAPTURED_AT}" \
+    BASELINE_OUT="${BASELINE_OUT}" CANDIDATE_JSON="${CANDIDATE_JSON}" \
+    CANDIDATE_SOURCE="${CANDIDATE_SOURCE}" CANDIDATE_BLOCKER="${CANDIDATE_BLOCKER}" \
+    G5_THRESHOLD_MS="${G5_THRESHOLD_MS}" \
+    python3 <<'PY'
+import json, os
+status_path = os.environ["STATUS_JSON"]
+captured_at = os.environ["CAPTURED_AT"]
+baseline_out = os.environ["BASELINE_OUT"]
+candidate = os.environ["CANDIDATE_JSON"]
+candidate_source = os.environ["CANDIDATE_SOURCE"]
+candidate_blocker = os.environ.get("CANDIDATE_BLOCKER") or ""
+threshold_ms = float(os.environ["G5_THRESHOLD_MS"])
 status = {
     "gate": "G5",
     "status": "blocked",
@@ -272,11 +300,15 @@ status = {
     "candidate_path": candidate,
     "candidate_source": candidate_source,
     "regression": None,
+    "threshold_ms": threshold_ms,
+    "baseline_median_ms": None,
+    "candidate_median_ms": None,
+    "delta_ms": None,
     "blocker": (
         candidate_blocker
         or f"candidate artifact at {candidate} is not a real capture "
-        f"(source={candidate_source}); the comparison must not run on "
-        f"placeholder metrics."
+           f"(source={candidate_source}); the comparison must not run on "
+           f"placeholder metrics."
     ),
     "action_required": (
         "fix the candidate capture so it produces source='captured' "
@@ -305,17 +337,27 @@ set -e
 # ---------------------------------------------------------------------------
 if [[ "${COMPARISON_EXIT}" -ne 0 ]]; then
   log "comparison exited non-zero (regression or schema failure); G5 blocked"
-  python3 - "${STATUS_JSON}" "${CAPTURED_AT}" "${BASELINE_OUT}" "${CANDIDATE_JSON}" "${REPORT_JSON}" "${COMPARISON_EXIT}" <<'PY'
-import json, sys
-(status_path, captured_at, baseline_out, candidate, report, comp_exit) = sys.argv[1:7]
-regression_axes = []
-initial_paint_delta = None
-interaction_latency_delta = None
+  STATUS_JSON="${STATUS_JSON}" CAPTURED_AT="${CAPTURED_AT}" \
+    BASELINE_OUT="${BASELINE_OUT}" CANDIDATE_JSON="${CANDIDATE_JSON}" \
+    REPORT_JSON="${REPORT_JSON}" COMPARISON_EXIT="${COMPARISON_EXIT}" \
+    G5_THRESHOLD_MS="${G5_THRESHOLD_MS}" \
+    python3 <<'PY'
+import json, os
+status_path = os.environ["STATUS_JSON"]
+captured_at = os.environ["CAPTURED_AT"]
+baseline_out = os.environ["BASELINE_OUT"]
+candidate = os.environ["CANDIDATE_JSON"]
+report = os.environ["REPORT_JSON"]
+comp_exit = int(os.environ["COMPARISON_EXIT"])
+threshold_ms = float(os.environ["G5_THRESHOLD_MS"])
+baseline_median_ms = None
+candidate_median_ms = None
+delta_ms = None
 try:
     rep = json.load(open(report))
-    regression_axes = rep.get("regressing_axes", [])
-    initial_paint_delta = rep.get("initial_paint_delta_pct")
-    interaction_latency_delta = rep.get("interaction_latency_delta_pct")
+    baseline_median_ms = rep.get("baseline_median_ms")
+    candidate_median_ms = rep.get("candidate_median_ms")
+    delta_ms = rep.get("delta_ms")
 except Exception:
     pass
 status = {
@@ -326,18 +368,21 @@ status = {
     "baseline_source": "captured",
     "candidate_path": candidate,
     "regression": True,
-    "regressing_axes": regression_axes,
-    "initial_paint_delta_pct": initial_paint_delta,
-    "interaction_latency_delta_pct": interaction_latency_delta,
-    "comparison_exit_code": int(comp_exit),
+    "threshold_ms": threshold_ms,
+    "baseline_median_ms": baseline_median_ms,
+    "candidate_median_ms": candidate_median_ms,
+    "delta_ms": delta_ms,
+    "comparison_exit_code": comp_exit,
     "blocker": (
         f"measure_hydration.py exited {comp_exit}; baseline vs candidate "
-        f"comparison regressed on {', '.join(regression_axes) or 'unknown axis'}. "
-        f"G5 must NOT flip until both deltas are <= 0 %."
+        f"comparison regressed (delta_ms={delta_ms} exceeds threshold "
+        f"{threshold_ms} ms). G5 must NOT flip until delta_ms <= "
+        f"{threshold_ms} ms."
     ),
     "action_required": (
-        "fix the candidate so neither initial_paint nor interaction_latency "
-        "regress vs baseline, then re-capture and re-run scripts/g5_close.sh."
+        f"fix the candidate so the absolute DOMContentLoaded median "
+        f"delta is <= {threshold_ms} ms vs baseline, then re-capture "
+        f"and re-run scripts/g5_close.sh."
     ),
 }
 with open(status_path, "w") as f:
@@ -347,13 +392,21 @@ PY
   exit 2
 fi
 
-# Both preconditions met - record PASS but DO NOT flip the gate from
-# this script. The apply worker is the only authority that may flip
+# Both preconditions met - record ready status but DO NOT flip the gate
+# from this script. The apply worker is the only authority that may flip
 # G5 (per openspec/.../apply-progress.md §Cutover activation sequence).
-log "Phase 6a step 4/4: preconditions met; status=ready (G5 still gated on apply worker)"
-python3 - "${STATUS_JSON}" "${CAPTURED_AT}" "${BASELINE_OUT}" "${CANDIDATE_JSON}" "${REPORT_JSON}" <<'PY'
-import json, sys
-(status_path, captured_at, baseline_out, candidate, report) = sys.argv[1:6]
+log "G5 1+9 step 4/4: preconditions met; status=ready (G5 still gated on apply worker)"
+STATUS_JSON="${STATUS_JSON}" CAPTURED_AT="${CAPTURED_AT}" \
+  BASELINE_OUT="${BASELINE_OUT}" CANDIDATE_JSON="${CANDIDATE_JSON}" \
+  REPORT_JSON="${REPORT_JSON}" G5_THRESHOLD_MS="${G5_THRESHOLD_MS}" \
+  python3 <<'PY'
+import json, os
+status_path = os.environ["STATUS_JSON"]
+captured_at = os.environ["CAPTURED_AT"]
+baseline_out = os.environ["BASELINE_OUT"]
+candidate = os.environ["CANDIDATE_JSON"]
+report = os.environ["REPORT_JSON"]
+threshold_ms = float(os.environ["G5_THRESHOLD_MS"])
 rep = {}
 try:
     rep = json.load(open(report))
@@ -367,9 +420,10 @@ status = {
     "baseline_source": "captured",
     "candidate_path": candidate,
     "regression": False,
-    "regressing_axes": [],
-    "initial_paint_delta_pct": rep.get("initial_paint_delta_pct"),
-    "interaction_latency_delta_pct": rep.get("interaction_latency_delta_pct"),
+    "threshold_ms": threshold_ms,
+    "baseline_median_ms": rep.get("baseline_median_ms"),
+    "candidate_median_ms": rep.get("candidate_median_ms"),
+    "delta_ms": rep.get("delta_ms"),
     "blocker": None,
     "action_required": (
         "apply worker may now flip G5 to PASS in apply-progress.md §Status "
