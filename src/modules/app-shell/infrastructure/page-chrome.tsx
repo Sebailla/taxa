@@ -33,6 +33,8 @@ import {
   type TreeSource,
 } from "@taxa/browser-state";
 
+import { VersionBanner } from "../presentation/VersionBanner";
+
 /** Pinned tab list — order is part of the G2 chrome contract. */
 const NAV_TABS: ReadonlyArray<{ path: string; label: string }> = [
   { path: "browser", label: "Browser" },
@@ -184,24 +186,22 @@ export function PageChrome({
       >
         {children}
       </main>
-      <div
-        role="region"
-        aria-label="Help shell"
-        data-slot="help-shell"
-        hidden
-      />
-      <div
-        role="region"
-        aria-label="Settings view"
-        data-slot="settings-view"
-        hidden
-      />
-      <div
-        role="region"
-        aria-label="Banner host"
-        data-slot="banner-host"
-        hidden
-      />
-    </>
+          <div
+            role="region"
+            aria-label="Help shell"
+            data-slot="help-shell"
+            hidden
+          />
+          <div
+            role="region"
+            aria-label="Settings view"
+            data-slot="settings-view"
+            hidden
+          />
+          {/* PR 5c.1b-B — VersionBanner owns the banner host (data-slot
+              "banner-host"). The `hidden` attribute is flipped by the
+              component based on the fail-closed visibility logic. */}
+          <VersionBanner />
+        </>
   );
 }
