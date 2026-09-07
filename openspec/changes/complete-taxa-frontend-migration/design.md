@@ -1080,5 +1080,11 @@ as historical context.
   authoritative and re-slices 5b.1–5b.4 per the rules above. The
   Spanish mirror lives at
   `documents-es/.../{tasks-es.md,apply-progress-es.md,design-es.md}`
-  and carries the same semantics; any drift is resolved in favour of
-  the English.
+      and carries the same semantics; any drift is resolved in favour of
+      the English.
+
+---
+
+## Addendum — 2026-09-07: PR 5c.1a typed browser-state foundation (landed); 5c.1b + 5c.2 deferred (append-only)
+
+- **PR 5c.1a landed (this entry, supersedes prior Phase 5c sub-PR enumeration for the next code worktree)**. The seven-PR Phase 5c enumeration (`5c.1 R / 5c.2 R / 5c.3 G / 5c.4 G / 5c.5 T / 5c.6 G / 5c.7 Refactor`) collapses into a single **`5c.1b` (deferred)** UI slice and the typed foundation slice `5c.1a` (recorded as **landed**). `5c.1a` adds the `versionBannerDismissed: "taxa.settings.versionBannerDismissed"` boolean key + `col | worms | freshwater` TreeSource to `domain/keys.ts` and restores the **5 + 5** `getItem(` / `setItem(` storage-call contract in `infrastructure/store.ts`. Full evidence lives in `apply-progress.md` §Change log entry "2026-09-07 — PR 5c.1a: typed browser-state foundation landed"; `5c.1b` and `5c.2` are deferred. **G4 remains blocked.** Spanish mirror carries the same semantics; any drift is resolved in favour of the English. No React, no E2E tests, no source selectors, no research features, no build outputs, no commit/push.
