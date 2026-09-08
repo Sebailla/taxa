@@ -11,15 +11,67 @@
 // `input[data-search-input]` + at least one `[data-file-path]`.
 // Fail-closed: any 5xx/network/navigation/contract error throws.
 
+import { statSync, accessSync, constants as FS } from "node:fs";
+import { isAbsolute } from "node:path";
+
 const SCHEMA = "taxa.react-e2e.capture/1";
 
-export async function runCapture({ origin } = {}) {
+// Diagnostic-only escape hatch. The CANONICAL contract is the pinned
+// Playwright-managed Chromium; a run launched through this override is
+// noncanonical and can NEVER close G4. Fail-closed: an invalid value throws
+// instead of silently falling back to the pinned browser, which would let a
+// diagnostic run masquerade as canonical evidence.
+export const BROWSER_EXECUTABLE_ENV = "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH";
+const CANONICAL_MODE = "pinned-playwright-default";
+const OVERRIDE_MODE = "noncanonical-diagnostic-executable-override";
+
+/** Resolve+validate the override. Returns the absolute path, or null when
+ *  unset / blank (blank is `absent`, not an error). */
+export function resolveBrowserExecutablePath(env = process.env) {
+  const raw = env?.[BROWSER_EXECUTABLE_ENV];
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  const p = raw.trim();
+  const fail = (why) =>
+    new Error(`chromium-driver: ${BROWSER_EXECUTABLE_ENV}=${p} ${why}`);
+  if (!isAbsolute(p)) throw fail("must be an absolute path");
+  let st;
+  try {
+    st = statSync(p);
+  } catch (e) {
+    throw fail(`is not readable (${e.code ?? e.message})`);
+  }
+  if (!st.isFile()) throw fail("is not a regular file");
+  try {
+    accessSync(p, FS.X_OK);
+  } catch {
+    throw fail("is not executable");
+  }
+  return p;
+}
+
+export async function runCapture({
+  origin,
+  env = process.env,
+  playwrightFn = () => import("playwright"),
+} = {}) {
   if (!origin || typeof origin !== "string") {
     throw new Error(`chromium-driver: origin must be a non-empty string`);
   }
-  const playwright = await import("playwright");
-  const browser = await playwright.chromium.launch({ headless: true });
+  // Validate BEFORE launching anything.
+  const executablePath = resolveBrowserExecutablePath(env);
+  const browserExecution = executablePath
+    ? { canonical: false, mode: OVERRIDE_MODE, executablePath,
+        note: "diagnostic noncanonical browser override; cannot close G4" }
+    : { canonical: true, mode: CANONICAL_MODE, executablePath: null };
+  // No channel — ever. With no override the options stay exactly the pinned
+  // Playwright default.
+  const launchOptions = executablePath
+    ? { headless: true, executablePath }
+    : { headless: true };
+  const playwright = await playwrightFn();
+  const browser = await playwright.chromium.launch(launchOptions);
   const trace = [];
+  trace.push({ kind: "browser-execution", payload: browserExecution });
   try {
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -69,7 +121,7 @@ export async function runCapture({ origin } = {}) {
     if (failed.length > 0) throw new Error(`react contract assertions failed: ${failed.join("; ")}`);
     return {
       schema: SCHEMA, origin, capturedAt: new Date().toISOString(),
-      navigationStatus: status, taxonId: a.taxonId,
+      navigationStatus: status, taxonId: a.taxonId, browserExecution,
       filePathsCount: a.filePathsCount, firstFilePath: a.firstFilePath, trace,
     };
   } finally {
