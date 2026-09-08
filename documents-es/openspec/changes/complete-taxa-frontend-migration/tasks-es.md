@@ -2065,13 +2065,8 @@ browser-state aterrizada"; la adenda vinculante vive en
       ahora fija el conteo exacto (14) y la lista ordenada de
       llaves además de la verificación de paridad key/label/with_authorship
       existente.
-- [ ] **5c.2 (diferida)** — cableado de research / search / folder;
-      sin cambios en `domain/keys.ts` / `infrastructure/store.ts`.
-      **5c.2-A** aterrizó la alineación del contrato de motores
-      de búsqueda; el resto (montaje global de FileExplorer,
-      actualizaciones de selectores/arnés e2e, y borrado legacy
-      `web/*.{html,js,css}` + `tailwind.config.js`) sigue diferido.
-      G4 / G3 Tier-2 / cutover permanecen bloqueadas.
+- [x] **5c.2-B.1a (aterrizada)** — andamio del arnés React E2E: workspace privado aislado `tools/react-e2e-harness` fija Next 16.3.3 + React 19.2.8 + ReactDOM 19.2.8 + `@playwright/test` 1.56.0 + Node ≥ 20.9.0; `npm install` genera `tools/react-e2e-harness/package-lock.json` (1142 LoC, la excepción de tamaño de lockfile generado aprobada por el usuario para este workspace aislado — el fuente/docs authored ≤ 400 líneas de diff, total authored 245 LoC entre `package.json` + `next.config.mjs` + `tsconfig.json` + `app/layout.tsx` + `app/page.tsx`); `next.config.mjs` refleja los flags de exportación estática G2; `app/layout.tsx` es un título semántico mínimo del arnés (sin réplica de AppShell / chrome); `app/page.tsx` monta `FileExplorer` directamente desde `@taxa/research` contra un id de taxon sintético determinista no nulo (`1`) y un `baseUrl` leído desde `NEXT_PUBLIC_HARNESS_BASE_URL` (default `http://127.0.0.1:8765`); `npm ci` exit `0` + `npm run build` exit `0` producen `out/index.html` conteniendo el montaje de FileExplorer. Sin `src/` de producción, sin cambios de API/FastAPI/SQLite/extension, sin captura G4, sin actualizaciones de selectores e2e, sin borrado legacy, sin cambios en `domain/keys.ts` / `infrastructure/store.ts`. **Sin superficie de test** en esta sub-rebanada; la verificación negativa de contrato de fuente pre-build corrió RED sobre el andamio ausente; `npm ci` + `npm run build` corrieron GREEN.
+- [ ] **5c.2-B resto (diferida)** — cableado de research / search / folder más allá del andamio del arnés; sin cambios en `domain/keys.ts` / `infrastructure/store.ts`. **5c.2-A** aterrizó la alineación del contrato de motores de búsqueda; **5c.2-B.1a** aterrizó el andamio del arnés React E2E. El resto (driver de captura + servidores de fixture/export + tests herméticos del arnés + modernización de selectores e2e sobre el nuevo árbol de componentes + borrado legacy `web/*.{html,js,css}` + `tailwind.config.js`) sigue diferido. G4 / G3 Tier-2 / cutover permanecen bloqueadas; G4 **no** se voltea con el aterrizaje del andamio del arnés.
 
 - [ ] 5c.1 R — `tests/test_e2e_file_explorer.py`
       (modificado, el test existe pero los selectores son
