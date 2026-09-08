@@ -710,6 +710,291 @@ def test_export_server_post_returns_405_with_allow(exp):
     s, h, _, _ = _http(f"{exp['base']}/index.html", method="POST")
     assert s == 405, f"POST must be exactly 405; got {s}"
     assert h.get("allow", "").upper().replace(" ", "") == "GET,HEAD", (
-        f"POST must advertise `Allow: GET, HEAD`; "
-        f"got {h.get('allow')!r}"
+            f"POST must advertise `Allow: GET, HEAD`; "
+            f"got {h.get('allow')!r}"
+        )
+
+
+# ===========================================================================
+# PR 5c.2-B.1b-ii-c — hermetic composition slice (composeCapture + CLI driver)
+# ===========================================================================
+#
+# `tools/react-e2e-harness/scripts/composed-capture.mjs` is the composition
+# orchestrator wiring fixture-server.mjs (5c.2-B.1b-ii-a) + export-server.mjs
+# (5c.2-B.1b-ii-b) + capture() (5c.2-B.1b-i) into one in-process + CLI driver.
+# No npm deps; caller provides `--output-root`; never hard-codes ports;
+# loopback-only host binding; taxon id restricted to the synthetic `1` the
+# harness app + fixture serve; reverse-order cleanup on failure.
+# Hermetic: subprocess a Node ESM probe; no Playwright / Chromium / FastAPI /
+# SQLite / network. Injected `buildFn` / `captureFn` / `startFixtureFn` /
+# `startExportFn` keep the orchestrator runnable without real npm build,
+# real `playwright`, or external server modules.
+
+COMPOSED_CAPTURE = REPO_ROOT / "tools" / "react-e2e-harness" / "scripts" / "composed-capture.mjs"
+FIXTURE_SERVER = REPO_ROOT / "tools" / "react-e2e-harness" / "scripts" / "fixture-server.mjs"
+EXPORT_SERVER = REPO_ROOT / "tools" / "react-e2e-harness" / "scripts" / "export-server.mjs"
+
+
+def _run_node(script, *, timeout=10.0):
+    """Run a Node ESM script via stdin; return (rc, stdout, stderr)."""
+    p = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        capture_output=True, text=True, timeout=timeout,
+        env={**os.environ, "NODE_NO_WARNINGS": "1"},
+    )
+    return p.returncode, p.stdout, p.stderr
+
+
+# ─── Source contract (RED gate) ─────────────────────────────────────────
+def test_composed_capture_module_exists_and_exports_compose_capture():
+    """Composition module exists at the locked path AND exports
+    `composeCapture` so the `make capture-react-e2e` target can spawn it.
+    RED: pre-5c.2-B.1b-ii-c the file was absent and the import failed."""
+    assert COMPOSED_CAPTURE.is_file(), f"missing: {COMPOSED_CAPTURE}"
+    assert "composeCapture" in COMPOSED_CAPTURE.read_text(), "must export composeCapture"
+
+
+def test_composed_capture_module_parses_with_node_check():
+    """`node --check` succeeds so any subsequent import is safe."""
+    p = subprocess.run(
+        ["node", "--check", str(COMPOSED_CAPTURE)],
+        capture_output=True, text=True,
+    )
+    assert p.returncode == 0, f"node --check failed: {p.stderr}"
+
+
+def test_composed_capture_module_has_zero_npm_dependencies():
+    """Bare specifiers (no `node:` prefix, no relative path) are a
+    fail-closed violation — the harness must stay zero-dep."""
+    for line in COMPOSED_CAPTURE.read_text().splitlines():
+        s = line.strip()
+        if not s.startswith("import ") or " from " not in s:
+            continue
+        spec = s.split(" from ", 1)[1].strip().rstrip(";").strip("'\"")
+        if spec.startswith(("node:", "./", "../")):
+            continue
+        pytest.fail(f"composed-capture imports non-built-in: {line!r}")
+
+
+# ─── CLI gating ─────────────────────────────────────────────────────────
+def test_composed_capture_cli_missing_output_root_rejected():
+    """No `--output-root` → CLI MUST exit non-zero with a clear error line.
+    RED: pre-5c.2-B.1b-ii-c the file was absent and Node exited with a
+    `MODULE_NOT_FOUND` style error before the explicit `missing
+    --output-root` check existed."""
+    p = subprocess.run(
+        ["node", str(COMPOSED_CAPTURE)],
+        capture_output=True, text=True, timeout=5,
+        env={**os.environ, "NODE_NO_WARNINGS": "1"},
+    )
+    assert p.returncode != 0, (
+        f"missing --output-root must be rejected; got rc=0; "
+        f"stderr={p.stderr!r}"
+    )
+    combined = (p.stderr + p.stdout).lower()
+    assert "output-root" in combined, (
+        f"error line must name `--output-root`; got stderr={p.stderr!r}"
+    )
+
+
+def test_composed_capture_cli_rejects_non_loopback_host():
+    """`--host 0.0.0.0` MUST exit non-zero BEFORE binding any listener."""
+    p = subprocess.run(
+        ["node", str(COMPOSED_CAPTURE),
+         "--output-root", "/tmp/cap-cc-host", "--host", "0.0.0.0"],
+        capture_output=True, text=True, timeout=5,
+        env={**os.environ, "NODE_NO_WARNINGS": "1"},
+    )
+    assert p.returncode != 0, f"non-loopback host must be rejected; rc=0 stderr={p.stderr!r}"
+    combined = (p.stderr + p.stdout).lower()
+    assert "loopback" in combined, (
+        f"error must mention loopback-only; got stderr={p.stderr!r}"
+    )
+
+
+def test_composed_capture_cli_rejects_other_taxon_id():
+    """`--taxon-id 2` MUST exit non-zero (harness serves only id 1)."""
+    p = subprocess.run(
+        ["node", str(COMPOSED_CAPTURE),
+         "--output-root", "/tmp/cap-cc-taxon", "--taxon-id", "2"],
+        capture_output=True, text=True, timeout=5,
+        env={**os.environ, "NODE_NO_WARNINGS": "1"},
+    )
+    assert p.returncode != 0, f"taxon-id 2 must be rejected; rc=0 stderr={p.stderr!r}"
+    combined = (p.stderr + p.stdout).lower()
+    assert "taxon" in combined, (
+        f"error must mention taxon; got stderr={p.stderr!r}"
+    )
+
+
+# ─── Validation primitives ──────────────────────────────────────────────
+def test_composed_capture_validate_taxon_id_accepts_one_only():
+    """`validateTaxonId(\"1\")` → 1; every other positive integer / zero /
+    negative / non-numeric input MUST throw before any server binds."""
+    script = (
+        f'import {{ validateTaxonId }} from "file://{COMPOSED_CAPTURE}";\n'
+        "const one = validateTaxonId('1');\n"
+        "if (one !== 1) { console.error('returned ' + one); process.exit(2); }\n"
+        "for (const bad of ['2', '42', '0', '-1', 'abc', '1.5', '']) {\n"
+        "  try { validateTaxonId(bad); console.error('accepted ' + JSON.stringify(bad)); process.exit(3); }\n"
+        "  catch (e) { /* expected */ }\n"
+        "}\n"
+        "console.log('ok');\n"
+    )
+    rc, out, err = _run_node(script)
+    assert rc == 0, f"node failed: rc={rc} stderr={err!r}"
+
+
+def test_composed_capture_validate_host_loopback_only():
+    """`validateHost` accepts 127.0.0.1 / ::1 / localhost and the default;
+    EVERY other host MUST throw before any server binds."""
+    script = (
+        f'import {{ validateHost }} from "file://{COMPOSED_CAPTURE}";\n'
+        "for (const good of ['127.0.0.1', '::1', 'localhost']) {\n"
+        "  if (validateHost(good) !== good) { console.error('rejected ' + good); process.exit(2); }\n"
+        "}\n"
+        "if (validateHost(undefined) !== '127.0.0.1') { console.error('default failed'); process.exit(4); }\n"
+        "for (const bad of ['0.0.0.0', '10.0.0.1', '192.168.1.1', 'example.com', 'evil']) {\n"
+        "  try { validateHost(bad); console.error('accepted ' + bad); process.exit(3); }\n"
+        "  catch (e) { /* expected */ }\n"
+        "}\n"
+        "console.log('ok');\n"
+    )
+    rc, out, err = _run_node(script)
+    assert rc == 0, f"node failed: rc={rc} stderr={err!r}"
+
+
+# ─── In-process orchestration ───────────────────────────────────────────
+def test_composed_capture_in_process_orchestration_with_synthetic_output_and_injected_capture(tmp_path):
+    """`composeCapture` with a synthetic `out/index.html` + injected
+    `buildFn` (no real `npm run build`) + injected `captureFn` (no real
+    Chromium) returns the structured result; both real fixture / export
+    servers bind loopback-only on OS-assigned ports and serve traffic."""
+    harness = tmp_path / "harness"; harness.mkdir()
+    out_dir = harness / "out"; out_dir.mkdir()
+    (out_dir / "index.html").write_bytes(b"<title>synthetic harness</title>")
+    capture = tmp_path / "capture"; capture.mkdir()
+    script = (
+        f'import {{ composeCapture, COMPOSED_CAPTURE_SCHEMA }} from "file://{COMPOSED_CAPTURE}";\n'
+        f'const result = await composeCapture({{\n'
+        f'  harnessDir: "{harness}",\n'
+        f'  outputRoot: "{capture}",\n'
+        "  buildFn: async () => ({ ok: true, stdout: 'synthetic', stderr: '' }),\n"
+        "  captureFn: async ({ origin, outputRoot }) => {\n"
+        "    if (!origin.startsWith('http://127.0.0.1:')) { console.error('bad origin ' + origin); process.exit(2); }\n"
+        "    return { runDir: outputRoot + '/synthetic-run', evidence: { synthetic: true, origin } };\n"
+        "  },\n"
+        "});\n"
+        "process.stdout.write(JSON.stringify({\n"
+        "  schema: result.schema,\n"
+        "  taxonId: result.taxonId,\n"
+        "  fixtureBase: result.fixture.baseUrl,\n"
+        "  exportBase: result.export.baseUrl,\n"
+        "  captureRunDir: result.capture.runDir,\n"
+        "  captureEvidence: result.capture.evidence,\n"
+        "}) + '\\n');\n"
+    )
+    rc, out_s, err_s = _run_node(script, timeout=15.0)
+    assert rc == 0, f"node failed: rc={rc} stderr={err_s!r} stdout={out_s!r}"
+    payload = json.loads(out_s.strip())
+    assert payload["schema"] == "taxa.react-e2e-composed-capture/1"
+    assert payload["taxonId"] == HARNESS_TAXON_ID
+    assert payload["fixtureBase"].startswith("http://127.0.0.1:")
+    assert payload["exportBase"].startswith("http://127.0.0.1:")
+    assert payload["captureEvidence"]["synthetic"] is True
+
+
+def test_composed_capture_build_bypass_no_out_index_html_fails_closed(tmp_path):
+    """Injected `buildFn` claims success but does NOT write
+    `out/index.html`. `composeCapture` MUST throw BEFORE starting the
+    export server or invoking `captureFn`; no evidence published;
+    fixture port is still released on the way out."""
+    harness = tmp_path / "harness"; harness.mkdir()  # NO out/!
+    capture = tmp_path / "capture"; capture.mkdir()
+    script = (
+        f'import {{ composeCapture }} from "file://{COMPOSED_CAPTURE}";\n'
+        "let exportStarted = false;\n"
+        "let captureStarted = false;\n"
+        "try {\n"
+        f'  await composeCapture({{\n'
+        f'    harnessDir: "{harness}",\n'
+        f'    outputRoot: "{capture}",\n'
+        "    buildFn: async () => ({ ok: true, stdout: '', stderr: '' }),\n"
+        "    captureFn: async () => { captureStarted = true; return { runDir: 'x', evidence: {} }; },\n"
+        f'    startExportFn: async (opts) => {{\n'
+        "      exportStarted = true;\n"
+        f'      const mod = await import("file://{EXPORT_SERVER}");\n'
+        "      return mod.startServer(opts);\n"
+        "    },\n"
+        "  });\n"
+        "  console.error('expected throw, got success'); process.exit(2);\n"
+        "} catch (e) {\n"
+        "  console.log(JSON.stringify({ error: e.message, exportStarted, captureStarted }));\n"
+        "}\n"
+    )
+    rc, out_s, err_s = _run_node(script, timeout=10.0)
+    assert rc == 0, f"node failed: rc={rc} stderr={err_s!r}"
+    payload = json.loads(out_s.strip())
+    assert "index.html" in payload["error"].lower(), (
+        f"error must reference index.html; got {payload['error']!r}"
+    )
+    assert payload["exportStarted"] is False, (
+        "export server MUST NOT start when build lacks out/index.html"
+    )
+    assert payload["captureStarted"] is False, (
+        "captureFn MUST NOT run on build bypass"
+    )
+
+
+def test_composed_capture_reverse_order_cleanup_on_capture_failure(tmp_path):
+    """`captureFn` throws → both fixture + export are closed; the export
+    is closed BEFORE the fixture (reverse-order cleanup, per the nested
+    `finally` blocks in `composeCapture`). Spies track close-call order
+    via `startFixtureFn` / `startExportFn` injection seams."""
+    harness = tmp_path / "harness"; harness.mkdir()
+    out_dir = harness / "out"; out_dir.mkdir()
+    (out_dir / "index.html").write_bytes(b"<title>synthetic harness</title>")
+    capture = tmp_path / "capture"; capture.mkdir()
+    script = (
+        f'import {{ composeCapture }} from "file://{COMPOSED_CAPTURE}";\n'
+        "let seq = 0;\n"
+        "let fixtureCloseSeq = null;\n"
+        "let exportCloseSeq = null;\n"
+        "const startFixtureFn = async (opts) => {\n"
+        f'  const mod = await import("file://{FIXTURE_SERVER}");\n'
+        "  const h = await mod.startServer(opts);\n"
+        "  return { ...h, async close() { fixtureCloseSeq = ++seq; await h.close(); } };\n"
+        "};\n"
+        "const startExportFn = async (opts) => {\n"
+        f'  const mod = await import("file://{EXPORT_SERVER}");\n'
+        "  const h = await mod.startServer(opts);\n"
+        "  return { ...h, async close() { exportCloseSeq = ++seq; await h.close(); } };\n"
+        "};\n"
+        "try {\n"
+        f'  await composeCapture({{\n'
+        f'    harnessDir: "{harness}",\n'
+        f'    outputRoot: "{capture}",\n'
+        "    buildFn: async () => ({ ok: true }),\n"
+        "    captureFn: async () => { throw new Error('capture intentionally failed'); },\n"
+        "    startFixtureFn, startExportFn,\n"
+        "  });\n"
+        "  console.error('expected throw'); process.exit(2);\n"
+        "} catch (e) {\n"
+        "  console.log(JSON.stringify({ error: e.message, exportCloseSeq, fixtureCloseSeq }));\n"
+        "}\n"
+    )
+    rc, out_s, err_s = _run_node(script, timeout=15.0)
+    assert rc == 0, f"node failed: rc={rc} stderr={err_s!r}"
+    payload = json.loads(out_s.strip())
+    assert "capture intentionally failed" in payload["error"]
+    assert payload["exportCloseSeq"] is not None, (
+        "export.close() was never called on capture failure"
+    )
+    assert payload["fixtureCloseSeq"] is not None, (
+        "fixture.close() was never called on capture failure"
+    )
+    assert payload["exportCloseSeq"] < payload["fixtureCloseSeq"], (
+        f"reverse-order cleanup violated: export.close() must precede "
+        f"fixture.close(); got export={payload['exportCloseSeq']} "
+        f"fixture={payload['fixtureCloseSeq']}"
     )

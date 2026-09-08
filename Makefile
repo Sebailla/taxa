@@ -170,3 +170,32 @@ parity-navigation:
 		--paths "$(PATHS)" \
 		--output-root "$(OUTPUT_ROOT)" \
 		$(if $(MANIFEST),--manifest "$(MANIFEST)",)
+
+
+# React E2E composition driver (PR 5c.2-B.1b-ii-c).
+#
+# Wires the hermetic fixture API (5c.2-B.1b-ii-a) + static export HTTP
+# server (5c.2-B.1b-ii-b) + capture CLI / Chromium runner (5c.2-B.1b-i)
+# into a single end-to-end composition. The recipe installs ONLY the
+# isolated harness workspace dependencies (`tools/react-e2e-harness/`
+# `node_modules/`); root `node_modules/` is NOT touched. The orchestrator
+# binds both servers on OS-assigned ports (`--port 0`); no default port
+# is baked into the recipe. The caller MUST supply `OUTPUT_ROOT`; the
+# recipe never defaults it.
+#
+#   make capture-react-e2e OUTPUT_ROOT=parity-reports/react-e2e
+#
+# Optional `HARNESS_DIR` overrides the default
+# `tools/react-e2e-harness/` (used by the hermetic test slice).
+capture-react-e2e:
+	@if [ -z "$(OUTPUT_ROOT)" ]; then \
+		echo "Usage: make capture-react-e2e OUTPUT_ROOT=<dir> [HARNESS_DIR=<dir>]" >&2; \
+		exit 1; \
+	fi
+	@if [ ! -d "tools/react-e2e-harness/node_modules" ]; then \
+		echo "[make capture-react-e2e] installing isolated React E2E harness workspace (tools/react-e2e-harness)" >&2; \
+		cd tools/react-e2e-harness && npm ci --no-audit --no-fund; \
+	fi
+	node tools/react-e2e-harness/scripts/composed-capture.mjs \
+		--output-root "$(OUTPUT_ROOT)" \
+		$(if $(HARNESS_DIR),--harness-dir "$(HARNESS_DIR)",)
