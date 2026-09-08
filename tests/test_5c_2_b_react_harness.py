@@ -373,6 +373,274 @@ def test_serve_normalizes_backslash_separator(fx):
 
 
 # ===========================================================================
+# PR 5c.2-B.1b-ii-a — CORS: strict loopback-only Access-Control-Allow-Origin
+# ===========================================================================
+#
+# The composed capture slice binds the fixture API and the static export
+# server on DISTINCT loopback ports. The browser loads the export page at,
+# e.g., http://127.0.0.1:8081/ and that page fetches
+# http://127.0.0.1:8080/api/taxon/1/files — without an
+# Access-Control-Allow-Origin header the browser blocks the cross-origin
+# read and the diagnostic capture sees a generic CORS error instead of the
+# actual fixture envelope.
+#
+# To keep the harness ISOLATED and the production CORS posture UNCHANGED,
+# fixture-server.mjs emits Access-Control-Allow-Origin ONLY for an HTTP
+# loopback origin (127.0.0.1 / [::1] / localhost) with an explicit valid
+# port and no userinfo / path / query / fragment, and reflects the EXACT
+# accepted origin (never `*`). Requests without an Origin header, or with
+# malformed / credential-bearing / non-HTTP / path-bearing / non-loopback
+# / portless origins, get NO CORS header — fail-closed. The policy lives
+# ONLY in the fixture server (allowed edit surface) and is documented in
+# tools/react-e2e-harness/README.md.
+
+def _http_with_origin(url, origin, *, method="GET", timeout=2.0):
+    """Same 4-tuple shape as _http but attaches an explicit Origin header
+    so the CORS policy path is exercised. `origin` is the literal string
+    the client would send in the Origin request header."""
+    req = urllib.request.Request(url, method=method)
+    if origin is not None:
+        req.add_header("Origin", origin)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body, headers, status = resp.read(), {k.lower(): v for k, v in resp.headers.items()}, resp.status
+    except urllib.error.HTTPError as e:
+        body = e.read() if hasattr(e, "read") else b""
+        headers = {k.lower(): v for k, v in (e.headers or {}).items()}; status = e.code
+    parsed = None
+    if "application/json" in headers.get("content-type", "").lower():
+        try: parsed = json.loads(body)
+        except Exception: parsed = None
+    return status, headers, body, parsed
+
+
+# ─── Source contract (RED gate) ─────────────────────────────────────────
+def test_fixture_server_exports_cors_origin_validator():
+    """`isValidLoopbackCorsOrigin` MUST be exported so the pure-Node
+    path can probe the policy without spawning a server. The function
+    returns the EXACT accepted Origin string, or `null` for any
+    malformed / credential-bearing / non-HTTP / path-bearing / non-
+    loopback / portless input — never throws."""
+    src = FIXTURE.read_text()
+    assert "isValidLoopbackCorsOrigin" in src, (
+        "fixture-server must export isValidLoopbackCorsOrigin"
+    )
+
+
+# ─── Direct function probe (pure-Node, no HTTP) ────────────────────────
+def test_fixture_server_cors_validator_accepts_loopback_origins():
+    """Each loopback HTTP origin with an explicit valid port MUST be
+    accepted and reflected EXACTLY — never normalised, never `*`."""
+    script = (
+        f'import {{ isValidLoopbackCorsOrigin }} from "file://{FIXTURE}";\n'
+        "const cases = [\n"
+        "  ['http://127.0.0.1:8080', 'http://127.0.0.1:8080'],\n"
+        "  ['http://127.0.0.1:1', 'http://127.0.0.1:1'],\n"
+        "  ['http://127.0.0.1:65535', 'http://127.0.0.1:65535'],\n"
+        "  ['http://[::1]:8080', 'http://[::1]:8080'],\n"
+        "  ['http://localhost:8080', 'http://localhost:8080'],\n"
+        "];\n"
+        "const out = [];\n"
+        "for (const [input, expected] of cases) {\n"
+        "  const got = isValidLoopbackCorsOrigin(input);\n"
+        "  out.push({ input, got, expected });\n"
+        "  if (got !== expected) { console.error(JSON.stringify(out)); process.exit(2); }\n"
+        "  if (got === '*') { console.error('wildcard emitted'); process.exit(3); }\n"
+        "}\n"
+        "console.log(JSON.stringify(out));\n"
+    )
+    rc, out, err = _run_node(script)
+    assert rc == 0, f"node failed: rc={rc} stderr={err!r}"
+    rows = json.loads(out.strip())
+    assert all(r["got"] == r["expected"] for r in rows), rows
+
+
+def test_fixture_server_cors_validator_rejects_invalid_origins():
+    """Every malformed / credential-bearing / non-HTTP / path-bearing /
+    non-loopback / portless / null / non-string input MUST return null.
+    No exceptions, no partial accept, no wildcard."""
+    script = (
+        f'import {{ isValidLoopbackCorsOrigin }} from "file://{FIXTURE}";\n'
+        "const cases = [\n"
+        "  null, undefined, '',\n"
+        "  'not-a-url',\n"
+        "  'http://user:pass@127.0.0.1:8080',\n"
+        "  'http://user@127.0.0.1:8080',\n"
+        "  'https://127.0.0.1:8080',\n"
+        "  'data:text/html,foo',\n"
+        "  'ftp://127.0.0.1:8080',\n"
+        "  'http://127.0.0.1:8080/foo',\n"
+        "  'http://127.0.0.1:8080?q=1',\n"
+        "  'http://127.0.0.1:8080/#frag',\n"
+        "  'http://10.0.0.1:8080',\n"
+        "  'http://192.168.1.1:8080',\n"
+        "  'http://example.com:8080',\n"
+        "  'http://localhost.:8080',\n"
+        "  'http://127.0.0.1',\n"
+        "  'http://[::1]',\n"
+        "  'http://localhost',\n"
+        "  'http://127.0.0.1:99999',\n"
+        "  'http://127.0.0.1:-1',\n"
+        "  'http://127.0.0.1:abc',\n"
+        "];\n"
+        "const out = [];\n"
+        "for (const input of cases) {\n"
+        "  const got = isValidLoopbackCorsOrigin(input);\n"
+        "  out.push({ input: JSON.stringify(input), got });\n"
+        "  if (got !== null) { console.error(JSON.stringify(out)); process.exit(2); }\n"
+        "}\n"
+        "console.log(JSON.stringify(out));\n"
+    )
+    rc, out, err = _run_node(script)
+    assert rc == 0, f"node failed: rc={rc} stderr={err!r}"
+    rows = json.loads(out.strip())
+    assert all(r["got"] is None for r in rows), rows
+
+
+# ─── Accepted origins (loopback HTTP with explicit port) ────────────────
+@pytest.mark.parametrize("host", ["127.0.0.1", "[::1]", "localhost"])
+def test_cors_emits_allow_origin_for_loopback(fx, host):
+    """Each loopback HTTP origin with an explicit port gets the EXACT
+    origin reflected in Access-Control-Allow-Origin (never `*`, never
+    trimmed, never lowered-case folded). The response status MUST
+    stay 200 — CORS is an additive header, never a request gate."""
+    origin = f"http://{host}:{fx['port']}"
+    s, h, _, _ = _http_with_origin(f"{fx['base']}/api/taxon/1/files", origin)
+    assert s == 200, f"loopback {host} must still serve 200; got {s}"
+    aco = h.get("access-control-allow-origin")
+    assert aco == origin, (
+        f"Access-Control-Allow-Origin must reflect EXACT origin; "
+        f"sent={origin!r} got={aco!r}"
+    )
+    assert aco != "*", "wildcard `*` would be credential-incompatible"
+
+
+def test_cors_emits_allow_origin_on_files_serve(fx):
+    """The CORS header MUST also be emitted on /files/serve so the
+    React viewer can read individual files cross-origin (PDF, MD, TXT,
+    HTML). The Content-Type / Content-Disposition / Content-Length
+    contract is unchanged."""
+    origin = f"http://127.0.0.1:{fx['port']}"
+    qs = urllib.parse.quote("index.html")
+    s, h, body, _ = _http_with_origin(
+        f"{fx['base']}/api/taxon/1/files/serve?path={qs}", origin
+    )
+    assert s == 200, f"must still serve 200; got {s}"
+    assert h.get("access-control-allow-origin") == origin, h
+    # Existing GET wire contract is unchanged.
+    assert h.get("content-type", "").lower().startswith("text/html"), h
+    assert h.get("content-disposition", "").startswith("inline;"), h
+    assert len(body) > 0
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "[::1]", "localhost"])
+def test_cors_emits_allow_origin_on_error_responses(fx, host):
+    """The CORS header MUST be present on 404 / 405 responses too so
+    the browser can read the diagnostic body when something goes
+    wrong — otherwise the browser would see a generic CORS error
+    instead of the actual 404 detail."""
+    origin = f"http://{host}:{fx['port']}"
+    # 404: unknown taxon
+    s, h, _, _ = _http_with_origin(
+        f"{fx['base']}/api/taxon/2/files", origin
+    )
+    assert s == 404, f"unknown taxon must 404; got {s}"
+    assert h.get("access-control-allow-origin") == origin, (
+        f"404 must carry Access-Control-Allow-Origin; got {h}"
+    )
+    # 405: POST
+    s, h, _, _ = _http_with_origin(
+        f"{fx['base']}/api/taxon/1/files", origin, method="POST"
+    )
+    assert s == 405, f"POST must 405; got {s}"
+    assert h.get("access-control-allow-origin") == origin, (
+        f"405 must carry Access-Control-Allow-Origin; got {h}"
+    )
+    assert h.get("allow", "").upper().replace(" ", "") == "GET,HEAD", (
+        f"POST /files must still advertise `Allow: GET, HEAD`; got {h.get('allow')!r}"
+    )
+
+
+# ─── No origin at all (normal behavior preserved) ───────────────────────
+def test_cors_no_origin_header_emits_no_cors_header(fx):
+    """Requests WITHOUT an Origin header MUST get NO CORS header —
+    they're either same-origin or non-browser clients (curl / Python /
+    etc.) and don't need CORS at all. The envelope is unchanged."""
+    s, h, _, p = _http(f"{fx['base']}/api/taxon/1/files")
+    assert s == 200
+    assert "access-control-allow-origin" not in h, (
+        f"absent Origin must NOT trigger CORS; got {h}"
+    )
+    assert p is not None and p.get("exists") is True, p
+
+
+# ─── Rejected origins (no CORS header at all) ──────────────────────────
+@pytest.mark.parametrize("bad_origin,label", [
+    ("not-a-url", "malformed"),
+    ("", "empty"),
+    ("http://user:pass@127.0.0.1:8080", "credential-bearing"),
+    ("https://127.0.0.1:8080", "non-http-https"),
+    ("data:text/html,foo", "non-http-data"),
+    ("ftp://127.0.0.1:8080", "non-http-ftp"),
+    ("http://127.0.0.1:8080/foo", "path-bearing"),
+    ("http://127.0.0.1:8080/?q=1", "query-bearing"),
+    ("http://127.0.0.1:8080/#frag", "hash-bearing"),
+    ("http://10.0.0.1:8080", "non-loopback-ipv4"),
+    ("http://192.168.1.1:8080", "non-loopback-private"),
+    ("http://example.com:8080", "non-loopback-hostname"),
+    ("http://127.0.0.1", "portless-ipv4"),
+    ("http://[::1]", "portless-ipv6"),
+    ("http://localhost", "portless-hostname"),
+])
+def test_cors_rejects_invalid_origins_with_no_header(fx, bad_origin, label):
+    """Every malformed / credential-bearing / non-HTTP / path-bearing /
+    non-loopback / portless Origin MUST get NO Access-Control-Allow-
+    Origin header. The response is otherwise unaffected (status 200,
+    envelope intact)."""
+    s, h, _, p = _http_with_origin(
+        f"{fx['base']}/api/taxon/1/files", bad_origin
+    )
+    assert s == 200, f"{label}: status must remain 200; got {s}"
+    # Envelope must be intact (CORS rejection is a header-only decision).
+    assert p is not None and p.get("exists") is True, (
+        f"{label}: envelope must remain intact; got {p}"
+    )
+    assert "access-control-allow-origin" not in h, (
+        f"{label}: Access-Control-Allow-Origin must be absent; "
+        f"got {h.get('access-control-allow-origin')!r}"
+    )
+
+
+# ─── Source-contract probe ─────────────────────────────────────────────
+def test_cors_policy_lives_only_in_fixture_server_source():
+    """The strict loopback-only CORS policy MUST live in
+    fixture-server.mjs (the ONLY allowed edit surface). It MUST use
+    a URL parser (not a regex) so userinfo / path / query / fragment
+    can't slip through. It MUST enumerate all three loopback host
+    shapes. Production code paths / OpenSpec files / lockfiles stay
+    untouched."""
+    src = FIXTURE.read_text()
+    # Header literal + reflected-origin pattern.
+    assert '"Access-Control-Allow-Origin"' in src, (
+        "fixture-server must emit Access-Control-Allow-Origin header"
+    )
+    # All three loopback shapes enumerated.
+    for host in ("127.0.0.1", "[::1]", "localhost"):
+        assert host in src, f"fixture-server must accept loopback host {host}"
+    # URL parser (not regex): rejects userinfo / path / query / fragment.
+    assert "new URL(" in src, "must parse Origin via WHATWG URL parser"
+    assert "username" in src and "password" in src, (
+        "must reject credential-bearing origins via URL.username/password"
+    )
+    # setHeader path so EVERY response (200 / 4xx / 405) carries it.
+    assert "setHeader" in src, (
+        "must use res.setHeader so all responses (including errors) "
+        "carry the CORS header"
+    )
+
+
+
+# ===========================================================================
 # PR 5c.2-B.1b-ii-b — hermetic static-export HTTP server
 # ===========================================================================
 #
