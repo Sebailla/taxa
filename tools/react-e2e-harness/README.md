@@ -27,6 +27,20 @@ npm run capture -- \
 
 Failure modes that **do not** produce an evidence artifact (fail-closed): missing `--origin` / `--output-root`; `file://`, non-http(s), or origin paths; output collisions; 5xx / network / navigation / timeout errors from Chromium; React data-contract assertion failures (`data-harness-root`, `data-harness-surface`, non-null `data-harness-taxon-id`, `[data-explorer="ready"]`, both `[data-pane]` slots, `input[data-search-input]`, at least one `[data-file-path]`).
 
+## Diagnostic browser override (noncanonical)
+
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` makes `chromium-driver.mjs` launch that executable instead of the pinned Playwright-managed Chromium:
+
+```bash
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/absolute/path/to/chromium \
+    npm run capture -- --origin http://127.0.0.1:8765 --output-root ../../parity-reports/react-e2e
+```
+
+- **Diagnostic only, explicitly noncanonical.** The canonical contract remains the pinned Playwright default launch; a run produced with this variable set **cannot close G4** and is not parity evidence. Unset, the launch options are unchanged (`{ headless: true }`, no channel, no `executablePath`).
+- No browser channel is ever used; only the validated absolute `executablePath` is passed through.
+- Every capture artifact records `browserExecution` (also mirrored in `trace`): canonical runs get `{ canonical: true, mode: "pinned-playwright-default", executablePath: null }`; overridden runs get `canonical: false`, `mode: "noncanonical-diagnostic-executable-override"`, the resolved path, and a diagnostic note.
+- Fail-closed validation before any launch: non-absolute paths, unreadable/nonexistent paths, non-regular files (e.g. directories), and non-executable files all throw. An empty or whitespace-only value is treated as unset. There is no silent fallback to the pinned browser.
+
 ## Isolated loopback-only CORS policy
 
 The composed capture slice (`scripts/composed-capture.mjs`) binds the **fixture API** and the **static export server** on **distinct loopback ports** (OS-assigned, never hard-coded). The browser then loads the export page at, e.g., `http://127.0.0.1:8081/` and that page fetches `http://127.0.0.1:8080/api/taxon/1/files` — a cross-origin read. Without `Access-Control-Allow-Origin` the browser blocks the response and the diagnostic capture sees a generic CORS error instead of the actual fixture envelope.

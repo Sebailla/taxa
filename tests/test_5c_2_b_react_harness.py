@@ -1355,3 +1355,177 @@ def test_composed_capture_reverse_order_cleanup_on_capture_failure(tmp_path):
         f"fixture.close(); got export={payload['exportCloseSeq']} "
         f"fixture={payload['fixtureCloseSeq']}"
     )
+
+# ===========================================================================
+# Diagnostic Chromium executable override (PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH)
+# ===========================================================================
+#
+# `tools/react-e2e-harness/scripts/chromium-driver.mjs` may launch an operator
+# supplied Chromium executable when `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` is
+# set. This is EXPLICITLY diagnostic / noncanonical: the canonical contract is
+# still the pinned Playwright-managed browser, and an overridden run can never
+# close G4. With no variable the launch options MUST be byte-identical to the
+# previous pinned default (`{ headless: true }`, no channel, no
+# executablePath). Validation fails closed: non-absolute, nonexistent /
+# unreadable, non-regular-file, and non-executable paths all throw before any
+# browser launch. Hermetic: injected `playwrightFn` stub — no real Playwright,
+# no Chromium, no network.
+
+CHROMIUM_DRIVER = (
+    REPO_ROOT / "tools" / "react-e2e-harness" / "scripts" / "chromium-driver.mjs"
+)
+BROWSER_EXEC_ENV = "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH"
+
+
+def _fake_executable(tmp_path, name="fake-chromium"):
+    p = tmp_path / name
+    p.write_text("#!/bin/sh\nexit 0\n")
+    p.chmod(0o755)
+    return p
+
+
+def _driver_probe(script, *, timeout=10.0):
+    return _run_node(
+        f'import * as drv from "file://{CHROMIUM_DRIVER}";\n' + script,
+        timeout=timeout,
+    )
+
+
+def test_chromium_driver_module_parses_with_node_check():
+    """`node --check` succeeds so any subsequent import is safe."""
+    p = subprocess.run(
+        ["node", "--check", str(CHROMIUM_DRIVER)], capture_output=True, text=True
+    )
+    assert p.returncode == 0, f"node --check failed: {p.stderr}"
+
+
+def test_chromium_driver_exports_browser_executable_resolver():
+    """The driver MUST expose the override resolver so validation is testable
+    without launching a browser."""
+    assert "resolveBrowserExecutablePath" in CHROMIUM_DRIVER.read_text(), (
+        "must export resolveBrowserExecutablePath"
+    )
+
+
+def test_browser_executable_override_absent_keeps_pinned_default(tmp_path):
+    """No env var, no option → launch options MUST stay exactly
+    `{ headless: true }` (no executablePath, no channel) and the evidence MUST
+    mark the run canonical."""
+    script = (
+        "let seen = null;\n"
+        "const playwrightFn = async () => ({ chromium: { launch: async (o) => {\n"
+        "  seen = o;\n"
+        "  throw new Error('launch-stop');\n"
+        "} } });\n"
+        "let err = null;\n"
+        "try { await drv.runCapture({ origin: 'http://127.0.0.1:1/', playwrightFn, env: {} }); }\n"
+        "catch (e) { err = e.message; }\n"
+        "console.log(JSON.stringify({ seen, err }));\n"
+    )
+    rc, out, err = _driver_probe(script)
+    assert rc == 0, f"node failed: rc={rc} stderr={err!r}"
+    payload = json.loads(out.strip())
+    assert payload["seen"] == {"headless": True}, (
+        f"pinned default launch options changed: {payload['seen']!r}"
+    )
+
+
+def test_browser_executable_override_env_is_passed_to_launch(tmp_path):
+    """With the env var set to a valid absolute executable, that exact path
+    MUST be forwarded as `executablePath`, still headless, still with NO
+    channel."""
+    exe = _fake_executable(tmp_path)
+    script = (
+        "let seen = null;\n"
+        "const playwrightFn = async () => ({ chromium: { launch: async (o) => {\n"
+        "  seen = o;\n"
+        "  throw new Error('launch-stop');\n"
+        "} } });\n"
+        "try { await drv.runCapture({ origin: 'http://127.0.0.1:1/', playwrightFn,\n"
+        f'  env: {{ {BROWSER_EXEC_ENV!r}: "{exe}" }} }}); }} catch (e) {{}}\n'
+        "console.log(JSON.stringify({ seen }));\n"
+    )
+    rc, out, err = _driver_probe(script)
+    assert rc == 0, f"node failed: rc={rc} stderr={err!r}"
+    seen = json.loads(out.strip())["seen"]
+    assert seen["executablePath"] == str(exe), seen
+    assert seen["headless"] is True, seen
+    assert "channel" not in seen, f"override MUST NOT use a browser channel: {seen!r}"
+
+
+def test_browser_executable_override_marks_capture_noncanonical(tmp_path):
+    """An overridden run MUST be identifiable in the capture data as
+    noncanonical diagnostic execution; a default run MUST be canonical."""
+    exe = _fake_executable(tmp_path)
+    stub = (
+        "const stub = (label) => ({ chromium: { launch: async () => ({\n"
+        "  newContext: async () => ({ newPage: async () => ({\n"
+        "    on() {},\n"
+        "    goto: async () => ({ status: () => 200 }),\n"
+        "    waitForSelector: async () => {},\n"
+        "    evaluate: async () => ({ rootPresent: true, surfacePresent: true,\n"
+        "      taxonId: '1', taxonIdNonNull: true, explorerReady: true,\n"
+        "      treePanePresent: true, viewerPanePresent: true,\n"
+        "      searchInputPresent: true, filePathsCount: 1,\n"
+        "      firstFilePath: 'index.html' }),\n"
+        "  }) }),\n"
+        "  close: async () => {},\n"
+        "}) } });\n"
+    )
+    script = (
+        stub
+        + "const playwrightFn = async () => stub();\n"
+        "const base = await drv.runCapture({ origin: 'http://127.0.0.1:1/', playwrightFn, env: {} });\n"
+        "const over = await drv.runCapture({ origin: 'http://127.0.0.1:1/', playwrightFn,\n"
+        f'  env: {{ {BROWSER_EXEC_ENV!r}: "{exe}" }} }});\n'
+        "console.log(JSON.stringify({ base: base.browserExecution, over: over.browserExecution }));\n"
+    )
+    rc, out, err = _driver_probe(script)
+    assert rc == 0, f"node failed: rc={rc} stderr={err!r}"
+    payload = json.loads(out.strip())
+    assert payload["base"]["canonical"] is True, payload["base"]
+    assert payload["base"]["executablePath"] is None, payload["base"]
+    assert payload["over"]["canonical"] is False, payload["over"]
+    assert payload["over"]["executablePath"] == str(exe), payload["over"]
+    assert "diagnostic" in json.dumps(payload["over"]).lower(), payload["over"]
+
+
+def test_browser_executable_override_fails_closed(tmp_path):
+    """Non-absolute, nonexistent, directory, and non-executable paths MUST all
+    throw from `resolveBrowserExecutablePath` — no silent fallback to the
+    pinned browser, which would make a diagnostic run masquerade as canonical."""
+    rel = "relative/chromium"
+    missing = tmp_path / "nope"
+    a_dir = tmp_path / "adir"
+    a_dir.mkdir()
+    not_exec = tmp_path / "plain.txt"
+    not_exec.write_text("nope\n")
+    not_exec.chmod(0o644)
+    bad = [rel, str(missing), str(a_dir), str(not_exec)]
+    script = (
+        f"const bad = {json.dumps(bad)};\n"
+        "const out = [];\n"
+        "for (const b of bad) {\n"
+        f'  try {{ drv.resolveBrowserExecutablePath({{ {BROWSER_EXEC_ENV!r}: b }}); out.push({{ path: b, threw: false }}); }}\n'
+        "  catch (e) { out.push({ path: b, threw: true }); }\n"
+        "}\n"
+        "console.log(JSON.stringify(out));\n"
+    )
+    rc, out, err = _driver_probe(script)
+    assert rc == 0, f"node failed: rc={rc} stderr={err!r}"
+    for entry in json.loads(out.strip()):
+        assert entry["threw"] is True, f"accepted invalid executable: {entry['path']!r}"
+
+
+def test_browser_executable_override_blank_env_is_treated_as_absent(tmp_path):
+    """An empty / whitespace-only variable is `unset`, not an error — operators
+    routinely export empty strings."""
+    script = (
+        f'const r1 = drv.resolveBrowserExecutablePath({{ {BROWSER_EXEC_ENV!r}: "" }});\n'
+        f'const r2 = drv.resolveBrowserExecutablePath({{ {BROWSER_EXEC_ENV!r}: "   " }});\n'
+        "const r3 = drv.resolveBrowserExecutablePath({});\n"
+        "console.log(JSON.stringify([r1, r2, r3]));\n"
+    )
+    rc, out, err = _driver_probe(script)
+    assert rc == 0, f"node failed: rc={rc} stderr={err!r}"
+    assert json.loads(out.strip()) == [None, None, None]
