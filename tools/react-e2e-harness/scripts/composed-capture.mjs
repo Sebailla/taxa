@@ -10,7 +10,8 @@
 
 import { spawn } from "node:child_process";
 import { access, constants } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { startServer as startFixture, HARNESS_TAXON_ID } from "./fixture-server.mjs";
 import { startServer as startExport } from "./export-server.mjs";
@@ -18,6 +19,15 @@ import { capture as defaultCapture } from "./run.mjs";
 
 export const COMPOSED_CAPTURE_SCHEMA = "taxa.react-e2e-composed-capture/1";
 const DEFAULT_HOST = "127.0.0.1";
+// Default harnessDir MUST derive from the script's `import.meta.url` (one
+// level above `scripts/`), NOT from `process.cwd()`. The legacy cwd-based
+// default duplicated the path when the CLI was invoked from the package
+// directory (`npm run capture:composed -- --output-root DIR` runs with cwd =
+// `tools/react-e2e-harness`) and `defaultBuildFn` then failed with
+// `spawn npm ENOENT`. Explicit `--harness-dir` continues to take precedence.
+export function resolveDefaultHarnessDir() {
+  return resolve(dirname(fileURLToPath(import.meta.url)), "..");
+}
 // Loopback-only: composition never binds to an external/interface address.
 // Mirrors fixture-server / export-server defaults (127.0.0.1) plus the IPv6
 // loopback and the canonical hostname alias. Any other shape fails closed.
@@ -172,7 +182,7 @@ export async function composeCapture({
 async function main() {
   const args = parseCliArgs(process.argv.slice(2));
   if (!args.outputRoot) throw new Error("missing --output-root");
-  const harnessDir = args.harnessDir ?? resolve(process.cwd(), "tools/react-e2e-harness");
+  const harnessDir = args.harnessDir ?? resolveDefaultHarnessDir();
   const result = await composeCapture({ harnessDir, outputRoot: args.outputRoot, taxonId: args.taxonId, host: args.host });
   process.stdout.write(
     `composed-capture:done schema=${result.schema} taxon=${result.taxonId} fixtureBase=${result.fixture.baseUrl} exportBase=${result.export.baseUrl} runDir=${result.capture.runDir}\n`
