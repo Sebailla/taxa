@@ -371,7 +371,6 @@ def test_serve_normalizes_backslash_separator(fx):
     assert body[:5] == b"%PDF-"
 
 
-
 # ===========================================================================
 # PR 5c.2-B.1b-ii-a — CORS: strict loopback-only Access-Control-Allow-Origin
 # ===========================================================================
@@ -1013,6 +1012,22 @@ def _run_node(script, *, timeout=10.0):
     return p.returncode, p.stdout, p.stderr
 
 
+def _run_node_in_dir(script, *, cwd, timeout=10.0, env_extra=None):
+    """Run a Node ESM script with a controlled working directory and extra
+    environment so a probe can resolve modules from a specific `node_modules/`
+    tree (e.g. `tools/react-e2e-harness/node_modules/`). Returns
+    `(rc, stdout, stderr)`."""
+    env = {**os.environ, "NODE_NO_WARNINGS": "1"}
+    if env_extra:
+        env.update(env_extra)
+    p = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        capture_output=True, text=True, timeout=timeout,
+        cwd=cwd, env=env,
+    )
+    return p.returncode, p.stdout, p.stderr
+
+
 # ─── Source contract (RED gate) ─────────────────────────────────────────
 def test_composed_capture_module_exists_and_exports_compose_capture():
     """Composition module exists at the locked path AND exports
@@ -1529,3 +1544,235 @@ def test_browser_executable_override_blank_env_is_treated_as_absent(tmp_path):
     rc, out, err = _driver_probe(script)
     assert rc == 0, f"node failed: rc={rc} stderr={err!r}"
     assert json.loads(out.strip()) == [None, None, None]
+
+
+# ===========================================================================
+# PR 5c.2-B.1b-ii-d — canonical Playwright pin (1.62.1 + headless-shell 1234)
+# ===========================================================================
+#
+# The canonical G4 evidence path is a NORMAL `chromium.launch({ headless: true })`
+# WITHOUT `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` (which is reserved for diagnostic
+# operator overrides only — see PR 5c.2-B.1b-ii-c tests above). To make that
+# path work the harness MUST pin `@playwright/test` to a Playwright version whose
+# managed `chromium-headless-shell` revision matches the locally complete
+# browser cache. As of this slice the canonical pin is `@playwright/test@1.62.1`
+# → chromium-headless-shell revision `1234` (Chromium 151.0.7922.34).
+#
+# Tests below lock the source-of-truth (package.json + package-lock.json), the
+# INSTALLED runtime (`@playwright/test/package.json` version + the shipped
+# `playwright-core/browsers.json`), and a minimal no-override `chromium.launch`
+# launch/close to prove the canonical route is open. No full capture is run here
+# — that lives in a separate canonical-evidence task.
+
+HARNESS_PKG_JSON = REPO_ROOT / "tools" / "react-e2e-harness" / "package.json"
+HARNESS_LOCKFILE = REPO_ROOT / "tools" / "react-e2e-harness" / "package-lock.json"
+HARNESS_NODE_MODULES = REPO_ROOT / "tools" / "react-e2e-harness" / "node_modules"
+CANONICAL_PW_VERSION = "1.62.1"
+CANONICAL_HEADLESS_REVISION = "1234"
+
+
+# ─── Source contract: package.json pins canonical Playwright ──────────────
+def test_harness_package_json_pins_canonical_playwright_version():
+    """`tools/react-e2e-harness/package.json` MUST pin `@playwright/test` to
+    the canonical `1.62.1` so `npm ci` reproduces the G4 contract. The pin
+    MUST be exact (no caret, no tilde, no range) so a future bump is a
+    deliberate, reviewable change."""
+    assert HARNESS_PKG_JSON.is_file(), f"missing: {HARNESS_PKG_JSON}"
+    data = json.loads(HARNESS_PKG_JSON.read_text())
+    pin = data.get("devDependencies", {}).get("@playwright/test")
+    assert pin == CANONICAL_PW_VERSION, (
+        f"@playwright/test pin must be exactly {CANONICAL_PW_VERSION!r}; got {pin!r}"
+    )
+    # Guard against caret/tilde/range regressions on the canonical pin.
+    assert not pin.startswith("^") and not pin.startswith("~") and not pin.startswith(">"), (
+        f"canonical pin MUST be exact; got {pin!r}"
+    )
+
+
+def test_harness_package_json_description_references_canonical_pin():
+    """The `description` field MUST surface the canonical pin so reviewers can
+    see the exact version + Next/React pins at a glance. Locks the doc string
+    in lockstep with the dependency pin."""
+    assert HARNESS_PKG_JSON.is_file(), f"missing: {HARNESS_PKG_JSON}"
+    data = json.loads(HARNESS_PKG_JSON.read_text())
+    desc = data.get("description", "")
+    assert CANONICAL_PW_VERSION in desc, (
+        f"description must surface canonical pin {CANONICAL_PW_VERSION!r}; got {desc!r}"
+    )
+    # The legacy failing pin MUST NOT still appear in the description.
+    assert "1.56.0" not in desc, (
+        f"legacy failing pin 1.56.0 must be removed from description; got {desc!r}"
+    )
+
+
+# ─── Source contract: package-lock.json resolves canonical Playwright ──────
+def test_harness_lockfile_resolves_canonical_playwright_version():
+    """The regenerated `tools/react-e2e-harness/package-lock.json` MUST resolve
+    `@playwright/test` to the canonical `1.62.1` and its `playwright` +
+    `playwright-core` dependencies to the same version. Lockfile MUST be
+    regenerated by npm (not hand-edited) — the regenerated file should also
+    pin exactly, never a range."""
+    assert HARNESS_LOCKFILE.is_file(), f"missing: {HARNESS_LOCKFILE}"
+    data = json.loads(HARNESS_LOCKFILE.read_text())
+    pkgs = data.get("packages", {})
+    top = pkgs.get("", {})
+    assert top.get("devDependencies", {}).get("@playwright/test") == CANONICAL_PW_VERSION, (
+        f"top-level devDependency pin must be {CANONICAL_PW_VERSION!r}; "
+        f"got {top.get('devDependencies', {}).get('@playwright/test')!r}"
+    )
+    # Direct @playwright/test resolution.
+    pwt = pkgs.get("node_modules/@playwright/test", {})
+    assert pwt.get("version") == CANONICAL_PW_VERSION, (
+        f"node_modules/@playwright/test version must be {CANONICAL_PW_VERSION!r}; "
+        f"got {pwt.get('version')!r}"
+    )
+    # Transitive playwright package.
+    pw = pkgs.get("node_modules/playwright", {})
+    assert pw.get("version") == CANONICAL_PW_VERSION, (
+        f"node_modules/playwright version must be {CANONICAL_PW_VERSION!r}; "
+        f"got {pw.get('version')!r}"
+    )
+    # Transitive playwright-core (this is the package whose browsers.json we
+    # rely on for revision truth).
+    pwc = pkgs.get("node_modules/playwright-core", {})
+    assert pwc.get("version") == CANONICAL_PW_VERSION, (
+        f"node_modules/playwright-core version must be {CANONICAL_PW_VERSION!r}; "
+        f"got {pwc.get('version')!r}"
+    )
+
+
+# ─── Installed runtime: real @playwright/test package version ──────────────
+def test_installed_playwright_test_version_is_canonical():
+    """After `npm ci`, `node_modules/@playwright/test/package.json` MUST report
+    `version == 1.62.1`. This is the runtime version used by every
+    `chromium.launch` call in the canonical path. Probed via Node so a stale
+    source-only update is caught."""
+    installed = HARNESS_NODE_MODULES / "@playwright" / "test" / "package.json"
+    assert installed.is_file(), (
+        f"@playwright/test not installed: {installed}. "
+        f"Run `npm ci` in tools/react-e2e-harness."
+    )
+    data = json.loads(installed.read_text())
+    assert data.get("name") == "@playwright/test"
+    assert data.get("version") == CANONICAL_PW_VERSION, (
+        f"installed @playwright/test version must be {CANONICAL_PW_VERSION!r}; "
+        f"got {data.get('version')!r}"
+    )
+
+
+# ─── Installed runtime: browsers.json points headless-shell to 1234 ────────
+def test_installed_browsers_json_points_headless_shell_to_canonical_revision():
+    """The installed `playwright-core/browsers.json` MUST point
+    `chromium-headless-shell` to revision `1234` (the locally complete
+    Playwright-managed headless shell). This is the single source of truth for
+    what `chromium.launch({ headless: true })` resolves to. Without this
+    match the canonical G4 route would 404 trying to find an unrecognised
+    revision."""
+    browsers_json = (
+        HARNESS_NODE_MODULES / "playwright-core" / "browsers.json"
+    )
+    assert browsers_json.is_file(), (
+        f"browsers.json not installed: {browsers_json}. "
+        f"Run `npm ci` in tools/react-e2e-harness."
+    )
+    data = json.loads(browsers_json.read_text())
+    headless = [
+        b for b in data.get("browsers", []) if b.get("name") == "chromium-headless-shell"
+    ]
+    assert len(headless) == 1, (
+        f"exactly one chromium-headless-shell entry expected; got {headless!r}"
+    )
+    assert headless[0].get("revision") == CANONICAL_HEADLESS_REVISION, (
+        f"chromium-headless-shell revision must be {CANONICAL_HEADLESS_REVISION!r}; "
+        f"got {headless[0].get('revision')!r}"
+    )
+    # Belt-and-braces: the full Chromium binary also lives at the same rev so
+    # `chromium.launch({ headless: false })` would be coherent too.
+    chromium = [
+        b for b in data.get("browsers", []) if b.get("name") == "chromium"
+    ]
+    assert chromium and chromium[0].get("revision") == CANONICAL_HEADLESS_REVISION, (
+        f"chromium revision must also be {CANONICAL_HEADLESS_REVISION!r}; "
+        f"got {chromium!r}"
+    )
+
+
+# ─── Canonical path: chromium.launch({ headless: true }) opens + closes ──
+def test_canonical_chromium_launch_no_override_succeeds():
+    """Smoke probe: with NO `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` and NO
+    override options, `chromium.launch({ headless: true })` MUST open against
+    the locally cached headless-shell-1234 and close cleanly. This is the
+    canonical G4 route — if it can't open, the captured evidence path is
+    blocked. Probed via Node from inside the harness's `node_modules/`. On
+    environments where the cached binary is missing or not executable the
+    test fail-closes (no silent skip)."""
+    if not (HARNESS_NODE_MODULES / "playwright-core").is_dir():
+        pytest.skip(
+            "playwright-core not installed in tools/react-e2e-harness/node_modules; "
+            "run `npm ci` first."
+        )
+    headless_cache = Path.home() / "Library" / "Caches" / "ms-playwright" / (
+        f"chromium_headless_shell-{CANONICAL_HEADLESS_REVISION}"
+    )
+    if not headless_cache.is_dir():
+        pytest.skip(
+            f"local chromium_headless_shell-{CANONICAL_HEADLESS_REVISION} "
+            f"not present at {headless_cache}; install via "
+            f"`npx playwright install chromium` before running."
+        )
+    script = (
+        "import { chromium } from 'playwright';\n"
+        "let opened = false, closed = false;\n"
+        "try {\n"
+        "  const browser = await chromium.launch({ headless: true });\n"
+        "  opened = true;\n"
+        "  await browser.close();\n"
+        "  closed = true;\n"
+        "} catch (e) {\n"
+        "  console.error('LAUNCH_FAIL ' + (e && e.message));\n"
+        "  process.exit(2);\n"
+        "}\n"
+        "console.log(JSON.stringify({ opened, closed }));\n"
+    )
+    # Run from the harness directory so Node can resolve the local
+    # `playwright` module from `tools/react-e2e-harness/node_modules/`.
+    rc, out, err = _run_node_in_dir(
+        script,
+        cwd=HARNESS_PKG_JSON.parent,
+        env_extra={"PLAYWRIGHT_BROWSERS_PATH": str(Path.home() / "Library" / "Caches" / "ms-playwright")},
+    )
+    assert rc == 0, (
+        f"canonical chromium.launch failed: rc={rc} stderr={err!r} "
+        f"stdout={out!r}; ensure local cache has "
+        f"chromium_headless_shell-{CANONICAL_HEADLESS_REVISION}"
+    )
+    payload = json.loads(out.strip())
+    assert payload == {"opened": True, "closed": True}, payload
+
+
+# ─── Local cache: the matching headless-shell binary is actually present ───
+def test_local_cache_has_canonical_headless_shell_revision():
+    """The locally complete Playwright-managed `chromium_headless_shell-1234`
+    directory MUST exist under the platform cache root so a no-override
+    `chromium.launch({ headless: true })` resolves without prompting for an
+    install. Guards against the contract drifting away from what's actually
+    on disk. On macOS the cache root is `~/Library/Caches/ms-playwright`."""
+    headless_dir = (
+        Path.home() / "Library" / "Caches" / "ms-playwright"
+        / f"chromium_headless_shell-{CANONICAL_HEADLESS_REVISION}"
+    )
+    assert headless_dir.is_dir(), (
+        f"local chromium_headless_shell-{CANONICAL_HEADLESS_REVISION} "
+        f"missing at {headless_dir}; install via "
+        f"`npx playwright install chromium` before relying on the "
+        f"canonical G4 route"
+    )
+    # At minimum the directory should contain the headless-shell binary;
+    # its exact name is platform-dependent so probe for a marker file
+    # that's stable across mac/linux/win (`DEPENDENCIES_VALIDATED` is
+    # written by Playwright after a successful browser install).
+    marker = headless_dir / "DEPENDENCIES_VALIDATED"
+    assert marker.is_file(), (
+        f"headless-shell install marker missing at {marker}; the cached "
+        f"directory is incomplete — re-run `npx playwright install chromium`."
+    )
