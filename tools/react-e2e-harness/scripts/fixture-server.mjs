@@ -49,6 +49,44 @@ const FIXTURE_CORPUS = Object.freeze([
 
 function httpError(status, detail) { const e = new Error(detail); e.httpStatus = status; e.detail = detail; return e; }
 
+// Strict isolated-harness CORS policy (PR 5c.2-B.1b-ii-c follow-up).
+// The composed capture slice binds the fixture API and the static export
+// server on DISTINCT loopback ports. The browser loads the export page at,
+// e.g., http://127.0.0.1:8081/ and that page fetches
+// http://127.0.0.1:8080/api/taxon/1/files — without Access-Control-Allow-
+// Origin the browser blocks the cross-origin read and the diagnostic
+// capture sees a generic CORS error instead of the actual fixture
+// envelope. To keep the harness isolated AND the production CORS posture
+// unchanged, this validator emits Access-Control-Allow-Origin ONLY for an
+// HTTP loopback origin (127.0.0.1 / [::1] / localhost) with an explicit
+// valid port and no userinfo / path / query / fragment, and reflects the
+// EXACT accepted origin (never `*`). Requests without an Origin header,
+// or with malformed / credential-bearing / non-HTTP / path-bearing / non-
+// loopback / portless origins, get NO CORS header — fail-closed. Documented
+// in tools/react-e2e-harness/README.md under "Isolated loopback-only CORS
+// policy".
+const LOOPBACK_CORS_HOSTS = Object.freeze(new Set(["127.0.0.1", "[::1]", "localhost"]));
+
+// isValidLoopbackCorsOrigin(raw) → the EXACT accepted Origin string, or
+// null for any malformed / credential-bearing / non-HTTP / path-bearing /
+// non-loopback / portless / non-string input. Never throws; never emits
+// `*`; reflects the literal input so the browser's Origin matches the
+// server's Access-Control-Allow-Origin byte-for-byte.
+export function isValidLoopbackCorsOrigin(raw) {
+  if (typeof raw !== "string" || raw.length === 0) return null;
+  let parsed;
+  try { parsed = new URL(raw); }
+  catch { return null; }
+  if (parsed.protocol !== "http:") return null;
+  if (parsed.username || parsed.password) return null;
+  if (parsed.pathname !== "/" || parsed.search !== "" || parsed.hash !== "") return null;
+  if (!LOOPBACK_CORS_HOSTS.has(parsed.hostname)) return null;
+  if (parsed.port === "") return null;
+  const port = Number(parsed.port);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) return null;
+  return raw;
+}
+
 // safeResolve() mirrors api/server.py::_safe_resolve(): reject empty /
 // NUL / malformed-percent / absolute / .. / .; explicit segment join so
 // mixed separators cannot escape; strict-parent check.
@@ -147,6 +185,13 @@ function handleFilesServe(res, urlObj, opts = {}) {
 }
 
 function handleRequest(req, res) {
+  // Strict isolated-harness CORS. Applied up front via res.setHeader so
+  // EVERY response (200 / 4xx / 405 / malformed-URL 400) carries the
+  // header when the Origin qualifies, and so no response accidentally
+  // emits CORS for a malformed / credential-bearing / non-loopback
+  // origin. Fail-closed: absent / invalid Origin → no CORS header.
+  const acceptedOrigin = isValidLoopbackCorsOrigin(req.headers.origin);
+  if (acceptedOrigin) res.setHeader("Access-Control-Allow-Origin", acceptedOrigin);
   let urlObj;
   try { urlObj = new URL(req.url, "http://127.0.0.1"); }
   catch { sendError(res, 400, "Malformed URL"); return; }
