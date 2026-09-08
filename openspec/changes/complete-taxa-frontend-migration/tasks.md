@@ -1821,13 +1821,8 @@ landed"; binding addendum lives in `design.md`; **G4 remains blocked**.
       `tests/test_smoke.py::test_search_engine_contract` now pins
       the exact count (14) and the ordered key list in addition
       to the existing key/label/with_authorship parity check.
-- [ ] **5c.2 (deferred)** — research / search / folder wiring; no
-      `domain/keys.ts` / `infrastructure/store.ts` change. **5c.2-A**
-      landed the search-engine contract alignment; the remainder
-      (FileExplorer global mount, e2e selector/harness updates,
-      and `web/*.{html,js,css}` + `tailwind.config.js` legacy
-      deletion) is still deferred. G4 / G3 Tier-2 / cutover remain
-      blocked.
+- [x] **5c.2-B.1a (landed)** — React E2E harness scaffold: isolated private workspace `tools/react-e2e-harness` pins Next 16.3.3 + React 19.2.8 + ReactDOM 19.2.8 + `@playwright/test` 1.56.0 + Node ≥ 20.9.0; `npm install` generates `tools/react-e2e-harness/package-lock.json` (1142 LoC, the user-approved generated-lockfile size exception for this isolated workspace — authored source/docs ≤ 400 diff lines, total authored 245 LoC across `package.json` + `next.config.mjs` + `tsconfig.json` + `app/layout.tsx` + `app/page.tsx`); `next.config.mjs` mirrors the G2 static-export flags; `app/layout.tsx` is a minimal semantic harness title (no AppShell / chrome replica); `app/page.tsx` mounts `FileExplorer` directly from `@taxa/research` against a deterministic synthetic non-null taxon id (`1`) and a `baseUrl` read from `NEXT_PUBLIC_HARNESS_BASE_URL` (default `http://127.0.0.1:8765`); `npm ci` exit `0` + `npm run build` exit `0` produce `out/index.html` containing the FileExplorer mount. No production `src/`, no API/FastAPI/SQLite/extension changes, no G4 capture, no e2e selector updates, no legacy deletion, no `domain/keys.ts` / `infrastructure/store.ts` change. **No test surface** in this sub-slice; pre-build negative source-contract check ran RED on the absent scaffold; `npm ci` + `npm run build` ran GREEN.
+- [ ] **5c.2-B remainder (deferred)** — research / search / folder wiring beyond the harness scaffold; no `domain/keys.ts` / `infrastructure/store.ts` change. **5c.2-A** landed the search-engine contract alignment; **5c.2-B.1a** landed the React E2E harness scaffold. The remainder (capture driver + fixture/export servers + hermetic harness tests + e2e selector modernization on the new component tree + `web/*.{html,js,css}` + `tailwind.config.js` legacy deletion) is still deferred. G4 / G3 Tier-2 / cutover remain blocked; G4 is **not** flipped by the scaffold landing.
 
 - [ ] 5c.1 R — `tests/test_e2e_file_explorer.py` (modified,
       the test exists but selectors predate the React
