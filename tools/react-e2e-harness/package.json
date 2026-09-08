@@ -2,7 +2,7 @@
   "name": "@taxa/react-e2e-harness",
   "version": "0.1.0",
   "private": true,
-  "description": "Isolated React E2E harness scaffold (PR 5c.2-B.1a; PR 5c.2-B.1b-i adds the capture CLI + Chromium runner). Pinned Next 16.3.3 + React 19.2.8 + Playwright 1.56.0; mounts FileExplorer from the live @taxa/research barrel against a synthetic taxon id + harness-only baseUrl env var. No app-shell, no production globals, no legacy web/* re-export.",
+  "description": "Isolated React E2E harness scaffold (PR 5c.2-B.1a; PR 5c.2-B.1b-i adds the capture CLI + Chromium runner). Pinned Next 16.3.3 + React 19.2.8 + Playwright 1.62.1; mounts FileExplorer from the live @taxa/research barrel against a synthetic taxon id + harness-only baseUrl env var. No app-shell, no production globals, no legacy web/* re-export.",
   "type": "module",
   "engines": {
     "node": ">=20.9.0"
@@ -20,7 +20,7 @@
     "react-dom": "19.2.8"
   },
   "devDependencies": {
-    "@playwright/test": "1.56.0",
+    "@playwright/test": "1.62.1",
     "@types/node": "22.20.0",
     "@types/react": "19.2.8",
     "@types/react-dom": "19.2.7",
