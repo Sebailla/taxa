@@ -11,7 +11,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "capture": "node scripts/run.mjs"
+    "capture": "node scripts/run.mjs",
+    "capture:composed": "node scripts/composed-capture.mjs"
   },
   "dependencies": {
     "next": "16.3.3",
