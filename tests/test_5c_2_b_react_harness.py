@@ -1095,6 +1095,95 @@ def test_composed_capture_cli_rejects_other_taxon_id():
     )
 
 
+# ─── Default harnessDir derives from script location ───────────────────
+#
+# `npm run capture:composed -- --output-root DIR` MUST work when invoked
+# from `tools/react-e2e-harness` (the package-script cwd), without
+# requiring `--harness-dir`. The legacy default
+# `resolve(process.cwd(), "tools/react-e2e-harness")` resolved from the
+# package cwd to a duplicated `<pkg>/tools/react-e2e-harness` path and
+# `defaultBuildFn` then failed with `spawn npm ENOENT`. The canonical
+# default MUST derive from the script's `import.meta.url`, NOT cwd.
+# Explicit `--harness-dir` MUST continue to take precedence.
+def test_composed_capture_resolve_default_harness_dir_derives_from_script_location():
+    """`resolveDefaultHarnessDir` MUST be exported and MUST return the
+    canonical `<repo>/tools/react-e2e-harness` directory derived from the
+    script's `import.meta.url` (one level above `scripts/`), not from
+    `process.cwd()`. RED: pre-fix the helper does not exist and the
+    import fails before the assertion runs."""
+    expected = REPO_ROOT / "tools" / "react-e2e-harness"
+    script = (
+        f'import {{ resolveDefaultHarnessDir }} from "file://{COMPOSED_CAPTURE}";\n'
+        f"const got = resolveDefaultHarnessDir();\n"
+        f"process.stdout.write(JSON.stringify({{ got, expected: '{expected}' }}));\n"
+    )
+    rc, out, err = _run_node(script)
+    assert rc == 0, (
+        f"node failed: rc={rc} stderr={err!r} stdout={out!r}; "
+        "resolveDefaultHarnessDir must be exported and callable"
+    )
+    payload = json.loads(out.strip())
+    assert payload["got"] == payload["expected"], (
+        f"resolveDefaultHarnessDir must return the script location; "
+        f"got {payload['got']!r} expected {payload['expected']!r}"
+    )
+
+
+def test_composed_capture_default_harness_dir_independent_of_cwd(tmp_path):
+    """The default `harnessDir` MUST be independent of `process.cwd()`.
+    From the package directory (cwd=tools/react-e2e-harness) the legacy
+    cwd-based default duplicated the path; the script-location default
+    MUST still resolve to `<repo>/tools/react-e2e-harness` when cwd is
+    the package directory itself. Probed in a subprocess so cwd actually
+    changes (a Python `os.chdir` is invisible to the child Node import)."""
+    pkg_dir = REPO_ROOT / "tools" / "react-e2e-harness"
+    expected = pkg_dir
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e",
+         f'import {{ resolveDefaultHarnessDir }} from "file://{COMPOSED_CAPTURE}";\n'
+         f"process.stdout.write(resolveDefaultHarnessDir());\n"],
+        capture_output=True, text=True,
+        cwd=str(pkg_dir),
+        env={**os.environ, "NODE_NO_WARNINGS": "1"},
+        timeout=10.0,
+    )
+    assert proc.returncode == 0, (
+        f"node failed: rc={proc.returncode} stderr={proc.stderr!r}; "
+        "resolveDefaultHarnessDir must work regardless of cwd"
+    )
+    got = proc.stdout.strip()
+    assert got == str(expected), (
+        f"default harnessDir is cwd-dependent: got {got!r} "
+        f"expected {str(expected)!r}; legacy default would have produced "
+        f"{pkg_dir / 'tools' / 'react-e2e-harness'}"
+    )
+    # Sanity: the legacy duplicated path MUST NOT be the answer.
+    assert got != str(pkg_dir / "tools" / "react-e2e-harness"), (
+        "default harnessDir still duplicates the path under the package cwd"
+    )
+
+
+def test_composed_capture_main_prefers_explicit_harness_dir():
+    """`main()` MUST prefer an explicit `args.harnessDir` over the
+    script-location default, so callers can override the harness without
+    editing the script. The default MUST come from
+    `resolveDefaultHarnessDir` (script location), NOT from the legacy
+    `resolve(process.cwd(), "tools/react-e2e-harness")`."""
+    src = COMPOSED_CAPTURE.read_text()
+    assert "args.harnessDir ??" in src, (
+        "main() must use `args.harnessDir ?? <default>` so explicit "
+        "overrides take precedence over the default"
+    )
+    assert "resolveDefaultHarnessDir" in src, (
+        "default harnessDir MUST come from resolveDefaultHarnessDir "
+        "(derived from import.meta.url), not from process.cwd()"
+    )
+    assert 'resolve(process.cwd(), "tools/react-e2e-harness")' not in src, (
+        "legacy cwd-based default is forbidden; default must derive from "
+        "the script location, not from process.cwd()"
+    )
+
+
 # ─── Validation primitives ──────────────────────────────────────────────
 def test_composed_capture_validate_taxon_id_accepts_one_only():
     """`validateTaxonId(\"1\")` → 1; every other positive integer / zero /
