@@ -1,383 +1,340 @@
-"""Final consolidated Tailwind 4 CSS parity test for PR 3c-f.
+"""PR 3c-i focused parity test — tokens / base / dark mode slice.
 
-PR 3c-f (position 9/19, base ``...-08-3c-e2``) is the **sole full-parity
-witness** for the 1,963-line legacy inline ``<style>`` block migrated byte-equal
-into ``src/app/globals.css`` by the six prior CSS children (3c-a / 3c-b /
-3c-c / 3c-d / 3c-e1 / 3c-e2). It ships **no new ``globals.css`` production
-code** — only this parametrized test.
+PR 3c-i (position 3/16) ships the foundation slice of the 3c sub-sequence:
+``@import "tailwindcss"`` + ``@theme`` block with every legacy :root
+token (12 light + 8 --realm-*) + ``[data-theme="dark"]`` cascade that
+redefines the 12 canonical names (realm hues stay identical between
+light + dark) + ``@layer base`` with html / body / ``main > :first-child``
+resets + global ``:focus-visible`` selectors.
 
-Coverage by migration surface (1:1 with the prior PR chain):
-- tokens (light / realm / dark) + layout.tsx seam → 3c-a
-- @layer base idempotent resets + ``@keyframes spin`` → 3c-a / 3c-d
-- alias renames (``--primary-fixed`` / ``--on-primary-fixed`` /
-  ``--surface-container-lowest``) → 3c-e1 + 3c-e2
-- 9 utility classes (``.bg-primary`` / ``.animate-spin`` / …) → 3c-e2
-- 14 taxonomy + 9 research / chrome selectors → 3c-b / 3c-c
-- 4 remaining ``@keyframes`` content parity → 3c-e1
-- final ``color-mix()`` scope-boundary witness (the 19 legacy selectors in
-  ``web/index.html`` are intentionally deferred to a follow-up PR — the
-  parametrized list IS the migration backlog)
-- byte-size budget: 3c-f ships zero ``globals.css`` delta
+PRs 3c-ii / 3c-iii / 3c-iv extend this file with their own narrow slices
+(taxonomy tree + detail, Search / Folder / Browser styling, animations
++ utilities + final CSS parity). They are NOT pre-asserted here so the
+3c-i review focus stays narrow.
 
-Helpers are imported from ``tests/test_tailwind_4_base_resets.py`` (3c-d) and
-``tests.test_tailwind_tokens_base`` (3c-a) — no duplication of the comment-
-stripping + balanced-brace scan + descendant-aware ``_rule`` extractor.
+Full-parity witness for the entire 3c sub-sequence will land with PR 3c-iv.
+The byte-equal hex value contract for each token is covered by the existing
+``tests/test_tailwind_tokens_base.py``; this test asserts the narrow
+PR 3c-i contract only (presence + non-empty declarations).
 """
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 
-from tests.test_tailwind_4_base_resets import (  # noqa: F401 — reused 3c-d guards
-    REPO_ROOT, GLOBALS_CSS, _read, _block, _rule,
-)
-from tests.test_tailwind_tokens_base import LAYOUT_TSX  # noqa: F401 — 3c-a seam
+REPO_ROOT = Path(__file__).resolve().parent.parent
+GLOBALS_CSS = REPO_ROOT / "src" / "app" / "globals.css"
+LAYOUT_TSX = REPO_ROOT / "src" / "app" / "layout.tsx"
 
 
-# ---- 3c-a — light / realm / dark token byte-equal parity ---------------------
-
-LIGHT_TOKENS = {
-    "primary": "#1d7ea9", "accent": "#176587", "surface": "#ffffff",
-    "elevated": "#bbbbbb", "on-surface": "#333333", "on-surface-variant": "#555555",
-    "outline": "#bbbbbb", "outline-variant": "#d9d9d9",
-    "surface-container-low": "#fafafa", "surface-container": "#f5f5f5",
-    "surface-container-high": "#eeeeee", "surface-container-highest": "#e8e8e8",
-}
-REALM_TOKENS = {
-    "realm-bacteria": "#5ebd9b", "realm-archaea": "#e07466",
-    "realm-viruses": "#e8c547", "realm-animalia": "#a57fcb",
-    "realm-fungi": "#5b9bd5", "realm-plantae": "#7cb669",
-    "realm-chromista": "#e89b4f", "realm-other": "#d49ab6",
-}
-DARK_TOKENS = {
-    "primary": "#4aa3d0", "accent": "#6cb8db", "surface": "#1a1d23",
-    "elevated": "#2a2e36", "on-surface": "#e6e8ec", "on-surface-variant": "#a0a4ac",
-    "outline": "#4a4e56", "outline-variant": "#353941",
-    "surface-container-low": "#1e2128", "surface-container": "#232730",
-    "surface-container-high": "#2a2f38", "surface-container-highest": "#313742",
-}
+def _read(path: Path) -> str:
+    if not path.is_file():
+        pytest.fail(f"required file missing: {path}")
+    return path.read_text(encoding="utf-8")
 
 
-# ---- 3c-e2 — utility-class parity surface (9 classes) -------------------------
-
-UTILITY_CLASSES = (
-    (".bg-primary", "background-color", "var(--color-primary)"),
-    (".text-on-surface", "color", "var(--color-on-surface)"),
-    (".border-outline-variant", "border-color", "var(--color-outline-variant)"),
-    (".bg-surface-container-lowest", "background-color",
-     "var(--surface-container-lowest)"),
-    (".bg-primary-fixed", "background-color", "var(--primary-fixed)"),
-    (".text-on-primary-fixed", "color", "var(--on-primary-fixed)"),
-    (".shadow-sm", "box-shadow", "0 1px 2px 0 rgb(0 0 0 / 0.05)"),
-    (".rounded-r-md", "border-top-right-radius", "0.375rem"),
-    (".animate-spin", "animation", "spin 0.8s linear infinite"),
-)
+def _strip_comments(text: str) -> str:
+    """Strip ``/* ... */`` doc-comment blocks so a docstring example
+    ``[data-theme="dark"]`` does not terminate the scan at the wrong brace."""
+    return re.sub(r"/\*[\s\S]*?\*/", "", text)
 
 
-# ---- 3c-d + 3c-e1 — keyframe parity (5 keyframes + identifying pattern) ------
+def _block(text: str, opener: str) -> str:
+    """Body of the FIRST ``opener { … }`` block. Balanced-brace scan.
 
-KEYFRAMES = (
-    ("@keyframes spin", r"rotate\(\s*0deg\s*\).*rotate\(\s*360deg\s*\)"),
-    ("@keyframes detail-card-enter", r"opacity\s*:\s*0\b.*translateY\(\s*-8px\s*\)"),
-    ("@keyframes detail-card-leave", r"opacity\s*:\s*0\b.*translateY\(\s*-6px\s*\)"),
-    ("@keyframes search-pulse-anim", r"rgba\(\s*29\s*,\s*126\s*,\s*169\s*,\s*0\.55\s*\)"),
-    ("@keyframes toast-slide-in", r"translate\(\s*-50%\s*,\s*8px\s*\)"),
+    NB: Tailwind 4 @layer rules with the ``@layer base { … }`` opener use
+    this same shape. The 3c-i slice has no nested braces inside the @theme
+    block, the [data-theme="dark"] block, or the @layer base block, so a
+    single-level scan is sufficient."""
+    stripped = _strip_comments(text)
+    m = re.search(re.escape(opener) + r"\s*\{", stripped)
+    if not m:
+        return ""
+    depth, cursor = 1, m.end()
+    while cursor < len(stripped) and depth > 0:
+        depth += 1 if stripped[cursor] == "{" else (
+            -1 if stripped[cursor] == "}" else 0
+        )
+        cursor += 1
+    return stripped[m.end():cursor - 1] if depth == 0 else ""
+
+
+# ---- PR 3c-i token catalogue (from web/index.html legacy inline <style>) ------
+# Legacy :root block (light palette + realm family). PR 3c-i ships these as
+# the foundation so plain-CSS `var(--primary)` references resolve. The
+# byte-equal hex values live in tests/test_tailwind_tokens_base.py (existing
+# 3c-a focus); here we assert non-emptiness so the 3c-i slice's narrow
+# contract is enforced.
+
+LIGHT_TOKENS = (
+    "primary", "accent", "surface", "elevated", "on-surface",
+    "on-surface-variant", "outline", "outline-variant",
+    "surface-container-low", "surface-container",
+    "surface-container-high", "surface-container-highest",
 )
 
-
-# ---- 3c-b + 3c-c — taxonomy + research / chrome selector surfaces -----------
-
-TAXONOMY_SELECTORS = (
-    ".taxa-tree", ".tree-row", ".kebab", ".kebab-menu", ".tree-search-icon",
-    ".materialize-indicator", ".detail-panel", ".tab-strip", ".tab-button",
-    ".overview-tab", ".breadcrumb", ".scientific-name", ".authorship",
-    ".species-count",
-)
-RESEARCH_CHROME_SELECTORS = (
-    ".search-tab", ".search-category-section", ".search-link-list",
-    ".search-link", ".folder-tab", ".header-browser-tab",
-    ".research-explorer", ".file-explorer-pane", ".file-viewer-pane",
-)
-
-
-# ---- 3c-f — final color-mix scope-boundary witness (19 legacy selectors) ----
-
-# 14 research / chrome selectors (PR 3c-c surface) + 5 taxonomy / materialize
-# selectors (PR 3c-b surface). Each carries a ``color-mix(in srgb, ...)`` rule
-# in ``web/index.html``. 3c-f's scope-boundary witness asserts these are NOT
-# yet in ``globals.css`` — the ``color-mix()`` migration is deferred to a
-# follow-up PR so the per-PR LoC budget stays under 400.
-COLOR_MIX_LEGACY_SELECTORS = (
-    ".fex-banner", ".fex-children", ".fex-csv-table", ".fex-image-advisory",
-    ".fex-json-summary", ".fex-row.folder.selected", ".fex-row.search-match",
-    ".fex-search-clear", ".fex-search-input",
-    ".fex-search-mode-btn[aria-pressed=\"true\"]",
-    ".fex-tree-leaf.type-boolean", ".fex-tree-leaf.type-number",
-    ".fex-tree-leaf.type-string", ".fex-tree-truncated",
-    ".materialize-modal-btn-primary", ".materialize-modal-btn-secondary",
-    ".materialize-modal-info-banner", ".materialize-modal-marker-exists",
-    ".materialize-modal-marker-new",
+REALM_TOKENS = (
+    "realm-bacteria", "realm-archaea", "realm-viruses", "realm-animalia",
+    "realm-fungi", "realm-plantae", "realm-chromista", "realm-other",
 )
 
 
 # ==============================================================================
-# TESTS
+# Tests
 # ==============================================================================
 
-# ---- 3c-f.1 — file presence + import seam (3c-a dependency-defect-fix) ------
+# ---- 3c-i.1 — file presence + Tailwind 4 directive + layout seam --------------
 
 def test_globals_css_exists_and_imports_tailwindcss():
-    """3c-a ships ``@import "tailwindcss";`` as the Tailwind 4 entry point."""
+    """PR 3c-i MUST ship ``src/app/globals.css`` with the Tailwind 4
+    ``@import "tailwindcss";`` directive so the cascade flows through
+    ``next build`` (the directive is the Tailwind 4 entry point — Tailwind
+    3's ``@tailwind base/components/utilities`` directives are gone)."""
     assert GLOBALS_CSS.is_file(), f"missing {GLOBALS_CSS.relative_to(REPO_ROOT)}"
-    assert re.search(r"""@import\s+["']tailwindcss["']\s*;""", _read(GLOBALS_CSS)), (
+    text = _read(GLOBALS_CSS)
+    assert re.search(r"""@import\s+["']tailwindcss["']\s*;""", text), (
         'globals.css must @import "tailwindcss" (Tailwind 4 entry point)'
     )
 
 
 def test_layout_tsx_imports_globals_css():
-    """3c-a seam closure: ``layout.tsx`` MUST import ``./globals.css`` so the
-    Tailwind 4 directives flow into the Next.js build."""
-    assert re.search(r"""import\s+["']\./globals\.css["']\s*;""", _read(LAYOUT_TSX)), (
-        'src/app/layout.tsx must import "./globals.css" (PR 3c-a seam)'
+    """PR 3c-i seam closure: ``src/app/layout.tsx`` MUST import
+    ``./globals.css`` so the Tailwind 4 directives flow into the Next.js
+    static-export build. (Without the import, Next.js skips the file and
+    the cascade is empty.)"""
+    text = _read(LAYOUT_TSX)
+    assert re.search(r"""import\s+["']\./globals\.css["']\s*;""", text), (
+        'src/app/layout.tsx must import "./globals.css" (PR 3c-i seam)'
     )
 
 
-# ---- 3c-f.2 — @theme + [data-theme="dark"] + token byte-equal parity ---------
+def test_layout_tsx_does_not_change_unrelated_structure():
+    """PR 3c-i MAY add the ``import "./globals.css";`` line + the comment
+    for the 3c-i dependency-defect-fix seam, but MUST NOT touch the
+    unrelated layout surface (AppShell import, ``<html lang>`` attribute,
+    Raleway preload, metadata + viewport exports)."""
+    text = _read(LAYOUT_TSX)
+    assert "from \"@taxa/app-shell\"" in text
+    assert re.search(r"<AppShell>\{children\}</AppShell>", text)
+    assert "lang=\"en\"" in text
+    assert "Raleway" in text and "next/font/google" in text
 
-def test_globals_css_declares_theme_and_dark_blocks():
+
+# ---- 3c-i.2 — @theme block carries every legacy :root token (non-empty) -------
+
+def test_globals_css_declares_theme_block():
+    """``@theme { ... }`` MUST exist for Tailwind 4's namespace resolution."""
     text = _read(GLOBALS_CSS)
     assert re.search(r"@theme\s*\{", text), (
         "globals.css must declare an @theme { ... } block (Tailwind 4 namespace)"
     )
-    assert re.search(r"""\[data-theme=["']dark["']\]\s*\{""", text), (
-        'globals.css must declare a [data-theme="dark"] { ... } block'
-    )
 
 
-_LIGHT_REALM_PAIRS = [(n, h) for d in (LIGHT_TOKENS, REALM_TOKENS) for n, h in sorted(d.items())]
-
-
-@pytest.mark.parametrize(("name", "hex_value"), _LIGHT_REALM_PAIRS,
-                         ids=[n for n, _ in _LIGHT_REALM_PAIRS])
-def test_theme_declares_token_with_byte_equal_value_and_color_alias(name, hex_value):
-    """Every legacy ``:root`` token (light + realm) MUST keep its original hex
-    value AND have a ``--color-<name>`` Tailwind namespace alias so plain
-    ``var()`` references AND Tailwind utilities (bg-primary, bg-realm-*, …)
-    resolve. The realm family stays byte-equal between light + dark mode."""
+@pytest.mark.parametrize("token", LIGHT_TOKENS)
+def test_theme_declares_light_token_with_non_empty_value(token):
+    """Every legacy :root light token MUST be declared inside ``@theme``
+    with a non-empty value (the byte-equal witness lives in
+    ``tests/test_tailwind_tokens_base.py``). The 12-token roster mirrors
+    the legacy ``:root { --primary ... --surface-container-highest }`` block
+    in ``web/index.html`` lines 41-58."""
     body = _block(_read(GLOBALS_CSS), "@theme")
     assert body, "globals.css must declare an @theme { ... } block"
-    assert re.search(re.escape(f"--{name}: {hex_value}"), body), (
-        f"@theme must declare --{name}: {hex_value} (byte-equal to legacy :root)"
-    )
-    assert re.search(re.escape(f"--color-{name}:"), body), (
-        f"@theme must declare --color-{name}: (Tailwind 4 utility namespace)"
+    pattern = r"--" + re.escape(token) + r"\s*:\s*[^;]+?\s*;"
+    assert re.search(pattern, body), (
+        f"@theme must declare --{token} with a non-empty value (3c-i light slice)"
     )
 
 
-@pytest.mark.parametrize("name,hex_value", sorted(DARK_TOKENS.items()))
-def test_dark_block_redefines_neutral_with_byte_equal_value(name, hex_value):
-    """Every legacy dark neutral MUST keep its original hex value (byte-equal
-    migration of the dark palette). Realm hues are NOT redefined here — they
-    stay byte-equal in dark mode by design."""
-    body = _block(_read(GLOBALS_CSS), '[data-theme="dark"]')
-    assert body, 'globals.css must declare a [data-theme="dark"] { ... } block'
-    expected = f"--{name}: {hex_value}"
-    assert re.search(re.escape(expected), body), (
-        f'[data-theme="dark"] must redefine {expected}'
+@pytest.mark.parametrize("token", REALM_TOKENS)
+def test_theme_declares_realm_token_with_non_empty_value(token):
+    """Every ``--realm-*`` token MUST be declared inside ``@theme`` with a
+    non-empty value. The 8-token realm family mirrors the legacy
+    ``--realm-bacteria ... --realm-other`` block in ``web/index.html``.
+    Realm hues stay identical in light + dark mode (only the neutral
+    family inverts)."""
+    body = _block(_read(GLOBALS_CSS), "@theme")
+    assert body, "globals.css must declare an @theme { ... } block"
+    pattern = r"--" + re.escape(token) + r"\s*:\s*[^;]+?\s*;"
+    assert re.search(pattern, body), (
+        f"@theme must declare --{token} with a non-empty value (3c-i realm slice)"
     )
-    leaked = [n for n in REALM_TOKENS if f"--{n}" in body]
+
+
+def test_theme_does_not_define_color_namespace_aliases_outside_3c_i_scope():
+    """PR 3c-i is the ``tokens / base / dark mode`` slice ONLY. The
+    ``--color-*`` Tailwind 4 utility aliases are NOT shipped by 3c-i —
+    they land with PR 3c-iv's design-system barrel + final CSS parity
+    step. Pre-asserting them in 3c-i would silently reserve the namespace
+    for a later PR and block review of each sub-PR's narrow scope."""
+    body = _block(_read(GLOBALS_CSS), "@theme")
+    assert body, "globals.css must declare an @theme { ... } block"
+    leaked = [t for t in (*LIGHT_TOKENS, *REALM_TOKENS)
+              if re.search(r"--color-" + re.escape(t) + r"\s*:", body)]
     assert not leaked, (
-        f'[data-theme="dark"] must NOT redefine --realm-*; leaked: {leaked!r}'
+        f"@theme MUST NOT declare --color-* aliases in PR 3c-i; "
+        f"leaked: {leaked!r} — those land with PR 3c-iv"
     )
 
 
-# ---- 3c-f.2 — @layer base presence + idempotent resets (3c-a + 3c-d) -------
+# ---- 3c-i.3 — [data-theme="dark"] cascade overrides the canonical names -------
 
-def test_layer_base_idempotent_resets_and_source_order():
-    """3c-a + 3c-d idempotent: html/body margin+padding, body overscroll,
-    main > :first-child + :last-child margin resets MUST all be present under
-    ``@layer base``, in source order (resets FIRST, ``@keyframes spin`` after)."""
+def test_globals_css_declares_dark_cascade_block():
+    """Legacy settings theme toggle stamps ``[data-theme="dark"]`` on
+    ``<html>`` (see ``web/settings.js``). The dark cascade MUST live under
+    the explicit ``[data-theme="dark"]`` selector so the toggle continues
+    to drive the swap (``@media (prefers-color-scheme: dark)`` would be
+    ignored)."""
+    text = _read(GLOBALS_CSS)
+    assert re.search(r"""\[data-theme=["']dark["']\]\s*\{""", text), (
+        'globals.css must declare a [data-theme="dark"] { ... } cascade block'
+    )
+
+
+@pytest.mark.parametrize("token", LIGHT_TOKENS)
+def test_dark_cascade_redefines_canonical_token_with_non_empty_value(token):
+    """Every one of the 12 canonical light tokens MUST be redefined under
+    ``[data-theme="dark"]`` with a non-empty value (the dark-mode cascade
+    inverts the neutral family; realm hues stay identical and are NOT
+    redefined — that is the contract)."""
+    body = _block(_read(GLOBALS_CSS), '[data-theme="dark"]')
+    assert body, 'globals.css must declare a [data-theme="dark"] { ... } cascade'
+    pattern = r"--" + re.escape(token) + r"\s*:\s*[^;]+?\s*;"
+    assert re.search(pattern, body), (
+        f'[data-theme="dark"] must redefine --{token} with a non-empty value '
+        f'(3c-i dark-mode cascade)'
+    )
+
+
+def test_dark_cascade_does_not_redefine_realm_hues():
+    """The dark cascade MUST NOT redefine any ``--realm-*`` token — realm
+    hues stay identical between light + dark mode by design (only the
+    neutral family inverts; redefining realm hues would shift the realm
+    tree-row tints visually in dark mode and break the design contract)."""
+    body = _block(_read(GLOBALS_CSS), '[data-theme="dark"]')
+    assert body, 'globals.css must declare a [data-theme="dark"] { ... } cascade'
+    leaked = [t for t in REALM_TOKENS
+              if re.search(r"--" + re.escape(t) + r"\s*:", body)]
+    assert not leaked, (
+        f'[data-theme="dark"] MUST NOT redefine --realm-*; leaked: {leaked!r}'
+    )
+
+
+# ---- 3c-i.4 — @layer base carries the specified base resets -------------------
+
+def test_globals_css_declares_layer_base_block():
+    """``@layer base { ... }`` MUST exist (Tailwind 4 base layer). The
+    html / body / main > :first-child resets AND the global focus-visible
+    selectors land here in PR 3c-i (per the OpenSpec 3c-i slice)."""
+    text = _read(GLOBALS_CSS)
+    assert re.search(r"@layer\s+base\s*\{", text), (
+        "globals.css must declare an @layer base { ... } block (Tailwind 4 base)"
+    )
+
+
+def test_layer_base_resets_html_and_body_margin_and_padding():
+    """html, body { margin: 0; padding: 0; } MUST live under @layer base
+    in source order (matches the legacy inline <style> block in
+    ``web/index.html`` lines 14-22)."""
     body = _block(_read(GLOBALS_CSS), "@layer base")
     assert body, "globals.css must declare an @layer base { ... } block"
-    assert re.search(
-        r"html\s*,\s*body\s*\{[^}]*margin\s*:\s*0\s*;[^}]*padding\s*:\s*0\s*;",
-        body, re.DOTALL,
-    ), "@layer base must reset html, body { margin: 0; padding: 0; }"
-    assert re.search(
-        r"body\s*\{[^}]*overscroll-behavior\s*:\s*none\s*;", body, re.DOTALL,
-    ), "@layer base must set body { overscroll-behavior: none; }"
-    assert re.search(
-        r"main\s*>\s*:first-child\s*\{[^}]*margin-top\s*:\s*0\s*!important\s*;",
-        body, re.DOTALL,
-    ), "@layer base must reset main > :first-child { margin-top: 0 !important; }"
-    assert re.search(
-        r"main\s*>\s*:last-child\s*\{[^}]*margin-bottom\s*:\s*0\s*!important\s*;",
-        body, re.DOTALL,
-    ), "@layer base must reset main > :last-child { margin-bottom: 0 !important; }"
-    m_reset = re.search(
-        r"html\s*,\s*body\s*\{[^}]*margin\s*:\s*0\s*;[^}]*padding\s*:\s*0\s*;",
-        body, re.DOTALL,
-    )
-    m_kf = re.search(r"@keyframes\s+spin", body)
-    assert m_kf, "@layer base must declare @keyframes spin (PR 3c-d.2)"
-    assert m_reset.start() < m_kf.start(), (
-        f"@layer base source order MUST be resets({m_reset.start()}) → "
-        f"keyframes({m_kf.start()})"
-    )
-
-
-# ---- 3c-f.2 — @layer components + alias renames (3c-e1 + 3c-e2) -------------
-
-@pytest.mark.parametrize(
-    ("custom_prop", "target_token"),
-    [("--primary-fixed", "--primary"), ("--on-primary-fixed", "--on-primary")],
-)
-def test_layer_components_declares_alias_rename(custom_prop, target_token):
-    """3c-e1 alias renames MUST live under ``@layer components`` and target
-    the upstream token via ``var()`` (dark-mode-preserving). The 3c-e2
-    ``--surface-container-lowest -> --surface`` alias shares the same
-    ``:root { … }`` block under ``@layer components``."""
-    body = _block(_read(GLOBALS_CSS), "@layer components")
-    assert body, "globals.css must declare an @layer components { ... } block"
     pattern = (
-        r":root\s*\{[^}]*" + re.escape(custom_prop) +
-        r"\s*:\s*var\(--(?:on-)?primary\)\s*;[^}]*\}"
+        r"html\s*,\s*body\s*\{[^}]*margin\s*:\s*0\s*;"
+        r"[^}]*padding\s*:\s*0\s*;[^}]*\}"
     )
     assert re.search(pattern, body, re.DOTALL), (
-        f"@layer components must declare a :root {{ {custom_prop}: "
-        f"var({target_token}); ... }} alias block (PR 3c-e1)"
-    )
-    assert re.search(
-        r":root\s*\{[^}]*--surface-container-lowest\s*:\s*var\(--surface\)\s*;[^}]*\}",
-        body, re.DOTALL,
-    ), "@layer components must declare :root { --surface-container-lowest: var(--surface); } (PR 3c-e2)"
-
-
-# ---- 3c-f.2 — utility-class parity (3c-e2) — every class + property:value ---
-
-@pytest.mark.parametrize(("selector", "property", "expected_value"), UTILITY_CLASSES,
-                         ids=[c[0] for c in UTILITY_CLASSES])
-def test_layer_components_declares_utility_class(selector, property, expected_value):
-    """3c-e2 — every legacy utility class MUST be declared under
-    ``@layer components`` with the exact property:value pair."""
-    body = _block(_read(GLOBALS_CSS), "@layer components")
-    assert body, "globals.css must declare an @layer components { ... } block"
-    rule = _rule(body, selector)
-    assert rule.strip(), (
-        f"@layer components must declare {selector} {{ ... }} (PR 3c-e2)"
-    )
-    assert re.search(
-        re.escape(property) + r"\s*:\s*" + re.escape(expected_value) + r"\s*;", rule,
-    ), f"{selector} rule MUST set {property}: {expected_value}; (PR 3c-e2)"
-
-
-def test_animate_spin_references_existing_spin_keyframe_no_new_keyframes():
-    """3c-e2 — ``.animate-spin`` MUST reference the existing ``spin`` keyframe
-    (which lives under ``@layer base``) and NOT introduce a new ``@keyframes``
-    declaration under ``@layer components``."""
-    body = _block(_read(GLOBALS_CSS), "@layer components")
-    assert body, "globals.css must declare an @layer components { ... } block"
-    rule = _rule(body, ".animate-spin")
-    assert rule.strip(), ".animate-spin missing under @layer components (PR 3c-e2)"
-    assert re.search(
-        r"animation\s*:\s*spin\s+0\.8s\s+linear\s+infinite\s*;", rule,
-    ), ".animate-spin must animate `spin 0.8s linear infinite` (PR 3c-e2)"
-    assert not re.search(r"@keyframes\s+\w+", body), (
-        "@layer components MUST NOT add any new @keyframes block (PR 3c-e2)"
+        "@layer base must reset html, body { margin: 0; padding: 0; } (3c-i base reset)"
     )
 
 
-# ---- 3c-f.2 — keyframe parity (3c-d + 3c-e1) — every keyframe resolves -----
-
-@pytest.mark.parametrize(("kf_open", "content_pattern"), KEYFRAMES)
-def test_layer_base_declares_keyframe_with_content(kf_open, content_pattern):
-    """3c-d + 3c-e1 — every ``@keyframes`` MUST live under ``@layer base`` and
-    carry its identifying transform / opacity / box-shadow signature so the
-    React cutover's animation parity stays intact."""
+def test_layer_base_sets_body_overscroll_behavior_none():
+    """body { overscroll-behavior: none; } MUST live under @layer base
+    (legacy ``web/index.html`` line 23) so iOS / macOS Safari's rubber-band
+    doesn't fight the SPA scroll."""
     body = _block(_read(GLOBALS_CSS), "@layer base")
     assert body, "globals.css must declare an @layer base { ... } block"
-    rule = _rule(body, kf_open)
-    assert rule.strip(), f"@layer base must declare {kf_open} with a non-empty block"
-    assert re.search(content_pattern, rule, re.DOTALL), (
-        f"{kf_open} must contain identifying pattern {content_pattern!r}"
+    assert re.search(
+        r"body\s*\{[^}]*overscroll-behavior\s*:\s*none\s*;[^}]*\}",
+        body, re.DOTALL,
+    ), "@layer base must set body { overscroll-behavior: none; } (3c-i base reset)"
+
+
+def test_layer_base_resets_main_first_child_margin_top_to_zero():
+    """main > :first-child { margin-top: 0 !important; } MUST live under
+    @layer base (legacy ``web/index.html`` line 27) so Tailwind's default
+    ``<main>`` child margins do not push the first child down."""
+    body = _block(_read(GLOBALS_CSS), "@layer base")
+    assert body, "globals.css must declare an @layer base { ... } block"
+    pattern = (
+        r"main\s*>\s*:first-child\s*\{[^}]*"
+        r"margin-top\s*:\s*0\s*!important\s*;[^}]*\}"
+    )
+    assert re.search(pattern, body, re.DOTALL), (
+        "@layer base must reset main > :first-child { margin-top: 0 !important; } "
+        "(3c-i base reset)"
     )
 
 
-# ---- 3c-f.2 — taxonomy (3c-b) + research / chrome (3c-c) selector coverage --
+# ---- 3c-i.5 — slice-scope guards: 3c-ii / 3c-iii / 3c-iv MUST NOT bleed in ---
 
-_PR_B_C_PAIRS = (
-    [(s, "3c-b") for s in TAXONOMY_SELECTORS] +
-    [(s, "3c-c") for s in RESEARCH_CHROME_SELECTORS]
+# Surface names reserved for LATER 3c children. PR 3c-i MUST NOT ship
+# them. NB — matched at CSS-token boundaries so PR 3c-i's
+# ``.tier-header:focus-visible`` and ``.load-all:focus-visible`` rules
+# (per OpenSpec 3c-i.4) don't false-positive as 3c-ii bleed; only the
+# bare ``.tier-header { ... }`` / ``.load-all { ... }`` rules that
+# land with PR 3c-ii trip the guard.
+LATER_CHILD_SURFACES = (
+    # 3c-ii — taxonomy tree + detail styling
+    ".scientific-name", "#search-results", ".search-hit",
+    ".tree-source-toggle", ".rank-badge", "#detail-panel",
+    ".detail-card", ".detail-header",
+    # 3c-iii — Search / Folder / global Browser styling
+    ".search-tab", ".search-category-section", ".folder-tab",
+    ".header-browser-tab", ".research-explorer", ".file-explorer-pane",
+    # 3c-iv — animations / utilities / final parity
+    ".animate-spin", ".bg-primary", ".bg-primary-fixed",
+    ".text-on-primary-fixed", ".bg-surface-container-lowest",
+    ".shadow-sm", ".rounded-r-md", ".border-outline-variant",
+    "@keyframes spin", "@keyframes detail-card-enter",
+    "@keyframes detail-card-leave", "@keyframes search-pulse-anim",
+    "@keyframes toast-slide-in",
 )
-_PR_B_C_IDS = [f"{s} [3c-b]" for s in TAXONOMY_SELECTORS] + [
-    f"{s} [3c-c]" for s in RESEARCH_CHROME_SELECTORS
-]
 
 
-@pytest.mark.parametrize(("selector", "owner"), _PR_B_C_PAIRS, ids=_PR_B_C_IDS)
-def test_layer_components_declares_every_pr_b_c_selector(selector, owner):
-    """3c-b + 3c-c — every taxonomy + research / chrome selector MUST resolve
-    to a non-empty block under ``@layer components`` (top-level OR descendant)."""
-    body = _block(_read(GLOBALS_CSS), "@layer components")
-    assert body, "globals.css must declare @layer components { ... }"
-    assert _rule(body, selector).strip(), (
-        f"@layer components must declare {selector} (PR {owner})"
+def _appears_as_css_token(text: str, surface: str) -> bool:
+    """Match ``surface`` as a standalone CSS token (avoiding substrings
+    like ``.tier-header`` matching inside ``.tier-header:focus-visible``)."""
+    if surface.startswith("@"):
+        pattern = r"(?:^|\W)" + re.escape(surface) + r"(?=\W|$)"
+    else:
+        pattern = (
+            r"(?:^|[\s,{}>+~])" + re.escape(surface) + r"(?=[\s,{:>+~]|$)"
+        )
+    return re.search(pattern, text) is not None
+
+
+def test_globals_css_does_not_pre_assert_later_child_surfaces():
+    """Strict TDD scope guard: PR 3c-i MUST NOT pre-assert any surface
+    owned by 3c-ii / 3c-iii / 3c-iv (would block the per-PR review
+    focus and silence drift in the sub-sequence)."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    leaked = [
+        s for s in LATER_CHILD_SURFACES if _appears_as_css_token(text, s)
+    ]
+    assert not leaked, (
+        f"PR 3c-i MUST NOT pre-define surfaces reserved for 3c-ii / 3c-iii / 3c-iv; "
+        f"leaked: {leaked!r}"
     )
 
-
-# ---- 3c-f.3 — final color-mix scope-boundary witness (deferred migration) --
 
 def test_globals_css_has_no_color_mix_rules_anywhere():
-    """3c-f.3 — color-mix scope-boundary witness: ``src/app/globals.css`` MUST
-    NOT carry any ``color-mix()`` rule (the 19 legacy selectors in
-    ``web/index.html`` are deferred to a follow-up PR to keep the per-PR LoC
-    budget under 400). The consolidation witness documents the deferral
-    explicitly so the next chain re-split knows which selectors are pending."""
-    stripped = re.sub(r"/\*[\s\S]*?\*/", "", _read(GLOBALS_CSS))
-    assert "color-mix" not in stripped, (
-        "globals.css MUST NOT carry any color-mix() rule — the 19 legacy "
-        "color-mix selectors (.fex-* / .materialize-modal-*) are deferred; "
-        "see COLOR_MIX_LEGACY_SELECTORS"
-    )
-
-
-@pytest.mark.parametrize("selector", COLOR_MIX_LEGACY_SELECTORS)
-def test_layer_components_does_not_own_legacy_color_mix_selector(selector):
-    """3c-f.3 — per-selector scope witness: each of the 19 legacy selectors
-    that carried a ``color-mix()`` rule MUST NOT yet appear in
-    ``@layer components`` (the migration is deferred)."""
-    body = _block(_read(GLOBALS_CSS), "@layer components")
-    if not body:
-        pytest.fail("globals.css must declare @layer components { ... }")
-    assert not re.search(
-        r"(?:^|[\s,{}>+~])" + re.escape(selector) + r"(?=[\s,{:>+~]|$)", body,
-    ), (
-        f"{selector} MUST NOT appear in @layer components yet — the "
-        f"color-mix() migration is deferred to a follow-up PR "
-        f"(3c-f scope-boundary witness)"
-    )
-
-
-# ---- 3c-f.3 — byte-size budget: 3c-f ships zero globals.css delta -----------
-
-def test_3c_f_ships_no_globals_css_production_delta():
-    """3c-f scope contract: this PR ships **no new ``globals.css`` production
-    code** — only the consolidated parity test. The diff against the 3c-e2
-    base branch MUST be empty (the test file is the sole delta)."""
-    import subprocess
-    result = subprocess.run(
-        ["git", "diff", "--numstat",
-         "feat/complete-taxa-frontend-migration-08-3c-e2",
-         "--", "src/app/globals.css"],
-        cwd=str(REPO_ROOT),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        pytest.skip(f"git diff against 3c-e2 base failed: {result.stderr.strip()}")
-    assert not result.stdout.strip(), (
-        f"PR 3c-f MUST NOT ship any globals.css production delta; "
-        f"got: {result.stdout.strip()!r}"
+    """Even though ``color-mix()`` rules are scoped to 3c-iv's deferred
+    migration follow-up, PR 3c-i MUST keep the file free of them so the
+    next-child re-split never silently accepts color-mix drift inside
+    the foundation layer."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    assert "color-mix" not in text, (
+        "globals.css MUST NOT carry any color-mix() rule — that surface "
+        "is owned by a follow-up PR"
     )
