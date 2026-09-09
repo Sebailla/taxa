@@ -31,13 +31,46 @@
 > `next build`/`out/index.html` before the Next/React/Tailwind/
 > TypeScript toolchain and Node runtime contract existed; those
 > landed in original PR 3c, AFTER original PR 3a). The
-> corrected topology introduces a **toolchain bootstrap PR at
-> position 1**, demotes the **App Router static export** to
+> corrected topology introduced a **toolchain bootstrap PR at
+> position 1**, demoted the **App Router static export** to
 > position 2 (now satisfiable because the toolchain exists),
-> keeps Tailwind/tokens at position 3, fuses the Makefile
+> kept Tailwind/tokens at position 3, fused the Makefile
 > rewrite with the `WEB_DIR` repoint + AC-21 at position 4,
-> and follows with state, ports, e2e, validation, and the
-> atomic cutover. The 13-child count is preserved.
+> and followed with state, ports, e2e, validation, and the
+> atomic cutover. The 13-child count was preserved at that
+> revision.
+
+> **2026-09-02 — PR 3c sub-sequence replan (this entry)**.
+> After PR #144 (3a, toolchain bootstrap), PR #145 (3b, App
+> Router static export), and PR #146 (3b reconciliation)
+> landed on the tracker, the original single PR 3c at
+> position 3 was diagnosed as unsatisfiable: it claimed ~230
+> LoC while the legacy inline `<style>` block in
+> `web/index.html` (lines 14–1972 = **1,963 lines**) had to
+> be ported verbatim into Tailwind 4 (`@theme` for tokens,
+> `@layer base` for the cascade, plus the design-system
+> barrel). The user authorized a chained sub-sequence that
+> replaces the single PR 3c with **four reviewable children
+> at positions 3–6** (`3c-i` tokens / base / dark mode,
+> `3c-ii` taxonomy tree / detail styling, `3c-iii` Search /
+> Folder / global Browser styling, `3c-iv` animations /
+> utilities + final CSS parity + design-system barrel), each
+> ≤ 400 authored lines including tests. The remaining
+> children are **renumbered** (`3d → 7`, `4a → 8`, `4b → 9`,
+> `5a → 10`, `5b → 11`, `5c → 12`, `6a → 13`, `6b → 14`,
+> `6c → 15`, `3e → 16`) to keep the dependency contract
+> linear. **PR 3c-i bases off the tracker** (the
+> `docs/complete-taxa-frontend-migration-plan` branch **after**
+> PR #146 reconciliation merges, picking up the
+> already-merged 3a + 3b + reconcile without an extra
+> reconcile step); every later child targets its immediate
+> predecessor branch. Total authored LoC rises from ~2,245
+> to ~3,485 because every legacy CSS rule is ported; the
+> largest new sub-PR is **3c-i at ~390 LoC** (-10 LoC
+> headroom under 400). **No new size:exception** is opened;
+> the PR 3a lockfile exception remains the sole one.
+> **Approach A, FastAPI/SQLite, the frozen predecessor, and
+> the Feature Branch Chain strategy remain unchanged.**
 
 ---
 
@@ -46,175 +79,102 @@
 > **Reordering rationale (corrective plan revision)**.
 > Original Phase 3a was unsatisfiable because its
 > `next build` witness required the toolchain that original
-> Phase 3c shipped AFTER it. The corrected topology reverses
-> the dependency: the **toolchain bootstrap** lands first
+> Phase 3c shipped AFTER it. The corrected topology reversed
+> the dependency: the **toolchain bootstrap** landed first
 > (position 1), the **App Router static export** second
 > (position 2, witness now satisfiable). Original Phase 3b's
-> Tailwind/tokens work moves to position 3 (depends on
+> Tailwind/tokens work moved to position 3 (depends on
 > Tailwind installed in position 1). Original Phase 3c's
-> `Makefile::api` rewrite merges with original Phase 3d's
+> `Makefile::api` rewrite merged with original Phase 3d's
 > `WEB_DIR` repoint + AC-21 reader into a single sub-PR at
 > **position 4** (depends on `next build` producing `out/` via
 > the `Makefile::api` recipe; the position-1 Node runtime
 > contract is invoked from the Makefile). Positions 5–13
-> (4a through 3e) keep their predecessor task numbering and
-> scope. **The 13-child count is preserved.**
->
-> **2026-09-02 — CSS re-split**: the apply gate's pre-flight
-> re-audit identified that the previous PR 3c (position
-> 3/13), as scoped at the dependency-defect-fix revision,
-> was **unsatisfiable** — it was tasked with migrating the
-> legacy `web/index.html` inline `<style>` block of
-> **1,963 lines** in a single sub-PR while staying under
-> the 400-line per-PR review budget; the migration cannot
-> fit. The CSS portion is therefore **re-split into four
-> chained children** (PR 3c-a / PR 3c-b / PR 3c-c / PR
-> 3c-d), each ≤ 400 author lines and partitioned by
-> concern: tokens / base / dark mode; tree + inline
-> Overview styles; Search / Folder / global Browser
-> styles; animations / utilities + final parity. The
-> previous single PR 3c's scope is partitioned across the
-> four children with no duplicate production code; the
-> legacy `<style>` block is retired at PR 5c (the legacy
-> `web/index.html` deletion); the four children author new
-> code into `src/app/globals.css` without touching the
-> legacy file directly. Tracker **PR #146** is the merged
-> starting point for the first new CSS child (PR 3c-a).
-> Every later child shifts position by +3 to accommodate
-> the four CSS children (3d 4→7; 4a 5→8; 4b 6→9; 5a 7→10;
-> 5b 8→11; 5c 9→12; 6a 10→13; 6b 11→14; 6c 12→15; 3e
-> 13→16). Semantic labels (3a, 3b, 3c-a, 3c-b, 3c-c, 3c-d,
-> 3d, 4a, 4b, 5a, 5b, 5c, 6a, 6b, 6c, 3e) are preserved;
-> only the position counter (NN in
-> `feat/complete-taxa-frontend-migration-NN-XXX`) and
-> base-branch references change. **The 16-child count**
-> replaces the previous 13-child count. Per-sub-PR LoC
-> budgets stay well under the 400-line review budget;
-> **only the prior PR 3a `package-lock.json` exception
-> remains**.
+> (4a through 3e) kept their predecessor task numbering and
+> scope. **The 13-child count was preserved at that
+> revision.**
 
-> **2026-09-03 — PR 3c-d re-split supersession (PR #150
-> task replan is authoritative; this document's 16-child
-> table still reflects the pre-#150 CSS re-split only)**.
-> PR #150 (`tasks.md` / `tasks-es.md` "3c-d
-> unsatisfiability split") re-plans the previous
-> monolithic PR 3c-d (animations / utilities + final
-> parity) into three sequential children, each ≤ 400
-> authored lines. The reconstruction manifest above
-> remains the **pre-#150 view**; the **authoritative
-> re-split lives in `tasks.md` / `tasks-es.md`**, which
-> the apply phase reads. The new partition:
->
-> - **PR 3c-d (6/18; narrowed, stays at 6/18)** —
->   base / reset / global state affordances. Extends
->   `globals.css::@layer base` with the **global state
->   affordances only**: `@keyframes` (`spin`), the
->   **global `@layer base` `color-mix()` selectors**,
->   `body { overscroll-behavior: none; … }`, and
->   `main > :first-child { margin-top: 0 !important; }`.
->   **No utility classes, no parity test.** Allowed
->   production: `src/app/globals.css`; allowed test:
->   `tests/test_tailwind_4_base_resets.py`.
-> - **PR 3c-e (7/18; new)** — utility-class + remaining
->   animation parity. Extends `globals.css::@layer
->   base` with the utility-class surface **plus any
->   remaining `@keyframes` / `color-mix()`**
->   (component-scoped color-mix, utility-paired
->   rules) — the global `@layer base` state
->   affordances stay in 3c-d. **No parity test.**
->   Allowed production: `src/app/globals.css`;
->   allowed test: `tests/test_tailwind_4_utilities.py`.
-> - **PR 3c-f (8/18; new; sole full-parity test
->   only)** — **no new `globals.css` code**. Final
->   parametrized parity test
->   `tests/test_tailwind_4_parity.py` consolidates the
->   five prior focused tests (3c-a tokens / 3c-b
->   taxonomy / 3c-c research / 3c-d base-resets /
->   3c-e utilities). The final parity contract is
->   unchanged; it belongs only to PR 3c-f.
->
-> Renumbering: 3d 7→**9/18**; 4a 8→**10/18**;
-> 4b 9→**11/18**; 5a 10→**12/18**; 5b 11→**13/18**;
-> 5c 12→**14/18**; 6a (G5) 13→**15/18**;
-> 6b (G6) 14→**16/18**; 6c (G4) 15→**17/18**;
-> 3e 16→**18/18**. **3c-d stays at 6/18** (narrowed,
-> same branch). New branches: `…-07-3c-e` (base
-> `…-06-3c-d`), `…-08-3c-f` (base `…-07-3c-e`).
-> **18-child count** replaces 16;
-> `feature-branch-chain` strategy and the
-> "tracker-only targets `develop`" contract hold.
-> Per-sub-PR LoC budgets stay well under 400; only the
-> prior PR 3a `package-lock.json` exception remains.
-> **G4 / G5 / G6 (now 17/18 / 15/18 / 16/18), the
-> frozen predecessor, Approach A, FastAPI/SQLite, and
-> the per-domain specs stay unchanged**. Merged PRs
-> 3c-a/#147, 3c-b/#148, 3c-c/#149 preserved. The five
-> CSS children (3c-a / 3c-b / 3c-c / 3c-d / 3c-e) plus
-> PR 3c-f cannot collapse without violating the
-> 400-line per-PR review budget. **Documentation-only
-> supersession note**: no source-code edit, no rebase,
-> no new branch creation in this revision; the next
-> code worktree picks up the authoritative scope from
-> `tasks.md`.
+> **PR 3c sub-sequence replan rationale (this entry)**. After
+> PR #144 (3a), PR #145 (3b), and PR #146 (3b reconciliation)
+> landed on the tracker, the original single PR 3c at
+> position 3 was diagnosed as unsatisfiable: it claimed ~230
+> LoC while the legacy inline `<style>` block in
+> `web/index.html` (lines 14–1972 = **1,963 lines**) had to
+> be ported verbatim into Tailwind 4 (`@theme` for tokens,
+> `@layer base` for the cascade, plus the design-system
+> barrel). The user authorized a chained sub-sequence that
+> replaces the single PR 3c with **four reviewable children
+> at positions 3–6** (`3c-i` tokens / base / dark mode,
+> `3c-ii` taxonomy tree / detail styling, `3c-iii` Search /
+> Folder / global Browser styling, `3c-iv` animations /
+> utilities + final CSS parity + design-system barrel), each
+> ≤ 400 authored lines including tests. The remaining
+> children are **renumbered** (`3d → 7`, `4a → 8`, `4b → 9`,
+> `5a → 10`, `5b → 11`, `5c → 12`, `6a → 13`, `6b → 14`,
+> `6c → 15`, `3e → 16`) to keep the dependency contract
+> linear. **PR 3c-i bases off the tracker** (the
+> `docs/complete-taxa-frontend-migration-plan` branch **after**
+> PR #146 reconciliation merges, picking up the
+> already-merged 3a + 3b + reconcile without an extra
+> reconcile step); every later child targets its immediate
+> predecessor branch. Total authored LoC rises from ~2,245
+> to ~3,485 because every legacy CSS rule is ported; the
+> largest new sub-PR is **3c-i at ~390 LoC** (-10 LoC
+> headroom under 400). **No new size:exception** is opened;
+> the PR 3a lockfile exception remains the sole one.
+> **Approach A, FastAPI/SQLite, the frozen predecessor, and
+> the Feature Branch Chain strategy remain unchanged.**
 
 | Sub-PR | Scope | LoC budget (authored) | Source files | Status |
 |--------|-------|-----------------------|--------------|--------|
-| PR 3a | **Toolchain bootstrap** (NEW position 1) | ~210 authored; user-approved generated-lockfile exception | `package.json` + regenerated `package-lock.json` (the exception is restricted to resolution changes required by this manifest, and both are reviewed together; `next@^16` / `react@^19` / `react-dom@^19` / `tailwindcss@^4` / TS toolchain / `engines.node ">=20.9.0"` / `scripts.check-runtime` / `scripts.build:web`; legacy Tailwind 3.4 deps removed) + `scripts/check-runtime.mjs` (new, Node ≥ 20.9.0 enforcement) + `tsconfig.json` (modified in place; the predecessor already exists at repo root; base config + `@taxa/<capability>` path aliases) + `.nvmrc` (new, pin `20`) + `tests/test_toolchain_bootstrap.py` (new) + `tests/test_check_runtime.py` (new) | reconstruction pending |
-| PR 3b | **App Router static-export bootstrap (self-contained)** (position 2; the dependency-defect fix rescopes the original 3a-style App Router entry into a self-contained bootstrap that does NOT import `@taxa/app-shell` or `./globals.css`) | ~150 | `src/app/{layout,page}.tsx` (new, **minimal semantic placeholder body**; **no AppShell mount, no globals.css import**) + `next.config.mjs` (new, `output: "export"` + `images.unoptimized: true` + `trailingSlash: false` + `reactStrictMode: true`) + `tests/test_app_shell_render.py` (new, reads `out/index.html` after `npx next build`; asserts viewport meta + Raleway preload + Raleway `.woff2` file in `out/_next/static/media/`) | reconstruction pending |
-| PR 3c-a | **Tokens / base / dark mode** (NEW position 3; the first new CSS child of the CSS re-split; the dependency-defect fix moves the `import "./globals.css";` line into this sub-PR; the previous single PR 3c's scope is partitioned across 3c-a / 3c-b / 3c-c / 3c-d) | ~400 | `src/app/globals.css` (new, initial scaffold: `@import "tailwindcss"` + `@theme` mirroring every legacy `:root` / `[data-theme="dark"]` / `--realm-*` token + empty `@layer base` placeholder for later children) + `src/app/layout.tsx` (modified, 1-line delta: adds `import "./globals.css";`) + `src/modules/design-system/{infrastructure/index.ts,presentation/Icon.tsx,presentation/Button.tsx}` (new) + `tests/test_tailwind_4_tokens.py` (new; enumerates legacy `:root` / `[data-theme="dark"]` / `--realm-*` tokens against `globals.css::@theme`) + `tests/test_design_system_purity.py` (new) | reconstruction pending |
-| PR 3c-b | **Tree + inline Overview styles** (NEW position 4; the second new CSS child; depends on the `globals.css` scaffold + `@layer base` placeholder from 3c-a) | ~400 | `src/app/globals.css` (extended, `@layer components` block with taxonomy selectors: `.taxa-tree`, `.tree-row`, `.kebab`, `.kebab-menu`, `.tree-search-icon`, `.materialize-indicator`, `.detail-panel`, `.tab-strip`, `.tab-button`, `.overview-tab`, `.breadcrumb`) + `tests/test_taxonomy_styles.py` (new; enumerates taxonomy `@layer components` selectors against `globals.css`) | reconstruction pending |
-| PR 3c-c | **Search / Folder / global Browser styles** (NEW position 5; the third new CSS child; depends on the taxonomy `@layer components` block from 3c-b) | ~400 | `src/app/globals.css` (extended, `@layer components` block with research / chrome selectors: `.search-tab`, `.search-category-section`, `.search-link-list`, `.search-link`, `.folder-tab`, `.header-browser-tab`, `.research-explorer`, `.file-explorer-pane`, `.file-viewer-pane`) + `tests/test_research_styles.py` (new; enumerates research / chrome `@layer components` selectors against `globals.css`) | reconstruction pending |
-| PR 3c-d | **Animations / utilities + final parity** (NEW position 6; the fourth and last new CSS child; depends on the research / chrome `@layer components` block from 3c-c; ships the consolidated `tests/test_tailwind_4_parity.py` final parity test) | ~300 | `src/app/globals.css` (extended, `@layer base` block with `@keyframes` (`spin`), `color-mix()` selectors, utility-class surface (`bg-primary`, `text-on-surface`, `border-outline-variant`, `bg-surface-container-lowest`, `shadow-sm`, `rounded-r-md`, `bg-primary-fixed`, `text-on-primary-fixed`, …), `body { overscroll-behavior: none; … }` rule, `main > :first-child { margin-top: 0 !important; }` reset — all in source order) + `tests/test_tailwind_4_parity.py` (new; consolidated parametrized final parity test) | reconstruction pending |
-| PR 3d | **Makefile/mount** (NEW position 7; fuses original 3c + 3d; depends on `next build` from 3b + Tailwind 4 tokens + `@layer base` + `@layer components` from 3c-d) | ~240 | `Makefile` (modified, `api:` target runs `check-runtime.mjs` → `npm ci` → `npm run build:web` → `uvicorn … --port 8765`; `make css` becomes no-op shim) + `api/server.py` (modified, 1-line delta at line 54, `WEB_DIR = Path(__file__).parent.parent / "out"`) + `src/data/search-engines.js` (new, byte copy of `web/search_urls.js` with `SEARCH_ENGINES` named export) + `tests/test_smoke.py` (modified, `open()` path update) + `tests/test_static_mount.py` (new) + `tests/test_make_api_build.py` (new) | reconstruction pending |
-| PR 4a | Typed store + 4 read + 4 write (unchanged) | ~180 | `src/modules/browser-state/{domain/keys.ts,infrastructure/store.ts,index.ts}` (new) + `tests/test_browser_state_keys.py` (new) | reconstruction pending |
-| PR 4b | Hydration guard + AppShell integration + Playwright zero-warnings (the dependency-defect fix moves the `<AppShell>` integration into `src/app/{layout,page}.tsx` into this sub-PR) | ~120 | `src/modules/app-shell/{presentation/AppShell.tsx,infrastructure/page-chrome.tsx}` (new) + `src/app/{layout,page}.tsx` (modified, integrates `<AppShell>` from `@taxa/app-shell` into the App Router host; the dependency-defect fix) + `tests/test_hydration_console.py` (new, Playwright) | reconstruction pending |
-| PR 5a | Taxonomy module port (extended; absorbs DetailPanel tab strip + OverviewTab + Kebab Search-online force) | ~310 | `src/modules/taxonomy/{domain/taxon.ts,infrastructure/api.ts,application/useTaxonTree.ts,presentation/{Tree,DetailPanel,OverviewTab,Kebab,Breadcrumb}.tsx}` (new + extension; `DetailPanel` ships the three-tab strip `Overview` / `Search` / `Folder` per the verified UI surface, with `Overview` always available/visible; the taxonomy presentation layer rides on PR 3c-b's `@layer components` selectors) + `tests/test_taxonomy_infra.py` (new; includes the `Search online` → `Search` tab Playwright regression witness) | reconstruction pending |
-| PR 5b | Research module port + CDN pin (extended; absorbs SearchTab + FolderTab + SearchLinkList + header `Browser` tab re-anchoring as global Research) | ~395 | `src/modules/research/{domain/{research-file,engine,file-node}.ts,infrastructure/{api,search-engines}.{ts,js},application/{useFileExplorer,useFileViewer}.ts,presentation/{FileExplorer,FileViewer,RawTableTreeTabs,MetaStrip,BreadcrumbPanel,Banners,SearchLinkList,SearchTab,FolderTab}.tsx}` (new; `SearchTab` renders the five category sections `General` / `Taxonomic` / `Academic` / `Multimedia` / `Documents` in fixed order; `FolderTab` is a separate body; `SearchLinkList` maps each `Engine` to an anchor with `target="_blank"` + `rel="noopener noreferrer"`; the research presentation layer rides on PR 3c-c's `@layer components` selectors) + `src/modules/app-shell/infrastructure/page-chrome.tsx` (modified; header `Browser` tab re-anchored as global Research / file explorer, NOT taxon-scoped) + `tests/test_research_infra.py` (new; includes the categorized outbound-link list triangulation and the global-Browser witness) | reconstruction pending |
-| PR 5c | E2E selectors + `data-*` contract + delete legacy (extended; depends on PR 5b + PR 3c-d; the legacy `web/index.html` deletion retires the 1,963-line legacy inline CSS the four CSS children migrated into `src/app/globals.css`) | ~200 | `tests/test_e2e_file_explorer.py` (modified, DOM selector update) + `tests/test_web_toggle.py` (modified, theme toggle update) + `tests/test_evidence_baseline.py` (modified, legacy roster assertion flips to "absent") + `web/{index.html,index.css}` deletion + `web/{app,state,api,tree,breadcrumb,detail,nav,dom,banner,help,keymap,settings,search,file_explorer,file_viewer,format,search_urls}.js` deletion (18 files) + `tailwind.config.js` deletion + `web/dist/tailwind.css` no longer tracked | reconstruction pending |
-| Phase 6a | G5 hydration baseline closure (unchanged) | ~50 (mostly measurement) | `scripts/reconstruct_hydration_baseline.py` (new) + `scripts/g5_close.sh` (new) + `web/dist/evidence-baseline.json` (regenerated, schema-pinned by `tests/test_hydration_timing.py`) + `apply-progress.md` §Change log delta | reconstruction pending (validation work after candidate path) |
-| Phase 6b | G6 cutover rehearsal (unchanged) | ~120 | `scripts/rehearse_cutover.py` (new) + `tests/test_rehearse_cutover.py` (new) + `openspec/changes/complete-taxa-frontend-migration/cutover-manifest.json` (working copy; predecessor copy stays byte-identical frozen) + `apply-progress.md` §Change log delta | reconstruction pending (validation work after candidate path) |
-| Phase 6c | G4 Playwright + Lighthouse parity (unchanged) | ~20 (mostly measurement) | `scripts/g4_measure.sh` (new) + `out/g4-parity-report.json` (Playwright + Lighthouse artifact) + `apply-progress.md` §Change log delta | reconstruction pending (validation work after candidate path) |
+| PR 3a | **Toolchain bootstrap** (position 1) | ~210 authored; user-approved generated-lockfile exception | `package.json` + regenerated `package-lock.json` (the exception is restricted to resolution changes required by this manifest, and both are reviewed together; `next@^16` / `react@^19` / `react-dom@^19` / `tailwindcss@^4` / TS toolchain / `engines.node ">=20.9.0"` / `scripts.check-runtime` / `scripts.build:web`; legacy Tailwind 3.4 deps removed) + `scripts/check-runtime.mjs` (new, Node ≥ 20.9.0 enforcement) + `tsconfig.json` (modified in place; the predecessor already exists at repo root; base config + `@taxa/<capability>` path aliases) + `.nvmrc` (new, pin `20`) + `tests/test_toolchain_bootstrap.py` (new) + `tests/test_check_runtime.py` (new) | **merged as PR #144 on the tracker** |
+| PR 3b | **App Router static export** (position 2) | ~175 | `src/app/{layout,page}.tsx` (new) + `next.config.mjs` (new, `output: "export"` + `images.unoptimized: true` + `trailingSlash: false` + `reactStrictMode: true`) + `tests/test_app_shell_render.py` (new, reads `out/index.html` after `npx next build`) | **merged as PR #145 on the tracker, with PR #146 reconciliation also merged** |
+| PR 3c-i | **Tokens / base / dark mode** (NEW position 3; bases off the tracker after PR #146) | ~390 (≤ 400; -10 LoC headroom) | `src/app/globals.css` (new, `@import "tailwindcss"` + `@theme` block with every legacy `:root` token + `[data-theme="dark"]` cascade + `--realm-*` family) + `@layer base` (body / html / `main > :first-child` resets + global focus-visible selectors) + `tests/test_tailwind_4_parity.py` (new, `:root` token slice) | reconstruction pending (first child of the 3c sub-sequence) |
+| PR 3c-ii | **Taxonomy tree / detail styling** (NEW position 4; depends on 3c-i) | ~380 (≤ 400; -20 LoC headroom) | `src/app/globals.css` (extended, taxonomy selectors: `.tier-header`, `.tree-row`, `.rank-badge`, `.scientific-name`, `.tree-source-toggle`, `#detail-panel`, `.detail-card`, `.detail-section`, `.overview-section`, `.detail-item`, `.search-pulse`, `.detail-tabs`, `.search-icon-btn`, `.materialize-btn`, kebab, materialize modal, realm-tinted `.tree-row[data-realm="…"]` variants) + `tests/test_tailwind_4_parity.py` (taxonomy selector slice) | reconstruction pending |
+| PR 3c-iii | **Search / Folder / global Browser styling** (NEW position 5; depends on 3c-ii) | ~390 (≤ 400; -10 LoC headroom) | `src/app/globals.css` (extended, browser / search / folder selectors: `.toast`, `.search-engines-grid`, `.search-category-header`, `.search-engine-btn`, `.fex-meta-strip`, `.fex-tab-strip`, `.fex-snippet-frame`, `.fex-shell`, `.fex-tree-pane`, `.fex-viewer-pane`, `.fex-splitter`, `.fex-row`, `.fex-tree-header`, `.fex-children`, `.fex-banner`, `.fex-empty-state`, `.fex-search-*`, `.fex-csv-*`, `.fex-json-*`, `.fex-tree-truncated`) + `tests/test_tailwind_4_parity.py` (browser selector slice) | reconstruction pending |
+| PR 3c-iv | **Animations / utilities + final CSS parity + design-system barrel** (NEW position 6; depends on 3c-iii) | ~280 (≤ 400; -120 LoC headroom) | `src/app/globals.css` (extended, `@keyframes` rules, `.animate-spin`, image / video viewer frames, Settings view selectors) + `src/modules/design-system/{infrastructure/index.ts,presentation/Icon.tsx,presentation/Button.tsx}` (new) + `tests/test_tailwind_4_parity.py` (`@keyframes` + utility-class enumeration) + `tests/test_design_system_purity.py` (new) | reconstruction pending |
+| PR 3d | **Makefile/mount** (position 7; depends on 3c-iv + 3b) | ~240 | `Makefile` (modified, `api:` target runs `check-runtime.mjs` → `npm ci` → `npm run build:web` → `uvicorn … --port 8765`; `make css` becomes no-op shim) + `api/server.py` (modified, 1-line delta at line 54, `WEB_DIR = Path(__file__).parent.parent / "out"`) + `src/data/search-engines.js` (new, byte copy of `web/search_urls.js` with `SEARCH_ENGINES` named export) + `tests/test_smoke.py` (modified, `open()` path update) + `tests/test_static_mount.py` (new) + `tests/test_make_api_build.py` (new) | reconstruction pending |
+| PR 4a | Typed store + 4 read + 4 write (position 8; unchanged scope) | ~180 | `src/modules/browser-state/{domain/keys.ts,infrastructure/store.ts,index.ts}` (new) + `tests/test_browser_state_keys.py` (new) | reconstruction pending |
+| PR 4b | Hydration guard + Playwright zero-warnings (position 9; unchanged scope) | ~90 | `src/modules/app-shell/{presentation/AppShell.tsx,infrastructure/page-chrome.tsx}` (new) + `tests/test_hydration_console.py` (new, Playwright) | reconstruction pending |
+| PR 5a | Taxonomy module port (position 10; unchanged scope) | ~280 | `src/modules/taxonomy/{domain/taxon.ts,infrastructure/api.ts,application/useTaxonTree.ts,presentation/{Tree,DetailPanel,Breadcrumb}.tsx}` (new + extension) + `tests/test_taxonomy_infra.py` (new) | reconstruction pending |
+| PR 5b | Research module port + CDN pin (position 11; unchanged scope) | ~360 | `src/modules/research/{domain/{research-file,engine,file-node}.ts,infrastructure/{api,search-engines}.{ts,js},application/{useFileExplorer,useFileViewer}.ts,presentation/{FileExplorer,FileViewer,RawTableTreeTabs,MetaStrip,BreadcrumbPanel,Banners}.tsx}` (new) + `tests/test_research_infra.py` (new) | reconstruction pending |
+| PR 5c | E2E selectors + `data-*` contract + delete legacy (position 12; unchanged scope) | ~200 | `tests/test_e2e_file_explorer.py` (modified, DOM selector update) + `tests/test_web_toggle.py` (modified, theme toggle update) + `tests/test_evidence_baseline.py` (modified, legacy roster assertion flips to "absent") + `web/{index.html,index.css}` deletion + `web/{app,state,api,tree,breadcrumb,detail,nav,dom,banner,help,keymap,settings,search,file_explorer,file_viewer,format,search_urls}.js` deletion (18 files) + `tailwind.config.js` deletion + `web/dist/tailwind.css` no longer tracked | reconstruction pending |
+| Phase 6a | G5 hydration baseline closure (position 13; unchanged scope) | ~50 (mostly measurement) | `scripts/reconstruct_hydration_baseline.py` (new) + `scripts/g5_close.sh` (new) + `web/dist/evidence-baseline.json` (regenerated, schema-pinned by `tests/test_hydration_timing.py`) + `apply-progress.md` §Change log delta | reconstruction pending (validation work after candidate path) |
+| Phase 6b | G6 cutover rehearsal (position 14; unchanged scope) | ~120 | `scripts/rehearse_cutover.py` (new) + `tests/test_rehearse_cutover.py` (new) + `openspec/changes/complete-taxa-frontend-migration/cutover-manifest.json` (working copy; predecessor copy stays byte-identical frozen) + `apply-progress.md` §Change log delta | reconstruction pending (validation work after candidate path) |
+| Phase 6c | G4 Playwright + Lighthouse parity (position 15; unchanged scope) | ~20 (mostly measurement) | `scripts/g4_measure.sh` (new) + `out/g4-parity-report.json` (Playwright + Lighthouse artifact) + `apply-progress.md` §Change log delta | reconstruction pending (validation work after candidate path) |
 | Phase 6c slice 6c.0 (landed, non-closing) | G4 navigation-only sub-slice | ~400 (producer) + ~200 (tests) + ~15 (Makefile) | `tools/g4-capture/scripts/parity_navigation.mjs` (new; Playwright driver; isolated pinned `playwright@1.49.1`) + `tools/g4-capture/package.json` (1-line delta; `playwright@1.49.1`) + `tools/g4-capture/package-lock.json` (regenerated via `npm install --package-lock-only`) + `tests/test_capture_parity.py` (25 new hermetic tests) + `Makefile` (`parity-navigation` target) + `tools/g4-capture/README.md` (slice 3 contract documented as non-closing) + `apply-progress.md` §Change log delta | landed (navigation-only; G4 stays blocked; no G3 Tier-2 / cutover status flip) |
 | PR 5c.2-B.1b-i (landed, non-closing) | React export capture CLI + Chromium navigation runner | ~250 authored (run.mjs + chromium-driver.mjs + README + package.json +3) + ~30 OpenSpec docs (EN+ES) | `tools/react-e2e-harness/scripts/run.mjs` (new; CLI; `--origin` + `--output-root` mandatory; fail-closed origin validation; atomic timestamped `evidence.json` only on success; dynamic `runFn` injection) + `tools/react-e2e-harness/scripts/chromium-driver.mjs` (new; headless Chromium navigation; dynamic `playwright` import; React data-contract assertions; concise trace; reliable browser close) + `tools/react-e2e-harness/package.json` (+3 lines; `scripts.capture = "node scripts/run.mjs"`) + `tools/react-e2e-harness/README.md` (concise caller-provided-origin usage + fail-closed list + deferral list) + 6 OpenSpec doc files (§Change log / §Addendum entries; deferral narrowed) | landed (capture CLI + runner only; G4 stays blocked; no G3 Tier-2 / cutover status flip; no fixture API server, no export HTTP server, no Makefile target, no hermetic driver tests, no legacy deletion, no G4 aggregation) |
 | PR 5c.2-B.1b-ii-c (landed, non-closing) | React E2E composition orchestrator + CLI driver + Makefile target + `capture:composed` package-script + hermetic composition test slice | ~25 authored delta on `composed-capture.mjs` (partial impl preserved; LOOPBACK_HOSTS + tightened `validateTaxonId`/`validateHost` + injected `startFixtureFn`/`startExportFn`) + ~289 authored on `tests/test_5c_2_b_react_harness.py` (composition block, 11 hermetic cases) + ~3 each in `tasks.md` / `tasks-es.md` (entry flip) + ~6 OpenSpec doc files (this addendum + mirror) | `tools/react-e2e-harness/scripts/composed-capture.mjs` (partial impl + validation tightening + injected `startFixtureFn`/`startExportFn`) + `Makefile` (existing `capture-react-e2e` recipe; requires `OUTPUT_ROOT`) + `tools/react-e2e-harness/package.json` (existing `scripts.capture:composed`) + `tests/test_5c_2_b_react_harness.py` (composition block) + 6 OpenSpec doc files | landed (composition + CLI + Makefile target + package script + hermetic test slice only; G4 stays blocked; no G3 Tier-2 / cutover status flip; no real Chromium execution; no e2e selector modernization; no legacy `web/*` deletion; no G4 aggregation) |
-| PR 3e | Atomic cutover (unchanged) | ~120 (mostly `apply-progress.md` delta) | `apply-progress.md` (gate-status footer flip + change-log entry) + re-runs of `tests/test_verify_consumers.py`, `tests/test_verify_build.py`, `make api`, `make smoke` | reconstruction pending (gated on all six gates green) |
+| PR 3e | Atomic cutover (position 16; unchanged scope) | ~120 (mostly `apply-progress.md` delta) | `apply-progress.md` (gate-status footer flip + change-log entry) + re-runs of `tests/test_verify_consumers.py`, `tests/test_verify_build.py`, `make api`, `make smoke` | reconstruction pending (gated on all six gates green) |
 
 **Sub-PR count**: **16** (1 toolchain bootstrap + 1 App Router
-static export + **4 CSS children (3c-a / 3c-b / 3c-c / 3c-d)**
-+ 1 Makefile/mount + 2 browser-state + 2 capability ports +
-1 e2e + delete legacy + 3 Phase 6 validation + 1 atomic
-cutover).
+static export + **4 3c sub-sequence** (tokens/base/dark, taxonomy
+tree/detail, Search/Folder/global Browser, animations/utilities +
+final CSS parity + design-system barrel) + 1 Makefile/mount + 2
+browser-state + 2 capability ports + 1 e2e + delete legacy + 3
+Phase 6 validation + 1 atomic cutover).
 
-**Total authored**: ~3,615 LoC across the 16 sub-PRs (Δ
-~+1,333 LoC from the previous ~2,282 forecast; the CSS
-re-split partitions the 1,963-line legacy inline CSS
-migration into 4 children totaling ~1,500 authored lines
-(replacing the previous single PR 3c's ~232 LoC) and
-adds 4 separate triangulation tests; the dependency-
-defect fix reshuffles ~30 LoC between PR 3b (-25), PR
-3c-a (+2), and PR 4b (+30) without changing the chain
-topology). Largest sub-PRs are the **four CSS children
-3c-a / 3c-b / 3c-c** at ≤ 400 LoC each (right at the
-400-line per-PR review budget with 0 LoC headroom on
-the tightest child); **5b** is at ~395 LoC (-5 LoC
-headroom). PR 3d is at ~240 LoC (-160 LoC / -40 %
-headroom against the 400-line budget). The sole
+**Total authored**: ~3,485 LoC across the 16 sub-PRs (up from
+~2,245 across 13 sub-PRs; the +1,240 delta is the full port of
+the legacy inline `<style>` block). Largest sub-PR is **3c-i at
+~390 LoC** (under 400-line budget with -10 LoC headroom); the
+previously-largest 5b is now second at ~360 LoC. The sole
 `size:exception` is user-approved for PR 3a's regenerated
 `package-lock.json`; its authored work remains ≤400 and
-unrelated lockfile churn is rejected. The legacy
-`web/index.html` deletion at PR 5c retires the
-1,963-line legacy inline CSS the four CSS children
-migrated into `src/app/globals.css`.
+unrelated lockfile churn is rejected. **No new
+`size:exception`** is opened for the 3c sub-sequence. Heaviest
+of the new re-scoped sub-PRs is **3d** at ~240 LoC (under
+400-line budget with -160 LoC headroom).
 
 ### Reconstruction order (deterministic, sequential along the chain)
 
 ```
-3a (toolchain bootstrap) →
-3b (App Router static export) →
-3c-a (tokens / base / dark mode) →
-3c-b (tree + inline Overview styles) →
-3c-c (Search / Folder / global Browser styles) →
-3c-d (animations / utilities + final parity) →
+3a (toolchain bootstrap; PR #144) →
+3b (App Router static export; PR #145 + PR #146 reconcile) →
+3c-i (tokens / base / dark mode; bases off tracker) →
+3c-ii (taxonomy tree / detail styling) →
+3c-iii (Search / Folder / global Browser styling) →
+3c-iv (animations / utilities + final CSS parity + design-system barrel) →
 3d (Makefile/mount) →
 4a → 4b → 5a → 5b → 5c →
 6a (G5) → 6b (G6) → 6c (G4 measurement) →
@@ -223,25 +183,26 @@ migrated into `src/app/globals.css`.
 
 **Chain strategy: `feature-branch-chain`** (user-selected).
 The existing `docs/complete-taxa-frontend-migration-plan`
-branch (referenced as **PR #146**) is the **tracker**:
-draft / no-merge, and the **only** PR that targets
-`develop`. Child PR 3a targets the tracker; every later
-child targets its **immediate predecessor branch**. The
-first new CSS child (PR 3c-a) treats the tracker PR #146
-as the merged starting point for the four-child CSS
-re-split. This supersedes the `AGENTS.md` §4
-direct-to-`develop` default for this change.
+branch is the **tracker**: draft / no-merge, and the **only**
+PR that targets `develop`. Child PR 3a targets the tracker;
+PR 3b targets PR 3a; **PR 3c-i targets the tracker** (the
+`docs/complete-taxa-frontend-migration-plan` branch **after**
+PR #146 reconciliation merges, picking up the already-merged
+3a + 3b + reconcile without an extra reconcile step); every
+later child targets its **immediate predecessor branch**.
+This supersedes the `AGENTS.md` §4 direct-to-`develop`
+default for this change.
 
 | Position | Sub-PR | Branch | Base (PR target) |
 |---|---|---|---|
-| Tracker | — | `docs/complete-taxa-frontend-migration-plan` (PR #146) | `develop` — **draft / no-merge** |
-| 1 / 16 | 3a | `feat/complete-taxa-frontend-migration-01-3a` | `docs/complete-taxa-frontend-migration-plan` (tracker) |
-| 2 / 16 | 3b | `feat/complete-taxa-frontend-migration-02-3b` | `feat/complete-taxa-frontend-migration-01-3a` |
-| 3 / 16 | 3c-a | `feat/complete-taxa-frontend-migration-03-3c-a` | `feat/complete-taxa-frontend-migration-02-3b` |
-| 4 / 16 | 3c-b | `feat/complete-taxa-frontend-migration-04-3c-b` | `feat/complete-taxa-frontend-migration-03-3c-a` |
-| 5 / 16 | 3c-c | `feat/complete-taxa-frontend-migration-05-3c-c` | `feat/complete-taxa-frontend-migration-04-3c-b` |
-| 6 / 16 | 3c-d | `feat/complete-taxa-frontend-migration-06-3c-d` | `feat/complete-taxa-frontend-migration-05-3c-c` |
-| 7 / 16 | 3d | `feat/complete-taxa-frontend-migration-07-3d` | `feat/complete-taxa-frontend-migration-06-3c-d` |
+| Tracker | — | `docs/complete-taxa-frontend-migration-plan` | `develop` — **draft / no-merge** (now carries PR #144 + PR #145 + PR #146 merges) |
+| 1 / 16 | 3a | `feat/complete-taxa-frontend-migration-01-3a` | `docs/complete-taxa-frontend-migration-plan` (tracker, **PR #144 merged**) |
+| 2 / 16 | 3b | `feat/complete-taxa-frontend-migration-02-3b` | `feat/complete-taxa-frontend-migration-01-3a` (**PR #145 merged**) |
+| 3 / 16 | 3c-i | `feat/complete-taxa-frontend-migration-03-3c-i` | `docs/complete-taxa-frontend-migration-plan` (tracker, **after PR #146 reconciliation merges**) |
+| 4 / 16 | 3c-ii | `feat/complete-taxa-frontend-migration-04-3c-ii` | `feat/complete-taxa-frontend-migration-03-3c-i` |
+| 5 / 16 | 3c-iii | `feat/complete-taxa-frontend-migration-05-3c-iii` | `feat/complete-taxa-frontend-migration-04-3c-ii` |
+| 6 / 16 | 3c-iv | `feat/complete-taxa-frontend-migration-06-3c-iv` | `feat/complete-taxa-frontend-migration-05-3c-iii` |
+| 7 / 16 | 3d | `feat/complete-taxa-frontend-migration-07-3d` | `feat/complete-taxa-frontend-migration-06-3c-iv` |
 | 8 / 16 | 4a | `feat/complete-taxa-frontend-migration-08-4a` | `feat/complete-taxa-frontend-migration-07-3d` |
 | 9 / 16 | 4b | `feat/complete-taxa-frontend-migration-09-4b` | `feat/complete-taxa-frontend-migration-08-4a` |
 | 10 / 16 | 5a | `feat/complete-taxa-frontend-migration-10-5a` | `feat/complete-taxa-frontend-migration-09-4b` |
@@ -258,31 +219,32 @@ retargets automatically when the base branch is merged and
 deleted). The tracker accumulates the full feature and merges
 to `develop` only after PR 3e — the last child — lands.
 
-**Per-sub-PR dependency (corrective plan revision + dependency-defect fix + CSS re-split contract)**:
+**Per-sub-PR dependency (corrective plan revision + PR 3c
+sub-sequence replan contract)**:
 
 | Position | Depends on | Satisfies (witness) |
 |---|---|---|
-| 1 / 3a (toolchain bootstrap) | — | `npm ci` exit 0; `node scripts/check-runtime.mjs` exit 0 on Node ≥ 20.9.0; `npx tsc --noEmit` resolves all `@taxa/*` aliases |
-| 2 / 3b (App Router static export) | 1 | `npx next build` exit 0; `out/index.html` non-empty with viewport meta + Raleway preload |
-| 3 / 3c-a (tokens / base / dark mode) | 1 + 2 | `src/app/globals.css::@theme` carries every legacy `:root` / `[data-theme="dark"]` / `--realm-*` token; `import "./globals.css";` integration in `src/app/layout.tsx`; design-system barrel exported |
-| 4 / 3c-b (tree + inline Overview styles) | 3 | `globals.css::@layer components` carries taxonomy selectors (`.taxa-tree`, `.tree-row`, `.kebab`, `.detail-panel`, `.tab-strip`, `.overview-tab`, `.breadcrumb`, …) |
-| 5 / 3c-c (Search / Folder / global Browser styles) | 4 | `globals.css::@layer components` carries research / chrome selectors (`.search-tab`, `.search-link`, `.folder-tab`, `.header-browser-tab`, `.research-explorer`, …) |
-| 6 / 3c-d (animations / utilities + final parity) | 5 | `globals.css::@layer base` carries `@keyframes` (`spin`), `color-mix()` selectors, utility-class surface, body reset, first-child reset; `tests/test_tailwind_4_parity.py` final parity test enumerates the 1,963-line legacy inline CSS end-to-end |
-| 7 / 3d (Makefile/mount) | 2 + 6 | `make api` exit 0; uvicorn binds only `127.0.0.1:8765`; `curl /index.html` returns `out/index.html`; AC-21 contract preserved |
-| 8 / 4a (typed store) | 3 | 4 read + 4 write sites in `src/modules/browser-state/`; no other module touches `localStorage` |
-| 9 / 4b (hydration guard + AppShell integration) | 8 + 2 + 3 | Playwright zero-hydration-warnings; `AppShell` integrated into `src/app/{layout,page}.tsx`; the dependency-defect fix and the design-system barrel from PR 3c-a are live |
-| 10 / 5a (taxonomy port) | 9 + 4 | Taxonomy view-models render; tree-source toggle rehydrates via `localStorage`; the taxonomy presentation layer rides on PR 3c-b's `@layer components` selectors |
-| 11 / 5b (research port + CDN pin) | 10 + 7 + 5 | Research files render via 9-format dispatcher; CDN URLs pinned; the research presentation layer rides on PR 3c-c's `@layer components` selectors |
-| 12 / 5c (e2e + delete legacy) | 11 + 6 | E2E selectors updated; `data-*` contract preserved; legacy `web/*` deleted (the `web/index.html` deletion retires the 1,963-line legacy inline CSS the four CSS children migrated into `src/app/globals.css`) |
+| 1 / 3a (toolchain bootstrap) | — | `npm ci` exit 0; `node scripts/check-runtime.mjs` exit 0 on Node ≥ 20.9.0; `npx tsc --noEmit` resolves all `@taxa/*` aliases. **Merged as PR #144 on the tracker.** |
+| 2 / 3b (App Router static export) | 1 | `npx next build` exit 0; `out/index.html` non-empty with viewport meta + Raleway preload. **Merged as PR #145 on the tracker, with PR #146 reconciliation also merged.** |
+| 3 / 3c-i (tokens / base / dark mode) | tracker after PR #146 (= 1 + 2 + reconcile) | `src/app/globals.css::@theme` declares every legacy `:root` token; `[data-theme="dark"]` cascade present; `--realm-*` family present; parity test enumerates every legacy `:root` token and `var(--name)` reference; `out/_next/static/chunks/*.css` carries the expected declarations. **Bases off the tracker** (not off `feat/complete-taxa-frontend-migration-02-3b-reconcile`) so the 3c sub-sequence picks up the already-merged 3a + 3b + reconcile without an extra reconcile step. |
+| 4 / 3c-ii (taxonomy tree / detail styling) | 3 | `src/app/globals.css` carries every legacy taxonomy selector (`.tier-header`, `.tree-row`, `.rank-badge`, `.scientific-name`, `.tree-source-toggle`, `#detail-panel`, `.detail-card`, `.detail-section`, `.overview-section`, `.detail-item`, `.search-pulse`, `.detail-tabs`, `.search-icon-btn`, `.materialize-btn`, kebab, materialize modal, realm-tinted `.tree-row[data-realm="…"]`); parity test enumerates each. |
+| 5 / 3c-iii (Search / Folder / global Browser styling) | 4 | `src/app/globals.css` carries every legacy browser / search / folder selector (`.toast`, `.search-engines-grid`, `.search-category-header`, `.search-engine-btn`, `.fex-meta-strip`, `.fex-tab-strip`, `.fex-snippet-frame`, `.fex-shell`, `.fex-tree-pane`, `.fex-viewer-pane`, `.fex-splitter`, `.fex-row`, `.fex-tree-header`, `.fex-children`, `.fex-banner`, `.fex-empty-state`, `.fex-search-*`, `.fex-csv-*`, `.fex-json-*`, `.fex-tree-truncated`); parity test enumerates each. |
+| 6 / 3c-iv (animations / utilities + final CSS parity + design-system barrel) | 5 | `src/app/globals.css` carries every legacy `@keyframes` rule (`detail-card-enter`, `detail-card-leave`, `search-pulse-anim`, `materialize-spin`, `toast-slide-in`) + `.animate-spin` + image / video viewer frames + Settings view selectors; `src/modules/design-system/` barrel exports `<Icon>` + `<Button>`; parity test enumerates every legacy utility class; design-system purity test strips hex literals from `src/` outside the design-system module. |
+| 7 / 3d (Makefile/mount) | 6 + 2 | `make api` exit 0; uvicorn binds only `127.0.0.1:8765`; `curl /index.html` returns `out/index.html`; AC-21 contract preserved |
+| 8 / 4a (typed store) | 6 | 4 read + 4 write sites in `src/modules/browser-state/`; no other module touches `localStorage` |
+| 9 / 4b (hydration guard) | 8 + 2 | Playwright zero-hydration-warnings; `AppShell` uses `mounted` flag reserved at `src/app/page.tsx` |
+| 10 / 5a (taxonomy port) | 9 | Taxonomy view-models render; tree-source toggle rehydrates via `localStorage` |
+| 11 / 5b (research port + CDN pin) | 10 + 7 | Research files render via 9-format dispatcher; CDN URLs pinned |
+| 12 / 5c (e2e + delete legacy) | 11 | E2E selectors updated; `data-*` contract preserved; legacy `web/*` deleted |
 | 13–15 / 6a, 6b, 6c (validation) | 12 | G5 reproducible; G6 PASS; G4 PASS; `apply-progress.md` §Change log flips for each |
 | 16 / 3e (atomic cutover) | 13, 14, 15 + G1/G2/G3 Tier-1 carried | All six gates green; cutover-manifest Tier-2 flip; uvicorn serves `out/index.html` from production build |
 
 **Phase 6 (6a, 6b, 6c) is validation work**, not a migration
 objective. It runs **after** the complete candidate path
-(positions 1–9) is green and accumulated on the tracker, and
+(positions 1–12) is green and accumulated on the tracker, and
 **before** PR 3e can land. Phase 6 may ship as three chain
-links (the default: positions 10 / 11 / 12) or collapse into
-a single child PR at position 10, depending on the
+links (the default: positions 13 / 14 / 15) or collapse into
+a single child PR at position 13, depending on the
 maintainer's `ask-on-risk` decision; collapsing shortens the
 chain without changing the topology (the batch still targets
 the PR 5c branch, and PR 3e still targets the last Phase 6
@@ -717,124 +679,104 @@ four-set cutover — **no subset revert is supported**.
         — faithful translations of the high-level updates
         above; no extra content introduced; per-domain
         specs remain out of scope.
+### 2026-09-02 — PR 3c sub-sequence replan (this entry)
+
+- **State of the tracker at the replan**: PR #144 (3a,
+  toolchain bootstrap, ~210 LoC authored + generated
+  lockfile, lockfile-only size:exception) **merged** on the
+  tracker; PR #145 (3b, App Router static export, 392
+  changed lines) **merged**; PR #146 (3b reconciliation,
+  target `feat/complete-taxa-frontend-migration-02-3b`)
+  **merged**. The tracker
+  `docs/complete-taxa-frontend-migration-plan` now carries
+  the 3a + 3b + reconcile state. Nothing has reached
+  `develop`; the tracker remains draft / no-merge.
+- **Defect identified**: the original single PR 3c at
+  position 3 claimed ~230 LoC while the legacy inline
+  `<style>` block in `web/index.html` (lines 14–1972 =
+  **1,963 lines**) had to be ported verbatim into Tailwind 4
+  (`@theme` for tokens, `@layer base` for the cascade, plus
+  the design-system barrel). PR 3c was therefore
+  unsatisfiable against the 400-line per-PR review budget.
+- **PR 3c sub-sequence replan applied**: the single PR 3c is
+  replaced by **four reviewable children at positions 3–6**:
+  - **PR 3c-i (position 3)** — tokens / base / dark mode
+(~390 LoC). Lands `src/app/globals.css` `@theme` block
+with every legacy `:root` token, `[data-theme="dark"]`
+cascade, `--realm-*` family, body / html / `main > :first-child`
+resets, and global focus-visible selectors. Parity test
+enumerates every legacy `:root` token and `var(--name)`
+reference.
+  - **PR 3c-ii (position 4)** — taxonomy tree / detail
+styling (~380 LoC). Extends `src/app/globals.css` with
+the legacy taxonomy selectors (`.tier-header`, `.tree-row`,
+`.rank-badge`, `.scientific-name`, `.tree-source-toggle`,
+`#detail-panel`, `.detail-card`, `.detail-section`,
+`.overview-section`, `.detail-item`, `.search-pulse`,
+`.detail-tabs`, `.search-icon-btn`, `.materialize-btn`,
+kebab, materialize modal, realm-tinted
+`.tree-row[data-realm="…"]` variants).
+  - **PR 3c-iii (position 5)** — Search / Folder / global
+Browser styling (~390 LoC). Extends `src/app/globals.css`
+with the legacy browser / search / folder selectors
+(`.toast`, `.search-engines-grid`, `.search-category-header`,
+`.search-engine-btn`, `.fex-meta-strip`, `.fex-tab-strip`,
+`.fex-snippet-frame`, `.fex-shell`, `.fex-tree-pane`,
+`.fex-viewer-pane`, `.fex-splitter`, `.fex-row`,
+`.fex-tree-header`, `.fex-children`, `.fex-banner`,
+`.fex-empty-state`, `.fex-search-*`, `.fex-csv-*`,
+`.fex-json-*`, `.fex-tree-truncated`).
+  - **PR 3c-iv (position 6)** — animations / utilities +
+final CSS parity + design-system barrel (~280 LoC).
+Extends `src/app/globals.css` with `@keyframes` rules,
+`.animate-spin`, image / video viewer frames, Settings
+view selectors; ships `src/modules/design-system/`
+barrel (`<Icon>` + `<Button>`); parity test enumerates
+every legacy utility class; design-system purity test
+strips hex literals.
+- **Renumbering applied** to keep the dependency contract
+  linear: `3d → 7`, `4a → 8`, `4b → 9`, `5a → 10`,
+  `5b → 11`, `5c → 12`, `6a → 13`, `6b → 14`, `6c → 15`,
+  `3e → 16`. The post-3c children keep their predecessor
+  task numbering and scope; only the position index moves.
+- **PR 3c-i base = the tracker** (after PR #146 lands). This
+  is the cleanest base for the 3c sub-sequence: it picks up
+  the already-merged 3a + 3b + reconcile state without
+  needing an extra reconcile step. Every later 3c child
+  targets its immediate predecessor 3c branch.
+- **Branch names** (new): `feat/complete-taxa-frontend-migration-03-3c-i`,
+  `…-04-3c-ii`, `…-05-3c-iii`, `…-06-3c-iv`; renumbered:
+  `…-07-3d`, `…-08-4a`, `…-09-4b`, `…-10-5a`, `…-11-5b`,
+  `…-12-5c`, `…-13-6a`, `…-14-6b`, `…-15-6c`, `…-16-3e`.
+- **Sub-PR count**: **16** (was 13; +3 from the 3c
+  sub-sequence split).
+- **Total authored**: ~3,485 LoC (up from ~2,245 across 13
+  sub-PRs; the +1,240 delta is the full port of the legacy
+  inline `<style>` block). Largest sub-PR is **3c-i at ~390
+  LoC** (-10 LoC headroom under 400). The previously-largest
+  5b is now second at ~360 LoC.
+- **No new `size:exception`** is opened. The PR 3a lockfile
+  exception remains the sole one. **All 16 sub-PRs ≤ 400 LoC
+  authored.**
+- **Approach A, FastAPI/SQLite, frozen predecessor, Feature
+  Branch Chain strategy remain unchanged.**
+- **`tasks.md`, `tasks-es.md`, `design.md`, `design-es.md`,
+  `apply-progress.md`, `apply-progress-es.md`, `spec.md`,
+  `spec-es.md` re-authored** with the 16-child topology,
+  the 3c sub-sequence sections (3c-i / 3c-ii / 3c-iii / 3c-iv
+  replacing the original single Phase 3c), the renumbered
+  later children, the updated chain topology table, the
+  updated per-sub-PR dependency table, the updated Review
+  Workload Forecast, and the updated Forecast reconciliation.
+- No code committed, pushed, or applied. The apply worker
+  reads this replan when the next PR window opens; the
+  apply worker creates the `feat/complete-taxa-frontend-migration-03-3c-i`
+  worktree from the tracker (post-PR #146), not from
+  `feat/complete-taxa-frontend-migration-02-3b-reconcile`,
+  per the §Reconstruction manifest step 1 contract.
 
 > (Subsequent per-sub-PR entries appended below by the apply
         > worker, one block per sub-PR merge.)
-
-    ### 2026-09-02 — CSS re-split (this entry)
-
-    - **Defect identified by the apply gate's pre-flight
-      re-audit**: the previous PR 3c (position 3/13) was
-      tasked with migrating the legacy `web/index.html`
-      inline `<style>` block of **1,963 lines** in a single
-      sub-PR while staying under the 400-line per-PR review
-      budget — the migration cannot fit.
-    - **Corrective re-scoping applied**: the CSS portion of
-      the migration is **re-split into four chained
-      children** (PR 3c-a / PR 3c-b / PR 3c-c / PR 3c-d),
-      each ≤ 400 author lines and partitioned by concern:
-      tokens / base / dark mode (3c-a); tree + inline
-      Overview styles (3c-b); Search / Folder / global
-      Browser styles (3c-c); animations / utilities + final
-      parity (3c-d, which ships the consolidated
-      `tests/test_tailwind_4_parity.py` final parity
-      test). The four CSS children collectively migrate
-      the 1,963 legacy inline CSS lines into
-      `src/app/globals.css` (≤ 1,500 authored lines plus
-      Tailwind 4 base reset, well under the predecessor
-      `out/_next/static/chunks/*.css` budget); the legacy
-      `<style>` block is retired at PR 5c.
-    - **Tracker PR #146 is the merged starting point** for
-      the first new CSS child (PR 3c-a) — the tracker
-      branch remains draft / no-merge and is the integration
-      point PR 3c-a targets once its predecessor (PR 3b)
-      has merged.
-    - **Renumbering**: every later child shifts position by
-      +3 to accommodate the four CSS children (3d 4→7;
-      4a 5→8; 4b 6→9; 5a 7→10; 5b 8→11; 5c 9→12; 6a
-      10→13; 6b 11→14; 6c 12→15; 3e 13→16). The semantic
-      labels (3a, 3b, 3c-a, 3c-b, 3c-c, 3c-d, 3d, 4a, 4b,
-      5a, 5b, 5c, 6a, 6b, 6c, 3e) are preserved; only the
-      position counter (NN in
-      `feat/complete-taxa-frontend-migration-NN-XXX`) and
-      base-branch references change.
-    - **16-child count** replaces the previous 13-child
-      count; `feature-branch-chain` strategy and the
-      "tracker is the only PR targeting `develop`" contract
-      hold.
-    - **Total authored is now ~3,615 LoC** (Δ ~+1,333 LoC
-      from the previous ~2,282; the CSS re-split partitions
-      the 1,963-line legacy inline CSS migration into 4
-      children totaling ~1,500 LoC (replacing the previous
-      single PR 3c's ~232 LoC) and adds 4 separate
-      triangulation tests). Largest sub-PRs are the **four
-      CSS children 3c-a / 3c-b / 3c-c** at ≤ 400 LoC each
-      (right at the 400-line per-PR review budget with 0
-      LoC headroom on the tightest child); **5b** is at
-      ~395 LoC (-5 LoC headroom). PR 3d is at ~240 LoC
-      (-160 LoC / -40 % headroom). **No new
-      `size:exception` required** — only the prior PR 3a
-      `package-lock.json` exception remains.
-    - **Approach A, FastAPI/SQLite, the frozen predecessor,
-      and the per-domain specs stay unchanged**.
-    - **Code / commit / push / PR / chain-topology
-      constraints honored**:
-      - No code, commit, push, PR, or `git revert`
-        performed in this revision.
-      - No PR base changes; no chain reordering beyond the
-        CSS re-split's renumbering of every later child by
-        +3 positions.
-      - Predecessor `migrate-nextjs-tailwind4/` stays
-        byte-identical frozen.
-      - No source-code edit performed (this is a
-        high-level planning revision only).
-    - **Artifacts updated** (high-level only; per-domain
-      specs remain out of scope):
-      - `openspec/changes/complete-taxa-frontend-migration/design.md`
-        — sub-PR slice table updated to replace single PR 3c
-        with four CSS children (3c-a / 3c-b / 3c-c / 3c-d at
-        positions 3/16 / 4/16 / 5/16 / 6/16 respectively);
-        every later child renumbered by +3 (3d 4→7; 4a 5→8;
-        4b 6→9; 5a 7→10; 5b 8→11; 5c 9→12; 6a 10→13; 6b
-        11→14; 6c 12→15; 3e 13→16); `Dependency order`
-        section updated to mark the CSS re-split as the
-        contract; `Affected files` table updated for
-        `src/app/globals.css` (initial scaffold from PR
-        3c-a + `@layer components` extensions from PR 3c-b /
-        3c-c + `@layer base` finalisation from PR 3c-d),
-        the new test files
-        (`tests/test_tailwind_4_tokens.py`,
-        `tests/test_taxonomy_styles.py`,
-        `tests/test_research_styles.py`,
-        `tests/test_tailwind_4_parity.py`), and the design-
-        system barrel; new note added under "Sub-PR slice
-        under Approach A" about the CSS re-split.
-      - `openspec/changes/complete-taxa-frontend-migration/spec.md`
-        — clarifying note added before "Next step" about the
-        CSS re-split; the previous Dependency-defect fix
-        section updated to reference PR 3c-a instead of PR
-        3c; per-domain acceptance criteria, backend
-        contract, validation gates, and rollback unit
-        unchanged.
-      - `openspec/changes/complete-taxa-frontend-migration/tasks.md`
-        — header notes section updated with a new "2026-09-02
-        — CSS re-split (this revision)" block; scope
-        boundary section updated for the four CSS children
-        and the 16-child topology; Review Workload Forecast
-        table updated (~3,615 LoC across 16 sub-PRs);
-        chain topology table updated to 16 rows; chain
-        diagram updated; Per-sub-PR dependency section
-        updated for 3c-a / 3c-b / 3c-c / 3c-d and every
-        later child; Phase 3c replaced with four new phases
-        (Phase 3c-a, Phase 3c-b, Phase 3c-c, Phase 3c-d)
-        each ≤ 400 author lines with strict-TDD task
-        checklists; per-task evidence tables updated;
-        Phase 3d / 4a / 4b / 5a / 5b / 5c / 6a / 6b / 6c / 3e
-        position references updated to the new 16-child
-        topology (was 13/13, now 7/16 / 8/16 / 9/16 / 10/16
-        / 11/16 / 12/16 / 13/16 / 14/16 / 15/16 / 16/16
-        respectively); Forecast reconciliation updated to
-        ~3,615 LoC.
       - `openspec/changes/complete-taxa-frontend-migration/apply-progress.md`
         — Reconstruction State section updated with the
         four CSS children replacing the previous single PR
@@ -923,80 +865,88 @@ every gate below is PASS:
 
 ---
 
-## Forecast reconciliation (corrected)
+## Forecast reconciliation (corrected + PR 3c sub-sequence replan)
+
+> **2026-09-02 — PR 3c sub-sequence replan**: the original
+> single PR 3c at ~230 LoC was unsatisfiable against the
+> 1,963-line legacy inline `<style>` block. The 3c slot is
+> now four reviewable children at positions 3–6. Total
+> authored LoC rises from ~2,245 to ~3,485 (+1,240) because
+> every legacy CSS rule is ported. The largest sub-PR is
+> **3c-i at ~390 LoC** (-10 LoC headroom under 400). All 16
+> children stay ≤ 400 LoC authored. **No new size:exception**
+> is opened; the PR 3a lockfile exception remains the sole
+> one. **Approach A, FastAPI/SQLite, the frozen predecessor,
+> and the Feature Branch Chain strategy remain unchanged.**
 
 - **3a** ~210 LoC authored (toolchain bootstrap — absorbs
 ~40 LoC of `package.json` dep pins + ~25 LoC of
   `scripts/check-runtime.mjs` + ~50 LoC of `tsconfig.json`
   base + 1 LoC `.nvmrc` + ~95 LoC of two new tests);
-  **3b** ~150 (App Router static-export bootstrap,
-  **self-contained** — minimal semantic placeholder
-  layout/page; no AppShell mount, no globals.css import;
-  the dependency-defect fix); **3c-a** ~400 (tokens /
-  base / dark mode — `src/app/globals.css` initial
-  scaffold with `@theme` + design-system barrel +
-  1-line `import "./globals.css";` integration into
-  `src/app/layout.tsx`; the dependency-defect-fix seam);
-  **3c-b** ~400 (tree + inline Overview styles —
-  `@layer components` taxonomy selectors);
-  **3c-c** ~400 (Search / Folder / global Browser styles
-  — `@layer components` research / chrome selectors);
-  **3c-d** ~300 (animations / utilities + final parity —
-  `@layer base` `@keyframes` / `color-mix()` / utility
-  classes / body reset / first-child reset + the
-  consolidated `tests/test_tailwind_4_parity.py`);
-  **3d** ~240 (the heaviest re-scoped sub-PR at the
-  position-7 boundary, fusing Makefile + WEB_DIR + AC-21);
-  **4a** ~180; **4b** ~120 (hydration guard + AppShell
-  integration into `src/app/{layout,page}.tsx`; the
-  dependency-defect fix); **5a** ~310; **5b** ~395;
+  **3b** ~175 (App Router static export; witness now
+  satisfiable); **3c-i** ~390 (tokens / base / dark mode +
+  global focus-visible selectors + `@theme` + dark cascade);
+  **3c-ii** ~380 (taxonomy tree / detail styling + kebab +
+  materialize modal + realm-tinted tree variants);
+  **3c-iii** ~390 (Search / Folder / global Browser styling
+  + file explorer chrome + CSV / JSON viewers);
+  **3c-iv** ~280 (animations + image / video viewer frames +
+  Settings view + design-system barrel + final utility-class
+  parity); **3d** ~240 (the heaviest re-scoped sub-PR at
+  the position-7 boundary, fusing Makefile + WEB_DIR + AC-21);
+  **4a** ~180; **4b** ~90; **5a** ~280; **5b** ~360;
   **5c** ~200; **6a** ~50; **6b** ~120; **6c** ~20;
   **3e** ~120 (mostly `apply-progress.md` delta).
-  **Total**: ~3,615 LoC authored across **16** sub-PRs
-  (Δ ~+1,333 LoC from the previous ~2,282; the CSS
-  re-split partitions the 1,963-line legacy inline CSS
-  migration into 4 children totaling ~1,500 LoC
-  (replacing the previous single PR 3c's ~232 LoC) and
-  adds 4 separate triangulation tests; the
-  dependency-defect fix removes ~25 LoC from PR 3b (no
-  AppShell/globals.css wiring) and adds ~30 LoC to PR
-  4b (AppShell integration seam) plus ~2 LoC to PR 3c-a
-  (`import "./globals.css";` line); each sub-PR stays
-  well under 400).
-- Largest sub-PRs are the **four CSS children 3c-a /
-  3c-b / 3c-c** at ≤ 400 LoC each (right at the 400-line
-  per-PR review budget with 0 LoC headroom on the
-  tightest child); **5b** is at ~395 LoC (-5 LoC
-  headroom). PR 3d is at ~240 LoC (-160 LoC / -40 %
-  headroom against the 400-line budget). **No new
-  `size:exception` required** — only the prior PR 3a
-  `package-lock.json` exception remains.
+  **Total**: ~3,485 LoC authored across **16 sub-PRs** (up
+  from ~2,245 across 13 sub-PRs; the +1,240 delta is the
+  full port of the legacy inline `<style>` block).
+- Largest sub-PR is **3c-i at ~390 LoC**, with -10 LoC
+  (-2.5 %) headroom against the **400-line per-PR review
+  budget**. The previously-largest 5b is now second at
+  ~360 LoC (-40 LoC, -10 % headroom). **No `size:exception`
+  required** (the PR 3a lockfile exception remains the sole
+  one).
+- Heaviest 3c sub-child is **3c-i at ~390 LoC**; the
+  lightest is **3c-iv at ~280 LoC** (because the design-
+  system barrel is small). Sub-PR **6c** is the smallest
+  overall at ~20 LoC; the G4 measurement artifact is
+  recorded in `apply-progress.md` rather than in a code
+  diff.
 - **Chained PRs recommended**: **Yes** — each sub-PR fits
-  the per-PR budget on its own, but the ~3,615-line total
+  the per-PR budget on its own, but the ~3,485-line total
   and the atomic cutover (the feature MUST integrate before
   it reaches `develop`) put this change in the Feature
-  Branch Chain gate.
+  Branch Chain gate. The 3c sub-sequence itself is four
+  chained children because the 1,963-line inline CSS must be
+  ported verbatim into Tailwind 4 `@theme` + `@layer base`
+  and that work does not fit under 400 LoC as a single PR.
 - **Chain strategy**: **`feature-branch-chain`**
-  (user-selected). Tracker
-  `docs/complete-taxa-frontend-migration-plan` (referenced
-  as PR #146) is draft/no-merge and is the **only** PR
-  targeting `develop`; child PR 3a targets the tracker;
-  each later child targets its immediate predecessor
-  branch. The first new CSS child (PR 3c-a) treats the
-  tracker PR #146 as the merged starting point for the
-  four-child CSS re-split. Supersedes the `AGENTS.md` §4
-  direct-to-`develop` default and the predecessor's
-  apply-progress precedent for this change.
+  (user-selected, unchanged by the 3c replan). Tracker
+  `docs/complete-taxa-frontend-migration-plan` is
+  draft/no-merge and is the **only** PR targeting
+  `develop`; PR 3a targets the tracker (now merged as PR
+  #144); PR 3b targets PR 3a (now merged as PR #145, with
+  PR #146 reconcile also merged); **PR 3c-i targets the
+  tracker** (after PR #146 lands, picking up the
+  already-merged 3a + 3b + reconcile without an extra
+  reconcile step); every later 3c child targets its
+  immediate predecessor 3c branch; every later post-3c
+  child targets its immediate predecessor branch.
+  Supersedes the `AGENTS.md` §4 direct-to-`develop`
+  default and the predecessor's apply-progress precedent
+  for this change.
 - **Delivery strategy**: **`ask-on-risk`** (per preflight;
   no risk flag is open — Approach A is FINAL, the
   predecessor is frozen, every sub-PR fits under 400
-  lines, the CSS re-split satisfies the 1,963-line legacy
-  inline CSS migration that the previous single PR 3c
-  could not).
+  lines, the corrected chain satisfies the dependency
+  order the apply gate identified as the defect, and the
+  3c sub-sequence replan satisfies the LoC budget the
+  apply gate identified as unsatisfiable for the original
+  single PR 3c).
 - **Decision needed before apply**: **No** (Approach A
   locked, chain strategy known, every sub-PR within
-  budget, dependency order corrected, CSS re-split
-  resolves the 1,963-line migration).
+  budget, dependency order corrected, 3c sub-sequence
+  replan applied).
 
 ---
 
@@ -1004,24 +954,27 @@ every gate below is PASS:
 
 - **Mode**: **Feature Branch Chain** — 1 draft/no-merge
   tracker (`docs/complete-taxa-frontend-migration-plan` →
-  `develop`) plus **16** sequential child PRs (toolchain
-  bootstrap → App Router static export → **4 CSS children
-  (3c-a / 3c-b / 3c-c / 3c-d)** → Makefile/mount → 4a →
-  4b → 5a → 5b → 5c, followed by the Phase 6 validation
-  links, followed by the PR 3e atomic cutover as the
-  last child).
-- **Total sub-PRs**: **16** (3a, 3b, 3c-a, 3c-b, 3c-c,
-  3c-d, 3d, 4a, 4b, 5a, 5b, 5c, 6a, 6b, 6c, 3e — note 6a,
-  6b, 6c are validation work after the candidate path;
-  3e is gated on all six gates green).
-- **Each sub-PR ≤ 400 LoC authored** (the four CSS
-  children ride at the 400-line budget with 0 LoC headroom
-  on the tightest child; **5b** at ~395 LoC with -5 LoC
-  headroom; 3d at ~240 LoC with -160 LoC headroom).
-  **No sub-PR exceeds the 400-line per-PR review budget.**
-  **No `size:exception` is expected or planned.**
+  `develop`) plus **16 sequential child PRs** (toolchain
+  bootstrap → App Router static export → **3c-i tokens /
+  base / dark mode → 3c-ii taxonomy tree / detail styling →
+  3c-iii Search / Folder / global Browser styling → 3c-iv
+  animations / utilities + final CSS parity + design-system
+  barrel** → Makefile/mount → 4a → 4b → 5a → 5b → 5c,
+  followed by the Phase 6 validation links, followed by the
+  PR 3e atomic cutover as the last child).
+- **Total sub-PRs**: **16** (3a, 3b, **3c-i, 3c-ii, 3c-iii,
+  3c-iv**, 3d, 4a, 4b, 5a, 5b, 5c, 6a, 6b, 6c, 3e — the
+  3c sub-sequence replaces the original single PR 3c; 6a,
+  6b, 6c are validation work after the candidate path; 3e
+  is gated on all six gates green).
+- **Each sub-PR ≤ 390 LoC authored**; **no** sub-PR exceeds
+  the 400-line per-PR review budget. **No new
+  `size:exception` is expected or planned** (the PR 3a
+  lockfile exception remains the sole one).
 - **Each child PR's base** = its **immediate predecessor
-  branch** (the tracker for PR 3a). **Only the tracker
+  branch**, **except PR 3c-i which targets the tracker**
+  (the `docs/complete-taxa-frontend-migration-plan` branch
+  after PR #146 reconciliation merges). **Only the tracker
   targets `develop`, and it stays draft / no-merge until
   the chain completes.**
 
@@ -1119,7 +1072,27 @@ bootstrap at position 1, the App Router static export at
 position 2 (now satisfiable), Tailwind/tokens at position 3,
 the Makefile/mount fused sub-PR at position 4, and the
 remaining sub-PRs in dependency-correct order at positions
-5–13. The 13-child count is preserved.
+5–13. The 13-child count was preserved at that revision.
+
+**PR 3c sub-sequence replan applied 2026-09-02** (after PR
+#144 / #145 / #146 landed on the tracker): the original
+single PR 3c at position 3 was unsatisfiable against the
+1,963-line legacy inline `<style>` block. The 3c slot is
+now **four reviewable children at positions 3–6** (`3c-i`
+tokens / base / dark mode, `3c-ii` taxonomy tree / detail
+styling, `3c-iii` Search / Folder / global Browser styling,
+`3c-iv` animations / utilities + final CSS parity +
+design-system barrel). The remaining children are
+**renumbered** (`3d → 7`, `4a → 8`, `4b → 9`, `5a → 10`,
+`5b → 11`, `5c → 12`, `6a → 13`, `6b → 14`, `6c → 15`,
+`3e → 16`). The new **16-child** chain begins with **PR
+3c-i basing off the tracker** (after PR #146 lands),
+picking up the already-merged 3a + 3b + reconcile without an
+extra reconcile step. Total authored LoC rises from ~2,245
+to ~3,485 because every legacy CSS rule is ported; the
+largest sub-PR is **3c-i at ~390 LoC** (-10 LoC headroom
+under 400). **No new `size:exception`** is opened; the PR 3a
+lockfile exception remains the sole one.
 
 **UI surface & tab-structure corrective revision applied
 2026-09-02**: the live browser inspection of
@@ -1142,95 +1115,21 @@ note): the apply gate's pre-flight re-audit identified a
 second dependency defect inside the corrected topology —
 PR 3b's `src/app/layout.tsx` imported `@taxa/app-shell` (a
 module PR 4b ships at position 9/16) and `./globals.css`
-(a file PR 3c-a ships at position 3/16), neither of
+(a file PR 3c-i ships at position 3/16), neither of
 which existed when PR 3b's `next build` witness had to
 run. The same audit flagged PR 3b.5's unsatisfiable
 `@taxa/browser-state` triangulation assertion (the
 barrel file does not exist until PR 4a). **PR 3b is
 rescoped to a self-contained App Router static-export
 bootstrap** (no AppShell, no globals.css import); the
-`import "./globals.css";` line moves into PR 3c-a; the
+`import "./globals.css";` line moves into PR 3c-i; the
 `<AppShell>` integration into `src/app/{layout,page}.tsx`
 moves into PR 4b. **Total authored after the
 dependency-defect fix is ~2,282 LoC** (Δ ~+37 LoC from
-the previous ~2,245; PR 3b shrinks ~25 LoC, PR 3c-a
+the previous ~2,245; PR 3b shrinks ~25 LoC, PR 3c-i
 grows ~2 LoC, PR 4b grows ~30 LoC); each sub-PR stays
 well under 400; **only the prior PR 3a `package-lock.json`
 exception remains**.
-
-**CSS re-split applied 2026-09-02** (this status note):
-the apply gate's pre-flight re-audit identified that PR
-3c, as scoped at the dependency-defect-fix revision, was
-**unsatisfiable** — it was tasked with migrating the
-legacy `web/index.html` inline `<style>` block of
-**1,963 lines** in a single sub-PR while staying under
-the 400-line per-PR review budget; the migration cannot
-fit. The CSS portion is therefore **re-split into four
-chained children** (PR 3c-a / PR 3c-b / PR 3c-c / PR
-3c-d) at positions 3 / 16, 4 / 16, 5 / 16, 6 / 16, each
-≤ 400 author lines and partitioned by concern: tokens /
-base / dark mode; tree + inline Overview styles;
-Search / Folder / global Browser styles; animations /
-utilities + final parity. Tracker **PR #146** is the
-merged starting point for the first new CSS child (PR
-3c-a). Every later child shifts position by +3 (3d 4→7;
-4a 5→8; 4b 6→9; 5a 7→10; 5b 8→11; 5c 9→12; 6a 10→13;
-6b 11→14; 6c 12→15; 3e 13→16). Semantic labels are
-preserved; only the position counter and base-branch
-references change. The four CSS children collectively
-migrate the 1,963 legacy inline CSS lines into
-`src/app/globals.css` (≤ 1,500 authored lines plus
-Tailwind 4 base reset, well under the predecessor
-`out/_next/static/chunks/*.css` budget); the legacy
-`<style>` block is retired at PR 5c. **Total authored
-is now ~3,615 LoC across 16 sub-PRs** (Δ ~+1,333 LoC
-from the previous ~2,282; the CSS re-split partitions
-the 1,963-line legacy inline CSS migration into 4
-children totaling ~1,500 LoC (replacing the previous
-single PR 3c's ~232 LoC) and adds 4 separate
-triangulation tests; each sub-PR stays well under 400);
-**only the prior PR 3a `package-lock.json` exception
-remains**.
-
-**PR 3c-d re-split supersession note 2026-09-03** (this
-status note; PR #150 task replan is authoritative): PR
-#150 (`tasks.md` / `tasks-es.md` "3c-d unsatisfiability
-split") re-plans the previous monolithic PR 3c-d
-(animations / utilities + final parity) into three
-sequential children, each ≤ 400 authored lines.
-**3c-d = base / reset / global state affordances only**
-(`@keyframes` (`spin`), global `@layer base`
-`color-mix()` selectors, `body { overscroll-behavior:
-none; … }`, `main > :first-child { margin-top: 0
-!important; }`; **no utility classes, no parity test**;
-allowed test `tests/test_tailwind_4_base_resets.py`).
-**3c-e (new) = utility-class surface + remaining
-`@keyframes` / `color-mix()` (component-scoped color-mix,
-utility-paired rules)**; **no parity test**; allowed
-test `tests/test_tailwind_4_utilities.py`.
-**3c-f (new) = sole full-parity test only** — no new
-`globals.css` code; final consolidated
-`tests/test_tailwind_4_parity.py`. Renumbering:
-3d 7→**9/18**; 4a 8→**10/18**; 4b 9→**11/18**;
-5a 10→**12/18**; 5b 11→**13/18**; 5c 12→**14/18**;
-6a (G5) 13→**15/18**; 6b (G6) 14→**16/18**;
-6c (G4) 15→**17/18**; 3e 16→**18/18**;
-**3c-d stays at 6/18** (narrowed). New branches:
-`…-07-3c-e` (base `…-06-3c-d`), `…-08-3c-f` (base
-`…-07-3c-e`). **18-child count** replaces 16;
-`feature-branch-chain` strategy and "tracker-only targets
-`develop`" contract hold. Per-sub-PR LoC budgets stay
-well under 400; only the prior PR 3a `package-lock.json`
-exception remains. **G4 / G5 / G6 (now 17/18 / 15/18 /
-16/18), the frozen predecessor, Approach A, FastAPI/SQLite,
-and the per-domain specs stay unchanged**. Merged PRs
-3c-a/#147, 3c-b/#148, 3c-c/#149 preserved. The five CSS
-children (3c-a / 3c-b / 3c-c / 3c-d / 3c-e) plus PR 3c-f
-cannot collapse without violating the 400-line per-PR
-review budget. **Documentation-only supersession note**:
-no source-code edit, no rebase, no new branch creation
-in this revision; the next code worktree picks up the
-authoritative scope from `tasks.md`.
 
 > **Footer (apply phase flips)**: G1: PASS recorded · G2:
 > PASS recorded · G3 Tier-1: PASS recorded · G3 Tier-2: NOT
@@ -1286,7 +1185,7 @@ the 400-line per-PR review budget) is **discarded**.
   presentation/{Tree,Breadcrumb}.tsx`; ports the legacy
   `web/{tree,breadcrumb}.js` row layout (per-row kebab glyph reserved,
   but the menu body is **not** yet authored — the glyph is a no-op until
-  5a.4); rides on PR 3c-b's `@layer components` selectors. No `DetailPanel`,
+  5a.4); rides on PR 3c-ii's taxonomy selectors. No `DetailPanel`,
   no `Overview`, no `TabStrip`, no global activation.
 - **5a.3 — `DetailPanel` + `Overview` body + local `TabStrip`.**
   `src/modules/taxonomy/presentation/{DetailPanel,OverviewTab}.tsx` plus
@@ -1382,7 +1281,7 @@ as historical context.
   tree search with **200 ms debounce**, filter / highlight modes, and
   `state.explorer.search.{query, mode, hideEmpty}` **persisted** across
   taxon switches; meta strip `FORMAT | SIZE | ENCODING`; explorer state
-  reset on taxon switch. Rides on PR 3c-c's `@layer components`
+  reset on taxon switch. Rides on PR 3c-iii's Search / Folder / global Browser selectors
   selectors. No `SearchTab` / `FolderTab` / `SearchLinkList`, no
   app-shell delta, no `TabStrip` promotion yet.
 - **5b.4 — `SearchTab` + `FolderTab` + `SearchLinkList` + global `Browser`
@@ -2209,7 +2108,7 @@ as historical context.
               `--detail-header-height: 49px;` on `:root` inside
               `@layer components` (alongside the existing
               `--primary-fixed` / `--on-primary-fixed` /
-              `--surface-container-lowest` 3c-e1 / 3c-e2 aliases)
+              `--surface-container-lowest` utility-class tokens)
               and pins BOTH `.detail-header { min-height:
               var(--detail-header-height) }` and `.detail-tabs { top:
               var(--detail-header-height) }` to that single token.
