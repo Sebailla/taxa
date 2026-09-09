@@ -340,10 +340,8 @@ TAXONOMY_SELECTORS = (
     # search-results + search-hit + tag-*
     "#search-results", ".search-hit",
     ".tag-vernacular", ".tag-scientific", ".tag-authorship",
-    # tree-source-toggle + rank-badge
+# tree-source-toggle + rank-badge
     ".tree-source-toggle", ".tree-source-btn", ".rank-badge",
-    # scientific-name + roman modifier
-    ".scientific-name", ".scientific-name--roman",
     # detail-panel + closing + detail-card + detail-header
     "#detail-panel", ".detail-card", ".detail-header",
     # detail-section + overview-* + detail-item + means-*
@@ -356,13 +354,16 @@ TAXONOMY_SELECTORS = (
     ".means-uncertain", ".means-unknown",
     # search-pulse + detail-tabs + detail-tab
     ".search-pulse", ".detail-tabs", ".detail-tab",
-    # search-icon-btn + materialize-btn
+# search-icon-btn + materialize-btn
     ".search-icon-btn", ".materialize-btn",
-    # kebab variants (OpenSpec 3c-ii.5 — base selectors extracted,
-    # .kebab-menu.open rides along for cascade correctness; the rest
-    # of the variants + state selectors stay in ``@layer base``)
-    ".kebab-trigger", ".kebab-item",
-    ".kebab-item-label",
+    # kebab item variants (the React <Kebab> emits
+    # .kebab-item + .kebab-item-label — both live). The legacy
+    # .kebab-trigger className was DEAD code per PR 5.6 (React
+    # <Kebab> stamps data-action="toggle-kebab" instead of a
+    # className); the .kebab trigger bridge is asserted via the
+    # new PR 5.6.1 ``.kebab > button[data-action="toggle-kebab"]``
+    # selector.
+    ".kebab-item", ".kebab-item-label",
     # materialize-modal-* + materialize-tab-*
     ".materialize-tab-content", ".materialize-tab-loading",
     ".materialize-tab-error",
@@ -594,62 +595,83 @@ body,
 
 
 # ---- 3c-ii.3 — realm-tinted scientific-name selectors round-trip via --realm-*
+# NOTE (PR 5.6): the taxonomy ``.tree-row[data-realm="..."]``
+# realm-tinted selectors were DEAD code per PR 5.6 (the React
+# ``<Tree>`` does not stamp ``data-realm`` on taxonomy rows; only the
+# React ``<FileExplorer>`` stamps ``data-realm`` on
+# ``.fex-row.folder`` rows inside the ``.research-explorer`` parent).
+# The three tests below were REPURPOSED in PR 5.6 to assert the
+# dead-code ABSENCE (the legacy realm-tinted rules are removed from
+# the source CSS as part of the safe resolution). The LIVE
+# realm-tinted selectors stay asserted via the 3c-iii.6 + 3c-iii.9
+# ``.fex-row.folder[data-realm]`` tests lower in this file.
 
 def test_globals_css_declares_default_realm_other_scientific_name():
-    """The catch-all ``.tree-row[data-realm] .scientific-name { color:
-    var(--realm-other); }`` selector MUST live under ``@layer base`` —
-    it sets the default realm tint before the per-realm overrides."""
-    body = _block(_read(GLOBALS_CSS), "@layer base")
-    assert body, "globals.css must declare an @layer base { ... } block"
-    pattern = (
-        r"\.tree-row\[data-realm\]\s+\.scientific-name\s*\{[^}]*"
-        r"var\s*\(\s*--realm-other\s*\)[^}]*\}"
-    )
-    assert re.search(pattern, body), (
-        "@layer base must declare .tree-row[data-realm] .scientific-name "
-        "{ color: var(--realm-other); } (PR 3c-ii realm default tint)"
+    """PR 5.6 repurpose — the legacy
+    ``.tree-row[data-realm] .scientific-name { color: var(--realm-other); }``
+    selector was DEAD code (the React ``<Tree>`` does not stamp
+    ``data-realm`` on taxonomy rows). PR 5.6 resolves it safely by
+    REMOVING it from the source CSS. This test now asserts the
+    dead-code absence — the rule MUST NOT appear anywhere in
+    ``src/app/globals.css`` post-5.6. The LIVE realm-tinted default
+    (``.fex-row.folder[data-realm] .fex-icon`` + ``.fex-label``) is
+    asserted separately in 3c-iii.6."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    assert not re.search(
+        r"\.tree-row\[data-realm\]\s+\.scientific-name\s*\{",
+        text,
+    ), (
+        "PR 5.6 MUST NOT carry the dead .tree-row[data-realm] "
+        ".scientific-name default-tint rule (React <Tree> does not "
+        "stamp data-realm on taxonomy rows; resolved safely in PR 5.6)"
     )
 
 
 def test_realm_tinted_scientific_name_uses_realm_token():
-    """Each ``.tree-row[data-realm="<realm>"] .scientific-name`` selector
-    MUST reference ``var(--realm-<realm>)`` verbatim — the realm hue
-    round-trips through the ``--realm-*`` family shipped by 3c-i.1.
-    ``other`` is intentionally absent — the catch-all rule already
-    covers the default tint (asserted separately above)."""
-    body = _block(_read(GLOBALS_CSS), "@layer base")
-    assert body, "globals.css must declare an @layer base { ... } block"
-    missing = []
-    for realm, token_name in REALM_TAXONOMY_PAIRS:
+    """PR 5.6 repurpose — the per-realm
+    ``.tree-row[data-realm="<realm>"] .scientific-name`` overrides
+    were DEAD code (no React component stamps ``data-realm`` on
+    taxonomy rows). PR 5.6 resolves them safely by REMOVING them
+    from the source CSS. This test now asserts the dead-code
+    absence for every realm — none of the seven per-realm override
+    rules MAY appear anywhere in ``src/app/globals.css`` post-5.6.
+    The LIVE per-realm tints ride on the
+    ``.fex-row.folder[data-realm="<realm>"]`` selectors inside the
+    ``.research-explorer`` parent (asserted separately in
+    ``test_3c_iii_realm_tinted_folder_chrome_uses_realm_token``)."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    leaked = []
+    for realm, _ in REALM_TAXONOMY_PAIRS:
         selector = f'.tree-row[data-realm="{realm}"] .scientific-name'
-        pattern = (
-            re.escape(selector) + r"\s*\{[^}]*var\s*\(\s*--"
-            + re.escape(token_name) + r"\s*\)[^}]*\}"
-        )
-        if not re.search(pattern, body):
-            missing.append((realm, token_name))
-    assert not missing, (
-        f"@layer base MUST declare every realm-tinted selector with "
-        f"var(--realm-<realm>); missing: {missing!r}"
+        if re.search(re.escape(selector) + r"\s*\{", text):
+            leaked.append(realm)
+    assert not leaked, (
+        f"PR 5.6 MUST NOT carry the dead .tree-row[data-realm=\"<realm>\"] "
+        f".scientific-name per-realm overrides (React <Tree> does not "
+        f"stamp data-realm on taxonomy rows); leaked realms: {leaked!r}"
     )
 
 
 def test_realm_selected_focused_scientific_name_uses_primary_token():
-    """``selected`` + ``focused`` ``.tree-row`` variants MUST override
-    the realm tint with ``var(--primary)`` so the active row stays the
-    clearest signal on the page (specificity tied with the per-realm
-    selectors above, so source order resolves it)."""
-    body = _block(_read(GLOBALS_CSS), "@layer base")
-    assert body, "globals.css must declare an @layer base { ... } block"
-    pattern = (
+    """PR 5.6 repurpose — the legacy
+    ``.tree-row.selected .scientific-name, .tree-row.focused
+    .scientific-name { color: var(--primary); }`` override was DEAD
+    code (the React ``<Tree>`` stamps ``data-selected`` instead of
+    a ``.selected`` className on the active row). PR 5.6 resolves
+    it safely by REMOVING it from the source CSS. This test now
+    asserts the dead-code absence. The LIVE selected-row state is
+    asserted via the new ``.tree-row[data-selected="true"]`` rule
+    in PR 5.6 (asserted in ``test_5_6_tree_row_data_selected_true_has_visible_state_change``)."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    assert not re.search(
         r"\.tree-row\.selected\s+\.scientific-name\s*,\s*"
-        r"\.tree-row\.focused\s+\.scientific-name\s*\{[^}]*"
-        r"var\s*\(\s*--primary\s*\)[^}]*\}"
-    )
-    assert re.search(pattern, body), (
-        "@layer base must declare .tree-row.selected .scientific-name, "
-        ".tree-row.focused .scientific-name { color: var(--primary); } "
-        "(PR 3c-ii selected/focused realm override)"
+        r"\.tree-row\.focused\s+\.scientific-name\s*\{",
+        text,
+    ), (
+        "PR 5.6 MUST NOT carry the dead .tree-row.selected "
+        ".scientific-name, .tree-row.focused .scientific-name override "
+        "(React <Tree> stamps data-selected instead of .selected "
+        "className; resolved safely in PR 5.6)"
     )
 
 
@@ -1463,4 +1485,507 @@ def test_3c_iii_realm_folder_tint_uses_var_realm_family_verbatim():
         f"every realm-tinted .fex-row.folder[data-realm=\"<realm>\"] rule "
         f"MUST reference var(--realm-<realm>) verbatim (3c-iii.9 realm "
         f"integrity); drifted realms: {bad!r}"
+    )
+
+
+# ==============================================================================
+# PR 5.6 — DOM↔CSS structural parity repair (position 5.6/18)
+# ==============================================================================
+# The React-emitted taxonomy / detail hooks landed via PR 5a + 5b but the
+# CSS-only repair for the structural selectors (.taxa-tree / .tree-row /
+# .tab-strip / .tab-button / .overview-tab / .breadcrumb /
+# .breadcrumb-segment / .breadcrumb-link / .detail-body / .detail-close /
+# .species-count / .authorship / .materialize-indicator + the kebab
+# selector bridge .kebab > button[data-action="toggle-kebab"]) was deferred
+# until the cascade + base + research chrome slices were stable.
+#
+# PR 5.6 ships the CSS-only repair under ``@layer components`` so the
+# React-emitted hooks paint as visibly structural + interactive (the
+# @layer base slice carries the legacy inline-style cascade, but the
+# bare React-component CSS lives in @layer components per the 3c-b +
+# 3c-c refactor contract). The dead ``.tree-row[data-realm="..."]``
+# realm-tinted selectors are resolved safely (the React ``<Tree>``
+# does not stamp ``data-realm`` on taxonomy rows — those selectors
+# cannot match today's DOM and are deleted as part of the repair).
+#
+# The .kebab > button[data-action="toggle-kebab"] selector bridge is
+# the CSS-only contract for the React <Kebab> trigger (PR 5a.4
+# emitted ``data-action="toggle-kebab"`` so the existing e2e harness
+# + the kebab menu open/close flow keep working — the CSS rides the
+# new descendant selector so the legacy ``.kebab-trigger`` className
+# (no longer emitted) is retired cleanly).
+
+# ---- 5.6 catalogue ----------------------------------------------------------
+
+# React-emitted structural hooks that the CSS-only repair binds. Each
+# entry MUST resolve to a non-empty declaration block under
+# ``@layer components`` (the React-component CSS layer). The
+# kebab selector bridge (.kebab > button[data-action="toggle-kebab"])
+# is the selector that consumes the React <Kebab> trigger; the bare
+# ``.kebab { ... }`` + ``.kebab-menu { ... }`` base selectors stay
+# under @layer components per OpenSpec 3c-ii.5.
+PR_5_6_REACT_HOOKS: tuple[str, ...] = (
+    # taxonomy tree
+    ".taxa-tree",
+    ".tree-row",
+    ".tree-search-icon",
+    # detail panel
+    ".detail-panel",
+    ".detail-body",
+    ".detail-close",
+    # tab strip (collapsed .tab-strip > .tab-button descendant rule)
+    ".tab-strip",
+    ".tab-button",
+    # overview content
+    ".overview-tab",
+    # breadcrumb
+    ".breadcrumb",
+    ".breadcrumb-segment",
+    ".breadcrumb-link",
+    # content text
+    ".species-count",
+    ".authorship",
+    ".materialize-indicator",
+)
+
+# The bare ``.scientific-name`` selector is emitted by the React
+# <Tree> / <Breadcrumb> / <OverviewTab> components as the
+# italic-flavoured scientific-name span. PR 5.6 moves the base rule
+# from @layer base into @layer components so the React component CSS
+# layer owns the emitted hook (the ``.scientific-name--roman``
+# modifier stays in @layer base per the prior 3c-ii contract; it
+# wins via specificity regardless of layer).
+PR_5_6_SCIENTIFIC_NAME_HOOKS: tuple[str, ...] = (
+    ".scientific-name",
+    ".scientific-name--roman",
+)
+
+# State selectors the React components emit and the CSS-only repair
+# must visibly resolve. Each one corresponds to a React-emitted
+# data-attribute or className-driven state.
+PR_5_6_STATE_SELECTORS: tuple[str, ...] = (
+    ".tree-row[data-selected=\"true\"]",
+    ".tree-row:hover",
+    ".tree-row:focus-visible",
+    # tab strip collapsed descendant
+    ".tab-strip > .tab-button",
+    ".tab-strip > .tab-button.active",
+    ".tab-strip > .tab-button:hover",
+    ".tab-strip > .tab-button:focus-visible",
+    # kebab base collapsed descendant
+    ".kebab > .kebab-menu",
+    # kebab selector bridge for the React <Kebab> trigger
+    ".kebab > button[data-action=\"toggle-kebab\"]",
+)
+
+# ---- 5.6.1 — every React hook resolves under @layer components -------------
+
+@pytest.mark.parametrize("selector", PR_5_6_REACT_HOOKS)
+def test_5_6_react_hook_resolves_under_layer_components(selector):
+    """5.6.1 — every React-emitted structural hook MUST resolve to a
+    non-empty declaration block under ``@layer components``. The
+    bare ``.scientific-name`` / ``.scientific-name--roman`` rules
+    land here too (moved from @layer base in PR 5.6; the React
+    component CSS layer owns the emitted hook). The CSS-only
+    repair binds these hooks so the React-emitted taxonomy /
+    detail DOM paints as visibly structural + interactive."""
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare @layer components { ... } block"
+    own_block = re.compile(
+        r"(?:^|[\s,{}>+~])" + re.escape(selector) + r"\s*\{[^}]*\S[^}]*\}"
+    )
+    assert own_block.search(body), (
+        f"@layer components MUST declare {selector} with a non-empty "
+        f"block (PR 5.6 React-emitted hook catalogue)"
+    )
+
+
+@pytest.mark.parametrize("selector", PR_5_6_SCIENTIFIC_NAME_HOOKS)
+def test_5_6_scientific_name_resolves_under_layer_components(selector):
+    """5.6.1 — the bare ``.scientific-name`` + ``.scientific-name--roman``
+    rules live under ``@layer components`` (moved from @layer base in
+    PR 5.6). The React component CSS layer owns the emitted hook; the
+    ``.scientific-name--roman`` modifier wins over the bare rule via
+    specificity regardless of layer."""
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare @layer components { ... } block"
+    own_block = re.compile(
+        r"(?:^|[\s,{}>+~])" + re.escape(selector) + r"\s*\{[^}]*\S[^}]*\}"
+    )
+    assert own_block.search(body), (
+        f"@layer components MUST declare {selector} with a non-empty "
+        f"block (PR 5.6 scientific-name hook relocated from @layer base)"
+    )
+
+
+@pytest.mark.parametrize("selector", PR_5_6_STATE_SELECTORS)
+def test_5_6_state_selector_resolves_under_layer_components(selector):
+    """5.6.1 — every React-emitted state selector (data-selected +
+    :hover + :focus-visible + the kebab selector bridge + the tab-strip
+    collapsed descendant) MUST resolve to a non-empty declaration
+    block under ``@layer components``. The state selectors are the
+    interactive surface of the CSS-only repair: visible selection
+    feedback on the active tree row, hover/focus affordances on the
+    tab buttons, and the kebab trigger bridge that the React <Kebab>
+    ``data-action="toggle-kebab"`` button consumes."""
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare @layer components { ... } block"
+    own_block = re.compile(
+        r"(?:^|[\s,{}>+~])" + re.escape(selector) + r"\s*\{[^}]*\S[^}]*\}"
+    )
+    assert own_block.search(body), (
+        f"@layer components MUST declare {selector} with a non-empty "
+        f"block (PR 5.6 state selector catalogue)"
+    )
+
+
+# ---- 5.6.2 — taxonomic realm dead-selector resolution ----------------------
+
+def test_5_6_taxonomic_realm_rules_are_resolved_safely():
+    """5.6.2 — the ``.tree-row[data-realm="..."]`` realm-tinted
+    selectors in @layer base cannot match today's DOM (the React
+    ``<Tree>`` does not stamp ``data-realm`` on taxonomy rows; only
+    the React ``<FileExplorer>`` stamps ``data-realm`` on
+    ``.fex-row.folder`` rows). PR 5.6 resolves the dead selectors
+    safely by REMOVING them from the source CSS — leaving them in
+    the cascade would have leaked forward-looking code into a
+    surface that no React component consumes today, and the
+    ``.tree-row[data-realm] .scientific-name`` selector text
+    collides with the React-emitted ``.scientific-name`` hook
+    (which moves to @layer components in PR 5.6.1).
+
+    NB the LIVE realm-tinted selectors ``.fex-row.folder[data-realm="..."]``
+    stay in @layer components inside the ``.research-explorer``
+    parent rule — the React <FileExplorer> consumes them via the
+    stable parent selector. Only the TAXONOMY ``.tree-row[data-realm]``
+    rules are resolved (asserted below)."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    # The default ``.tree-row[data-realm] .scientific-name`` selector.
+    dead_default = re.search(
+        r"\.tree-row\[data-realm\]\s+\.scientific-name\s*\{[^}]*"
+        r"var\s*\(\s*--realm-other\s*\)[^}]*\}",
+        text,
+    )
+    assert dead_default is None, (
+        "PR 5.6 MUST resolve the .tree-row[data-realm] .scientific-name "
+        "default-tint rule safely (the React <Tree> does not stamp "
+        "data-realm on taxonomy rows; this selector cannot match "
+        "today's DOM and is dead code per PR 5.6)"
+    )
+    # Each per-realm override ``.tree-row[data-realm=\"<realm>\"] .scientific-name``.
+    for realm in (
+        "bacteria", "archaea", "viruses", "animalia", "fungi",
+        "plantae", "chromista",
+    ):
+        dead = re.search(
+            re.escape(f'.tree-row[data-realm="{realm}"] .scientific-name')
+            + r"\s*\{[^}]*\S[^}]*\}",
+            text,
+        )
+        assert dead is None, (
+            f"PR 5.6 MUST resolve the dead .tree-row[data-realm=\"{realm}\"] "
+            f".scientific-name per-realm tint rule (cannot match today's DOM; "
+            f"the React <Tree> does not stamp data-realm on taxonomy rows)"
+        )
+    # The selected/focused override ``.tree-row.selected .scientific-name,
+    # .tree-row.focused .scientific-name`` — also dead (React emits
+    # ``data-selected`` instead of a ``.selected`` className).
+    dead_selected = re.search(
+        r"\.tree-row\.selected\s+\.scientific-name\s*,\s*"
+        r"\.tree-row\.focused\s+\.scientific-name\s*\{",
+        text,
+    )
+    assert dead_selected is None, (
+        "PR 5.6 MUST resolve the dead .tree-row.selected .scientific-name, "
+        ".tree-row.focused .scientific-name override rule (React emits "
+        "data-selected=\"true\" instead of a .selected className; the legacy "
+        "selected/focused selector cannot match today's DOM)"
+    )
+
+
+def test_5_6_kebab_trigger_classname_is_resolved_safely():
+    """5.6.2 — the ``.kebab-trigger`` className + the
+    ``.tree-row:hover/selected/focus-within .kebab-trigger`` rules
+    in @layer base cannot match today's DOM (the React <Kebab>
+    component stamps ``data-action="toggle-kebab"`` on the trigger
+    button — it does NOT stamp a ``.kebab-trigger`` className).
+    PR 5.6 resolves the dead className + the dead descendant
+    selectors safely by REMOVING them from the source CSS — the
+    new ``.kebab > button[data-action="toggle-kebab"]`` selector
+    bridge (asserted separately above) is the CSS-only contract
+    for the React <Kebab> trigger."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    # Bare ``.kebab-trigger { ... }`` base rule — the className is
+    # not emitted by any React component.
+    assert not re.search(
+        r"(?:^|[\s,{}>+~])\.kebab-trigger\s*\{", text,
+    ), (
+        "PR 5.6 MUST resolve the dead .kebab-trigger className rule safely "
+        "(React <Kebab> stamps data-action=\"toggle-kebab\" on the trigger "
+        "button — the className is not emitted anywhere in src/)"
+    )
+    # Descendant rules that reference the dead className.
+    for dead in (
+        ".tree-row:hover .kebab-trigger",
+        ".tree-row.selected .kebab-trigger",
+        ".tree-row:focus-within .kebab-trigger",
+        ".kebab-trigger:focus-visible",
+    ):
+        assert not re.search(
+            r"(?:^|[\s,{}>+~])" + re.escape(dead) + r"\s*\{", text,
+        ), (
+            f"PR 5.6 MUST resolve the dead {dead} descendant rule safely "
+            f"(.kebab-trigger className is not emitted by any React component)"
+        )
+
+
+# ---- 5.6.3 — collapsed descendant refactor contract ------------------------
+
+def test_5_6_kebab_and_kebab_menu_collapse_into_descendant_rule():
+    """5.6.3 — the ``.kebab > .kebab-menu`` collapsed descendant rule
+    MUST exist under ``@layer components`` (the 3c-b.4 refactor
+    contract carried forward into PR 5.6). The collapsed descendant
+    keeps the cascade deterministic — the React <Kebab> mounts the
+    menu inside the kebab container so the descendant rule wins."""
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare @layer components { ... } block"
+    assert re.search(r"\.kebab\s*>\s*\.kebab-menu", body), (
+        "@layer components MUST collapse .kebab + .kebab-menu into "
+        ".kebab > .kebab-menu (PR 5.6 descendant collapse refactor)"
+    )
+
+
+def test_5_6_tab_strip_and_tab_button_collapse_into_descendant_rule():
+    """5.6.3 — the ``.tab-strip > .tab-button`` collapsed descendant
+    rule MUST exist under ``@layer components`` (the 3c-b.4 refactor
+    contract carried forward into PR 5.6). The React <TabStrip>
+    mounts each ``<button class="tab-button">`` inside the
+    ``<div class="tab-strip">`` container, so the descendant rule
+    scopes the tab-button declarations to the canonical parent."""
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare @layer components { ... } block"
+    assert re.search(r"\.tab-strip\s*>\s*\.tab-button", body), (
+        "@layer components MUST collapse .tab-strip + .tab-button into "
+        ".tab-strip > .tab-button (PR 5.6 descendant collapse refactor)"
+    )
+
+
+# ---- 5.6.4 — triangulation: state invariants --------------------------------
+
+def test_5_6_tree_row_data_selected_true_has_visible_state_change():
+    """5.6.4 — triangulation: the ``.tree-row[data-selected="true"]``
+    state selector MUST carry at least one declaration that visually
+    distinguishes the selected row from the unselected row (e.g.
+    background-color, font-weight, color, or border). The React
+    ``<Tree>`` stamps ``data-selected="true"`` on the active row
+    (see Tree.tsx) so the selector must drive a visible state change
+    — without it the user has no visual feedback for selection."""
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare @layer components { ... } block"
+    # Extract the ``.tree-row[data-selected="true"] { ... }`` block
+    # body via a balanced-brace scan.
+    m = re.search(
+        r"\.tree-row\[data-selected=[\"\']true[\"\']\]\s*\{",
+        body,
+    )
+    assert m, (
+        "@layer components MUST declare .tree-row[data-selected=\"true\"] "
+        "{ ... } (PR 5.6.4 selected-row state invariant)"
+    )
+    depth, cursor = 1, m.end()
+    while cursor < len(body) and depth > 0:
+        depth += 1 if body[cursor] == "{" else (
+            -1 if body[cursor] == "}" else 0
+        )
+        cursor += 1
+    block_body = body[m.end():cursor - 1]
+    # Must contain at least one visible-state property (background-color,
+    # color, font-weight, border, padding). ``font-style: italic`` is
+    # the React ``<Tree>``'s scientific-name styling and would be
+    # meaningless here; assert a non-italic, non-default property.
+    assert re.search(
+        r"(background(?:-color)?|color|font-weight|border|padding)\s*:",
+        block_body,
+    ), (
+        ".tree-row[data-selected=\"true\"] MUST carry a visible-state "
+        "declaration (PR 5.6.4 selected-row state invariant — without "
+        "background/color/font-weight/border, the selected row is "
+        "indistinguishable from unselected rows)"
+    )
+
+
+def test_5_6_tab_button_active_state_has_visible_state_change():
+    """5.6.4 — triangulation: the ``.tab-strip > .tab-button.active``
+    state selector MUST carry at least one visible-state declaration
+    (background-color, color, border, font-weight). The React
+    ``<TabStrip>`` stamps ``active`` on the active tab button so the
+    user has a visible indicator of the current tab. Without the
+    state selector the tab chrome is indistinguishable across
+    Overview / Search / Folder."""
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare @layer components { ... } block"
+    m = re.search(
+        r"\.tab-strip\s*>\s*\.tab-button\.active\s*\{", body,
+    )
+    assert m, (
+        "@layer components MUST declare .tab-strip > .tab-button.active "
+        "{ ... } (PR 5.6.4 active-tab state invariant)"
+    )
+    depth, cursor = 1, m.end()
+    while cursor < len(body) and depth > 0:
+        depth += 1 if body[cursor] == "{" else (
+            -1 if body[cursor] == "}" else 0
+        )
+        cursor += 1
+    block_body = body[m.end():cursor - 1]
+    assert re.search(
+        r"(background(?:-color)?|color|font-weight|border)\s*:",
+        block_body,
+    ), (
+        ".tab-strip > .tab-button.active MUST carry a visible-state "
+        "declaration (PR 5.6.4 active-tab state invariant)"
+    )
+
+
+def test_5_6_breadcrumb_segment_is_chainable():
+    """5.6.4 — triangulation: the ``.breadcrumb-segment`` selector
+    MUST be a flex/grid/inline-flex row container so multiple
+    segments chain horizontally (the legacy ``<span class="breadcrumb-segment">``
+    per-rank segments + the ``>`` separator sibling render
+    side-by-side). Without the row layout the segments stack
+    vertically and the breadcrumb is unreadable."""
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare @layer components { ... } block"
+    m = re.search(
+        r"(?:^|[\s,{}>+~])\.breadcrumb-segment\s*\{", body,
+    )
+    assert m, (
+        "@layer components MUST declare .breadcrumb-segment { ... } "
+        "(PR 5.6.4 chainable-breadcrumb triangulation)"
+    )
+    depth, cursor = 1, m.end()
+    while cursor < len(body) and depth > 0:
+        depth += 1 if body[cursor] == "{" else (
+            -1 if body[cursor] == "}" else 0
+        )
+        cursor += 1
+    block_body = body[m.end():cursor - 1]
+    assert re.search(r"display\s*:\s*(?:flex|inline-flex|grid)", block_body), (
+        ".breadcrumb-segment MUST declare display: flex|inline-flex|grid "
+        "(PR 5.6.4 chainable-breadcrumb triangulation — segments must "
+        "chain horizontally)"
+    )
+
+
+def test_5_6_detail_body_is_scrollable_container():
+    """5.6.4 — triangulation: the ``.detail-body`` selector MUST be
+    a scrollable container (overflow-y: auto + max-height) so the
+    Overview / Search / Folder body scrolls independently of the
+    sticky detail header. The React <DetailPanel> mounts the
+    body inside the scroll viewport; without overflow the body
+    grows unbounded and breaks the sticky header contract."""
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare @layer components { ... } block"
+    m = re.search(
+        r"(?:^|[\s,{}>+~])\.detail-body\s*\{", body,
+    )
+    assert m, (
+        "@layer components MUST declare .detail-body { ... } "
+        "(PR 5.6.4 scrollable-body triangulation)"
+    )
+    depth, cursor = 1, m.end()
+    while cursor < len(body) and depth > 0:
+        depth += 1 if body[cursor] == "{" else (
+            -1 if body[cursor] == "}" else 0
+        )
+        cursor += 1
+    block_body = body[m.end():cursor - 1]
+    assert re.search(
+        r"overflow(?:-y|-x)?\s*:\s*(?:auto|scroll)", block_body,
+    ), (
+        ".detail-body MUST declare overflow(-y|-x)?: auto|scroll "
+        "(PR 5.6.4 scrollable-body triangulation)"
+    )
+
+
+def test_5_6_kebab_selector_bridge_targets_button_data_action():
+    """5.6.4 — triangulation: the CSS-only repair MUST carry the
+    ``.kebab > button[data-action="toggle-kebab"]`` selector bridge
+    that consumes the React <Kebab> trigger. The bridge MUST
+    resolve to a non-empty declaration block (visible affordance
+    for the trigger button). The React <Kebab> component stamps
+    ``data-action="toggle-kebab"`` on the trigger so the legacy
+    Playwright / e2e harness keeps matching — the bridge is the
+    CSS-only contract for that data-action."""
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare @layer components { ... } block"
+    m = re.search(
+        r"\.kebab\s*>\s*button\[data-action=[\"\']toggle-kebab[\"\']\]\s*\{",
+        body,
+    )
+    assert m, (
+        "@layer components MUST declare .kebab > button[data-action="
+        "\"toggle-kebab\"] { ... } (PR 5.6.4 React <Kebab> trigger "
+        "selector bridge)"
+    )
+    depth, cursor = 1, m.end()
+    while cursor < len(body) and depth > 0:
+        depth += 1 if body[cursor] == "{" else (
+            -1 if body[cursor] == "}" else 0
+        )
+        cursor += 1
+    block_body = body[m.end():cursor - 1]
+    assert block_body.strip(), (
+        ".kebab > button[data-action=\"toggle-kebab\"] MUST carry a "
+        "non-empty declaration (PR 5.6.4 selector bridge must paint)"
+    )
+
+
+# ---- 5.6.5 — slice-scope guard: PR 5.6 MUST NOT bleed into later children --
+
+def test_5_6_does_not_introduce_at_rules_outside_layer_declarations():
+    """5.6.5 — PR 5.6 MUST NOT introduce any new ``@keyframes`` or
+    other at-rules in the CSS-only repair (those land with PR 3c-iv
+    per the 3c sub-sequence design). The only at-rules in
+    ``src/app/globals.css`` post-5.6 stay the pre-existing
+    ``@import`` / ``@theme`` / ``@layer`` directives."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    at_rules = re.findall(r"@\w[\w-]*", text)
+    allowed = {"@import", "@theme", "@layer"}
+    leaked = [r for r in at_rules if r not in allowed]
+    assert not leaked, (
+        f"PR 5.6 MUST NOT introduce new at-rules beyond @import / "
+        f"@theme / @layer; leaked: {sorted(set(leaked))!r}"
+    )
+
+
+def test_5_6_keeps_color_mix_scoped_to_research_explorer():
+    """5.6.5 — the 3c-iii colour-mix scoping invariant survives
+    PR 5.6 unchanged. The CSS-only repair lives under @layer
+    components alongside the 3c-iii research-explorer chrome;
+    PR 5.6 MUST NOT introduce any ``color-mix()`` calls of its
+    own (the CSS-only repair uses solid token references, NOT
+    alpha mixing)."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    # All color-mix calls must already be inside .research-explorer
+    # descendant rules per the 3c-iii.9 invariant; PR 5.6's new
+    # rules sit OUTSIDE that parent and MUST NOT carry colour-mix.
+    call_positions = [m.start() for m in re.finditer(r"color-mix\s*\(", text)]
+    assert call_positions, (
+        "PR 3c-iii MUST use color-mix() calls (asserted separately); "
+        "this test pins the scoping for PR 5.6"
+    )
+    bad = []
+    for pos in call_positions:
+        cursor = pos - 1
+        while cursor >= 0 and text[cursor] != "}":
+            cursor -= 1
+        selector_chunk = text[cursor + 1:pos].strip()
+        first_sel = re.split(r"\s*,\s*", selector_chunk, maxsplit=1)[0].strip()
+        if not first_sel.startswith(".research-explorer"):
+            bad.append((pos, first_sel))
+    assert not bad, (
+        f"PR 5.6 MUST NOT introduce color-mix() calls outside "
+        f".research-explorer (3c-iii.9 scoping invariant carries forward); "
+        f"drifted selectors: {bad!r}"
     )
