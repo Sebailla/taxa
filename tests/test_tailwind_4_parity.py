@@ -285,10 +285,6 @@ def test_layer_base_resets_main_first_child_margin_top_to_zero():
 # bare ``.tier-header { ... }`` / ``.load-all { ... }`` rules that
 # land with PR 3c-ii trip the guard.
 LATER_CHILD_SURFACES = (
-    # 3c-ii — taxonomy tree + detail styling
-    ".scientific-name", "#search-results", ".search-hit",
-    ".tree-source-toggle", ".rank-badge", "#detail-panel",
-    ".detail-card", ".detail-header",
     # 3c-iii — Search / Folder / global Browser styling
     ".search-tab", ".search-category-section", ".folder-tab",
     ".header-browser-tab", ".research-explorer", ".file-explorer-pane",
@@ -299,6 +295,78 @@ LATER_CHILD_SURFACES = (
     "@keyframes spin", "@keyframes detail-card-enter",
     "@keyframes detail-card-leave", "@keyframes search-pulse-anim",
     "@keyframes toast-slide-in",
+)
+
+
+# ---- PR 3c-ii taxonomy selector catalogue --------------------------------------
+# OpenSpec 3c-ii.1 R — root + state selectors per the canonical taxonomy
+# tree / detail styling slice. PR 3c-ii lands these under ``@layer base``
+# (in source order, matching the legacy inline-style cascade). ``.kebab``
+# and ``.kebab-menu`` base selectors are EXTRACTED to ``@layer components``
+# per OpenSpec 3c-ii.5 (stable layer name for the React ``<Kebab>``
+# component in PR 5a) and live in ``KEBAB_COMPONENT_SELECTORS`` below.
+TAXONOMY_SELECTORS = (
+    # tier-group header + load-all
+    ".tier-header", ".load-all",
+    # search-results + search-hit + tag-*
+    "#search-results", ".search-hit",
+    ".tag-vernacular", ".tag-scientific", ".tag-authorship",
+    # tree-source-toggle + rank-badge
+    ".tree-source-toggle", ".tree-source-btn", ".rank-badge",
+    # scientific-name + roman modifier
+    ".scientific-name", ".scientific-name--roman",
+    # detail-panel + closing + detail-card + detail-header
+    "#detail-panel", ".detail-card", ".detail-header",
+    # detail-section + overview-* + detail-item + means-*
+    ".detail-section", ".detail-section h3", ".detail-section .count",
+    ".overview-section", ".overview-rank",
+    ".overview-grid", ".overview-row", ".overview-label",
+    ".overview-value", ".overview-chain", ".overview-chain-segment",
+    ".detail-item",
+    ".means-native", ".means-introduced",
+    ".means-uncertain", ".means-unknown",
+    # search-pulse + detail-tabs + detail-tab
+    ".search-pulse", ".detail-tabs", ".detail-tab",
+    # search-icon-btn + materialize-btn
+    ".search-icon-btn", ".materialize-btn",
+    # kebab variants (OpenSpec 3c-ii.5 — base selectors extracted,
+    # .kebab-menu.open rides along for cascade correctness; the rest
+    # of the variants + state selectors stay in ``@layer base``)
+    ".kebab-trigger", ".kebab-item",
+    ".kebab-item-label",
+    # materialize-modal-* + materialize-tab-*
+    ".materialize-tab-content", ".materialize-tab-loading",
+    ".materialize-tab-error",
+    ".materialize-modal-section-title", ".materialize-modal-list",
+    ".materialize-modal-list-item", ".materialize-modal-marker",
+    ".materialize-modal-marker-exists", ".materialize-modal-marker-new",
+    ".materialize-modal-segment-path", ".materialize-modal-counts",
+    ".materialize-modal-info-banner", ".materialize-modal-actions",
+    ".materialize-modal-btn", ".materialize-modal-btn-primary",
+    ".materialize-modal-btn-secondary", ".materialize-modal-path-actions",
+)
+
+# OpenSpec 3c-ii.5 — kebab base selectors extracted into ``@layer
+# components`` so the React ``<Kebab>`` component in PR 5a can consume
+# them via a stable layer name. The ``.kebab { ... }`` and
+# ``.kebab-menu { ... }`` base blocks live here; the ``.kebab-menu.open``
+# state selector rides along so it correctly wins over the
+# ``.kebab-menu { display: none }`` base rule via source order inside
+# the same layer (cascade correction). Other variants + state
+# selectors stay in ``@layer base``.
+KEBAB_COMPONENT_SELECTORS = (".kebab", ".kebab-menu", ".kebab-menu.open")
+
+# OpenSpec 3c-ii.2 — realm-tinted ``.tree-row[data-realm="<realm>"]
+# .scientific-name`` selectors MUST reference ``var(--realm-<realm>)``
+# verbatim (the realm hue round-trips through the family shipped by
+# 3c-i.1). ``other`` is intentionally absent — the catch-all
+# ``.tree-row[data-realm] .scientific-name { color: var(--realm-other); }``
+# rule already covers the default tint (asserted separately below).
+REALM_TAXONOMY_PAIRS = (
+    ("bacteria", "realm-bacteria"), ("archaea", "realm-archaea"),
+    ("viruses", "realm-viruses"), ("animalia", "realm-animalia"),
+    ("fungi", "realm-fungi"), ("plantae", "realm-plantae"),
+    ("chromista", "realm-chromista"),
 )
 
 
@@ -337,4 +405,227 @@ def test_globals_css_has_no_color_mix_rules_anywhere():
     assert "color-mix" not in text, (
         "globals.css MUST NOT carry any color-mix() rule — that surface "
         "is owned by a follow-up PR"
+    )
+
+
+# ==============================================================================
+# PR 3c-ii — taxonomy tree / detail styling slice
+# ==============================================================================
+# Extends the 3c-i foundation with the canonical taxonomy selectors. Uses
+# existing 3c-i tokens (no new ``@theme`` entries + no ``--color-*``
+# aliases); preserves source order per OpenSpec 3c-ii.2; puts ``.kebab``
+# + ``.kebab-menu`` base selectors into ``@layer components`` per
+# OpenSpec 3c-ii.5. Asserts presence + non-empty declaration only —
+# byte-equal value parity lives in ``tests/test_tailwind_tokens_base.py``.
+
+# ---- 3c-ii.1 — taxonomy selectors live under @layer base --------------------
+
+def test_taxonomy_selectors_resolve_under_layer_base():
+    """Every canonical 3c-ii taxonomy selector MUST resolve to a
+    non-empty declaration block under ``@layer base`` in
+    ``src/app/globals.css``. ``@layer base`` is the OpenSpec-prescribed
+    layer for the taxonomy surface (preserves the legacy inline-style
+    cascade); the bare ``.kebab`` + ``.kebab-menu`` selectors are
+    EXTRACTED to ``@layer components`` per OpenSpec 3c-ii.5 and live in
+    the dedicated kebab-component test below."""
+    body = _block(_read(GLOBALS_CSS), "@layer base")
+    assert body, "globals.css must declare an @layer base { ... } block"
+    # Match each selector as a standalone CSS token, then require a
+    # non-empty body (any character except whitespace or braces between
+    # the opening ``{`` and the matching ``}``).
+    missing = [
+        s for s in TAXONOMY_SELECTORS
+        if not re.search(
+r"(?:^|[\s,{}>+~])" + re.escape(s) + r"\s*\{[^}]*\S[^}]*\}",
+body,
+        )
+    ]
+    assert not missing, (
+        f"@layer base MUST declare every taxonomy selector with a non-empty "
+        f"body (PR 3c-ii taxonomy selector slice); missing: {missing!r}"
+    )
+
+
+# ---- 3c-ii.2 — kebab base selectors extracted to @layer components ----------
+
+def test_globals_css_declares_layer_components_block():
+    """``@layer components { ... }`` MUST exist (Tailwind 4 components
+    layer). The ``.kebab`` + ``.kebab-menu`` base selectors are extracted
+    into this layer per OpenSpec 3c-ii.5 so the React ``<Kebab>``
+    component in PR 5a can consume them via a stable layer name."""
+    text = _read(GLOBALS_CSS)
+    assert re.search(r"@layer\s+components\s*\{", text), (
+        "globals.css must declare an @layer components { ... } block "
+        "(PR 3c-ii.5 kebab extraction seam)"
+    )
+
+
+def test_kebab_base_selectors_resolve_under_layer_components():
+    """``.kebab`` + ``.kebab-menu`` MUST live under ``@layer components``
+    with a non-empty declaration — NOT under ``@layer base``. This is
+    the OpenSpec 3c-ii.5 extraction that lets the React ``<Kebab>``
+    component in PR 5a consume the CSS via a stable layer name.
+    ``.kebab-menu.open`` also lives here so the open state correctly
+    wins over the ``.kebab-menu { display: none }`` base rule via
+    source order inside the same layer (cascade correction)."""
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare an @layer components { ... } block"
+    missing = [
+        s for s in KEBAB_COMPONENT_SELECTORS
+        if not re.search(
+r"(?:^|[\s,{}>+~])" + re.escape(s) + r"\s*\{[^}]*\S[^}]*\}",
+body,
+        )
+    ]
+    assert not missing, (
+        f"@layer components MUST declare every kebab base selector with a "
+        f"non-empty body (PR 3c-ii.5 kebab extraction); missing: {missing!r}"
+    )
+
+
+def test_kebab_base_selectors_do_not_live_under_layer_base():
+    """The bare ``.kebab`` + ``.kebab-menu`` base selectors MUST live
+    under ``@layer components`` (OpenSpec 3c-ii.5) — NOT under
+    ``@layer base``. ``.kebab-menu.open`` also lives under
+    ``@layer components`` for cascade correctness; the remaining
+    variants + state selectors (``.kebab-trigger``, ``.kebab-item``,
+    …) remain in ``@layer base``."""
+    body = _block(_read(GLOBALS_CSS), "@layer base")
+    assert body, "globals.css must declare an @layer base { ... } block"
+    # Look for the bare selectors at CSS-token boundaries followed by a
+    # declaration block — not as part of a larger selector or descendant
+    # rule. ``.kebab-menu.open`` carries ``.kebab-menu`` as a prefix
+    # inside the selector list, so a token-boundary scan excludes it.
+    leaked = [
+        s for s in KEBAB_COMPONENT_SELECTORS
+        if re.search(
+r"(?:^|[\s,{}>+~])" + re.escape(s) + r"\s*\{",
+body,
+        )
+    ]
+    assert not leaked, (
+        f"@layer base MUST NOT declare the bare {KEBAB_COMPONENT_SELECTORS!r} "
+        f"selectors (those belong to @layer components per OpenSpec 3c-ii.5); "
+        f"leaked: {leaked!r}"
+    )
+
+
+def test_kebab_variants_do_not_live_under_layer_components():
+    """Kebab variants (``.kebab-trigger``, ``.kebab-item``,
+    ``.kebab-item-label``) MUST remain in ``@layer base`` per
+    OpenSpec 3c-ii.5 — the extraction is scoped to the bare base
+    selectors plus the ``.kebab-menu.open`` cascade-corrected state
+    selector (asserted separately via ``KEBAB_COMPONENT_SELECTORS``)
+    only. This protects against a future refactor that sweeps the
+    remaining kebab-related rules into ``@layer components``."""
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare an @layer components { ... } block"
+    kebab_variants = (
+        ".kebab-trigger",
+        ".kebab-item", ".kebab-item-label",
+    )
+    leaked = [
+        s for s in kebab_variants
+        if re.search(
+r"(?:^|[\s,{}>+~])" + re.escape(s) + r"\s*\{",
+body,
+        )
+    ]
+    assert not leaked, (
+        f"@layer components MUST NOT declare kebab variants {kebab_variants!r} "
+        f"(only the bare .kebab + .kebab-menu base selectors and the "
+        f".kebab-menu.open cascade-corrected state selector belong here per "
+        f"OpenSpec 3c-ii.5); leaked: {leaked!r}"
+    )
+
+
+# ---- 3c-ii.3 — realm-tinted scientific-name selectors round-trip via --realm-*
+
+def test_globals_css_declares_default_realm_other_scientific_name():
+    """The catch-all ``.tree-row[data-realm] .scientific-name { color:
+    var(--realm-other); }`` selector MUST live under ``@layer base`` —
+    it sets the default realm tint before the per-realm overrides."""
+    body = _block(_read(GLOBALS_CSS), "@layer base")
+    assert body, "globals.css must declare an @layer base { ... } block"
+    pattern = (
+        r"\.tree-row\[data-realm\]\s+\.scientific-name\s*\{[^}]*"
+        r"var\s*\(\s*--realm-other\s*\)[^}]*\}"
+    )
+    assert re.search(pattern, body), (
+        "@layer base must declare .tree-row[data-realm] .scientific-name "
+        "{ color: var(--realm-other); } (PR 3c-ii realm default tint)"
+    )
+
+
+def test_realm_tinted_scientific_name_uses_realm_token():
+    """Each ``.tree-row[data-realm="<realm>"] .scientific-name`` selector
+    MUST reference ``var(--realm-<realm>)`` verbatim — the realm hue
+    round-trips through the ``--realm-*`` family shipped by 3c-i.1.
+    ``other`` is intentionally absent — the catch-all rule already
+    covers the default tint (asserted separately above)."""
+    body = _block(_read(GLOBALS_CSS), "@layer base")
+    assert body, "globals.css must declare an @layer base { ... } block"
+    missing = []
+    for realm, token_name in REALM_TAXONOMY_PAIRS:
+        selector = f'.tree-row[data-realm="{realm}"] .scientific-name'
+        pattern = (
+            re.escape(selector) + r"\s*\{[^}]*var\s*\(\s*--"
+            + re.escape(token_name) + r"\s*\)[^}]*\}"
+        )
+        if not re.search(pattern, body):
+            missing.append((realm, token_name))
+    assert not missing, (
+        f"@layer base MUST declare every realm-tinted selector with "
+        f"var(--realm-<realm>); missing: {missing!r}"
+    )
+
+
+def test_realm_selected_focused_scientific_name_uses_primary_token():
+    """``selected`` + ``focused`` ``.tree-row`` variants MUST override
+    the realm tint with ``var(--primary)`` so the active row stays the
+    clearest signal on the page (specificity tied with the per-realm
+    selectors above, so source order resolves it)."""
+    body = _block(_read(GLOBALS_CSS), "@layer base")
+    assert body, "globals.css must declare an @layer base { ... } block"
+    pattern = (
+        r"\.tree-row\.selected\s+\.scientific-name\s*,\s*"
+        r"\.tree-row\.focused\s+\.scientific-name\s*\{[^}]*"
+        r"var\s*\(\s*--primary\s*\)[^}]*\}"
+    )
+    assert re.search(pattern, body), (
+        "@layer base must declare .tree-row.selected .scientific-name, "
+        ".tree-row.focused .scientific-name { color: var(--primary); } "
+        "(PR 3c-ii selected/focused realm override)"
+    )
+
+
+# ---- 3c-ii.4 — slice-scope guards: 3c-iii / 3c-iv MUST NOT bleed in ---------
+# Deferred surfaces for LATER 3c children. PR 3c-ii MUST NOT ship them.
+# The 8 3c-ii surfaces that USED to live in this guard were promoted out
+# in this PR; the 3c-iii / 3c-iv surfaces stay deferred.
+
+def test_globals_css_does_not_pre_assert_3c_iii_or_3c_iv_surfaces():
+    """Strict TDD scope guard: PR 3c-ii MUST NOT pre-assert any surface
+    owned by 3c-iii (Search / Folder / global Browser styling) or
+    3c-iv (animations / utilities + final parity). Pre-asserting them
+    would silently reserve their namespace and block the per-PR review
+    focus across the rest of the 3c sub-sequence."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    leaked = [s for s in LATER_CHILD_SURFACES if _appears_as_css_token(text, s)]
+    assert not leaked, (
+        f"PR 3c-ii MUST NOT pre-define surfaces reserved for 3c-iii / 3c-iv; "
+        f"leaked: {leaked!r}"
+    )
+
+
+def test_globals_css_has_no_color_mix_rules_in_3c_ii_slice():
+    """PR 3c-ii MUST keep ``globals.css`` free of ``color-mix()`` rules
+    — those land with PR 3c-iv's animation + utilities slice. The legacy
+    taxonomy surface uses solid hex literals for the few non-token colors
+    (tag tints, means badges); 3c-ii ports them byte-equal without
+    re-introducing color-mix drift inside the base layer."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    assert "color-mix" not in text, (
+        "globals.css MUST NOT carry any color-mix() rule in PR 3c-ii — "
+        "those land with PR 3c-iv"
     )
