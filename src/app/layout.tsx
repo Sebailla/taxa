@@ -6,18 +6,20 @@ import { AppShell } from "@taxa/app-shell";
 import "./globals.css";
 
 /**
- * Root layout for the App Router static export (PR 3b + PR 3c-a + PR 4b).
+ * Root layout for the App Router static export (PR 3b + PR 3c-i + PR 4b).
  *
  * Self-contained minimum that satisfies the G2 markup contract (design.md
  * §3.3.2.1): ``<html lang="en">``, the responsive viewport meta, and the
  * Raleway ``<link rel="preload">`` emitted by ``next/font/google``.
  *
- * PR 3c-a (tokens / base / dark mode) closes the dependency-defect-fix seam
- * by adding the ``import "./globals.css"`` line: PR 3b originally imported
- * this file, but globals.css did not exist yet (PR 3c-a ships it). The
- * Tailwind 4 ``@import "tailwindcss"`` directives now flow into the Next.js
- * build, and the @theme + @layer base tokens cascade through `next build`'s
- * generated CSS chunk.
+ * PR 3c-i (tokens / base / dark mode — first child of the new 3c
+ * sub-sequence, position 3/16) closes the dependency-defect-fix seam:
+ * the ``import "./globals.css";`` line ships together with the file it
+ * imports (PR 3c-i owns both). PR 3b originally imported this file at
+ * placeholder time, but globals.css did not exist yet — PR 3c-i ships
+ * it. The Tailwind 4 ``@import "tailwindcss"`` directive flows into
+ * the Next.js build, and the @theme + @layer base tokens cascade
+ * through `next build`'s generated CSS chunk.
  *
  * PR 4b (hydration guard + AppShell integration seam) closes the second
  * dependency-defect fix: the AppShell lives in
@@ -27,7 +29,8 @@ import "./globals.css";
  * ``useMounted()`` flag so SSR + initial CSR emit byte-identical markup
  * and React's hydration guard never trips.
  *
- * Chain-topology guard (PR 4b relaxation): this file NOW imports
+ * Chain-topology guard (PR 3c-i + PR 4b same-PR seam): this file imports
+ *   - ``./globals.css``          (owned by PR 3c-i — same PR)
  *   - ``@taxa/app-shell``        (owned by PR 4b — same PR)
  * The ``@taxa/browser-state`` import is transitive (AppShell -> typed
  * store), not direct, so the chain topology stays intact.
