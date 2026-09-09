@@ -56,12 +56,21 @@
 > sub-secuencia del 3c recoge el 3a + 3b + reconcile ya
 > fusionados sin un paso extra de reconciliación. El total
 > authored en LoC sube de ~2.245 a ~3.485 porque cada regla CSS
-> legacy se porta; el sub-PR nuevo más grande es **3c-i a
-> ~390 LoC** (-10 LoC de holgura bajo 400). **No se abre una
-> nueva `size:exception`**; la excepción previa de lockfile de
-> PR 3a sigue siendo la única. **El Enfoque A, FastAPI/SQLite,
-> el predecesor congelado y la estrategia de Feature Branch
-> Chain quedan sin cambios.**
+> legacy se porta; el sub-PR nuevo más grande por plan es **3c-i
+> a ~390 LoC** (-10 LoC de holgura bajo 400). PR 3a retiene la
+> `size:exception` de `package-lock.json` regenerado
+> (generated-resolution-only) como la `size:exception`
+> documentada previa; **PR 3c-ii abre subsecuentemente una
+> segunda `size:exception` aprobada por el usuario** para la
+> rebanada completa de CSS de árbol / detalle de taxonomía
+> (implementación real totaliza **831 LoC = 822 inserciones +
+> 9 deletions**, sobrepaso +442 LoC sobre la estimación previa
+> de `~380 LoC` y +431 LoC contra el presupuesto de
+> 400 líneas — véase el addendum dedicado abajo para la
+> justificación de autorización; la cadena de 16 hijos se
+> preserva). **El Enfoque A, FastAPI/SQLite, el predecesor
+> congelado y la estrategia de Feature Branch Chain quedan
+> sin cambios.**
 
 > **2026-09-02 — corrección de defecto de dependencia (esta
 > revisión)**. La re-auditoría de pre-flight del portón de apply
@@ -184,7 +193,7 @@
 | Campo | Valor |
 |-------|-------|
 | Líneas modificadas estimadas | ~3.485 authored a través de **16 sub-PRs** (bootstrap de toolchain + exportación estática del App Router + **3c-i tokens / base / dark mode + 3c-ii styling de árbol / detalle de taxonomía + 3c-iii styling de Search / Folder / global Browser + 3c-iv animations / utilities + paridad CSS final** + Makefile/mount + 2 browser-state + 2 puertos de capability + e2e/borrar-legacy + 3 validación Fase 6 + 1 cutover atómico). El delta de +1.240 LoC sobre la estimación previa de ~2.245 viene completamente de la sub-secuencia del 3c: el bloque `<style>` inline legacy en `web/index.html` (1.963 líneas) debe portarse literalmente a Tailwind 4 `@theme` + `@layer base`, y un test de paridad debe enumerar cada token `:root` legacy, cada referencia `var(--name)`, cada selector `--realm-*`, cada `@keyframes`, cada selector `.animate-spin` y `color-mix()`, y cada clase utility. |
-| Riesgo de presupuesto de 400 líneas | **Bajo** para el trabajo authored en cada hijo. El sub-PR nuevo más grande es **3c-i a ~390 LoC** (-10 LoC de holgura bajo 400); los otros hijos del 3c son 3c-ii ~380, 3c-iii ~390, 3c-iv ~280. El previamente-mayor 5b queda en ~360 LoC; 3d queda en ~240 LoC. **Los 16 sub-PRs ≤ 400 LoC authored.** PR 3a tiene la **única** `size:exception` aprobada por el usuario (regeneración de `package-lock.json` únicamente); **no se abre ninguna nueva `size:exception`** para la sub-secuencia del 3c. |
+| Riesgo de presupuesto de 400 líneas | **Bajo** para el trabajo authored en cada hijo **excepto PR 3c-ii, que carga una `size:exception` aprobada por el usuario para la rebanada completa de CSS de árbol / detalle de taxonomía — véase el addendum dedicado abajo**. El sub-PR nuevo más grande por diff real es **PR 3c-ii a 831 LoC** (822 inserciones + 9 deletions; sobrepaso +431 LoC contra el presupuesto de 400 líneas); los otros hijos del 3c son 3c-i ~390, 3c-iii ~390, 3c-iv ~280. El previamente-mayor 5b queda en ~360 LoC; 3d queda en ~240 LoC. **Los 16 sub-PRs ≤ 400 LoC authored excepto PR 3c-ii**, que carga la `size:exception` aprobada por el usuario (la excepción previa de `package-lock.json` regenerado de PR 3a es generated-resolution-only y queda abierta como la segunda `size:exception` documentada junto a PR 3c-ii). |
 | PRs encadenados recomendados | **Sí** — 16 PRs hijos encadenados (~3.485 líneas authored en total ≫ 400, y el cutover atómico exige que la feature se integre antes de llegar a `develop`). La sub-secuencia del 3c es ahora cuatro hijos revisables, cada uno cargando ~280–390 LoC, de modo que ningún hijo cargue con las 1.963 líneas del CSS inline. |
 | División sugerida | PR 3a (bootstrap de toolchain) → 3b (exportación estática del App Router) → **3c-i (tokens / base / dark mode)** → **3c-ii (styling de árbol / detalle de taxonomía)** → **3c-iii (styling de Search / Folder / global Browser)** → **3c-iv (animations / utilities + paridad CSS final + barrel del design-system)** → 3d (Makefile/mount) → 4a → 4b → 5a → 5b → 5c → Fase 6a (G5) → Fase 6b (G6) → Fase 6c (medición G4) → PR 3e (cutover atómico, con compuerta) |
 | Estrategia de entrega | ask-on-risk (según preflight; el Enfoque A ya está bloqueado, sin anulación abierta) |
@@ -251,7 +260,17 @@ hasta que el tracker se fusiona.**
 > predecesora inmediata del 3c. El total authored en LoC
 > sube de ~2.245 a ~3.485 porque cada regla CSS legacy se
 > porta; el sub-PR nuevo más grande es **3c-i a ~390 LoC**
-> (-10 LoC de holgura bajo 400).
+> (-10 LoC de holgura bajo 400); **la implementación
+> real de PR 3c-ii totaliza 831 LoC (822 inserciones
+> + 9 deletions), sobrepasando la estimación previa
+> de `~380 LoC` en +442 LoC y el presupuesto de revisión por PR
+> de 400 líneas en +431 LoC — el usuario aprobó una segunda
+> `size:exception` para esta rebanada (la excepción
+> de `package-lock.json` regenerado de PR 3a queda
+> abierta como la `size:exception` documentada
+> previa); véase el addendum append-only dedicado
+> abajo para la justificación de autorización; la
+> cadena de 16 hijos se preserva.**
 
 > **Corrección del defecto de dependencia (revisión
 > anterior)**. Después del reordenamiento, la re-auditoría
@@ -416,6 +435,15 @@ correctiva del plan + corrección del defecto de dependencia
   El test de triangulación `tests/test_tailwind_4_parity.py`
   lee el `out/_next/static/chunks/*.css` generado y verifica
   que cada selector de taxonomía resuelve.
+  **`size:exception`**: la implementación real totaliza
+  **831 LoC (822 inserciones + 9 deletions)**, sobrepasando
+  la estimación previa de `~380 LoC` en +442 LoC y el presupuesto
+  de revisión por PR de 400 líneas en +431 LoC; el
+  usuario aprobó una segunda `size:exception` para
+  esta rebanada — véase el addendum append-only dedicado
+  abajo para la justificación de autorización (la cadena
+  de 16 hijos se preserva; el PR NO se reclama como
+  fusionado ni verificado por esta nota).
 - **PR 3c-iii — styling de Search / Folder / global
   Browser**. Depende de **3c-ii** (los selectores de
   taxonomía están en vivo; las referencias `var(--token)` en
@@ -648,7 +676,7 @@ en las posiciones 3–6).
       deps de `package.json` aún).
       <!-- sdd-owner: implementation -->
 - [ ] 3a.2 G — `package.json` (modificado, ~50 LoC de
-      delta) más `package-lock.json` regenerado (la única excepción de tamaño aprobada por el usuario; debe contener únicamente cambios de resolución requeridos por este manifiesto y revisarse junto con él): bumpea `next`, `react`, `react-dom`,
+      delta) más `package-lock.json` regenerado (la única excepción de tamaño aprobada por el usuario para el `package-lock.json` regenerado de este PR; debe contener únicamente cambios de resolución requeridos por este manifiesto y revisarse junto con él — **PR 3c-ii abre subsecuentemente una segunda `size:exception` aprobada por el usuario para la rebanada completa de CSS de árbol / detalle de taxonomía, 831 LoC = 822 inserciones + 9 deletions; véase el addendum dedicado en este archivo para la justificación de autorización**): bumpea `next`, `react`, `react-dom`,
       `tailwindcss` a las versiones mayores pineadas
       arriba; añade el toolchain de TypeScript; elimina los
       `autoprefixer`, `postcss`, `@tailwindcss/forms`
@@ -2494,10 +2522,16 @@ ediciones del predecesor.
 > del 3c es ahora cuatro hijos revisables en las posiciones
 > 3–6. El total authored en LoC sube de ~2.245 a ~3.485
 > (+1.240) porque cada regla CSS legacy se porta. El sub-PR
-> más grande es **3c-i a ~390 LoC** (-10 LoC de holgura bajo
-> 400). Los 16 hijos quedan ≤ 400 LoC authored. **No se abre
-> una nueva `size:exception`**; la excepción de lockfile de
-> PR 3a sigue siendo la única. **El Enfoque A, FastAPI/SQLite,
+> más grande por plan es **3c-i a ~390 LoC** (-10 LoC de
+> holgura bajo 400). Los 16 hijos quedan ≤ 400 LoC authored
+> **excepto PR 3c-ii, que carga una `size:exception`
+> aprobada por el usuario** para la rebanada completa
+> de CSS de árbol / detalle de taxonomía (implementación
+> real totaliza **831 LoC = 822 inserciones + 9 deletions**,
+> sobrepaso +442 LoC sobre la estimación previa de `~380 LoC`
+> y +431 LoC contra el presupuesto de 400 líneas —
+> véase el addendum dedicado abajo para la justificación
+> de autorización). **El Enfoque A, FastAPI/SQLite,
 > el predecesor congelado y la estrategia de Feature Branch
 > Chain quedan sin cambios.**
 
@@ -2509,9 +2543,9 @@ ediciones del predecesor.
   + `tests/test_app_shell_render.py`, ahora satisfacible
   porque 3a instaló Next); **3c-i** ~390 (tokens / base /
   dark mode + selectores focus-visible globales + `@theme`
-  + cascada de dark mode); **3c-ii** ~380 (styling de árbol
-  / detalle de taxonomía + kebab + modal de materialize +
-  variantes de árbol teñidas por realm); **3c-iii** ~390
+  + cascada de dark mode); **3c-ii** **831 reales (822 inserciones + 9 deletions)** — **`size:exception` aprobada por el usuario** (styling de árbol
+      / detalle de taxonomía + kebab + modal de materialize +
+      variantes de árbol teñidas por realm — la implementación real sobrepasa la estimación previa de `~380 LoC` en +442 LoC y el presupuesto de revisión por PR de 400 líneas en +431 LoC; véase el addendum abajo para la justificación de autorización); **3c-iii** ~390
   (styling de Search / Folder / global Browser + chrome
   del file explorer + visores de CSV / JSON); **3c-iv**
   ~280 (animations + frames del visor de imagen / video +
@@ -2530,13 +2564,25 @@ ediciones del predecesor.
   **presupuesto de revisión de 400 líneas por PR**. El
   previamente-mayor 5b queda en segundo lugar a ~360 LoC
   (-40 LoC, -10 % de holgura). **Los 16 sub-PRs ≤ 400 LoC
-  authored.** **No se requiere `size:exception`** (la
-  excepción de lockfile de PR 3a sigue siendo la única).
+  authored excepto PR 3c-ii**, que carga una
+  **`size:exception` aprobada por el usuario** para la
+  rebanada completa de CSS de árbol / detalle de
+  taxonomía (implementación real totaliza **831 LoC
+  = 822 inserciones + 9 deletions**, sobrepaso +431 LoC
+  contra el presupuesto de 400 líneas — véase el
+  addendum dedicado abajo para la justificación de
+  autorización; PR 3a retiene la excepción de lockfile
+  de `package-lock.json` regenerado como la primera
+  `size:exception` documentada, ahora con PR 3c-ii
+  como la segunda).
 - El más pesado de los hijos del 3c es **3c-i a ~390
-  LoC**; el más ligero es **3c-iv a ~280 LoC** (porque el
-  barrel del design-system es pequeño). El sub-PR **6c**
-  es el más pequeño en general a ~20 LoC; el artefacto
-  de medición G4 se registra en `apply-progress.md` en
+  LoC** por el plan; **PR 3c-ii es el sub-PR más
+  pesado por diff real a 831 LoC** (overshoot
+  autorizado, ver arriba); el más ligero es
+  **3c-iv a ~280 LoC** (porque el barrel del
+  design-system es pequeño). El sub-PR **6c** es el
+  más pequeño en general a ~20 LoC; el artefacto de
+  medición G4 se registra en `apply-progress.md` en
   lugar de en un diff de código.
 - La Fase 6 colectivamente (6a + 6b + 6c) totaliza ~190
   LoC authored y ~120 LoC de artefacto de medición. Si
@@ -2614,6 +2660,10 @@ ediciones del predecesor.
   separados para que los tokens / base / cascada de dark,
   la superficie de taxonomía, la superficie de Browser /
   search / folder, y las animations / utilities / barrel
-  del design-system puedan revisarse cada uno
+del design-system puedan revisarse cada uno
   independientemente. Colapsar cualquier par del 3c no
   es el default.
+
+## Addenda — 2026-09-09: autorización de size:exception de PR 3c-ii (solo documental; ni fusionado ni verificado) (solo anexo)
+
+- **size:exception de PR 3c-ii autorizada (esta entrada, abre una segunda `size:exception` aprobada por el usuario junto a la excepción previa de `package-lock.json` regenerado de PR 3a; la cadena de 16 hijos se preserva; sin otros cambios de alcance; el PR NO se reclama como fusionado ni verificado por este addendum)**. El usuario autorizó una `size:exception` para PR 3c-ii porque la implementación real de la rebanada completa de CSS de árbol / detalle de taxonomía requirió **822 inserciones + 9 deletions = 831 LoC**, contra la estimación previa de `~380 LoC` registrada en el "Pronóstico de carga de revisión" de este tasks-es.md, en el callout de justificación del replan de la sub-secuencia del PR 3c arriba, en la descripción de dependencia por PR para PR 3c-ii, y en la tabla "Rebanada de sub-PRs bajo la Aproximación A" de `design-es.md` — es decir, la implementación real sobrepasa el presupuesto de revisión por PR de 400 líneas que el Enfoque A bloqueó el 2026-09-02 en +431 LoC. **Justificación de la autorización** (por qué se prefiere un único PR revisable sobre un fraccionamiento adicional): (a) los selectores de árbol / detalle de taxonomía, las variantes teñidas por realm `.tree-row[data-realm="…"]`, los selectores del menú kebab / modal de materialize, la superficie de `#detail-panel` / `.detail-card` / `.detail-section` / `.overview-section` / `.detail-item` / `.search-pulse` / `.detail-tabs` / `.search-icon-btn` / `.materialize-btn`, y la rebanada del test de paridad en `tests/test_tailwind_4_parity.py` son inseparables de la capa base de 3c-i (deben enviarse juntos para que cada selector resuelva sus referencias `var(--token)` contra la rebanada viva de tokens `:root`); (b) dividir PR 3c-ii aún más en un par 4c-i / 4c-ii duplicaría la superficie consumidora de `var(--token)` entre dos PRs y forzaría al hijo posterior a re-tocar selectores que el hijo anterior ya bloqueó; (c) la sub-secuencia de cuatro hijos del 3c ya minimizó el radio de impacto al dividir el `<style>` inline legacy de 1.963 líneas en cuatro hermanos revisables (3c-i / 3c-ii / 3c-iii / 3c-iv), así que el presente sobrepaso refleja la superficie realista de port de CSS para el concern de árbol / detalle de taxonomía más que un defecto de planificación; (d) la enumeración de cada selector de taxonomía en `tests/test_tailwind_4_parity.py` — el contribuyente dominante del conteo de 831 LoC — es en sí misma una rebanada inseparable (dividir el enumerador entre dos PRs dejaría un test a medio-coherente que nadie puede revisar coherentemente y aún tendría que re-fusionarse en PR 5c). **La cadena de 16 hijos se preserva**: PR 3c-ii permanece en la posición 4/16 con el mismo predecesor (`feat/complete-taxa-frontend-migration-03-3c-i`) y el mismo sucesor (`feat/complete-taxa-frontend-migration-05-3c-iii`); la descripción de dependencia por PR, el orden corregido, el bloqueo del Enfoque A, la base de FastAPI/SQLite, la estrategia de Feature Branch Chain, el estado congelado del predecesor, las specs por dominio, todos los addenda previos (5c.1a, 5c.1b-A, 5c.1b-B, 5c.2-A, 5c.2-B.1a, 5c.2-B.1b-i, 5c.2-B.1b-ii-a, 5c.2-B.1b-ii-b, 5c.2-B.1b-ii-c), y el protocolo G5 de reemplazo aprobado por el usuario registrado en `design-es.md` quedan sin cambios. **El PR no se reclama como fusionado ni verificado por este addendum** — la `size:exception` solo autoriza un único PR revisable contra el presupuesto establecido; revisión, CI y merge siguen el proceso ordinario de feature-branch-chain. Las estimaciones corregidas (`831 LoC totales: 822 inserciones, 9 deletions`) sustituyen a la cifra previa de `~380 LoC` en las cuatro tablas arriba; el presupuesto inline `~380 (≤ 400; -20 LoC de holgura)` de la tabla de rebanada de sub-PRs pasa a `831 (sobrepaso +431 LoC contra el presupuesto de 400 líneas; size:exception aprobada por el usuario para este PR)`; la línea `El sub-PR nuevo más grande es 3c-i a ~390 LoC` del Pronóstico de carga de revisión pasa a `El sub-PR nuevo más grande por diff real es PR 3c-ii a 831 LoC`; la línea `Los 16 sub-PRs ≤ 400 LoC authored` se anota con `excepto PR 3c-ii, que carga una size:exception aprobada por el usuario`; la cláusula `no se abre ninguna nueva size:exception` se anota con `excepto para PR 3c-ii, que ahora es la segunda size:exception aprobada por el usuario junto a PR 3a`. El espejo en español carga la misma semántica; cualquier deriva se resuelve a favor del inglés. Sin cambios de código; sin rebase; sin nueva rama; sin commit/push; sin apertura de PR.

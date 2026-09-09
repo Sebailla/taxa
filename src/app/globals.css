@@ -141,10 +141,532 @@
   .materialize-btn:focus-visible,
   .load-all:focus-visible,
   .kebab-trigger:focus-visible,
-  .kebab-item:focus-visible,
-  #nav-help:focus-visible,
-  #collapse-all:focus-visible {
-    outline: 2px solid var(--primary);
-    outline-offset: 2px;
+      .kebab-item:focus-visible,
+      #nav-help:focus-visible,
+      #collapse-all:focus-visible {
+        outline: 2px solid var(--primary);
+        outline-offset: 2px;
+      }
+
+      /* PR 3c-ii slice — taxonomy tree / detail styling. Uses existing 3c-i
+         tokens only. .kebab + .kebab-menu base selectors are extracted to
+         @layer components below per OpenSpec 3c-ii.5. */
+
+      .tier-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        background: var(--surface);
+        border-bottom: 1px solid var(--outline-variant);
+        border-radius: 8px;
+        margin-bottom: 4px;
+        position: relative;
+        z-index: 10;
+      }
+      .tier-header h2 {
+        font-family: "Raleway", sans-serif;
+        font-size: 16px;
+        font-weight: 600;
+        line-height: 1.4;
+        letter-spacing: 1px;
+        color: var(--on-surface);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .load-all {
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        font-weight: 600;
+        color: #ffffff;
+        padding: 10px 16px;
+        background: #1d7ea9;
+        border-radius: 8px;
+        border: 0;
+        cursor: pointer;
+        transition: background-color 200ms linear;
+      }
+      .load-all:hover { background: #176587; }
+      .load-all:disabled { opacity: 0.5; cursor: not-allowed; }
+      #search-results {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        margin-top: 4px;
+        max-height: 480px;
+        overflow-y: auto;
+        background: #ffffff;
+        border: 1px solid #d9d9d9;
+        border-radius: 8px;
+        z-index: 99;
+        display: none;
+        isolation: isolate;
+      }
+      #search-results.open { display: block; }
+      .search-hit {
+        padding: 12px 16px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border-bottom: 1px solid #eeeeee;
+        transition: background-color 200ms linear;
+      }
+      .search-hit:hover { background: #f5f5f5; }
+      .search-hit:last-child { border-bottom: 0; }
+      .search-hit .tag {
+        font-family: "Raleway", sans-serif;
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-weight: 600;
+        line-height: 1.4;
+      }
+      .tag-vernacular { background: #fff8e1; color: #b45309; }
+      .tag-scientific { background: #e3f2f9; color: #1d7ea9; }
+      .tag-authorship { background: #f5f5f5; color: #555555; }
+      .tree-source-toggle {
+        border: 1px solid var(--outline-variant);
+        border-radius: 8px;
+        overflow: hidden;
+        height: 32px;
+        background: var(--surface);
+      }
+      .tree-source-toggle .tree-source-btn {
+        padding: 0 12px;
+        height: 100%;
+        font-family: "Raleway", sans-serif;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        background: transparent;
+        color: var(--on-surface-variant);
+        border: 0;
+        cursor: pointer;
+        transition: background-color 200ms linear, color 200ms linear;
+      }
+      .tree-source-toggle .tree-source-btn:hover:not(.active) {
+        background: var(--surface-container-low);
+        color: var(--on-surface);
+      }
+      .tree-source-toggle .tree-source-btn.active {
+        background: #1d7ea9;
+        color: #ffffff;
+      }
+      .rank-badge {
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        line-height: 1.4;
+        letter-spacing: 1px;
+        font-weight: 600;
+      }
+      .scientific-name { font-style: italic; }
+      .scientific-name--roman { font-style: normal; }
+      #detail-panel {
+        position: sticky;
+        top: 144px;
+        z-index: 30;
+      }
+      #detail-panel.closing { opacity: 0; }
+      .detail-card {
+        background: #ffffff;
+        border: 1px solid rgba(15, 23, 42, 0.06);
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow:
+          0 1px 2px rgba(15, 23, 42, 0.04),
+          0 4px 12px rgba(15, 23, 42, 0.06),
+          0 12px 32px rgba(15, 23, 42, 0.04);
+        height: auto;
+        max-height: 90vh;
+        overflow-y: auto;
+      }
+      .detail-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--surface-container);
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #ffffff;
+      }
+      .detail-header h2 {
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: -0.015em;
+        line-height: 1.2;
+        margin-top: 4px;
+      }
+      .detail-section {
+        padding: 16px 24px;
+        border-bottom: 1px solid var(--surface-container);
+      }
+      .detail-section:last-child { border-bottom: 0; }
+      .detail-section h3 {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--on-surface-variant);
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .detail-section .count {
+        font-size: 11px;
+        color: var(--outline);
+        background: var(--surface-container-high);
+        padding: 1px 6px;
+        border-radius: 999px;
+        font-weight: 500;
+        letter-spacing: 0;
+      }
+      .overview-section { display: flex; flex-direction: column; gap: 12px; }
+      .overview-rank { display: flex; align-items: center; gap: 8px; }
+      .overview-grid {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        column-gap: 20px;
+        row-gap: 10px;
+        margin: 0;
+      }
+      .overview-row { display: contents; }
+      .overview-label {
+        color: var(--on-surface-variant);
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        font-weight: 500;
+        line-height: 1.4;
+        white-space: nowrap;
+      }
+      .overview-value {
+        color: var(--on-surface);
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        line-height: 1.4;
+        margin: 0;
+        word-break: break-word;
+      }
+      .overview-chain {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px;
+      }
+      .overview-chain-segment {
+        background: transparent;
+        border: 0;
+        padding: 2px 4px;
+        margin: 0;
+        border-radius: 4px;
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        line-height: 1.4;
+        color: var(--on-surface);
+        cursor: pointer;
+        transition: background-color 120ms ease-out, color 120ms ease-out;
+      }
+      .overview-chain-segment:hover {
+        background-color: var(--surface-container-low);
+        color: var(--primary);
+      }
+      .detail-item {
+        font-size: 13px;
+        color: var(--on-surface);
+        padding: 7px 8px;
+        margin: 0 -8px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: background-color 120ms ease-out;
+      }
+      .detail-item:hover { background-color: var(--surface-container-low); }
+      .detail-item .lang {
+        font-size: 10px;
+        color: var(--outline);
+        background: var(--surface-container-high);
+        padding: 1px 5px;
+        border-radius: 4px;
+        font-family: "JetBrains Mono", monospace;
+        text-transform: uppercase;
+      }
+      .detail-item .country {
+        font-size: 10px;
+        color: var(--outline);
+        font-family: "JetBrains Mono", monospace;
+      }
+      .detail-item .authorship { color: var(--on-surface-variant); font-size: 12px; }
+      .detail-item .means {
+        font-size: 10px;
+        padding: 1px 6px;
+        border-radius: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-weight: 600;
+      }
+      .means-native { background: #dcfce7; color: #166534; }
+      .means-introduced { background: #fed7aa; color: #9a3412; }
+      .means-uncertain { background: #f3f4f6; color: #6b7280; }
+      .means-unknown { background: #f3f4f6; color: #9ca3af; }
+      .search-pulse { border-radius: 8px; }
+      .detail-tabs {
+        display: flex;
+        gap: 0;
+        border-bottom: 1px solid var(--surface-container);
+        padding: 0 16px;
+        margin: 0 -16px 16px;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: #ffffff;
+      }
+      .detail-tab {
+        padding: 10px 14px;
+        font-family: "Raleway", sans-serif;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        color: var(--on-surface-variant);
+        background: transparent;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        transition: color 120ms, border-color 120ms;
+      }
+      .detail-tab:hover { color: var(--on-surface); }
+      .detail-tab.active {
+        color: var(--primary);
+        border-bottom-color: var(--primary);
+      }
+      .search-icon-btn {
+        margin-left: 8px;
+        padding: 2px;
+        border-radius: 4px;
+        background: transparent;
+        border: 0;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .search-icon-btn:hover { background: var(--surface-container-low); }
+      .materialize-btn {
+        margin-left: 4px;
+        padding: 2px;
+        border-radius: 4px;
+        background: transparent;
+        border: 0;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .materialize-btn:hover { background: var(--surface-container-low); }
+      .kebab-trigger {
+        margin-left: 4px;
+        padding: 2px;
+        border-radius: 4px;
+        background: transparent;
+        border: 0;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        transition: opacity 120ms linear, background-color 120ms linear;
+      }
+      .tree-row:hover .kebab-trigger,
+      .tree-row.selected .kebab-trigger,
+      .tree-row:focus-within .kebab-trigger,
+      .kebab-trigger:focus-visible { opacity: 1; }
+      .kebab-trigger:hover,
+      .kebab-trigger:focus-visible {
+        background: var(--surface-container-low);
+        outline: none;
+      }
+      .kebab-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 10px;
+        border: 0;
+        background: transparent;
+        border-radius: 6px;
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--on-surface);
+        text-align: left;
+        cursor: pointer;
+        text-decoration: none;
+        transition: background-color 120ms linear;
+      }
+      .kebab-item:hover,
+      .kebab-item:focus-visible {
+        background: var(--surface-container-low);
+        outline: none;
+      }
+      .kebab-item-label { flex: 1; white-space: nowrap; }
+      .materialize-tab-content {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 4px 0;
+      }
+      .materialize-tab-loading {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 16px 12px;
+        color: var(--on-surface-variant);
+        font-size: 14px;
+      }
+      .materialize-tab-error {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 16px 12px;
+        color: var(--on-error-container);
+        font-size: 14px;
+      }
+      .materialize-modal-section-title {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--on-surface-variant);
+        margin-bottom: 8px;
+      }
+      .materialize-modal-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        border: 1px solid var(--outline-variant);
+        border-radius: 8px;
+        background: var(--surface-container-lowest);
+        max-height: 240px;
+        overflow-y: auto;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 12px;
+      }
+      .materialize-modal-list-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 10px;
+        border-bottom: 1px solid var(--outline-variant);
+      }
+      .materialize-modal-list-item:last-child { border-bottom: 0; }
+      .materialize-modal-marker {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        font-weight: 700;
+        font-size: 12px;
+        flex-shrink: 0;
+      }
+      .materialize-modal-marker-exists { background: #15803d33; color: #15803d; }
+      .materialize-modal-marker-new {
+        background: var(--surface-container-low);
+        color: var(--on-surface);
+      }
+      .materialize-modal-segment-path {
+        color: var(--on-surface);
+        overflow-wrap: anywhere;
+        line-height: 1.35;
+      }
+      .materialize-modal-counts { font-size: 13px; color: var(--on-surface-variant); }
+      .materialize-modal-info-banner {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: #15803d1f;
+        color: #15803d;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .materialize-modal-actions { display: flex; justify-content: flex-end; margin-top: 4px; }
+      .materialize-modal-btn {
+        font-family: "Raleway", sans-serif;
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 1;
+        padding: 10px 16px;
+        border-radius: 8px;
+        border: 1px solid transparent;
+        cursor: pointer;
+        transition: background 0.12s ease-out, color 0.12s ease-out;
+      }
+      .materialize-modal-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+      .materialize-modal-btn-primary { background: #15803d; color: white; }
+      .materialize-modal-btn-primary:hover:not(:disabled) { background: #126b32; }
+      .materialize-modal-btn-secondary {
+        background: transparent;
+        color: var(--primary);
+        border: 1px solid currentColor;
+      }
+      .materialize-modal-btn-secondary:hover:not(:disabled) {
+        background: var(--surface-container-low);
+      }
+      .materialize-modal-path-actions {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-top: 0.75rem;
+      }
+      .materialize-modal-path-actions .materialize-modal-btn { flex: 0 0 auto; }
+
+      /* Realm-tinted scientific-name overrides via the --realm-* family. */
+      .tree-row[data-realm] .scientific-name { color: var(--realm-other); }
+      .tree-row[data-realm="bacteria"] .scientific-name { color: var(--realm-bacteria); }
+      .tree-row[data-realm="archaea"] .scientific-name { color: var(--realm-archaea); }
+      .tree-row[data-realm="viruses"] .scientific-name { color: var(--realm-viruses); }
+      .tree-row[data-realm="animalia"] .scientific-name { color: var(--realm-animalia); }
+      .tree-row[data-realm="fungi"] .scientific-name { color: var(--realm-fungi); }
+      .tree-row[data-realm="plantae"] .scientific-name { color: var(--realm-plantae); }
+      .tree-row[data-realm="chromista"] .scientific-name { color: var(--realm-chromista); }
+      .tree-row.selected .scientific-name,
+      .tree-row.focused .scientific-name { color: var(--primary); }
+}
+
+/* PR 3c-ii.5 — bare .kebab + .kebab-menu base selectors extracted to
+   @layer components for the React <Kebab> component in PR 5a. The
+   .kebab-menu.open state selector rides along so it correctly wins
+   over the .kebab-menu { display: none } base rule via source order
+   inside the same layer (cascade correction for the open state). */
+@layer components {
+  .kebab { position: relative; display: inline-flex; align-items: center; }
+  .kebab-menu {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    min-width: 180px;
+    background: var(--surface);
+    border: 1px solid var(--outline-variant);
+    border-radius: 8px;
+    padding: 4px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+    z-index: 50;
+    flex-direction: column;
+    gap: 2px;
   }
+  .kebab-menu.open { display: flex; }
 }
