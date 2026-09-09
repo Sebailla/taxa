@@ -22,8 +22,21 @@ REQUIRED_DEPS = (
     ("@types/react", "19", "devDependencies"), ("@types/react-dom", "19", "devDependencies"),
     ("@types/node", None, "devDependencies"),
 )
-REQUIRED_DEPS_PRODUCTION = (("tailwindcss", "4"),)
-FORBIDDEN_LEGACY_DEPS = ("autoprefixer", "postcss", "@tailwindcss/forms")
+# PR 5.5 (Tailwind 4 / PostCSS pipeline repair, position 5.5/17):
+# ``postcss`` is the runtime Tailwind 4 relies on, and
+# ``@tailwindcss/postcss`` is the official PostCSS plugin registered
+# by root ``postcss.config.mjs``. Both are required; their major
+# version is unconstrained (Tailwind 4 keeps the majors aligned with
+# its own release cadence).
+REQUIRED_DEPS_PRODUCTION = (
+("tailwindcss", "4"),
+("postcss", None),
+("@tailwindcss/postcss", None),
+)
+# Tailwind 3-era plugins stay forbidden — the PR 5.5 contract bans
+# every legacy ``autoprefixer`` / ``@tailwindcss/forms`` /
+# postcss-as-top-level-dep dependency that the old toolchain pinned.
+FORBIDDEN_LEGACY_DEPS = ("autoprefixer", "@tailwindcss/forms")
 REQUIRED_SCRIPTS = ("check-runtime", "build:web")
 
 def _pkg() -> dict:
@@ -101,7 +114,7 @@ def test_required_dep_present_in_dependencies(name, major):
 def test_legacy_tailwind_3_dep_absent(name):
     pkg = _pkg()
     leaked = [s for s in ("dependencies", "devDependencies") if name in (pkg.get(s) or {})]
-    assert not leaked, f"legacy dep {name!r} present in {leaked}; PR 3a task 3a.2 must remove it"
+    assert not leaked, f"legacy dep {name!r} present in {leaked}; PR 3a task 3a.2 removed it and PR 5.5 keeps the Tailwind 3-era ban (autoprefixer / @tailwindcss/forms)"
 
 @pytest.mark.parametrize("script", REQUIRED_SCRIPTS)
 def test_required_script_defined(script):
