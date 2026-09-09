@@ -633,18 +633,46 @@
       }
       .materialize-modal-path-actions .materialize-modal-btn { flex: 0 0 auto; }
 
-      /* Realm-tinted scientific-name overrides via the --realm-* family. */
-      .tree-row[data-realm] .scientific-name { color: var(--realm-other); }
-      .tree-row[data-realm="bacteria"] .scientific-name { color: var(--realm-bacteria); }
-      .tree-row[data-realm="archaea"] .scientific-name { color: var(--realm-archaea); }
-      .tree-row[data-realm="viruses"] .scientific-name { color: var(--realm-viruses); }
-      .tree-row[data-realm="animalia"] .scientific-name { color: var(--realm-animalia); }
-      .tree-row[data-realm="fungi"] .scientific-name { color: var(--realm-fungi); }
-      .tree-row[data-realm="plantae"] .scientific-name { color: var(--realm-plantae); }
-      .tree-row[data-realm="chromista"] .scientific-name { color: var(--realm-chromista); }
-      .tree-row.selected .scientific-name,
-      .tree-row.focused .scientific-name { color: var(--primary); }
-}
+/* Realm-tinted scientific-name overrides via the --realm-* family. */
+          .tree-row[data-realm] .scientific-name { color: var(--realm-other); }
+          .tree-row[data-realm="bacteria"] .scientific-name { color: var(--realm-bacteria); }
+          .tree-row[data-realm="archaea"] .scientific-name { color: var(--realm-archaea); }
+          .tree-row[data-realm="viruses"] .scientific-name { color: var(--realm-viruses); }
+          .tree-row[data-realm="animalia"] .scientific-name { color: var(--realm-animalia); }
+          .tree-row[data-realm="fungi"] .scientific-name { color: var(--realm-fungi); }
+          .tree-row[data-realm="plantae"] .scientific-name { color: var(--realm-plantae); }
+          .tree-row[data-realm="chromista"] .scientific-name { color: var(--realm-chromista); }
+          .tree-row.selected .scientific-name,
+          .tree-row.focused .scientific-name { color: var(--primary); }
+
+          /* PR 3c-iii.6 — Realm-tinted ``.fex-row.folder[data-realm="..."]``
+             variants co-located with the ``.tree-row[data-realm="..."]``
+             selectors above so the ``--realm-*`` round-trip stays in one
+             place (the React ``<FileExplorer>`` folder rows stamp
+             ``data-realm`` from the application-layer ``realmForFolderPath``
+             helper; the legacy inline-style block paints the folder icon
+             + label with the matching realm hue). The catch-all selectors
+             carry ``var(--realm-other)`` as the default tint; the
+             per-realm overrides ride on top. ``other`` is intentionally
+             absent from the per-realm block — the catch-all already
+             covers the default tint. */
+          .fex-row.folder[data-realm] .fex-icon { color: var(--realm-other); }
+          .fex-row.folder[data-realm] .fex-label { color: var(--realm-other); }
+          .fex-row.folder[data-realm="bacteria"] .fex-icon { color: var(--realm-bacteria); }
+          .fex-row.folder[data-realm="bacteria"] .fex-label { color: var(--realm-bacteria); }
+          .fex-row.folder[data-realm="archaea"] .fex-icon { color: var(--realm-archaea); }
+          .fex-row.folder[data-realm="archaea"] .fex-label { color: var(--realm-archaea); }
+          .fex-row.folder[data-realm="viruses"] .fex-icon { color: var(--realm-viruses); }
+          .fex-row.folder[data-realm="viruses"] .fex-label { color: var(--realm-viruses); }
+          .fex-row.folder[data-realm="animalia"] .fex-icon { color: var(--realm-animalia); }
+          .fex-row.folder[data-realm="animalia"] .fex-label { color: var(--realm-animalia); }
+          .fex-row.folder[data-realm="fungi"] .fex-icon { color: var(--realm-fungi); }
+          .fex-row.folder[data-realm="fungi"] .fex-label { color: var(--realm-fungi); }
+          .fex-row.folder[data-realm="plantae"] .fex-icon { color: var(--realm-plantae); }
+          .fex-row.folder[data-realm="plantae"] .fex-label { color: var(--realm-plantae); }
+          .fex-row.folder[data-realm="chromista"] .fex-icon { color: var(--realm-chromista); }
+          .fex-row.folder[data-realm="chromista"] .fex-label { color: var(--realm-chromista); }
+    }
 
 /* PR 3c-ii.5 — bare .kebab + .kebab-menu base selectors extracted to
    @layer components for the React <Kebab> component in PR 5a. The
@@ -668,5 +696,745 @@
     flex-direction: column;
     gap: 2px;
   }
-  .kebab-menu.open { display: flex; }
-}
+.kebab-menu.open { display: flex; }
+    }
+
+
+    /* PR 3c-iii — Search / Folder / global Browser / file-explorer chrome
+       slice. File-explorer chrome collapses into ``.research-explorer``
+       per OpenSpec 3c-iii.5; the search-tab chrome collapses into
+       ``.search-tab``; folder-tab / header-browser-tab / toast /
+       search-engines-grid remain top-level because they are stable
+       cross-tab surfaces (the React ``<FolderTab>`` + ``<BrowserSurface>``
+       + the global toast host in PR 5b consume them via a stable
+       selector). Colour values reuse the 3c-i tokens + a single
+       ``color-mix(in srgb, var(--token) NN%, transparent)`` call for the
+       splitter drag-state + the search-input focus glow alpha — the
+       legacy inline-style block ships the same shape; PR 3c-i / 3c-ii
+       stay colour-mix-free while PR 3c-iii carries the legacy alpha
+       mixing the cascade depends on. */
+    @layer components {
+      /* PR 3c-iii.1 — toast (global materialize toast + error variant).
+         Top-level because the toast host is a global surface (the
+         ``<BannerHost>`` in PR 5b mounts it across every primary tab). */
+      .toast {
+        position: fixed;
+        top: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--surface);
+        color: var(--on-surface);
+        border: 1px solid var(--outline-variant);
+        border-radius: 8px;
+        padding: 10px 16px;
+        font-family: "Raleway", sans-serif;
+        font-size: 14px;
+        font-weight: 600;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+        z-index: 200;
+        pointer-events: auto;
+      }
+      .toast-error {
+        background: var(--error-container);
+        color: var(--on-error-container);
+        border-color: var(--error);
+      }
+
+      /* PR 3c-iii.2 — search engines grid + per-engine button. Top-level
+         because the legacy engines grid is a standalone surface (the
+         canonical React SearchLinkList in PR 5b replaces it but ships
+         the descendant selectors inside ``.search-tab`` below). */
+      .search-engines-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 12px;
+        padding: 12px 16px;
+      }
+      .search-engines-grid .search-category-header {
+        grid-column: 1 / -1;
+      }
+      .search-engines-grid .search-engine-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border: 1px solid var(--outline-variant);
+        border-radius: 8px;
+        background: var(--surface-container-low);
+        color: var(--on-surface);
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        font-weight: 500;
+        text-decoration: none;
+        cursor: pointer;
+        transition: background-color 120ms ease-out, border-color 120ms ease-out;
+      }
+      .search-engines-grid .search-engine-btn:hover {
+        background: var(--surface-container);
+        border-color: var(--primary);
+      }
+      .search-engines-grid .search-engine-btn:focus-visible {
+        outline: 2px solid var(--primary);
+        outline-offset: 2px;
+      }
+      .search-engines-grid .search-engine-btn:active {
+        background: var(--surface-container-high);
+      }
+      .search-engines-grid .search-engine-btn .material-symbols-outlined {
+        font-size: 18px;
+        color: var(--primary);
+      }
+      .search-engines-grid .search-engine-btn:hover .material-symbols-outlined {
+        color: var(--accent);
+      }
+      .search-engines-grid .search-engine-btn-label {
+        flex: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .search-engines-grid .search-category-header:first-child {
+        margin-top: 0;
+      }
+      .search-engines-grid .search-category-header .material-symbols-outlined {
+        font-size: 16px;
+        color: var(--on-surface-variant);
+      }
+
+      /* PR 3c-iii.3 — folder-tab + retry / create actions. Top-level
+         because the React ``<FolderTab>`` consumes it via a stable
+         selector (no parent wrapping). */
+      .folder-tab {
+        padding: 16px 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        font-family: "Raleway", sans-serif;
+        font-size: 14px;
+        color: var(--on-surface);
+      }
+      .folder-tab .authorship {
+        color: var(--on-surface-variant);
+        font-size: 13px;
+        line-height: 1.4;
+        margin: 0;
+      }
+      .folder-tab-retry,
+      .folder-tab-create {
+        align-self: flex-start;
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        font-weight: 600;
+        color: #ffffff;
+        background: var(--primary);
+        border: 0;
+        padding: 8px 14px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background-color 120ms ease-out;
+      }
+      .folder-tab-retry:hover,
+      .folder-tab-create:hover {
+        background: var(--accent);
+      }
+      .folder-tab-retry:disabled,
+      .folder-tab-create:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      /* PR 3c-iii.4 — global header browser tab (the Browser tab in the
+         primary nav that hosts the global research explorer surface).
+         Top-level because ``<BrowserSurface>`` consumes it via a stable
+         selector. */
+      .header-browser-tab {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border: 1px solid var(--outline-variant);
+        border-radius: 8px;
+        background: var(--surface-container-low);
+        color: var(--on-surface);
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background-color 120ms ease-out;
+      }
+      .header-browser-tab:hover {
+        background: var(--surface-container);
+      }
+      .header-browser-tab-host {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 16px 24px;
+      }
+
+      /* PR 3c-iii.5 — search-tab parent + collapsed descendants. The
+         parent collapses ``.search-category-section`` +
+         ``.search-link-list`` + ``.search-link`` + ``.search-link-label``
+         into a single rule per OpenSpec 3c-iii.5 refactor contract so
+         the React ``<SearchTab>`` + ``<SearchLinkList>`` consume the
+         CSS via a stable parent selector and so the cascade order
+         matches the legacy inline-style block. ``.search-category-header``
+         is intentionally NOT a descendant — the canonical React
+         SearchTab already stamps it as a ``<header>`` child and the
+         canonical styles ride the ``.search-category-section > header``
+         selector below. */
+      .search-tab {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 16px 24px;
+      }
+      .search-tab .search-category-section {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .search-tab .search-category-section > header.search-category-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--outline-variant);
+        font-family: "Raleway", sans-serif;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--on-surface-variant);
+      }
+      .search-tab .search-category-section > header.search-category-header:first-child {
+        border-top: 0;
+      }
+      .search-tab .search-category-section > header.search-category-header .material-symbols-outlined {
+        font-size: 18px;
+        color: var(--primary);
+      }
+      .search-tab .search-link-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 8px;
+      }
+      .search-tab .search-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border: 1px solid var(--outline-variant);
+        border-radius: 8px;
+        background: var(--surface);
+        color: var(--on-surface);
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        font-weight: 500;
+        text-decoration: none;
+        cursor: pointer;
+        transition: background-color 120ms ease-out, border-color 120ms ease-out;
+      }
+      .search-tab .search-link:hover {
+        background: var(--surface-container-low);
+        border-color: var(--primary);
+      }
+      .search-tab .search-link .search-link-label {
+        flex: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      /* PR 3c-iii.6 — research-explorer mega-block (the React
+         ``<FileExplorer>`` consumes it via a stable parent selector).
+         Every file-explorer chrome selector (``fex-*`` /
+         ``file-explorer-pane`` / ``file-viewer-pane`` / snippet
+         toolbar / CSV scroller / JSON tree viewer / truncation
+         banner) collapses INSIDE this rule per OpenSpec 3c-iii.5.
+         Color-mix carries the splitter drag-state + search-input
+         focus glow alpha (the legacy inline-style block uses
+         ``color-mix(in srgb, var(--token) NN%, transparent)``). */
+      .research-explorer {
+        display: grid;
+        grid-template-columns: minmax(220px, 1fr) 6px minmax(320px, 2fr);
+        min-height: 480px;
+        border: 1px solid var(--outline-variant);
+        border-radius: 12px;
+        background: var(--surface);
+        overflow: hidden;
+      }
+      .research-explorer .file-explorer-pane {
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+        padding: 12px 8px;
+        gap: 2px;
+      }
+      .research-explorer .file-viewer-pane {
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+        padding: 0;
+        gap: 0;
+      }
+      .research-explorer .fex-shell {
+        display: contents;
+      }
+      .research-explorer .fex-tree-pane,
+      .research-explorer .fex-viewer-pane {
+        display: flex;
+        flex-direction: column;
+      }
+      .research-explorer .fex-splitter {
+        background: var(--outline-variant);
+        cursor: col-resize;
+        position: relative;
+        transition: background-color 120ms ease-out;
+      }
+      .research-explorer .fex-splitter::after {
+        content: "";
+        position: absolute;
+        inset: 50% 2px auto 2px;
+        height: 24px;
+        margin-top: -12px;
+        background: var(--outline);
+        border-radius: 2px;
+      }
+      .research-explorer .fex-splitter:hover {
+        background: color-mix(in srgb, var(--primary) 40%, var(--outline-variant));
+      }
+      .research-explorer .fex-splitter.dragging {
+        background: color-mix(in srgb, var(--primary) 60%, var(--outline-variant));
+      }
+      .research-explorer .fex-tree-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--outline-variant);
+      }
+      .research-explorer .fex-tree-header h2 {
+        font-family: "Raleway", sans-serif;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        color: var(--on-surface);
+        margin: 0;
+      }
+      .research-explorer .fex-tree-header-search {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--outline-variant);
+      }
+      .research-explorer .fex-search-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        position: relative;
+        background: var(--surface-container-low);
+        border: 1px solid var(--outline-variant);
+        border-radius: 8px;
+        padding: 4px 8px;
+      }
+      .research-explorer .fex-search-row .fex-search-icon {
+        font-size: 16px;
+        color: var(--on-surface-variant);
+      }
+      .research-explorer .fex-search-input {
+        flex: 1;
+        min-width: 0;
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        color: var(--on-surface);
+        background: transparent;
+        border: 0;
+        outline: 0;
+        padding: 4px 0;
+      }
+      .research-explorer .fex-search-input:focus {
+        outline: 0;
+      }
+      .research-explorer .fex-search-clear {
+        display: none;
+        background: transparent;
+        border: 0;
+        cursor: pointer;
+        padding: 2px;
+        border-radius: 4px;
+        color: var(--on-surface-variant);
+      }
+      .research-explorer .fex-search-clear:hover {
+        background: var(--surface-container-high);
+        color: var(--on-surface);
+      }
+      .research-explorer .fex-search-clear .material-symbols-outlined {
+        font-size: 16px;
+      }
+      /* PR 3c-iii.3 — search-clear visibility invariant (verbatim
+         legacy rule; the React presenter relies on this exact
+         ``:not(:placeholder-shown) ~ .fex-search-clear`` selector to
+         reveal the clear glyph once the user types). */
+      .research-explorer .fex-search-input:not(:placeholder-shown) ~ .fex-search-clear {
+        display: inline-flex;
+        align-items: center;
+      }
+      .research-explorer .fex-search-toggles {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .research-explorer .fex-search-mode-btn,
+      .research-explorer .fex-search-hide-empty-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 8px;
+        font-family: "Raleway", sans-serif;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--on-surface-variant);
+        background: var(--surface-container-low);
+        border: 1px solid var(--outline-variant);
+        border-radius: 6px;
+        cursor: pointer;
+        transition: background-color 120ms ease-out, color 120ms ease-out;
+      }
+      .research-explorer .fex-search-mode-btn:hover,
+      .research-explorer .fex-search-hide-empty-btn:hover {
+        background: var(--surface-container);
+        color: var(--on-surface);
+      }
+      .research-explorer .fex-search-mode-btn[aria-pressed="true"],
+      .research-explorer .fex-search-hide-empty-btn[aria-pressed="true"] {
+        background: var(--primary);
+        color: #ffffff;
+        border-color: var(--primary);
+      }
+      .research-explorer .fex-search-mode-btn .material-symbols-outlined,
+      .research-explorer .fex-search-hide-empty-btn .material-symbols-outlined {
+        font-size: 14px;
+      }
+      .research-explorer .fex-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        color: var(--on-surface);
+        transition: background-color 80ms ease-out;
+      }
+      .research-explorer .fex-row:hover {
+        background: var(--surface-container-low);
+      }
+      .research-explorer .fex-row .fex-chevron,
+      .research-explorer .fex-row .fex-icon {
+        font-size: 16px;
+        color: var(--on-surface-variant);
+      }
+      .research-explorer .fex-row .fex-label {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .research-explorer .fex-row .fex-meta {
+        font-size: 11px;
+        color: var(--on-surface-variant);
+        font-family: "JetBrains Mono", monospace;
+      }
+      .research-explorer .fex-row.file.selected {
+        background: var(--surface-container);
+      }
+      .research-explorer .fex-row.file.selected .fex-icon,
+      .research-explorer .fex-row.file.selected .fex-label,
+      .research-explorer .fex-row.file.selected .fex-meta {
+        color: var(--primary);
+      }
+      .research-explorer .fex-row.folder.selected {
+        background: var(--surface-container);
+      }
+      /* PR 3c-iii.6 — default realm folder tint + per-realm overrides
+         reference ``var(--realm-*)`` co-located with the
+         ``.tree-row[data-realm]`` selectors in ``@layer base``. */
+      .research-explorer .fex-row.folder[data-realm] .fex-icon { color: var(--realm-other); }
+      .research-explorer .fex-row.folder[data-realm] .fex-label { color: var(--realm-other); }
+      .research-explorer .fex-row.folder[data-realm="bacteria"] .fex-icon { color: var(--realm-bacteria); }
+      .research-explorer .fex-row.folder[data-realm="bacteria"] .fex-label { color: var(--realm-bacteria); }
+      .research-explorer .fex-row.folder[data-realm="archaea"] .fex-icon { color: var(--realm-archaea); }
+      .research-explorer .fex-row.folder[data-realm="archaea"] .fex-label { color: var(--realm-archaea); }
+      .research-explorer .fex-row.folder[data-realm="viruses"] .fex-icon { color: var(--realm-viruses); }
+      .research-explorer .fex-row.folder[data-realm="viruses"] .fex-label { color: var(--realm-viruses); }
+      .research-explorer .fex-row.folder[data-realm="animalia"] .fex-icon { color: var(--realm-animalia); }
+      .research-explorer .fex-row.folder[data-realm="animalia"] .fex-label { color: var(--realm-animalia); }
+      .research-explorer .fex-row.folder[data-realm="fungi"] .fex-icon { color: var(--realm-fungi); }
+      .research-explorer .fex-row.folder[data-realm="fungi"] .fex-label { color: var(--realm-fungi); }
+      .research-explorer .fex-row.folder[data-realm="plantae"] .fex-icon { color: var(--realm-plantae); }
+      .research-explorer .fex-row.folder[data-realm="plantae"] .fex-label { color: var(--realm-plantae); }
+      .research-explorer .fex-row.folder[data-realm="chromista"] .fex-icon { color: var(--realm-chromista); }
+      .research-explorer .fex-row.folder[data-realm="chromista"] .fex-label { color: var(--realm-chromista); }
+      .research-explorer .fex-children {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+      .research-explorer .fex-banner {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: var(--surface-container-high);
+        color: var(--on-surface);
+        border-radius: 8px;
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+      }
+      .research-explorer .fex-empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 48px 24px;
+        color: var(--on-surface-variant);
+        font-family: "Raleway", sans-serif;
+        font-size: 14px;
+        text-align: center;
+      }
+      .research-explorer .fex-empty-state .fex-empty-state-icon {
+        font-size: 32px;
+        color: var(--outline);
+      }
+      .research-explorer .fex-row.search-match {
+        background: color-mix(in srgb, var(--primary) 12%, var(--surface-container-low));
+        outline: 1px solid color-mix(in srgb, var(--primary) 40%, transparent);
+      }
+      .research-explorer .fex-search-empty {
+        padding: 24px 12px;
+        color: var(--on-surface-variant);
+        font-family: "Raleway", sans-serif;
+        font-size: 13px;
+        text-align: center;
+      }
+      /* PR 3c-iii.7 — snippet toolbar (meta strip + tab strip + snippet
+         frame + snippet btn + JSON tree + CSV scroller + truncation
+         banner). All ride inside ``.research-explorer`` so the React
+         ``<FileViewer>`` consumes the chrome via a stable parent
+         selector. */
+      .research-explorer .fex-meta-strip {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 6px 12px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 11px;
+        color: var(--on-surface-variant);
+        background: var(--surface-container-low);
+        border-bottom: 1px solid var(--outline-variant);
+      }
+      .research-explorer .fex-meta-strip > .fex-meta-spacer {
+        flex: 1;
+      }
+      .research-explorer .fex-tab-strip {
+        display: flex;
+        gap: 0;
+        padding: 0 12px;
+        border-bottom: 1px solid var(--outline-variant);
+        background: var(--surface-container-low);
+      }
+      .research-explorer .fex-tab-strip button {
+        font-family: "Raleway", sans-serif;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        color: var(--on-surface-variant);
+        background: transparent;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        padding: 8px 12px;
+        cursor: pointer;
+        transition: color 120ms ease-out, border-color 120ms ease-out;
+      }
+      .research-explorer .fex-tab-strip button:hover {
+        color: var(--on-surface);
+      }
+      .research-explorer .fex-tab-strip button.active {
+        color: var(--primary);
+        border-bottom-color: var(--primary);
+      }
+      .research-explorer .fex-snippet-frame {
+        border: 1px solid var(--outline-variant);
+        border-radius: 8px;
+        margin: 12px;
+        background: var(--surface);
+        overflow: hidden;
+      }
+      .research-explorer .fex-snippet-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 12px;
+        color: var(--on-surface);
+        background: var(--surface-container-low);
+        border-bottom: 1px solid var(--outline-variant);
+      }
+      .research-explorer .fex-snippet-dots {
+        display: inline-flex;
+        gap: 4px;
+      }
+      .research-explorer .fex-snippet-dots span {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+      }
+      .research-explorer .fex-snippet-dots .dot-r { background: #ff5f57; }
+      .research-explorer .fex-snippet-dots .dot-y { background: #febc2e; }
+      .research-explorer .fex-snippet-dots .dot-g { background: #28c840; }
+      .research-explorer .fex-snippet-body {
+        padding: 12px;
+        background: var(--surface);
+        color: var(--on-surface);
+        font-family: "JetBrains Mono", monospace;
+        font-size: 13px;
+        line-height: 1.5;
+        overflow-x: auto;
+      }
+      .research-explorer .fex-snippet-actions {
+        display: flex;
+        gap: 8px;
+        padding: 8px 12px;
+        border-top: 1px solid var(--outline-variant);
+        background: var(--surface-container-low);
+      }
+      .research-explorer .fex-snippet-btn {
+        font-family: "Raleway", sans-serif;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--on-surface);
+        background: var(--surface);
+        border: 1px solid var(--outline-variant);
+        border-radius: 6px;
+        padding: 4px 10px;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        transition: background-color 120ms ease-out, border-color 120ms ease-out;
+      }
+      .research-explorer .fex-snippet-btn:hover {
+        background: var(--surface-container-low);
+        border-color: var(--primary);
+      }
+      .research-explorer .fex-snippet-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .research-explorer .fex-csv-scroller {
+        overflow-x: auto;
+        padding: 0;
+      }
+      .research-explorer .fex-csv-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 12px;
+      }
+      .research-explorer .fex-csv-table thead th {
+        background: var(--surface-container-low);
+        color: var(--on-surface-variant);
+        font-weight: 600;
+        text-align: left;
+        padding: 6px 10px;
+        border-bottom: 1px solid var(--outline-variant);
+      }
+      .research-explorer .fex-csv-table tbody td {
+        padding: 4px 10px;
+        border-bottom: 1px solid var(--outline-variant);
+        color: var(--on-surface);
+      }
+      .research-explorer .fex-csv-table tbody tr:nth-child(even) td {
+        background: var(--surface-container-low);
+      }
+      .research-explorer .fex-csv-table tbody tr:hover td {
+        background: var(--surface-container);
+      }
+      .research-explorer .fex-json-tree {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 12px;
+        color: var(--on-surface);
+      }
+      .research-explorer .fex-json-children {
+        margin-left: 16px;
+        border-left: 1px solid var(--outline-variant);
+        padding-left: 8px;
+      }
+      .research-explorer .fex-json-node {
+        margin: 1px 0;
+      }
+      .research-explorer .fex-json-summary {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        cursor: pointer;
+        padding: 2px 4px;
+        border-radius: 4px;
+      }
+      .research-explorer .fex-json-summary:hover {
+        background: var(--surface-container-low);
+      }
+      .research-explorer .fex-json-summary:focus-visible {
+        outline: 2px solid var(--primary);
+        outline-offset: 2px;
+      }
+      .research-explorer .fex-json-caret {
+        font-size: 14px;
+        color: var(--on-surface-variant);
+        transition: transform 120ms ease-out;
+      }
+      .research-explorer .fex-json-node.open > .fex-json-summary > .fex-json-caret {
+        transform: rotate(90deg);
+      }
+      .research-explorer .fex-json-key {
+        color: var(--primary);
+        font-weight: 600;
+      }
+      .research-explorer .fex-tree-leaf {
+        display: inline-block;
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      .research-explorer .fex-tree-leaf.type-string { background: #dcfce7; color: #166534; }
+      .research-explorer .fex-tree-leaf.type-number { background: #dbeafe; color: #1d4ed8; }
+      .research-explorer .fex-tree-leaf.type-boolean { background: #fef3c7; color: #92400e; }
+      .research-explorer .fex-tree-leaf.type-null { background: #f3f4f6; color: #6b7280; }
+      .research-explorer .fex-tree-leaf.type-meta { background: var(--surface-container-high); color: var(--on-surface-variant); }
+      .research-explorer .fex-tree-truncated {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: var(--surface-container-high);
+        color: var(--on-surface-variant);
+        border-top: 1px solid var(--outline-variant);
+        font-family: "Raleway", sans-serif;
+        font-size: 12px;
+        font-style: italic;
+      }
+      .research-explorer .fex-tree-truncated .material-symbols-outlined {
+        font-size: 16px;
+        color: var(--on-surface-variant);
+      }
+    }
