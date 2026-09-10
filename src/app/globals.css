@@ -57,6 +57,25 @@
   --surface-container-high: #eeeeee;
   --surface-container-highest: #e8e8e8;
 
+  /* Derived neutral aliases — the legacy utility surface referenced three
+     token names that the legacy `:root` block above never declared
+     directly; they resolved through the pre-#171 `src/app/globals.css`
+     alias chain (`:root { --primary-fixed: var(--primary);
+     --on-primary-fixed: var(--on-primary);
+     --surface-container-lowest: var(--surface); }`) and the legacy
+     `tailwind.config.js` token `surface-container-lowest: #FFFFFF`
+     (= `--surface` in light mode).
+
+     `--on-primary-fixed` keeps the literal `#ffffff` the legacy cascade
+     painted on the primary-filled surface (`.fex-row.file.selected {
+     background: var(--primary); color: #ffffff; }` in web/index.html) —
+     the legacy `--on-primary` token it nominally aliased was never
+     declared, and the legacy dark cascade overrides none of the three,
+     so the var() indirection carries the theme flip for the other two. */
+  --primary-fixed: var(--primary);
+  --on-primary-fixed: #ffffff;
+  --surface-container-lowest: var(--surface);
+
   /* Realm palette — saturated pastel. The 8-token family ships here so
      the .tree-row[data-realm="..."] selectors in PR 3c-ii can reference
      `var(--realm-<name>)` directly. Realm hues stay identical in light +
@@ -70,6 +89,40 @@
   --realm-plantae: #7cb669;
   --realm-chromista: #e89b4f;
   --realm-other: #d49ab6;
+
+  /* PR 3c-iv-colors — Tailwind 4 `--color-*` namespace aliases (12 tokens,
+     alphabetized by `--color-*` name). Each alias maps to its corresponding
+     legacy CSS custom property via `var(--<legacy-name>)` so the Tailwind 4
+     utility surface (bg-primary, text-on-surface, border-outline-variant,
+     bg-surface-container-lowest, bg-primary-fixed, text-on-primary-fixed,
+     …) resolves via the legacy token cascade without source renames.
+
+     The mapping is a namespace redirect (NOT a raw hex value) so the
+     token family keeps a single source of truth: the byte-equal hex
+     values live in `tests/test_tailwind_tokens_base.py` and any future
+     token rename reaches both the alias and the legacy token via the
+     same cascade.
+
+     The three aliases that target the derived neutral names —
+     `--color-on-primary-fixed -> var(--on-primary-fixed)`,
+     `--color-primary-fixed -> var(--primary-fixed)`,
+     `--color-surface-container-lowest ->
+     var(--surface-container-lowest)` — resolve through the derived
+     alias block declared above, so the OpenSpec-pinned catalogue shape
+     is preserved AND every alias resolves at runtime (no undefined
+     custom property in the chain). */
+  --color-elevated: var(--elevated);
+  --color-on-primary-fixed: var(--on-primary-fixed);
+  --color-on-surface: var(--on-surface);
+  --color-on-surface-variant: var(--on-surface-variant);
+  --color-outline: var(--outline);
+  --color-outline-variant: var(--outline-variant);
+  --color-primary: var(--primary);
+  --color-primary-fixed: var(--primary-fixed);
+  --color-surface: var(--surface);
+  --color-surface-container: var(--surface-container);
+  --color-surface-container-high: var(--surface-container-high);
+  --color-surface-container-lowest: var(--surface-container-lowest);
 }
 
 /* Dark palette — toggled by the legacy settings theme toggle stamping

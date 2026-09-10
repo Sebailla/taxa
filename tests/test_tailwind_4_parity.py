@@ -201,18 +201,45 @@ def test_theme_declares_realm_token_with_non_empty_value(token):
 
 
 def test_theme_does_not_define_color_namespace_aliases_outside_3c_i_scope():
-    """PR 3c-i is the ``tokens / base / dark mode`` slice ONLY. The
-    ``--color-*`` Tailwind 4 utility aliases are NOT shipped by 3c-i —
-    they land with PR 3c-iv's design-system barrel + final CSS parity
-    step. Pre-asserting them in 3c-i would silently reserve the namespace
-    for a later PR and block review of each sub-PR's narrow scope."""
+    """PR 3c-i ships the 12 light :root tokens + 8 --realm-* tokens
+    inside ``@theme`` only. The ``--color-*`` Tailwind 4 namespace
+    aliases land with PR 3c-iv-colors (position 10/22) per the 3c-iv
+    five-slice replan — NOT with the original 3c-i slice (the original
+    guard asserted "PR 3c-i MUST NOT pre-define the --color-* aliases"
+    to keep the 3c-i review focus on tokens/base/dark mode only).
+
+    The guard is now relaxed to assert the OPPOSITE: PR 3c-iv-colors
+    has landed, so the 12 canonical ``--color-*`` aliases MUST be
+    declared inside ``@theme``. This inverts the assertion intent
+    (negative → positive) so the test stays useful as a regression
+    guard against a future 3c-iv-colors regression that drops an
+    alias — NOT as a 3c-i scope guard (those ship in the previous
+    test above).
+
+    The assertion checks ONLY the 12 canonical aliases from the
+    3c-iv-colors catalogue (per ``COLORS_3C_IV_LEGACY_TARGETS``).
+    Extra ``--color-*`` aliases outside that catalogue trip
+    ``test_3c_iv_colors_no_extraneous_color_aliases_outside_catalogue``
+    — this test is intentionally permissive on extras."""
     body = _block(_read(GLOBALS_CSS), "@theme")
     assert body, "globals.css must declare an @theme { ... } block"
-    leaked = [t for t in (*LIGHT_TOKENS, *REALM_TOKENS)
-              if re.search(r"--color-" + re.escape(t) + r"\s*:", body)]
-    assert not leaked, (
-        f"@theme MUST NOT declare --color-* aliases in PR 3c-i; "
-        f"leaked: {leaked!r} — those land with PR 3c-iv"
+    # The 12 canonical 3c-iv-colors aliases MUST be declared. Any
+    # of the LIGHT_TOKENS + REALM_TOKENS that has a canonical
+    # --color-* alias in the OpenSpec catalogue MUST show up —
+    # anything else trips ``test_3c_iv_colors_no_extraneous_color_aliases_outside_catalogue``.
+    catalogue_aliases = set("color-" + target
+                           for target in COLORS_3C_IV_LEGACY_TARGETS.values())
+    missing = [
+        alias for alias in sorted(catalogue_aliases)
+        if not re.search(
+            r"(?<![\w-])--" + re.escape(alias) + r"\s*:", body,
+        )
+    ]
+    assert not missing, (
+        f"@theme MUST declare every canonical --color-* alias from the "
+        f"3c-iv-colors catalogue (this test inverts the 3c-i negative "
+        f"guard into a 3c-iv-colors positive guard). "
+        f"Missing: {missing!r}"
     )
 
 
@@ -2870,4 +2897,296 @@ def test_3c_iv_settings_does_not_pre_assert_colors_surfaces():
     assert not leaked, (
         f"PR 3c-iv-settings MUST NOT pre-define colors surfaces; "
         f"those stay deferred to PR 3c-iv-colors; leaked: {leaked!r}"
+    )
+
+# ==============================================================================
+# ==============================================================================
+# PR 3c-iv-colors (position 10/22) — Tailwind --color-* namespace aliases
+# + utility parity
+# ==============================================================================
+# Legacy source: ``web/index.html`` (retired in PR #171, read-only). The
+# OpenSpec tasks.md line 372 pins the canonical alias catalogue + the
+# utility-class surface for this slice. The 12 ``--color-*`` aliases
+# land inside ``@theme { ... }`` (after the existing :root + --realm-*
+# tokens, before ``@layer base``) and each MUST map to its corresponding
+# legacy CSS custom property via ``var(--<legacy-name>)``. Bundle evidence
+# is read from ``out/_next/static/chunks/*.css``; the worktree ships
+# without ``node_modules`` / ``out/`` so the bundle verification is
+# conditional (``pytest.skip``) — the limitation is explicitly reported
+# (no false compiled-bundle proof). The legacy fixture at
+# ``tools/g3-legacy-fixture/web/dist/tailwind.css`` is a 7-line stub, so
+# the utility contract is sourced from the OpenSpec text rather than a
+# compiled legacy bundle.
+
+# ---- Catalogue -------------------------------------------------------------
+
+# 12 Tailwind 4 namespace aliases pinned by the OpenSpec, alphabetized by
+# ``--color-<name>`` (canonical source-order contract — mirrors the
+# 3c-iv-settings.4 prefix-scan seam).
+COLORS_3C_IV_ALIASES: tuple[str, ...] = (
+    "color-elevated", "color-on-primary-fixed", "color-on-surface",
+    "color-on-surface-variant", "color-outline", "color-outline-variant",
+    "color-primary", "color-primary-fixed", "color-surface",
+    "color-surface-container", "color-surface-container-high",
+    "color-surface-container-lowest",
+)
+
+# Each alias's expected legacy CSS custom property target (the
+# namespace-drift contract). The alias is a redirect via
+# ``var(--<legacy-name>)``, NOT a raw hex — the byte-equal hex lives
+# in tests/test_tailwind_tokens_base.py.
+COLORS_3C_IV_LEGACY_TARGETS: dict[str, str] = {
+    alias: alias.removeprefix("color-") for alias in COLORS_3C_IV_ALIASES
+}
+
+# Legacy utility classes from OpenSpec tasks.md line 372, grouped by
+# category: color / transition / typography / header-layout /
+# accessibility / arbitrary-value. Each MUST resolve to a non-empty
+# declaration in the emitted Next.js bundle when present (conditional).
+COLOR_UTILITIES_3C_IV: tuple[str, ...] = (
+    "bg-primary", "text-on-surface", "border-outline-variant",
+    "bg-surface-container-lowest", "bg-primary-fixed",
+    "text-on-primary-fixed", "bg-surface", "text-outline",
+    "text-on-surface-variant", "hover:text-on-surface",
+    "focus:border-primary", "focus:ring-primary/20",
+)
+TRANSITION_UTILITIES_3C_IV: tuple[str, ...] = (
+    "transition-all", "transition-colors",
+)
+TYPOGRAPHY_UTILITIES_3C_IV: tuple[str, ...] = (
+    "font-h1", "text-h1", "font-body-md", "text-body-sm",
+)
+HEADER_LAYOUT_UTILITIES_3C_IV: tuple[str, ...] = (
+    "fixed", "top-0", "w-full", "z-50", "bg-surface/95",
+    "backdrop-blur-md", "h-16", "px-row-padding-x", "flex",
+    "items-center", "justify-between", "gap-gutter", "min-w-0",
+    "whitespace-nowrap", "relative", "w-64", "lg:w-96", "absolute",
+    "left-3", "top-1/2", "-translate-y-1/2", "py-2", "pl-10", "pr-4",
+    "rounded-xl", "shrink-0",
+)
+ACCESSIBILITY_UTILITIES_3C_IV: tuple[str, ...] = (
+    "focus:outline-none", "focus:ring-2", "aria-pressed",
+)
+ARBITRARY_VALUE_UTILITIES_3C_IV: tuple[str, ...] = (
+    "shadow-[0_1px_8px_rgba(0,0,0,0.04)]", "text-[18px]",
+)
+ALL_3C_IV_COLOR_UTILITIES: tuple[str, ...] = (
+    *COLOR_UTILITIES_3C_IV, *TRANSITION_UTILITIES_3C_IV,
+    *TYPOGRAPHY_UTILITIES_3C_IV, *HEADER_LAYOUT_UTILITIES_3C_IV,
+    *ACCESSIBILITY_UTILITIES_3C_IV, *ARBITRARY_VALUE_UTILITIES_3C_IV,
+)
+
+# Emitted Next.js bundle location. Produced by ``next build`` under
+# ``out/_next/static/chunks/``. When the worktree ships without
+# ``node_modules`` / ``out/`` (current state) the bundle-verification
+# test ``pytest.skip`` with a clear limitation message — no false proof.
+EMITTED_BUNDLE_GLOB_PARTS = ("out", "_next", "static", "chunks")
+
+
+def _emitted_bundle_paths() -> list[Path]:
+    """Return sorted CSS chunk paths under out/_next/static/chunks/.
+    Empty list when the bundle directory is absent."""
+    d = REPO_ROOT
+    for part in EMITTED_BUNDLE_GLOB_PARTS:
+        d = d / part
+    return sorted(d.glob("*.css")) if d.is_dir() else []
+
+
+def _emitted_bundle_text() -> str:
+    paths = _emitted_bundle_paths()
+    return "\n".join(p.read_text(encoding="utf-8") for p in paths) \
+        if paths else ""
+
+
+def _utility_to_selector_pattern(utility: str) -> str:
+    """Translate a Tailwind utility class to its emitted CSS selector
+    regex (escapes ``:`` / ``/`` / ``[`` / ``]`` / ``(`` / ``)`` /
+    ``,`` / ``.`` per Tailwind 4 emitted-CSS conventions)."""
+    out = []
+    for ch in utility:
+        if ch in (":", "/", "[", "]", "(", ")", ",", "."):
+            out.append("\\" + ch)
+        else:
+            out.append(ch)
+    return "\\." + "".join(out)
+
+
+# ---- 3c-iv-colors.1 — focused RED: 12 aliases presence + non-empty -------
+
+@pytest.mark.parametrize("alias", COLORS_3C_IV_ALIASES)
+def test_3c_iv_colors_alias_resolves_to_non_empty_declaration_in_theme(alias):
+    """Strict-TDD RED gate. Each canonical ``--color-*`` alias MUST
+    resolve to a non-empty declaration inside ``@theme { ... }`` so
+    Tailwind 4 utility resolution wires up. Fails on the pre-3c-iv-colors
+    base (no ``--color-*`` aliases declared yet)."""
+    body = _block(_read(GLOBALS_CSS), "@theme")
+    assert body, "globals.css must declare an @theme { ... } block"
+    assert re.search(r"--" + re.escape(alias) + r"\s*:\s*[^;]+?;", body), (
+        f"@theme MUST declare --{alias} with a non-empty declaration "
+        f"(PR 3c-iv-colors.1 RED gate; legacy target: "
+        f"var(--{COLORS_3C_IV_LEGACY_TARGETS[alias]}))"
+    )
+
+
+# ---- 3c-iv-colors.2 — namespace-drift protection: alias -> var(--legacy) -
+
+@pytest.mark.parametrize("alias", COLORS_3C_IV_ALIASES)
+def test_3c_iv_colors_alias_maps_to_legacy_css_custom_property(alias):
+    """Namespace-drift protection. Each alias MUST reference its legacy
+    CSS custom property via ``var(--<legacy-name>)`` — NOT a raw hex.
+    Single source of truth for the token family."""
+    body = _block(_read(GLOBALS_CSS), "@theme")
+    assert body, "globals.css must declare an @theme { ... } block"
+    legacy = COLORS_3C_IV_LEGACY_TARGETS[alias]
+    m = re.search(r"--\s*" + re.escape(alias) + r"\s*:\s*([^;]+);", body)
+    assert m, f"@theme MUST declare --{alias} (pre-condition)"
+    assert re.search(re.escape(f"var(--{legacy})"), m.group(1)), (
+        f"--{alias} MUST reference var(--{legacy}) (PR 3c-iv-colors.2 "
+        f"namespace-drift protection); declaration was "
+        f"{m.group(1).strip()!r}"
+    )
+
+
+# ---- 3c-iv-colors.3 — alphabetization + lives-in-theme (combined) ---------
+
+def test_3c_iv_colors_aliases_are_alphabetized_in_source_order():
+    """The 12 ``--color-*`` aliases MUST appear in alphabetical order
+    inside ``@theme { ... }`` so a future PR can locate any single alias
+    via a deterministic prefix scan (mirrors the 3c-iv-settings.4 seam).
+    Combined with the lives-in-theme check: aliases must live inside
+    ``@theme`` (Tailwind 4 namespace home) AND be alphabetized."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    theme_body = _block(text, "@theme")
+    assert theme_body, "globals.css must declare an @theme { ... } block"
+    positions = []
+    for alias in COLORS_3C_IV_ALIASES:
+        m = re.search(
+            r"(?<![\\w-])--" + re.escape(alias) + r"\s*:", theme_body,
+        )
+        assert m, (
+            f"--{alias} MUST live inside @theme {{ ... }} "
+            f"(PR 3c-iv-colors.3 Tailwind 4 namespace home)"
+        )
+        positions.append((alias, m.start()))
+    actual = [a for a, _ in sorted(positions, key=lambda p: p[1])]
+    assert actual == list(COLORS_3C_IV_ALIASES), (
+        f"--color-* aliases MUST be alphabetized in source order "
+        f"(PR 3c-iv-colors.3). Expected: {list(COLORS_3C_IV_ALIASES)!r}; "
+        f"actual: {actual!r}"
+    )
+
+
+# ---- 3c-iv-colors.4 — source position: aliases BEFORE @layer base ---------
+
+def test_3c_iv_colors_aliases_appear_before_layer_base_in_source_order():
+    """The ``--color-*`` aliases MUST register before ``@layer base``
+    cascades them (Tailwind 4 requires the namespace declarations to be
+    available before the base layer reads them). Strips CSS comments
+    before searching so the doc-comment at the top of ``globals.css``
+    (which references ``@layer base { ... }`` as illustrative text) does
+    not false-positive as a real directive."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    base_m = re.search(r"@layer\s+base\s*\{", text)
+    assert base_m, "globals.css must declare @layer base { ... }"
+    base_pos = base_m.start()
+    for alias in COLORS_3C_IV_ALIASES:
+        m = re.search(
+            r"(?<![\\w-])--" + re.escape(alias) + r"\s*:", text,
+        )
+        assert m, f"globals.css MUST declare --{alias} (pre-condition)"
+        assert m.start() < base_pos, (
+            f"--{alias} MUST appear BEFORE @layer base "
+            f"(PR 3c-iv-colors.4 source-position invariant)"
+        )
+
+
+# ---- 3c-iv-colors.5 — utility contract (conditional bundle check) --------
+
+def test_3c_iv_colors_emitted_bundle_presence_is_documented():
+    """Always-green documentation test: reports whether the emitted
+    Next.js CSS bundle exists under ``out/_next/static/chunks/*.css``.
+    The bundle is the compiled evidence the utility contract resolves
+    to non-empty CSS declarations; without it the per-utility assertions
+    ``pytest.skip`` (no false compiled-bundle proof)."""
+    paths = _emitted_bundle_paths()
+    if not paths:
+        return  # bundle absent — limitation reported by per-utility skips
+    assert any(p.stat().st_size > 0 for p in paths), (
+        f"emitted bundle chunks exist but are all empty: "
+        f"{[str(p) for p in paths]}"
+    )
+
+
+@pytest.mark.parametrize("utility", ALL_3C_IV_COLOR_UTILITIES)
+def test_3c_iv_colors_utility_resolves_in_emitted_bundle(utility):
+    """Conditional bundle verification. Each legacy utility class MUST
+    resolve to a non-empty CSS declaration in the emitted bundle when
+    the bundle is present. ``pytest.skip`` with a clear limitation
+    message when the bundle is absent (current worktree state — no
+    ``node_modules`` / no ``out/``). No false compiled-bundle proof."""
+    bundle_text = _emitted_bundle_text()
+    if not bundle_text:
+        pytest.skip(
+            "limitation: emitted Next.js bundle not available at "
+            f"{'/'.join(EMITTED_BUNDLE_GLOB_PARTS)}/*.css — "
+            "the worktree ships without node_modules + out/. "
+            "Run `npx next build` (or `npm run build:web`) in an "
+            "environment with installed dependencies to materialize "
+            "the bundle. The 12 --color-* alias tests above are the "
+            "strict-TDD RED/GREEN gate; this test is deferred until "
+            "the bundle lands."
+        )
+    sel = _utility_to_selector_pattern(utility)
+    own_block = re.compile(
+        r"(?:^|[\\s,{}>+~])" + sel + r"\s*\{[^}]*\\S[^}]*\}"
+    )
+    list_item = re.compile(
+        r"(?:^|[\\s,{}>+~])" + sel
+        + r"\s*,\s*[^{}]*?\{[^}]*\\S[^}]*\}"
+    )
+    assert own_block.search(bundle_text) or list_item.search(bundle_text), (
+        f"emitted bundle MUST declare {utility} with a non-empty block "
+        f"(PR 3c-iv-colors.5 utility contract)"
+    )
+
+
+# ---- 3c-iv-colors.6 — TRIANGULATE: no extraneous --color-* aliases --------
+
+def test_3c_iv_colors_no_extraneous_color_aliases_outside_catalogue():
+    """Triangulation. The ``@theme { ... }`` block MUST declare ONLY
+    the 12 canonical ``--color-*`` aliases. Any extra alias would
+    silently expand the Tailwind 4 namespace surface without the
+    OpenSpec's approval and would block per-PR review focus."""
+    body = _block(_read(GLOBALS_CSS), "@theme")
+    assert body, "globals.css must declare an @theme { ... } block"
+    declared = set(re.findall(
+        r"(?<![\\w-])--color-([a-z0-9-]+)\s*:", body,
+    ))
+    catalogue = set(
+        alias.removeprefix("color-") for alias in COLORS_3C_IV_ALIASES
+    )
+    extraneous = declared - catalogue
+    assert not extraneous, (
+        f"@theme MUST declare ONLY the 12 canonical --color-* aliases "
+        f"(PR 3c-iv-colors.6). Extraneous: {sorted(extraneous)!r}; "
+        f"catalogue: {sorted(catalogue)!r}"
+    )
+    missing = catalogue - declared
+    assert not missing, f"@theme is missing aliases: {sorted(missing)!r}"
+
+
+# ---- 3c-iv-colors.7 — slice-scope guard (later PRs MUST NOT bleed) -------
+
+def test_3c_iv_colors_keeps_only_documented_later_child_surfaces():
+    """After 3c-iv-colors lands, ``LATER_CHILD_SURFACES`` is fully
+    promoted. The slice MUST NOT introduce a NEW deferred surface
+    either — pre-asserting one would block a later PR's review focus.
+    Re-runs the existing guard to confirm the catalogue is still empty."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    leaked = [
+        s for s in LATER_CHILD_SURFACES if _appears_as_css_token(text, s)
+    ]
+    assert not leaked, (
+        f"PR 3c-iv-colors MUST NOT pre-define later-PR surfaces; "
+        f"leaked: {leaked!r}"
     )
