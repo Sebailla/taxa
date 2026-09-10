@@ -57,6 +57,14 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GLOBALS_CSS = REPO_ROOT / "src" / "app" / "globals.css"
 LAYOUT_TSX = REPO_ROOT / "src" / "app" / "layout.tsx"
+# Legacy ``web/index.html`` (retired in PR #171, read-only). The
+# canonical Settings view block lives at lines 1833-1969 (the legacy
+# inline <style> block inside the @layer base wrapper). The settings
+# slice reads the legacy selectors as a hardcoded catalogue (the
+# existing 3c-iv-viewer slice pattern) so the test does NOT depend on
+# the file being checked out in the worktree; the constant stays here
+# for documentation + a future sanity-check helper.
+WEB_INDEX_HTML = REPO_ROOT / "web" / "index.html"
 
 
 def _read(path: Path) -> str:
@@ -2520,4 +2528,346 @@ def test_3c_iv_viewer_does_not_pre_assert_settings_or_colors_surfaces():
         f"PR 3c-iv-viewer MUST NOT pre-define settings / colors surfaces; "
         f"those stay deferred to PR 3c-iv-settings + PR 3c-iv-colors; "
         f"leaked: {leaked!r}"
+    )
+
+
+# ==============================================================================
+# PR 3c-iv-settings (position 9/22) — Settings view CSS parity
+# ==============================================================================
+# Legacy source of truth: ``web/index.html`` lines 1833-1969 (retired
+# in PR #171, read-only). Ships the 20 legacy Settings view selectors
+# under ``@layer base`` per OpenSpec 3c-iv-settings.2, alphabetized
+# with the ``.settings-theme-btn-active`` / ``:hover`` pair pinned
+# immediately before ``.settings-action-btn`` (per OpenSpec
+# 3c-iv-settings.4) so the colors child slice (PR 3c-iv-colors, 10/22)
+# can locate ``.settings-theme-btn-active`` via a single prefix scan
+# that terminates at the first match.
+#
+# Tokens reuse the 3c-i family (``--surface-container-low``,
+# ``--outline-variant``, ``--primary``, ``--on-surface``,
+# ``--on-surface-variant``); the selectors land verbatim — no new
+# tokens, no ``--color-*`` namespace aliases, no utility-class
+# additions. The colors surface stays deferred to PR 3c-iv-colors
+# (10/22) and is still protected by ``LATER_CHILD_SURFACES``.
+
+# Canonical PR 3c-iv-settings selector catalogue — the 20 legacy
+# Settings selectors in the source order PR 3c-iv-settings ships.
+# ``.settings-theme-btn-active`` + ``:hover`` are pinned at the TOP of
+# the list (immediately before ``.settings-action-btn``) per the
+# colors-slice prefix-scan contract; the remaining 18 selectors are
+# alphabetical (canonical CSS groups sibling variants — the ``:hover``
+# + ``.material-symbols-outlined`` descendants — adjacent to their
+# base selector so the cascade wires them as a unit).
+SETTINGS_3C_IV_SELECTORS = (
+    # Pinned at top — colors slice prefix-scan seam (OpenSpec 3c-iv-settings.4).
+    ".settings-theme-btn-active",
+    ".settings-theme-btn-active:hover",
+    # Alphabetical rest (with variants grouped next to their base selector).
+    ".settings-action-btn",
+    ".settings-action-btn .material-symbols-outlined",
+    ".settings-action-btn:hover",
+    ".settings-header",
+    ".settings-link-btn",
+    ".settings-link-btn .material-symbols-outlined",
+    ".settings-link-btn:hover",
+    ".settings-list",
+    ".settings-row",
+    ".settings-row-control",
+    ".settings-row-description",
+    ".settings-row-text",
+    ".settings-row-title",
+    ".settings-shell",
+    ".settings-theme-btn",
+    ".settings-theme-btn .material-symbols-outlined",
+    ".settings-theme-btn:hover",
+    ".settings-theme-toggle",
+)
+
+
+# ---- 3c-iv-settings.1 — selector catalogue resolves under @layer base -----
+
+@pytest.mark.parametrize("selector", SETTINGS_3C_IV_SELECTORS)
+def test_3c_iv_settings_selector_resolves_under_layer_base(selector):
+    """3c-iv-settings.1 R — every canonical Settings selector MUST resolve
+    to a non-empty declaration block under ``@layer base`` in
+    ``src/app/globals.css``. The Settings view reuses the legacy 3c-i
+    token surface (``--surface-container-low``, ``--outline-variant``,
+    ``--primary``, ``--on-surface``, ``--on-surface-variant``) and the
+    selectors land under ``@layer base`` per OpenSpec 3c-iv-settings.2
+    so the cascade order matches the legacy inline-style block (the
+    React ``<SettingsView>`` in a downstream PR consumes them via
+    stable selector names).
+
+    The block scan is whole-document (not scoped to a single rule) so
+    descendant + descendant-of-descendant rules resolve through the
+    parent block. NB the pattern accepts comma-separated selector lists
+    (``.a, .b { ... }``) — the canonical CSS form for grouping sibling
+    rules that share the same declaration block."""
+    text = _read(GLOBALS_CSS)
+    own_block = re.compile(
+        r"(?:^|[\s,{}>+~])" + re.escape(selector) + r"\s*\{[^}]*\S[^}]*\}"
+    )
+    list_item = re.compile(
+        r"(?:^|[\s,{}>+~])" + re.escape(selector)
+        + r"\s*,\s*[^{}]*?\{[^}]*\S[^}]*\}"
+    )
+    assert own_block.search(text) or list_item.search(text), (
+        f"globals.css MUST declare {selector} with a non-empty block "
+        f"(PR 3c-iv-settings.1 Settings selector catalogue)"
+    )
+
+
+def test_3c_iv_settings_selectors_resolve_inside_layer_base_block():
+    """3c-iv-settings.1 R — every canonical Settings selector MUST
+    resolve to a non-empty declaration block under the ``@layer base``
+    block specifically (NOT inside ``@layer components`` and NOT as a
+    top-level rule). The Settings view lives at the same cascade layer
+    as the legacy body / html / focus-visible base resets — the React
+    ``<SettingsView>`` relies on the layer's specificity + cascade
+    position so utility-class overrides stay honest. (Defense in
+    depth against a refactor that sweeps the Settings block into
+    ``@layer components`` and breaks the layer contract.)"""
+    body = _block(_read(GLOBALS_CSS), "@layer base")
+    assert body, "globals.css must declare an @layer base { ... } block"
+    missing = [
+        s for s in SETTINGS_3C_IV_SELECTORS
+        if not re.search(
+            r"(?:^|[\s,{}>+~])" + re.escape(s) + r"\s*\{[^}]*\S[^}]*\}",
+            body,
+        )
+    ]
+    assert not missing, (
+        f"@layer base MUST declare every Settings selector with a "
+        f"non-empty body (PR 3c-iv-settings.1 — the Settings view lives "
+        f"at the same cascade layer as the legacy base resets); "
+        f"missing: {missing!r}"
+    )
+
+
+# ---- 3c-iv-settings.3 — triangulation: row layout + active + link hover --
+
+def test_3c_iv_settings_row_carries_flex_row_centered_padding_border():
+    """3c-iv-settings.3 T — ``.settings-row`` MUST carry flex-row
+    (``display: flex`` — flex-direction defaults to ``row``),
+    centered alignment (``align-items: center``), padding, and a
+    visible border delineator. The legacy inline-style block uses a
+    full ``border: 1px solid var(--outline-variant)`` (NOT
+    ``border-bottom`` — the spec's ``border-bottom`` triangulation is
+    a permissive catch-all; the assertion accepts both ``border:`` and
+    ``border-bottom:`` shapes so the legacy-parity contract + a future
+    refactor that swaps to ``border-bottom`` both pass)."""
+    body = _block(_read(GLOBALS_CSS), "@layer base")
+    assert body, "globals.css must declare an @layer base { ... } block"
+    m = re.search(r"\.settings-row\s*\{", body)
+    assert m, (
+        "@layer base MUST declare .settings-row { ... } "
+        "(PR 3c-iv-settings.3 row layout triangulation)"
+    )
+    depth, cursor = 1, m.end()
+    while cursor < len(body) and depth > 0:
+        depth += 1 if body[cursor] == "{" else (
+            -1 if body[cursor] == "}" else 0
+        )
+        cursor += 1
+    block_body = body[m.end():cursor - 1]
+    assert re.search(r"display\s*:\s*flex\b", block_body), (
+        ".settings-row MUST carry `display: flex` (PR 3c-iv-settings.3 "
+        "row layout triangulation — the row is a flex container that "
+        "lays the label/description text on the left + the control on "
+        "the right via justify-content: space-between)"
+    )
+    assert re.search(r"align-items\s*:\s*center\b", block_body), (
+        ".settings-row MUST carry `align-items: center` (PR 3c-iv-settings.3 "
+        "centered alignment triangulation — the label + control align "
+        "vertically centered so the row chrome reads as a unit)"
+    )
+    assert re.search(r"padding\s*:", block_body), (
+        ".settings-row MUST carry a `padding:` declaration "
+        "(PR 3c-iv-settings.3 row padding triangulation — the legacy "
+        "uses 16px so the text has breathing room inside the bordered "
+        "card chrome)"
+    )
+    # Accept ``border:`` / ``border-bottom:`` / ``border-top:`` /
+    # ``border-left:`` / ``border-right:`` so the legacy
+    # ``border: 1px solid var(--outline-variant)`` parity contract +
+    # the spec's ``border-bottom`` triangulation both pass. The
+    # assertion pins the presence of ANY border-side declaration
+    # (matches the spec's intent — the row must read as a visibly
+    # delineated card, regardless of which side carries the line).
+    assert re.search(
+        r"border(?:-bottom|-top|-left|-right)?\s*:", block_body,
+    ), (
+        ".settings-row MUST carry a `border[-bottom|-top|-left|-right]:` "
+        "declaration (PR 3c-iv-settings.3 row border delineator — the "
+        "legacy uses a full `border: 1px solid var(--outline-variant)`; "
+        "a future refactor may swap to `border-bottom` and the "
+        "assertion stays green for both shapes)"
+    )
+
+
+def test_3c_iv_settings_theme_btn_active_has_visible_tinted_background():
+    """3c-iv-settings.3 T — ``.settings-theme-btn-active`` MUST carry a
+    visible-state background that tints the active theme button (the
+    legacy inline-style block uses ``background: var(--primary)`` +
+    the inverse ``color: var(--surface)`` so the active light / dark
+    / system theme button reads as visibly tinted). The assertion
+    accepts any non-default background (var / color / gradient / tint
+    variant) so a future refactor that swaps the primary literal for
+    a tint-mix variant still passes — only ``transparent`` + ``none``
+    are excluded."""
+    body = _block(_read(GLOBALS_CSS), "@layer base")
+    assert body, "globals.css must declare an @layer base { ... } block"
+    m = re.search(r"\.settings-theme-btn-active\s*\{", body)
+    assert m, (
+        "@layer base MUST declare .settings-theme-btn-active { ... } "
+        "(PR 3c-iv-settings.3 active-theme state triangulation)"
+    )
+    depth, cursor = 1, m.end()
+    while cursor < len(body) and depth > 0:
+        depth += 1 if body[cursor] == "{" else (
+            -1 if body[cursor] == "}" else 0
+        )
+        cursor += 1
+    block_body = body[m.end():cursor - 1]
+    bg_match = re.search(
+        r"background(?:-color)?\s*:\s*([^;]+)", block_body,
+    )
+    assert bg_match, (
+        ".settings-theme-btn-active MUST carry a `background(-color):` "
+        "declaration (PR 3c-iv-settings.3 active-theme state "
+        "triangulation — the active theme button must read as visibly "
+        "tinted so the user can tell which theme is selected)"
+    )
+    bg_value = bg_match.group(1).strip().split()[0]
+    assert bg_value not in ("transparent", "none"), (
+        f".settings-theme-btn-active background MUST be a visible "
+        f"tint (got `{bg_value}`; PR 3c-iv-settings.3 — the legacy uses "
+        f"`background: var(--primary)` + the inverse "
+        f"`color: var(--surface)` so the active theme reads as tinted)"
+    )
+
+
+def test_3c_iv_settings_link_btn_hover_has_visible_state():
+    """3c-iv-settings.3 T — ``.settings-link-btn:hover`` MUST carry a
+    visible-state declaration (the legacy inline-style block uses
+    ``background: var(--surface-container-low)`` so the link button
+    reads as interactively hoverable; without the hover state the
+    React ``<SettingsLink>`` exposes no affordance that the user can
+    click). The assertion accepts any non-default background so a
+    future refactor that swaps to a tint-mix variant still passes."""
+    body = _block(_read(GLOBALS_CSS), "@layer base")
+    assert body, "globals.css must declare an @layer base { ... } block"
+    m = re.search(r"\.settings-link-btn:hover\s*\{", body)
+    assert m, (
+        "@layer base MUST declare .settings-link-btn:hover { ... } "
+        "(PR 3c-iv-settings.3 link-button hover state triangulation)"
+    )
+    depth, cursor = 1, m.end()
+    while cursor < len(body) and depth > 0:
+        depth += 1 if body[cursor] == "{" else (
+            -1 if body[cursor] == "}" else 0
+        )
+        cursor += 1
+    block_body = body[m.end():cursor - 1]
+    assert re.search(r"background(?:-color)?\s*:", block_body), (
+        ".settings-link-btn:hover MUST carry a visible "
+        "`background(-color):` declaration (PR 3c-iv-settings.3 — the "
+        "hover state must read as interactive so the React "
+        "<SettingsLink> exposes a hover affordance the user can click)"
+    )
+
+
+# ---- 3c-iv-settings.4 — refactor: alphabetization + prefix-scan seam -------
+
+def test_3c_iv_settings_theme_btn_active_appears_before_settings_action_btn():
+    """3c-iv-settings.4 Refactor — the ``.settings-theme-btn-active``
+    declaration MUST appear in source order BEFORE the
+    ``.settings-action-btn`` declaration (per OpenSpec 3c-iv-settings.4)
+    so the colors child slice (PR 3c-iv-colors, 10/22) can locate
+    ``.settings-theme-btn-active`` via a single ``re.search(...)``
+    prefix scan that terminates at the first match. A colors-slice
+    scan that uses ``text.find(".settings-theme-btn-active")`` would
+    otherwise find the wrong selector if the alphabetization placed
+    ``.settings-action-btn*`` first.
+
+    The assertion scans the WHOLE document (not the @layer base block
+    only) so a future refactor that splits the Settings block across
+    layers still trips the source-order invariant if the active-theme
+    selector moves below ``.settings-action-btn``."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    active_m = re.search(r"\.settings-theme-btn-active\s*\{", text)
+    action_m = re.search(r"\.settings-action-btn\s*\{", text)
+    assert active_m, (
+        "globals.css MUST declare .settings-theme-btn-active { ... } "
+        "(PR 3c-iv-settings.4 prefix-scan seam)"
+    )
+    assert action_m, (
+        "globals.css MUST declare .settings-action-btn { ... } "
+        "(PR 3c-iv-settings.4 prefix-scan seam)"
+    )
+    assert active_m.start() < action_m.start(), (
+        ".settings-theme-btn-active MUST appear BEFORE .settings-action-btn "
+        "in source order (PR 3c-iv-settings.4 prefix-scan seam — the "
+        "colors slice locates the active theme button via a prefix scan "
+        "that terminates at the first match; if .settings-action-btn "
+        "appears first, the scan returns the wrong position)"
+    )
+
+
+def test_3c_iv_settings_selectors_are_alphabetized_after_prefix_pin():
+    """3c-iv-settings.4 Refactor — the 18 Settings selectors that are
+    NOT pinned at the top MUST be alphabetized in source order
+    (``.settings-theme-btn-active*`` pair pinned first; everything
+    else alphabetical with ``:hover`` / ``.material-symbols-outlined``
+    descendants grouped adjacent to their base selector). The
+    alphabetization lets the colors slice locate any single Settings
+    selector via a deterministic prefix scan that returns the
+    expected index.
+
+    The assertion checks the canonical sort order over the SECOND
+    slice of the catalogue (everything after the
+    ``.settings-theme-btn-active:hover`` pinned pair). The
+    ``:hover`` / ``.material-symbols-outlined`` descendant groups
+    stay adjacent to their base selector — the alphabetical sort
+    treats ``.settings-action-btn`` (and its descendants) as a unit,
+    and the same for ``.settings-link-btn`` + ``.settings-theme-btn``."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    # Build the list of (selector, source-position) pairs in source order.
+    positions = []
+    for selector in SETTINGS_3C_IV_SELECTORS:
+        m = re.search(
+            r"(?:^|[\s,{}>+~])" + re.escape(selector) + r"\s*\{", text,
+        )
+        assert m, (
+            f"globals.css MUST declare {selector} {{ ... }} "
+            f"(PR 3c-iv-settings.4 alphabetization triangulation)"
+        )
+        positions.append((selector, m.start()))
+    # The catalogue is the canonical source order; assert the actual
+    # source order matches the catalogue (positions are monotonically
+    # increasing).
+    actual_order = [s for s, _ in sorted(positions, key=lambda p: p[1])]
+    assert actual_order == list(SETTINGS_3C_IV_SELECTORS), (
+        f"Settings selectors MUST be alphabetized in source order with "
+        f"the .settings-theme-btn-active* pair pinned at the top "
+        f"(PR 3c-iv-settings.4 — colors slice prefix-scan seam). "
+        f"Expected order: {list(SETTINGS_3C_IV_SELECTORS)!r}; "
+        f"actual order: {actual_order!r}"
+    )
+
+
+# ---- 3c-iv-settings.5 — slice-scope guard ----------------------------------
+
+def test_3c_iv_settings_does_not_pre_assert_colors_surfaces():
+    """3c-iv-settings deferred guard: the Settings CSS MUST NOT
+    pre-define colors surfaces (``LATER_CHILD_SURFACES``). The Tailwind
+    ``--color-*`` namespace aliases + the utility-class parity land
+    with PR 3c-iv-colors (10/22); pre-asserting them here would
+    silently reserve the namespace and block the per-PR review focus
+    on the colors slice."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    leaked = [s for s in LATER_CHILD_SURFACES if _appears_as_css_token(text, s)]
+    assert not leaked, (
+        f"PR 3c-iv-settings MUST NOT pre-define colors surfaces; "
+        f"those stay deferred to PR 3c-iv-colors; leaked: {leaked!r}"
     )
