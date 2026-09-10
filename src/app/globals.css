@@ -140,7 +140,6 @@
   .search-icon-btn:focus-visible,
   .materialize-btn:focus-visible,
   .load-all:focus-visible,
-  .kebab-trigger:focus-visible,
       .kebab-item:focus-visible,
       #nav-help:focus-visible,
       #collapse-all:focus-visible {
@@ -264,8 +263,6 @@
         letter-spacing: 1px;
         font-weight: 600;
       }
-      .scientific-name { font-style: italic; }
-      .scientific-name--roman { font-style: normal; }
       #detail-panel {
         position: sticky;
         top: 144px;
@@ -404,7 +401,6 @@
         color: var(--outline);
         font-family: "JetBrains Mono", monospace;
       }
-      .detail-item .authorship { color: var(--on-surface-variant); font-size: 12px; }
       .detail-item .means {
         font-size: 10px;
         padding: 1px 6px;
@@ -474,28 +470,6 @@
         justify-content: center;
       }
       .materialize-btn:hover { background: var(--surface-container-low); }
-      .kebab-trigger {
-        margin-left: 4px;
-        padding: 2px;
-        border-radius: 4px;
-        background: transparent;
-        border: 0;
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        opacity: 0;
-        transition: opacity 120ms linear, background-color 120ms linear;
-      }
-      .tree-row:hover .kebab-trigger,
-      .tree-row.selected .kebab-trigger,
-      .tree-row:focus-within .kebab-trigger,
-      .kebab-trigger:focus-visible { opacity: 1; }
-      .kebab-trigger:hover,
-      .kebab-trigger:focus-visible {
-        background: var(--surface-container-low);
-        outline: none;
-      }
       .kebab-item {
         display: flex;
         align-items: center;
@@ -632,19 +606,6 @@
         margin-top: 0.75rem;
       }
       .materialize-modal-path-actions .materialize-modal-btn { flex: 0 0 auto; }
-
-/* Realm-tinted scientific-name overrides via the --realm-* family. */
-          .tree-row[data-realm] .scientific-name { color: var(--realm-other); }
-          .tree-row[data-realm="bacteria"] .scientific-name { color: var(--realm-bacteria); }
-          .tree-row[data-realm="archaea"] .scientific-name { color: var(--realm-archaea); }
-          .tree-row[data-realm="viruses"] .scientific-name { color: var(--realm-viruses); }
-          .tree-row[data-realm="animalia"] .scientific-name { color: var(--realm-animalia); }
-          .tree-row[data-realm="fungi"] .scientific-name { color: var(--realm-fungi); }
-          .tree-row[data-realm="plantae"] .scientific-name { color: var(--realm-plantae); }
-          .tree-row[data-realm="chromista"] .scientific-name { color: var(--realm-chromista); }
-          .tree-row.selected .scientific-name,
-          .tree-row.focused .scientific-name { color: var(--primary); }
-
           /* PR 3c-iii.6 — Realm-tinted ``.fex-row.folder[data-realm="..."]``
              variants co-located with the ``.tree-row[data-realm="..."]``
              selectors above so the ``--realm-*`` round-trip stays in one
@@ -696,8 +657,34 @@
     flex-direction: column;
     gap: 2px;
   }
-.kebab-menu.open { display: flex; }
-    }
+    .kebab > .kebab-menu.open { display: flex; }
+      .taxa-tree { display: flex; flex-direction: column; gap: 2px; }
+      .tree-row { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 6px; color: var(--on-surface); font-family: "Raleway", sans-serif; font-size: 13px; }
+      .tree-row:hover { background: var(--surface-container-low); }
+      .tree-row:focus-visible { background: var(--surface-container-low); outline: 2px solid var(--primary); outline-offset: 2px; }
+      .tree-row[data-selected="true"] { background: var(--surface-container); color: var(--primary); font-weight: 600; }
+      .tree-search-icon { color: var(--primary); }
+      .scientific-name { font-style: italic; }
+      .scientific-name--roman { font-style: normal; }
+      .authorship { color: var(--on-surface-variant); font-size: 12px; }
+      .species-count { color: var(--on-surface-variant); font-size: 12px; }
+      .materialize-indicator { color: var(--on-surface-variant); font-size: 12px; }
+      .detail-panel { background: var(--surface); border: 1px solid var(--outline-variant); border-radius: 12px; }
+      .detail-body { max-height: calc(90vh - 120px); overflow-y: auto; padding: 16px 24px; }
+      .detail-close { border: 0; background: transparent; color: var(--on-surface-variant); cursor: pointer; }
+      .tab-strip { display: flex; align-items: center; gap: 4px; border-bottom: 1px solid var(--surface-container); }
+      .tab-strip > .tab-button { border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--on-surface-variant); cursor: pointer; padding: 10px 14px; font-family: "Raleway", sans-serif; font-size: 12px; font-weight: 600; }
+      .tab-strip > .tab-button:hover { color: var(--on-surface); background: var(--surface-container-low); }
+      .tab-strip > .tab-button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+      .tab-strip > .tab-button.active { color: var(--primary); border-bottom-color: var(--primary); }
+      .tab-strip > .tab-button[data-tab="Overview"], .tab-strip > .tab-button[data-tab="Search"], .tab-strip > .tab-button[data-tab="Folder"] { white-space: nowrap; }
+      .overview-tab { display: flex; flex-direction: column; gap: 12px; padding: 4px 0; }
+      .breadcrumb { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; font-family: "JetBrains Mono", monospace; font-size: 12px; }
+      .breadcrumb-segment { display: inline-flex; align-items: center; gap: 4px; }
+      .breadcrumb-link { border: 0; background: transparent; color: var(--on-surface-variant); cursor: pointer; padding: 2px 4px; }
+      .kebab > .kebab-menu { display: none; position: absolute; right: 0; top: calc(100% + 4px); min-width: 180px; background: var(--surface); border: 1px solid var(--outline-variant); border-radius: 8px; padding: 4px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08); z-index: 50; flex-direction: column; gap: 2px; }
+      .kebab > button[data-action="toggle-kebab"] { margin-left: 4px; padding: 2px; border: 0; border-radius: 4px; background: transparent; cursor: pointer; color: var(--on-surface-variant); }
+        }
 
 
     /* PR 3c-iii — Search / Folder / global Browser / file-explorer chrome
