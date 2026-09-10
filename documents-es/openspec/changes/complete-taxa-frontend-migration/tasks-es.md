@@ -1661,6 +1661,66 @@ de design-system dependen de barrel, NO del antiguo PR
 | 4b.5 | mismo | mismo | mismo |
 | 4b.6 | `.venv/bin/python3 -m pytest tests/test_hydration_console.py -v` | `npx next build` exit 0; `out/_next/static/chunks/*.js` referencia el barrel `@taxa/app-shell`; Playwright cero warnings de hidratación contra el AppShell integrado | `git revert <4b-sha>` revierte el delta de integración del AppShell en `src/app/{layout,page}.tsx` Y elimina `src/modules/app-shell/**`; el store de Fase 4a se queda |
 
+> **2026-09-10 — Adenda de reconciliación del marcador 4b
+> (append-only, preservada del tracker upstream
+> `3a2e32a`)**. PR **#209** =
+> `feat/complete-taxa-frontend-migration-13-4b-marker`
+> fusionado al tracker upstream como **marcador de
+> documentación / verificación** para Fase 4b. PR
+> #209 envía un único test nuevo
+> (`tests/test_hydration_app_shell_superset_4b_spec_subset.py`,
+> 399 LoC) que ancla el superconjunto del spec del
+> contrato 4b planificado; **no autordea el módulo
+> AppShell, el módulo page-chrome, la guardia de
+> hidratación `useSyncExternalStore`, ni la
+> integración de `<AppShell>` en
+> `src/app/{layout,page}.tsx`**. El checklist de
+> tareas de Fase 4b arriba (4b.1 R hasta 4b.6 G)
+> queda **sin marcar**; la rama candidata 4b
+> (`feat/complete-taxa-frontend-migration-09-4b`) es
+> la unidad de trabajo que el worker de apply abrirá
+> cuando se abra la próxima ventana de PR. El número
+> de posición de la rama marcadora (13) pertenece a
+> la cadena de marcadores, no a la posición (9/16)
+> de la cadena candidata de 16 hijos. En esta rama la
+> misma posición (13 / 22 en el plan de 22 hijos)
+> pertenece a la rama candidata PR 4b. Las
+> estimaciones de LoC, las listas de archivos fuente,
+> la tabla de evidencia por tarea, el contrato de
+> corrección del defecto de dependencia (PR 4b posee
+> tanto el módulo `app-shell` **como** la integración
+> del host del App Router), y la Reconciliación del
+> pronóstico arriba se preservan literalmente.
+    
+---
+    
+> **2026-09-10 — Adenda de reconciliación del marcador 4a
+> (append-only, preservada del tracker upstream
+> `3a2e32a`)**. PR **#208** =
+> `feat/complete-taxa-frontend-migration-12-4a-marker`
+> fusionado al tracker upstream como **marcador de
+> documentación / verificación** para Fase 4a. PR
+> #208 envía un único test nuevo
+> (`tests/test_browser_state_keys_4a_spec_subset.py`,
+> 238 LoC) que ancla el subconjunto del spec del
+> contrato 4a planificado; **no autordea el typed
+> store, los 4 sitios de lectura + 4 de escritura,
+> ni el barrel del store**. El checklist de tareas
+> de Fase 4a arriba (4a.1 R hasta 4a.6 Refactor)
+> queda **sin marcar**; la rama candidata 4a
+> (`feat/complete-taxa-frontend-migration-08-4a`) es
+> la unidad de trabajo que el worker de apply abrirá
+> cuando se abra la próxima ventana de PR. El número
+> de posición de la rama marcadora (12) pertenece a
+> la cadena de marcadores, no a la posición (8/16)
+> de la cadena candidata de 16 hijos. En esta rama la
+> misma posición (12 / 22 en el plan de 22 hijos)
+> pertenece a la rama candidata PR 4a. Las
+> estimaciones de LoC, las listas de archivos fuente,
+> la tabla de evidencia por tarea, y la
+> Reconciliación del pronóstico arriba se preservan
+> literalmente.
+
 ## Fase 5a: Port del módulo taxonomy (PR 5a → rama del PR 4b, posición 14/22)
 
 Rebana las tareas 5.1 + 5.2 + 5.3 del predecesor
