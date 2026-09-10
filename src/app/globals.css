@@ -633,6 +633,39 @@
           .fex-row.folder[data-realm="plantae"] .fex-label { color: var(--realm-plantae); }
           .fex-row.folder[data-realm="chromista"] .fex-icon { color: var(--realm-chromista); }
           .fex-row.folder[data-realm="chromista"] .fex-label { color: var(--realm-chromista); }
+
+  /* PR 3c-iv-settings — Settings view CSS parity slice (position 9/22).
+     Legacy source of truth: ``web/index.html`` lines 1833-1969 (retired
+     in PR #171). 20 selectors land under @layer base verbatim. Tokens
+     reuse the 3c-i family (--surface-container-low, --outline-variant,
+     --primary, --on-surface, --on-surface-variant); no new tokens, no
+     --color-* namespace aliases. Colors surface stays deferred to PR
+     3c-iv-colors (10/22). Source order: ``.settings-theme-btn-active*``
+     pair pinned at the top so the colors slice can locate it via a
+     single ``re.search(r"\\.settings-theme-btn-active\\b", ...)`` prefix
+     scan (OpenSpec 3c-iv-settings.4); the remaining 18 selectors are
+     alphabetical with ``:hover`` / ``.material-symbols-outlined``
+     descendants grouped adjacent to their base selector. */
+  .settings-theme-btn-active { background: var(--primary); color: var(--surface); }
+  .settings-theme-btn-active:hover { background: var(--primary); color: var(--surface); }
+  .settings-action-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; background: var(--surface); border: 1px solid var(--outline-variant); border-radius: 999px; font-family: "Raleway", sans-serif; font-size: 13px; font-weight: 600; color: var(--on-surface); cursor: pointer; transition: background-color 120ms ease; }
+  .settings-action-btn .material-symbols-outlined { font-size: 16px; }
+  .settings-action-btn:hover { background: var(--surface-container-low); }
+  .settings-header { padding-bottom: 16px; margin-bottom: 24px; border-bottom: 1px solid var(--outline-variant); }
+  .settings-link-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; background: transparent; border: 1px solid var(--outline-variant); border-radius: 999px; font-family: "Raleway", sans-serif; font-size: 13px; font-weight: 600; color: var(--primary); cursor: pointer; text-decoration: none; transition: background-color 120ms ease; }
+  .settings-link-btn .material-symbols-outlined { font-size: 16px; }
+  .settings-link-btn:hover { background: var(--surface-container-low); }
+  .settings-list { display: flex; flex-direction: column; gap: 12px; }
+  .settings-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px; background: var(--surface); border: 1px solid var(--outline-variant); border-radius: 8px; }
+  .settings-row-control { flex-shrink: 0; }
+  .settings-row-description { font-family: "Raleway", sans-serif; font-size: 12px; color: var(--on-surface-variant); line-height: 1.5; }
+  .settings-row-text { flex: 1; min-width: 0; }
+  .settings-row-title { font-family: "Raleway", sans-serif; font-size: 14px; font-weight: 600; color: var(--on-surface); margin-bottom: 4px; }
+  .settings-shell { max-width: 720px; margin: 32px auto; padding: 0 24px; }
+  .settings-theme-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; background: transparent; border: 0; font-family: "Raleway", sans-serif; font-size: 13px; font-weight: 600; color: var(--on-surface-variant); cursor: pointer; transition: background-color 120ms ease, color 120ms ease; }
+  .settings-theme-btn .material-symbols-outlined { font-size: 16px; }
+  .settings-theme-btn:hover { background: var(--surface-container-high); color: var(--on-surface); }
+  .settings-theme-toggle { display: inline-flex; border: 1px solid var(--outline-variant); border-radius: 999px; overflow: hidden; background: var(--surface-container-low); }
     }
 
 /* PR 3c-ii.5 — bare .kebab + .kebab-menu base selectors extracted to
