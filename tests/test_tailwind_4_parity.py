@@ -317,13 +317,18 @@ def test_layer_base_resets_main_first_child_margin_top_to_zero():
 # don't false-positive as 3c-iv bleed; only the bare top-level rules
 # trip the guard.
 LATER_CHILD_SURFACES = (
-    # 3c-iv — animations / utilities / final parity
-    ".animate-spin", ".bg-primary", ".bg-primary-fixed",
+    # 3c-iv — animations / utilities / final parity. PR 3c-iv-keyframes
+    # (position 7/22) ships the five legacy @keyframes + the .animate-spin
+    # utility; those are now LIVE and were removed from this guard so the
+    # deferred list still reflects what is NOT yet shipped. The viewer /
+    # settings / colors surfaces (.bg-primary / .bg-primary-fixed /
+    # .text-on-primary-fixed / .bg-surface-container-lowest / .shadow-sm /
+    # .rounded-r-md / .border-outline-variant) stay deferred — PR 3c-iv
+    # was replanned into five slices and each surface still has its own
+    # downstream PR.
+    ".bg-primary", ".bg-primary-fixed",
     ".text-on-primary-fixed", ".bg-surface-container-lowest",
     ".shadow-sm", ".rounded-r-md", ".border-outline-variant",
-    "@keyframes spin", "@keyframes detail-card-enter",
-    "@keyframes detail-card-leave", "@keyframes search-pulse-anim",
-    "@keyframes toast-slide-in",
 )
 
 
@@ -1375,29 +1380,56 @@ def test_3c_iii_no_keyframes_anywhere():
     + ``@keyframes search-pulse-anim`` + ``@keyframes toast-slide-in``)
     lands with PR 3c-iv per the design. A 3c-iii ``@keyframes`` rule
     would silently drift the animation cascade against the
-    3c-iv planned surface."""
+    3c-iv planned surface.
+
+    NB the guard is scoped to the 3c-iii slice window (positions
+    4–5/22). PR 3c-iv-keyframes (position 7/22) was authorised to
+    ship the five legacy animation rules verbatim; the now-live
+    keyframes are asserted by ``test_3c_iv_keyframes_resolves_with_legacy_signature``
+    + ``test_3c_iv_keyframes_appear_after_layer_base_closing_brace``
+    lower in this file. The guard intent — "no keyframes during the
+    3c-iii slice window" — is preserved by pinning the slice-window
+    marker (the assertions below still trip if a future PR adds
+    keyframes BEFORE the 3c-iv-keyframes slice lands)."""
+    # The 3c-iii slice is closed; the assertion is retained as a
+    # defensive guard so a future edit that adds an EXTRA keyframe
+    # (beyond the 3c-iv-keyframes catalogue) trips the review focus.
     text = _strip_comments(_read(GLOBALS_CSS))
-    assert not re.search(r"@keyframes\s+", text), (
-        "globals.css MUST NOT carry any @keyframes rule in PR 3c-iii — "
-        "those land with PR 3c-iv (animations / utility classes + "
-        "final CSS parity)"
+    live_keyframes = {
+        # PR 3c-iv-keyframes — five legacy animation rules (LIVE).
+        "@keyframes detail-card-enter", "@keyframes detail-card-leave",
+        "@keyframes search-pulse-anim", "@keyframes materialize-spin",
+        "@keyframes toast-slide-in",
+    }
+    declared = set(re.findall(r"@keyframes\s+[\w-]+", text))
+    drifted = declared - live_keyframes
+    assert not drifted, (
+        "PR 3c-iii MUST NOT introduce keyframes beyond the "
+        "PR 3c-iv-keyframes catalogue; drifted: "
+        f"{sorted(drifted)!r} — only the five legacy rules listed "
+        "in the catalogue are authorised to ship in the 3c-iv slice"
     )
 
 
 def test_3c_iii_no_3c_iv_utility_class_top_level_rules():
     """3c-iii.8 — PR 3c-iii MUST NOT introduce top-level rules for
-    the 3c-iv utility-class surface (``.animate-spin``,
+    the 3c-iv utility-class surface (``@keyframes spin`` +
     ``.bg-primary``, ``.bg-primary-fixed``, ``.text-on-primary-fixed``,
     ``.bg-surface-container-lowest``, ``.shadow-sm``, ``.rounded-r-md``,
     ``.border-outline-variant``). Those land with PR 3c-iv per the
     design; pre-asserting them in 3c-iii would silently reserve the
     namespace and block the per-PR review focus on the utility-class
     slice. (PR 3c-iv is the design-system barrel + utility-class
-    surface that owns those rules.)"""
+    surface that owns those rules.)
+
+    NB ``.animate-spin`` was promoted out of this guard in PR
+    3c-iv-keyframes (position 7/22) when the materialize-spin
+    utility class landed. The remaining seven surfaces still belong
+    to PR 3c-iv-colors (10/22) and stay deferred."""
     text = _strip_comments(_read(GLOBALS_CSS))
     leaked = [
         s for s in (
-            ".animate-spin", ".bg-primary", ".bg-primary-fixed",
+            ".bg-primary", ".bg-primary-fixed",
             ".text-on-primary-fixed", ".bg-surface-container-lowest",
             ".shadow-sm", ".rounded-r-md", ".border-outline-variant",
         )
@@ -1405,7 +1437,7 @@ def test_3c_iii_no_3c_iv_utility_class_top_level_rules():
     ]
     assert not leaked, (
         f"PR 3c-iii MUST NOT introduce top-level utility-class rules; "
-        f"leaked: {leaked!r} — those land with PR 3c-iv"
+        f"leaked: {leaked!r} — those land with PR 3c-iv-colors"
     )
 
 
@@ -1948,14 +1980,18 @@ def test_5_6_does_not_introduce_at_rules_outside_layer_declarations():
     other at-rules in the CSS-only repair (those land with PR 3c-iv
     per the 3c sub-sequence design). The only at-rules in
     ``src/app/globals.css`` post-5.6 stay the pre-existing
-    ``@import`` / ``@theme`` / ``@layer`` directives."""
+    ``@import`` / ``@theme`` / ``@layer`` directives. NB ``@keyframes``
+    was added to the allowed set in PR 3c-iv-keyframes (position 7/22)
+    when the five legacy animation rules landed — the guard must NOT
+    false-positive on the now-live keyframes that the materialize
+    spinner + detail / search / toast animations consume."""
     text = _strip_comments(_read(GLOBALS_CSS))
     at_rules = re.findall(r"@\w[\w-]*", text)
-    allowed = {"@import", "@theme", "@layer"}
+    allowed = {"@import", "@theme", "@layer", "@keyframes"}
     leaked = [r for r in at_rules if r not in allowed]
     assert not leaked, (
         f"PR 5.6 MUST NOT introduce new at-rules beyond @import / "
-        f"@theme / @layer; leaked: {sorted(set(leaked))!r}"
+        f"@theme / @layer / @keyframes; leaked: {sorted(set(leaked))!r}"
     )
 
 
@@ -1989,3 +2025,240 @@ def test_5_6_keeps_color_mix_scoped_to_research_explorer():
         f".research-explorer (3c-iii.9 scoping invariant carries forward); "
         f"drifted selectors: {bad!r}"
     )
+
+
+# ==============================================================================
+# PR 3c-iv-keyframes (position 7/22) — five legacy `@keyframes` + `.animate-spin`
+# ==============================================================================
+# Legacy source of truth: ``web/index.html`` (retired in PR #171, read-only).
+# Ships the five legacy animation rules + ``.animate-spin`` utility verbatim.
+# ``.animate-spin`` references ``materialize-spin`` (NOT ``spin``). Top-level
+# rules per the legacy cascade. Viewer / settings / colors surfaces stay
+# deferred (preserved in ``LATER_CHILD_SURFACES`` above).
+
+# Canonical PR 3c-iv-keyframes catalogue — name + (from-signature, to-signature)
+# regex pinning the verbatim legacy property values. A refactor that swaps
+# any signature would silently drift the React animation curve.
+KEYFRAMES_3C_IV = (
+    ("detail-card-enter",
+     r"opacity\s*:\s*0\b.*translateY\(\s*-8px\s*\)\s+scale\(\s*0\.995\s*\)",
+     r"opacity\s*:\s*1\b.*translateY\(\s*0\s*\)\s+scale\(\s*1\s*\)"),
+    ("detail-card-leave",
+     r"opacity\s*:\s*1\b.*translateY\(\s*0\s*\)\s+scale\(\s*1\s*\)",
+     r"opacity\s*:\s*0\b.*translateY\(\s*-6px\s*\)\s+scale\(\s*0\.995\s*\)"),
+    ("search-pulse-anim",
+     r"rgba\(\s*29\s*,\s*126\s*,\s*169\s*,\s*0\.55\s*\)",
+     r"rgba\(\s*29\s*,\s*126\s*,\s*169\s*,\s*0\s*\)"),
+    ("materialize-spin",
+     r"transform\s*:\s*rotate\(\s*0(?:deg)?\s*\)",
+     r"transform\s*:\s*rotate\(\s*360deg\s*\)"),
+    ("toast-slide-in",
+     r"opacity\s*:\s*0\b.*translate\(\s*-50%\s*,\s*8px\s*\)",
+     r"opacity\s*:\s*1\b.*translate\(\s*-50%\s*,\s*0\s*\)"),
+)
+
+
+def _keyframe_body(text: str, name: str) -> str:
+    """Balanced-brace scan for the body of ``@keyframes <name> { ... }``."""
+    m = re.search(r"@keyframes\s+" + re.escape(name) + r"\s*\{", text)
+    if not m:
+        return ""
+    depth, cursor = 1, m.end()
+    while cursor < len(text) and depth > 0:
+        depth += 1 if text[cursor] == "{" else (-1 if text[cursor] == "}" else 0)
+        cursor += 1
+    return text[m.end():cursor - 1] if depth == 0 else ""
+
+
+def _top_rule_body(text: str, selector: str) -> str:
+    """Balanced-brace scan for the body of the FIRST top-level
+    ``<selector> { ... }`` rule (matched at CSS-token boundaries)."""
+    m = re.search(r"(?:^|[\s,{}>+~])" + re.escape(selector) + r"\s*\{", text)
+    if not m:
+        return ""
+    depth, cursor = 1, m.end()
+    while cursor < len(text) and depth > 0:
+        depth += 1 if text[cursor] == "{" else (-1 if text[cursor] == "}" else 0)
+        cursor += 1
+    return text[m.end():cursor - 1] if depth == 0 else ""
+
+
+# ---- 3c-iv-keyframes.1 — presence + legacy signature -----------------------
+
+@pytest.mark.parametrize("name,from_sig,to_sig", KEYFRAMES_3C_IV)
+def test_3c_iv_keyframes_resolves_with_legacy_signature(name, from_sig, to_sig):
+    """Each legacy ``@keyframes`` MUST carry the verbatim ``from`` /
+    ``to`` (or ``0%`` / ``100%``) property signatures from
+    ``web/index.html``. DOTALL matching so compound
+    ``translateY(...) scale(...)`` + ``opacity`` declarations are matched
+    together."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    body = _keyframe_body(text, name)
+    assert body, f"globals.css MUST declare @keyframes {name} {{ ... }} (PR 3c-iv-keyframes.1)"
+    assert re.search(from_sig, body, re.DOTALL), (
+        f"@keyframes {name} MUST carry the legacy from/0% signature"
+    )
+    assert re.search(to_sig, body, re.DOTALL), (
+        f"@keyframes {name} MUST carry the legacy to/100% signature"
+    )
+
+
+def test_3c_iv_animate_spin_resolves_with_materialize_spin_linkage():
+    """``.animate-spin`` MUST resolve to a non-empty block whose
+    ``animation`` shorthand references ``materialize-spin`` (NOT the
+    renamed ``spin`` alias) at the legacy 0.8s linear infinite timing."""
+    text = _read(GLOBALS_CSS)
+    body = _top_rule_body(text, ".animate-spin")
+    assert body, "globals.css MUST declare .animate-spin { ... } (PR 3c-iv-keyframes.2)"
+    assert re.search(r"animation\s*:\s*materialize-spin\b", body), (
+        ".animate-spin MUST reference materialize-spin via animation"
+    )
+    assert re.search(r"0\.8s", body) and re.search(r"linear", body), (
+        ".animate-spin MUST keep the legacy 0.8s linear infinite timing"
+    )
+
+
+# ---- 3c-iv-keyframes.3 — source order + cascade position --------------------
+
+def test_3c_iv_keyframes_appear_after_layer_base_closing_brace():
+    """Every legacy ``@keyframes`` MUST appear as a top-level rule
+    AFTER ``@layer base { ... }`` closes (legacy ``web/index.html``
+    cascade). Top-level rules win against ``@layer base`` rules of the
+    same specificity."""
+    text = _read(GLOBALS_CSS)
+    base_open = re.search(r"@layer\s+base\s*\{", text)
+    assert base_open, "globals.css must declare @layer base"
+    depth, cursor = 1, base_open.end()
+    while cursor < len(text) and depth > 0:
+        depth += 1 if text[cursor] == "{" else (-1 if text[cursor] == "}" else 0)
+        cursor += 1
+    base_close_pos = cursor - 1 if depth == 0 else -1
+    assert base_close_pos > 0, "@layer base must have a balanced closing brace"
+    for name, _, _ in KEYFRAMES_3C_IV:
+        m = re.search(r"@keyframes\s+" + re.escape(name) + r"\s*\{", text)
+        assert m, f"@keyframes {name} missing (PR 3c-iv-keyframes.3)"
+        assert m.start() > base_close_pos, (
+            f"@keyframes {name} MUST appear AFTER @layer base closes"
+        )
+
+
+def test_3c_iv_animate_spin_appears_after_keyframes_materialize_spin():
+    """``.animate-spin`` MUST appear AFTER ``@keyframes materialize-spin``
+    in source order (the definition must precede its consumer)."""
+    text = _read(GLOBALS_CSS)
+    keyframe_m = re.search(r"@keyframes\s+materialize-spin\s*\{", text)
+    spin_m = re.search(r"(?:^|[\s,{}>+~])\.animate-spin\s*\{", text)
+    assert keyframe_m, "@keyframes materialize-spin missing"
+    assert spin_m, ".animate-spin missing"
+    assert spin_m.start() > keyframe_m.start(), (
+        ".animate-spin MUST appear AFTER @keyframes materialize-spin"
+    )
+
+
+# ---- 3c-iv-keyframes.4 — slice-scope guard ----------------------------------
+
+def test_3c_iv_keyframes_does_not_pre_assert_viewer_settings_colors_surfaces():
+    """Slice-scope guard: PR 3c-iv-keyframes ships ONLY the five
+    ``@keyframes`` + ``.animate-spin``. MUST NOT pre-define viewer /
+    settings / colors surfaces (those land with 3c-iv-viewer / settings
+    / colors in the replan)."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    leaked = [s for s in LATER_CHILD_SURFACES if _appears_as_css_token(text, s)]
+    assert not leaked, (
+        f"PR 3c-iv-keyframes MUST NOT pre-define viewer / settings / "
+        f"colors surfaces; leaked: {leaked!r}"
+    )
+
+
+# ---- 3c-iv-keyframes.5 — negative-case triangulation ------------------------
+
+def test_3c_iv_keyframes_does_not_introduce_renamed_spin_keyframe():
+    """The renamed ``@keyframes spin`` MUST NOT appear — the legacy
+    ``web/index.html`` used the materialise-prefixed name and the 3c-iv
+    replan restores that name verbatim. A future rename would leave
+    ``.animate-spin`` pointing at nothing."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    assert not re.search(r"@keyframes\s+spin\b", text), (
+        "globals.css MUST NOT carry a renamed `@keyframes spin` "
+        "(PR 3c-iv-keyframes.5 — legacy `materialize-spin` is authoritative)"
+    )
+
+
+def test_3c_iv_animate_spin_does_not_reference_renamed_spin_alias():
+    """``.animate-spin`` MUST reference ``materialize-spin`` and MUST NOT
+    reference a bare ``spin`` alias (checked via negative lookbehind to
+    skip the ``materialize-`` prefix substring)."""
+    text = _read(GLOBALS_CSS)
+    body = _top_rule_body(text, ".animate-spin")
+    assert body, ".animate-spin missing"
+    assert re.search(r"\bmaterialize-spin\b", body), (
+        ".animate-spin MUST reference `materialize-spin`"
+    )
+    assert not re.search(r"(?<!materialize-)\bspin\b", body), (
+        ".animate-spin MUST NOT reference a bare `spin` alias"
+    )
+
+
+@pytest.mark.parametrize("name", [k[0] for k in KEYFRAMES_3C_IV])
+def test_3c_iv_keyframes_is_top_level_not_inside_any_layer(name):
+    """Each legacy ``@keyframes`` MUST be a TOP-LEVEL rule — NOT nested
+    inside ``@layer base`` / ``@layer components``. The legacy cascade
+    placed them at the top so every layer could reach them. The test
+    walks backward from each declaration and asserts the nearest
+    enclosing at-rule is NOT a layer directive."""
+    text = _read(GLOBALS_CSS)
+    m = re.search(r"@keyframes\s+" + re.escape(name) + r"\s*\{", text)
+    assert m, f"@keyframes {name} missing"
+    cursor = m.start() - 1
+    while cursor >= 0:
+        if text[cursor] == "}":
+            depth, c = 1, cursor - 1
+            while c >= 0 and depth > 0:
+                if text[c] == "}":
+                    depth += 1
+                elif text[c] == "{":
+                    depth -= 1
+                c -= 1
+            cursor = c
+            continue
+        if text[cursor] == "{":
+            preceding = text[:cursor].rstrip()
+            assert not re.search(
+                r"@layer\s+(?:base|components)\s*$", preceding,
+            ), (
+                f"@keyframes {name} MUST be a top-level rule "
+                f"(NOT nested inside @layer base / components)"
+            )
+            break
+        cursor -= 1
+
+
+def test_3c_iv_animate_spin_is_top_level_not_inside_any_layer():
+    """``.animate-spin`` MUST be a TOP-LEVEL rule — NOT nested inside
+    any ``@layer`` block. As a utility class, it wins against any
+    same-specificity component-scoped animation override."""
+    text = _read(GLOBALS_CSS)
+    m = re.search(r"(?:^|[\s,{}>+~])\.animate-spin\s*\{", text)
+    assert m, ".animate-spin missing"
+    cursor = m.start() - 1
+    while cursor >= 0:
+        if text[cursor] == "}":
+            depth, c = 1, cursor - 1
+            while c >= 0 and depth > 0:
+                if text[c] == "}":
+                    depth += 1
+                elif text[c] == "{":
+                    depth -= 1
+                c -= 1
+            cursor = c
+            continue
+        if text[cursor] == "{":
+            preceding = text[:cursor].rstrip()
+            assert not re.search(
+                r"@layer\s+(?:base|components)\s*$", preceding,
+            ), (
+                ".animate-spin MUST be a top-level rule "
+                "(NOT nested inside @layer base / components)"
+            )
+            break
+        cursor -= 1
