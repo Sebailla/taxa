@@ -1119,3 +1119,113 @@ Espejos en español actualizados en paralelo. No se realiza
                   adiciones autoradas de planning-doc en esta pasada
                   se queda bien por debajo del presupuesto de revisión
                   por PR de 400 líneas.
+- **2026-09-10** — Pasada de entrega Makefile/runtime/static-root de PR 3d (esta entrada).
+  Según la tarea del padre, se finaliza la rebanada 3d y se marcan los
+  checkboxes 3.3 R, 3.4 V y 3.6 V como `[x]` en `tasks.md` (y su
+  espejo fiel en español `tasks-es.md`). **No se cambia la fuente de
+  verdad de `design.md`, `proposal.md`, `specs/` ni los artefactos
+  G2 / G3 / G4 / G5 / G6 / cutover-manifest; no hay activación de
+  FastAPI; no hay actualización de consumidores; no hay selección de
+  Approach A / B / C; no hay corte atómico.** Todos los cambios quedan
+  dentro de las superficies permitidas explícitas (`Makefile`,
+  `scripts/check-runtime.mjs`, `api/server.py`,
+  `tests/test_make_api_build.py`, y los cuatro docs de OpenSpec).
+  (1) **Contrato `Makefile::api`** — preservado desde PR #158
+    (`d9778bf`): `api:` ejecuta `node scripts/check-runtime.mjs` →
+    `npm ci --no-audit --no-fund` → `npm run build:web` → `uvicorn
+    api.server:app --host 127.0.0.1 --port 8765`. `.ONESHELL:`, `css:`
+    no-op, `.PHONY` api+css, y el bind `127.0.0.1:8765` quedan
+    intactos; el comando legacy `build:css` / `tailwindcss` **nunca**
+    se invoca desde `api:`.
+  (2) **Refactor de `scripts/check-runtime.mjs`** — el script exporta
+    tres funciones puras (`parseFloor`, `parseVersion`,
+    `compareVersions`) de modo que la comparación es table-driven sin
+    instalar dependencias y sin subproceso. Un nuevo `--selftest`
+    ejecuta la matriz canónica de bordes de 3d (`20.8.0` → rechazar;
+    `20.9.0` / `20.10.0` / `22.0.0` / `v26.8.1` → aceptar) y sale `0`
+    si cada caso coincide, `1` en caso contrario. La línea de rechazo
+    en stderr gana el prefijo machine-readable
+    `code=NODE_BELOW_FLOOR required=<X.Y.Z> actual=<vA.B.C>`; la línea
+    OK gana `code=OK required=... actual=... engines.node=...`.
+  (3) **Repoint del static-root en `api/server.py`** — `WEB_DIR`
+    (línea 54) re-apuntado de `Path("web")` a `Path("out")`; la firma
+    del static-mount
+    `app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")`
+    en la línea 1820 es byte-idéntica a `origin/develop` (sin edición
+    de rutas, sin nuevo mount, sin shim de SPA-fallback). La guarda
+    `if WEB_DIR.exists()` queda sin cambios.
+  (4) **Contrato de `tests/test_make_api_build.py`** — seis asserts
+    enfocados fijan: (a) el primer paso sin banner de `make api` es
+    `node scripts/check-runtime.mjs`; (b) orden de cadena
+    `check-runtime` → `npm ci` → `npm run build:web` → `uvicorn`
+    estrictamente creciente; (c) uvicorn bindea `--host 127.0.0.1
+    --port 8765`; (d) `make css` es no-op (sin `npm install` / `npm ci`
+    / `build:css` / `tailwindcss` / `watch:css` / `web/index.css` /
+    `web/dist/tailwind.css`); (e) `.PHONY` lista `api` y `css`; (f)
+    `api:` sin `css` como prerequisito. 6 / 6 verde contra el `Makefile`
+    actual.
+  (5) **Evidencia de TDD estricto** —
+      - **RED (observado)** — `tests/test_make_api_build.py` corrido
+        contra un `api:` deliberadamente roto (una sola línea
+        `.venv/bin/python3 -m uvicorn api.server:app --host 0.0.0.0 --port 9999`).
+        Tres asserts fallaron:
+        `test_makefile_api_target_runs_check_runtime_first` (paso
+        faltante); `test_makefile_api_target_ordering` (cadena
+        faltante); `test_makefile_api_uvicorn_binds_localhost_8765`
+        (bind incorrecto). Los otros tres quedaron verdes.
+      - **GREEN (observado)** — `Makefile` restaurado.
+        `test_make_api_build.py` 6 / 6; `test_static_mount.py` 4 / 4;
+        `test_check_runtime.py` 7 / 7.
+      - **TRIANGULATE** — `node scripts/check-runtime.mjs --selftest`
+        pasa 5 / 5 contra `floor=20.9.0`: `20.8.0` rechazar, `20.9.0`
+        aceptar, `20.10.0` aceptar, `22.0.0` aceptar, `v26.8.1`
+        aceptar; exit 0, `code=SELFTEST_PASSED cases=5`.
+      - **REFACTOR** — comparación inline → tres funciones puras
+        exportadas; dispatch CLI gateado por `isMain` para import-safety;
+        lectura dinámica del floor de 3a.8 preservada.
+  (6) **Checkboxes de OpenSpec** — `tasks.md` flipea 3.3 R, 3.4 V, 3.6
+    V a `[x]`; `tasks-es.md` espeja. 3.1 R, 3.2 V, 3.5 R, 3.7 R/V, 3.8
+    Refactor quedan `[ ]` (rebanadas separadas / gateado por G3
+    Tier-2).
+  (7) **Limitaciones** — `make api`, `next build`, `test_smoke.py`,
+    asserts HTTP de `test_static_mount.py`, y la suite completa de
+    pytest **no** se ejecutan en esta pasada: el worktree no tiene
+    `.venv/` / `node_modules/` / `out/` / `data/db/taxa.db`, y el
+    brief prohíbe instalar dependencias o ejecutar `make api` en el
+    worktree. Las corridas enfocadas usan el venv padre en
+    `/Users/sebailla/Developer/taxa/.venv`; `node scripts/check-runtime.mjs
+    --selftest` corre sin install contra Node `v26.8.2`.
+  (8) **Lo que esta entrada NO afirma** — no hay activación de
+    FastAPI; no hay selección de Approach A / B / C; no se autoría ni
+    se registra PASS para ningún verificador G2/G3/G4/G5/G6; no se
+    flipea ningún consumidor de `cutover-manifest.json` a Tier-2; no
+    se toca `package.json`, `package-lock.json`, `tsconfig.json`,
+    `next.config.mjs`, `extension/manifest.json`, `web/`, `src/`, ni
+    `etl/`; no se commitea, pushea, ni abre PR en esta pasada.
+  (9) **Límite de reversión** — revertir esta pasada elimina
+    únicamente: los tres flips de checkbox en `tasks.md` /
+    `tasks-es.md`; esta entrada en `apply-progress.md` /
+    `apply-progress-es.md`; la adición de parser puro + código
+    machine-readable + `--selftest` a `scripts/check-runtime.mjs` (la
+    comparación inline de 3a.8 es recuperable desde
+    `/tmp/check-runtime.mjs.snapshot`). `Makefile`, `api/server.py` y
+    los tres test files quedan **sin cambios** en esta pasada — su
+    límite de reversión es PR #158 / `d9778bf`. Ningún otro PR o
+    sub-PR está acoplado a los flips de 3d.
+  **Verdad preservada** — la rebanada 3d aterriza en el worktree, el
+  ciclo RED/GREEN se observa, el selftest 5 / 5, los tres checkboxes
+  flipean en lockstep con el espejo español, y el contrato Makefile
+  / api/server.py / test se verifica contra el venv padre sin
+  instalar dependencias en el worktree. **No se afirma PASS de
+  ningún gate; no hay activación de FastAPI; no hay corte atómico;
+  no se commitea, pushea, ni abre PR en esta pasada.** Espejo
+  español actualizado en lockstep.
+  **Nota de tamaño** — ≈ 100 líneas netas a `scripts/check-runtime.mjs`
+  (30 → 130); 6 líneas cambiadas a `tasks.md` (3 adiciones,
+  3 borrados; 0 netas); 6 líneas cambiadas a `tasks-es.md`
+  (3 adiciones, 3 borrados; 0 netas); +99/-1 (98 netas) a
+  `apply-progress.md` (entrada espejo); +108/-1 (107 netas) a
+  `apply-progress-es.md` (esta entrada); sin cambios en `Makefile`,
+  `api/server.py`, ni los tres test files. Total de adiciones
+  autoradas por debajo del presupuesto de revisión por PR de 400
+  líneas para la rebanada 3d.
