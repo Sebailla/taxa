@@ -645,19 +645,95 @@ líneas).
         Reconciliación del pronóstico (corregida)
         actualizada a ~2.282 LoC; esta nueva entrada de
         registro de cambios registrada.
-      - Espejos en español
-        `documents-es/openspec/changes/complete-taxa-frontend-migration/{design-es,spec-es,tasks-es,apply-progress-es}.md`
-        — traducciones fieles de las actualizaciones de
-        alto nivel de arriba; sin contenido extra
-        introducido; los specs por dominio permanecen
-        fuera de alcance.
+          - Espejos en español
+            `documents-es/openspec/changes/complete-taxa-frontend-migration/{design-es,spec-es,tasks-es,apply-progress-es}.md`
+            — traducciones fieles de las actualizaciones de
+            alto nivel de arriba; sin contenido extra
+            introducido; los specs por dominio permanecen
+            fuera de alcance.
 
-    > (Entradas posteriores por sub-PR anexadas abajo por
-    > el worker de apply, un bloque por fusión de sub-PR.)
+    ### 2026-09-10 — PRs marcadores 4a / 4b reconciliados (esta entrada)
 
----
+    - **Fuente**: PRs **#208** (marcador 4a) y **#209**
+      (marcador 4b) fusionados al tracker el 2026-09-10
+      como **marcadores de documentación / verificación**
+      (no PRs de implementación). PR #208 =
+      `feat/complete-taxa-frontend-migration-12-4a-marker`
+      → `tests/test_browser_state_keys_4a_spec_subset.py`
+      (238 LoC, archivo nuevo único). PR #209 =
+      `feat/complete-taxa-frontend-migration-13-4b-marker`
+      → `tests/test_hydration_app_shell_superset_4b_spec_subset.py`
+      (399 LoC, archivo nuevo único). Los números de
+      posición de las ramas (12 / 13) pertenecen a la
+      cadena de marcadores; las etiquetas semánticas
+      (`4a` / `4b`) y las posiciones de la cadena
+      candidata de 16 hijos (8/16 / 9/16) se preservan
+      literalmente y NO se renumeran con esta entrada.
+    - **Encuadre honesto**: el trabajo de código real de
+      4a / 4b (typed store + 4 sitios de lectura / 4 de
+      escritura para 4a; `useSyncExternalStore` + guardia
+      de hidratación + integración del AppShell en
+      `src/app/{layout,page}.tsx` para 4b) **queda
+      pendiente de reconstrucción**. Los archivos fuente
+      completos (`src/modules/browser-state/**` para 4a;
+      `src/modules/app-shell/**` + delta de integración
+      en `src/app/{layout,page}.tsx` para 4b) NO son
+      autordos por PR #208 / PR #209 y NO se entregan a
+      `develop`. **Todas las casillas sin marcar de
+      Fase 4a y Fase 4b quedan sin marcar.**
+    - **Restricciones preservadas** (literalmente): la
+      cadena candidata de 16 hijos (3a → 3b → 3c-a →
+      3c-b → 3c-c → 3c-d → 3d → 4a → 4b → 5a → 5b →
+      5c → 6a → 6b → 6c → 3e) queda sin cambios; las
+      ramas candidatas 4a / 4b
+      (`feat/complete-taxa-frontend-migration-08-4a`,
+      `feat/complete-taxa-frontend-migration-09-4b`)
+      siguen siendo las unidades de trabajo que el
+      worker de apply abrirá cuando se abra la próxima
+      ventana de PR; el footer de estado de puertas
+      (G1 / G2 / G3 Tier-1 / G3 Tier-2 / G4 / G5 / G6 —
+      PASS registrado / PASS registrado / PASS
+      registrado / NO PASADO / bloqueado / no
+      reproducible / bloqueado) se preserva literalmente
+      y NO se voleta por PR #208 / PR #209; el predecesor
+      `openspec/changes/migrate-nextjs-tailwind4/**`
+      queda congelado byte-idéntico.
+    - **Nota de pronóstico**: los PRs marcadores son
+      artefactos aditivos de documentación (un test de
+      triangulación de subconjunto de spec cada uno) que
+      suplementan el trabajo fuente 4a / 4b planificado;
+      NO alteran el pronóstico de ~3.615 LoC authored,
+      los presupuestos por sub-PR de ~180 LoC / ~120
+      LoC para 4a / 4b, las columnas `Source files` por
+      sub-PR en la tabla de Reconstrucción, ni los
+      checklists de TDD estricto. Los tests de
+      triangulación marcadores son **evidencia adyacente
+      a** (no sustituto de) los tests planificados
+      `tests/test_browser_state_keys.py` (PR 4a) y
+      `tests/test_hydration_console.py` (PR 4b) —
+      anclan un subconjunto del spec que los tests
+      planificados re-ejercen a alcance completo cuando
+      se abre la reconstrucción.
+    - **Artefactos actualizados** (solo anexos, mínimo):
+      `apply-progress-es.md` (esta entrada), `tasks-es.md`
+      (adendas de Fase 4a / 4b), `design-es.md`
+      (Rebanada de sub-PRs, Orden de dependencia,
+      Archivos afectados — cross-references); espejos
+      en inglés
+      `openspec/changes/complete-taxa-frontend-migration/{apply-progress,tasks,design}.md`
+      llevan anexos paralelos; sin contenido extra
+      introducido; specs por dominio permanecen fuera
+      de alcance.
 
-## Pre-flight de puerta para PR 3e (cutover atómico)
+        > (Entradas posteriores por sub-PR anexadas abajo por
+        > el worker de apply, un bloque por fusión de sub-PR.
+        > PR #208 y PR #209 NO son entradas por sub-PR — son
+        > los PRs marcadores reconciliados arriba y no
+        > reclaman implementación ni flips de puerta.)
+
+    ---
+
+    ## Pre-flight de puerta para PR 3e (cutover atómico)
 
 La unidad atómica de cutover (según `design.md` §"Atomic
 cutover unit") cambia exactamente lo siguiente en un

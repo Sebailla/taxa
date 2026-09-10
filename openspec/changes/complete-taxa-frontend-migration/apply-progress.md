@@ -698,15 +698,91 @@ largest sub-PR is 5b at ~360 LoC, under 400-line budget).
         table updated; Workload / PR Boundary section
         updated to 16 sub-PRs; this new change log entry
         recorded.
-      - Spanish mirrors
-        `documents-es/openspec/changes/complete-taxa-frontend-migration/{design-es,spec-es,tasks-es,apply-progress-es}.md`
-        — faithful translations of the high-level updates
-        above; no extra content introduced; per-domain
-        specs remain out of scope.
+          - Spanish mirrors
+            `documents-es/openspec/changes/complete-taxa-frontend-migration/{design-es,spec-es,tasks-es,apply-progress-es}.md`
+            — faithful translations of the high-level updates
+            above; no extra content introduced; per-domain
+            specs remain out of scope.
 
----
+    ### 2026-09-10 — 4a / 4b marker PRs reconciled (this entry)
 
-## Pre-flight gate for PR 3e (atomic cutover)
+    - **Source**: PRs **#208** (4a marker) and **#209**
+      (4b marker) merged into the tracker on 2026-09-10
+      as **documentation / verification markers** (not
+      implementation PRs). PR #208 =
+      `feat/complete-taxa-frontend-migration-12-4a-marker`
+      → `tests/test_browser_state_keys_4a_spec_subset.py`
+      (238 LoC, single new file). PR #209 =
+      `feat/complete-taxa-frontend-migration-13-4b-marker`
+      → `tests/test_hydration_app_shell_superset_4b_spec_subset.py`
+      (399 LoC, single new file). Branch position
+      numbers (12 / 13) belong to the marker chain;
+      semantic labels (`4a` / `4b`) and the
+      16-child-candidate-chain positions (8/16 / 9/16)
+      are preserved verbatim and are NOT renumbered.
+    - **Honest framing**: the actual 4a / 4b code work
+      (typed store + 4 read / 4 write sites for 4a;
+      `useSyncExternalStore` + hydration guard +
+      AppShell integration into
+      `src/app/{layout,page}.tsx` for 4b) **stays
+      reconstruction pending**. The full source files
+      (`src/modules/browser-state/**` for 4a;
+      `src/modules/app-shell/**` + `src/app/{layout,
+      page}.tsx` integration delta for 4b) are NOT
+      authored by PR #208 / PR #209 and are NOT
+      delivered to `develop`. **All Phase 4a and Phase
+      4b unchecked boxes stay unchecked.**
+    - **Preserved constraints** (verbatim): the
+      16-child candidate chain (3a → 3b → 3c-a →
+      3c-b → 3c-c → 3c-d → 3d → 4a → 4b → 5a → 5b →
+      5c → 6a → 6b → 6c → 3e) is unchanged; the
+      candidate 4a / 4b branches
+      (`feat/complete-taxa-frontend-migration-08-4a`,
+      `feat/complete-taxa-frontend-migration-09-4b`)
+      remain the work units the apply worker will
+      open when the next PR window opens; the
+      gate-status footer (G1 / G2 / G3 Tier-1 / G3
+      Tier-2 / G4 / G5 / G6 — PASS recorded / PASS
+      recorded / PASS recorded / NOT PASSED / blocked
+      / unreproducible / blocked) is preserved
+      verbatim and is NOT flipped by PR #208 / PR
+      #209; the predecessor
+      `openspec/changes/migrate-nextjs-tailwind4/**`
+      stays byte-identical frozen.
+    - **Forecast note**: the marker PRs are additive
+      documentation artifacts (one spec-subset
+      triangulation test each) that supplement the
+      planned 4a / 4b source work; they do NOT alter
+      the ~3,615 LoC authored forecast, the ~180
+      LoC / ~120 LoC per-sub-PR budgets for 4a / 4b,
+      the per-sub-PR `Source files` columns in the
+      Reconstruction table, or the Strict-TDD task
+      checklists. The marker triangulation tests are
+      **evidence adjacent to** (not a substitute for)
+      the planned `tests/test_browser_state_keys.py`
+      (PR 4a) and `tests/test_hydration_console.py`
+      (PR 4b) — they pin a spec subset that the
+      planned tests re-exercise at full scope when
+      reconstruction opens.
+    - **Artifacts updated** (append-only, minimal):
+      `apply-progress.md` (this entry), `tasks.md`
+      (Phase 4a / 4b addenda), `design.md` (Sub-PR
+      slice, Dependency order, Affected files
+      cross-references); Spanish mirrors
+      `documents-es/.../{apply-progress-es,tasks-es,design-es}.md`
+      carry faithful translations; no extra content
+      introduced; per-domain specs remain out of
+      scope.
+
+    > (Subsequent per-sub-PR entries appended below by the
+    > apply worker, one block per sub-PR merge. PR #208
+    > and PR #209 are NOT per-sub-PR entries — they are
+    > the marker PRs reconciled above and they do not
+    > claim implementation or gate flips.)
+
+    ---
+
+    ## Pre-flight gate for PR 3e (atomic cutover)
 
 The atomic cutover unit (per `design.md` §"Atomic cutover unit")
 changes exactly the following in a single release:

@@ -1415,6 +1415,56 @@ loaded for `next build`).
 | 4b.5 | same | same | same |
 | 4b.6 | `.venv/bin/python3 -m pytest tests/test_hydration_console.py -v` | `npx next build` exit 0; `out/_next/static/chunks/*.js` references the `@taxa/app-shell` barrel; Playwright zero-hydration-warnings against the integrated AppShell | `git revert <4b-sha>` reverts the AppShell integration delta in `src/app/{layout,page}.tsx` AND removes `src/modules/app-shell/**`; Phase 4a store stays |
 
+> **2026-09-10 — 4b marker reconciliation addendum**. PR
+> **#209** =
+> `feat/complete-taxa-frontend-migration-13-4b-marker`
+> merged into the tracker as a **documentation /
+> verification marker** for Phase 4b. PR #209 ships a
+> single new test
+> (`tests/test_hydration_app_shell_superset_4b_spec_subset.py`,
+> 399 LoC) that pins the spec superset of the planned
+> 4b contract; **it does not author the AppShell
+> module, the page-chrome module, the
+> `useSyncExternalStore` hydration guard, or the
+> `<AppShell>` integration into
+> `src/app/{layout,page}.tsx`**. The Phase 4b task
+> checklist above (4b.1 R through 4b.6 G) stays
+> **unchecked**; the candidate 4b branch
+> (`feat/complete-taxa-frontend-migration-09-4b`) is
+> the work unit the apply worker will open when the
+> next PR window opens. The marker branch position
+> number (13) belongs to the marker chain, not to the
+> 16-child candidate chain position (9/16). LoC
+> estimates, source-file lists, the per-task evidence
+> table, the dependency-defect-fix contract (PR 4b
+> owns both the `app-shell` module **and** the App
+> Router host integration), and the Forecast
+> reconciliation above are preserved verbatim.
+
+---
+
+> **2026-09-10 — 4a marker reconciliation addendum**. PR
+> **#208** =
+> `feat/complete-taxa-frontend-migration-12-4a-marker`
+> merged into the tracker as a **documentation /
+> verification marker** for Phase 4a. PR #208 ships a
+> single new test
+> (`tests/test_browser_state_keys_4a_spec_subset.py`,
+> 238 LoC) that pins the spec subset of the planned 4a
+> contract; **it does not author the typed store, the
+> 4 read + 4 write sites, or the store barrel**. The
+> Phase 4a task checklist above (4a.1 R through 4a.6
+> Refactor) stays **unchecked**; the candidate 4a
+> branch
+> (`feat/complete-taxa-frontend-migration-08-4a`) is
+> the work unit the apply worker will open when the
+> next PR window opens. The marker branch position
+> number (12) belongs to the marker chain, not to the
+> 16-child candidate chain position (8/16). LoC
+> estimates, source-file lists, the per-task evidence
+> table, and the Forecast reconciliation above are
+> preserved verbatim.
+
 ## Phase 5a: Taxonomy module port (PR 5a → PR 4b branch, position 10/16)
 
 Slices predecessor tasks 5.1 + 5.2 + 5.3
