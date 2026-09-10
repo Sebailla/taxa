@@ -94,10 +94,10 @@ Chain strategy: stacked-to-main
 
 - [ ] 3.1 R — `tests/test_tailwind_4_parity.py`: every `var(--token)` from `web/index.html`.
 - [ ] 3.2 G — `src/modules/design-system/infrastructure/globals.css`: `@import "tailwindcss"` + `@theme` + `@layer base`.
-- [ ] 3.3 R — `tests/test_make_api_build.py`: `Makefile::api` runs Next build then uvicorn.
-- [ ] 3.4 G — `Makefile::api` runs `npm install && npm run build:web && uvicorn`; `scripts/check-runtime.mjs` enforces Node ≥20.9.0.
+- [x] 3.3 R — `tests/test_make_api_build.py`: `Makefile::api` runs Next build then uvicorn.
+- [x] 3.4 G — `Makefile::api` runs `npm install && npm run build:web && uvicorn`; `scripts/check-runtime.mjs` enforces Node ≥20.9.0.
 - [ ] 3.5 R — `tests/test_static_mount.py`: `GET /` returns Next HTML; `GET /_next/static/<h>.js` 200.
-- [ ] 3.6 G — `api/server.py:54` `WEB_DIR = Path("out")`; mount signature kept.
+- [x] 3.6 G — `api/server.py:54` `WEB_DIR = Path("out")`; mount signature kept.
 - [ ] 3.7 R/G — relocate `web/search_urls.js` → `src/modules/research/infrastructure/search-engines.js`; AC-21 test `open()` updated.
 - [ ] 3.8 Refactor — grep `src/` for hex; assert none outside design-system module.
 

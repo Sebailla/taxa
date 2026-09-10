@@ -1027,3 +1027,102 @@ updated: G2 remains `blocked — contract defined; verifier not
                   footer update (≈ 28 net lines across the two files).
                   Total authored planning-doc additions in this pass
                   stay well under the 400-line per-PR review budget.
+- **2026-09-10** — PR 3d Makefile/runtime/static-root handoff pass (this entry).
+  Per the parent task, the 3d handoff slice is finalized and the relevant
+  OpenSpec checkboxes (3.3 R, 3.4 G, 3.6 G) are flipped to `[x]` in
+  `tasks.md` (and faithful Spanish mirror `tasks-es.md`). **No source-of-truth
+  change to `design.md`, `proposal.md`, `specs/`, or the G2 / G3 / G4 / G5 /
+  G6 / cutover-manifest artifacts; no FastAPI activation; no consumer
+  update; no Approach A / B / C selection; no atomic cutover.** All changes
+  stay within the explicit allowed surfaces (`Makefile`,
+  `scripts/check-runtime.mjs`, `api/server.py`,
+  `tests/test_make_api_build.py`, and the four OpenSpec docs).
+  (1) **Makefile::api contract** — preserved from PR #158 (`d9778bf`):
+    `api:` runs `node scripts/check-runtime.mjs` → `npm ci --no-audit
+    --no-fund` → `npm run build:web` → `uvicorn api.server:app --host
+    127.0.0.1 --port 8765`. `.ONESHELL:`, `css:` no-op, `.PHONY` api+css,
+    and the `127.0.0.1:8765` bind are unchanged; the legacy `build:css` /
+    `tailwindcss` command is **never** invoked from `api:`.
+  (2) **`scripts/check-runtime.mjs` refactor** — exports three pure
+    parser functions (`parseFloor`, `parseVersion`, `compareVersions`) so
+    the comparison is table-driven without dependency install and without
+    subprocess. A new `--selftest` flag runs the canonical 3d edge matrix
+    (`20.8.0` → reject; `20.9.0` / `20.10.0` / `22.0.0` / `v26.8.1` →
+    accept) against the pure parser and exits `0` iff every case matches,
+    `1` otherwise. Stderr rejection line gains the machine-readable
+    prefix `code=NODE_BELOW_FLOOR required=<X.Y.Z> actual=<vA.B.C>` plus
+    a human message; the OK line gains `code=OK required=... actual=...
+    engines.node=...`.
+  (3) **`api/server.py` static-root repoint** — `WEB_DIR` (line 54) is
+    repointed from `Path("web")` to `Path("out")`; the static-mount
+    signature
+    `app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")`
+    at line 1820 is byte-identical to `origin/develop` (no route edits,
+    no new mount, no SPA-fallback shim). The `if WEB_DIR.exists()` guard
+    immediately above the mount is unchanged.
+  (4) **`tests/test_make_api_build.py` contract** — six focused
+    assertions pin: (a) first non-banner step of `make api` is `node
+    scripts/check-runtime.mjs`; (b) chain order `check-runtime` → `npm
+    ci` → `npm run build:web` → `uvicorn` strictly increasing; (c)
+    uvicorn binds `--host 127.0.0.1 --port 8765`; (d) `make css` is a
+    no-op (no `npm install` / `npm ci` / `build:css` / `tailwindcss` /
+    `watch:css` / `web/index.css` / `web/dist/tailwind.css`); (e)
+    `.PHONY` lists `api` and `css`; (f) `api:` has no `css`
+    prerequisite. 6 / 6 pass against the current `Makefile`.
+  (5) **Strict TDD evidence** —
+      - **RED (observed)** — `tests/test_make_api_build.py` was run
+        against a deliberately-broken `api:` (single line `.venv/bin/python3 -m uvicorn api.server:app --host 0.0.0.0 --port 9999`).
+        Three asserts failed: `test_makefile_api_target_runs_check_runtime_first`
+        (missing step); `test_makefile_api_target_ordering` (missing
+        chain); `test_makefile_api_uvicorn_binds_localhost_8765`
+        (wrong bind). Other three stayed green (no api-body dep).
+      - **GREEN (observed)** — `Makefile` restored. `test_make_api_build.py`
+        6 / 6; `test_static_mount.py` 4 / 4; `test_check_runtime.py` 7 / 7.
+      - **TRIANGULATE** — `node scripts/check-runtime.mjs --selftest`
+        passes 5 / 5 against `floor=20.9.0`: `20.8.0` reject, `20.9.0`
+        accept, `20.10.0` accept, `22.0.0` accept, `v26.8.1` accept;
+        exit 0, `code=SELFTEST_PASSED cases=5`.
+      - **REFACTOR** — inline comparison → three exported pure
+        functions; CLI dispatch gated by `isMain` so the module is
+        import-safe; 3a.8 dynamic-floor read preserved.
+  (6) **OpenSpec checkboxes** — `tasks.md` flips 3.3 R, 3.4 G, 3.6 G to
+    `[x]`; `tasks-es.md` mirrors. 3.1 R, 3.2 G, 3.5 R, 3.7 R/G, 3.8
+    Refactor stay `[ ]` (separate slices / gated by G3 Tier-2).
+  (7) **Limitations** — `make api`, `next build`, `test_smoke.py`,
+    `test_static_mount.py` HTTP-shape asserts, and the full pytest
+    suite are **not** executed in this pass: the worktree has no
+    `.venv/` / `node_modules/` / `out/` / `data/db/taxa.db`, and the
+    task brief forbids installing dependencies or executing `make
+    api` in the worktree. Focused pytest runs use the parent venv at
+    `/Users/sebailla/Developer/taxa/.venv`; `node scripts/check-runtime.mjs
+    --selftest` runs without install against host Node `v26.8.2`.
+  (8) **What this entry does NOT claim** — no FastAPI activation;
+    no Approach A / B / C selection; no G2/G3/G4/G5/G6 verifier
+    authored or PASS recorded; no `cutover-manifest.json` consumer
+    flipped to Tier-2; no `package.json`, `package-lock.json`,
+    `tsconfig.json`, `next.config.mjs`, `extension/manifest.json`,
+    `web/`, `src/`, or `etl/` touched; no commit / push / PR opened.
+  (9) **Rollback boundary** — reverting this pass removes only: the
+    three checkbox flips in `tasks.md` / `tasks-es.md`; this entry
+    in `apply-progress.md` / `apply-progress-es.md`; the
+    parser-extraction + machine-readable code + `--selftest` addition
+    to `scripts/check-runtime.mjs` (the 3a.8 inline comparison is
+    recoverable from `/tmp/check-runtime.mjs.snapshot`). `Makefile`,
+    `api/server.py`, and the three test files are **unchanged** in
+    this pass — their rollback boundary is PR #158 / `d9778bf`. No
+    other PR or sub-PR is coupled to the 3d flips.
+  **Truth preserved** — 3d slice lands in the worktree, RED/GREEN
+  observed, selftest 5 / 5, three checkboxes flipped in lockstep with
+  Spanish mirror, Makefile / api/server.py / test contract verified
+  against parent venv without installing dependencies in the
+  worktree. **No gate passing; no FastAPI activation; no atomic
+  cutover; no commit / push / PR opened in this pass.** Spanish
+  mirror updated in lockstep.
+  **Size note** — ≈ 100 net lines to `scripts/check-runtime.mjs` (30
+  → 130); 6 changed lines to `tasks.md` (3 additions, 3 deletions;
+  0 net); 6 changed lines to `tasks-es.md` (3 additions, 3 deletions;
+  0 net); +99/-1 (98 net) to `apply-progress.md` (this entry);
+  +108/-1 (107 net) to `apply-progress-es.md` (mirror); no change to
+  `Makefile`, `api/server.py`, or the three test files. Total authored
+  additions stay under the 400-line per-PR review
+  budget for the 3d slice.
