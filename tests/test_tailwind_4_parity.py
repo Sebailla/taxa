@@ -2262,3 +2262,262 @@ def test_3c_iv_animate_spin_is_top_level_not_inside_any_layer():
             )
             break
         cursor -= 1
+
+
+# ==============================================================================
+# PR 3c-iv-viewer (position 8/22) — image + video viewer CSS parity
+# ==============================================================================
+# Legacy source of truth: ``web/index.html`` lines 1750–1822 (retired in
+# PR #171, read-only). Ships the image + video viewer frames under the
+# ``.research-explorer`` descendant contract that PR 3c-iii.5 already
+# locked for file-explorer chrome (the React ``<FileViewer>`` in PR 5b
+# consumes them via the same stable parent selector name). The viewer
+# frames reuse the 3c-i tokens (``--surface-container-low``,
+# ``--outline-variant``, ``--on-surface``, ``--primary``) + the 3c-iii.9
+# ``color-mix()`` relaxation (the legacy ``.fex-image-advisory`` background
+# carries the primary-tinted alpha the cascade depends on). Settings /
+# colors surfaces stay deferred to PR 3c-iv-settings + PR 3c-iv-colors
+# (the existing ``LATER_CHILD_SURFACES`` guard still protects them).
+
+# Canonical PR 3c-iv-viewer selector catalogue — the five viewer frame
+# selectors + the legacy ``.fex-image-advisory`` icon descendant.
+VIEWER_3C_IV_SELECTORS = (
+    ".fex-image-frame",
+    ".fex-image",
+    ".fex-image-advisory",
+    ".fex-image-advisory .material-symbols-outlined",
+    ".fex-video-frame",
+    ".fex-video-el",
+)
+
+
+def _viewer_descendant_body(text: str, descendant: str) -> str:
+    """Balanced-brace body for the FIRST ``.research-explorer <desc> { ... }``
+    rule in ``text``. Used to assert viewer-frame visual + responsive
+    signatures against the legacy cascade."""
+    desc_escaped = re.escape(descendant).replace(re.escape("."), r"\.")
+    m = re.search(
+        r"(?:^|[\s,{}>+~])" + re.escape(RESEARCH_EXPLORER_PARENT)
+        + r"\s+" + desc_escaped + r"\s*\{",
+        text,
+    )
+    if not m:
+        return ""
+    depth, cursor = 1, m.end()
+    while cursor < len(text) and depth > 0:
+        depth += 1 if text[cursor] == "{" else (
+            -1 if text[cursor] == "}" else 0
+        )
+        cursor += 1
+    return text[m.end():cursor - 1] if depth == 0 else ""
+
+
+def _layer_components_block_for(text: str, target_pos: int) -> bool:
+    """Return True iff ``target_pos`` lives inside an ``@layer components``
+    block. The file carries two ``@layer components`` blocks (3c-ii taxonomy
+    selectors then 3c-iii research-explorer chrome); the helper walks
+    every block in source order so it does NOT false-positive against
+    the FIRST block when the target lives in the SECOND."""
+    cursor = 0
+    while True:
+        m = re.search(r"@layer\s+components\s*\{", text[cursor:])
+        if not m:
+            return False
+        open_pos = cursor + m.start()
+        depth, c = 1, cursor + m.end()
+        while c < len(text) and depth > 0:
+            depth += 1 if text[c] == "{" else (
+                -1 if text[c] == "}" else 0
+            )
+            c += 1
+        close_pos = c - 1 if depth == 0 else -1
+        if close_pos < 0:
+            return False
+        if open_pos < target_pos < close_pos:
+            return True
+        cursor = close_pos + 1
+
+
+# ---- 3c-iv-viewer.1 — presence: every viewer selector MUST resolve --------
+
+@pytest.mark.parametrize("selector", VIEWER_3C_IV_SELECTORS)
+def test_3c_iv_viewer_selector_resolves_to_non_empty_declaration(selector):
+    """3c-iv-viewer.1 (R) — every legacy viewer selector MUST resolve to a
+    non-empty declaration block. Fails on the post-PR-3c-iv-keyframes
+    base because no viewer selectors exist yet."""
+    text = _read(GLOBALS_CSS)
+    own_block = re.compile(
+        r"(?:^|[\s,{}>+~])" + re.escape(selector) + r"\s*\{[^}]*\S[^}]*\}"
+    )
+    list_item = re.compile(
+        r"(?:^|[\s,{}>+~])" + re.escape(selector)
+        + r"\s*,\s*[^{}]*?\{[^}]*\S[^}]*\}"
+    )
+    assert own_block.search(text) or list_item.search(text), (
+        f"globals.css MUST declare {selector} with a non-empty block "
+        f"(PR 3c-iv-viewer.1)"
+    )
+
+
+# ---- 3c-iv-viewer.3 — visual / responsive signatures (image + video) -------
+
+def test_3c_iv_viewer_image_signatures():
+    """3c-iv-viewer.3 (T) — the image viewer chain (frame + img + advisory +
+    advisory-icon) MUST carry the legacy visual + responsive signatures:
+    ``.fex-image-frame`` is a flex container with ``min-height: 320px`` and
+    ``overflow: auto`` (the frame owns the scroll surface so the inner
+    image shrinks via ``object-contain``); ``.fex-image`` carries
+    ``max-width: 100%`` + ``max-height: 70vh`` + ``object-fit: contain``
+    (responsive shrink that preserves aspect ratio); ``.fex-image-advisory``
+    carries the legacy ``color-mix`` tinted background + tinted border
+    (the big-file warning the cascade depends on); the advisory icon
+    carries the legacy primary tint (``color: var(--primary)`` +
+    ``font-size: 16px``) consistent with the design system."""
+    text = _read(GLOBALS_CSS)
+    frame = _viewer_descendant_body(text, ".fex-image-frame")
+    assert frame and re.search(r"display\s*:\s*flex\b", frame) \
+        and re.search(r"min-height\s*:\s*320px\b", frame) \
+        and re.search(r"overflow\s*:\s*auto\b", frame) \
+        and re.search(r"1px\s+solid\s+var\(--outline-variant\)", frame), (
+        ".fex-image-frame MUST carry `display: flex` + `min-height: 320px` "
+        "+ `overflow: auto` + 1px outline-variant border "
+        "(PR 3c-iv-viewer.3)"
+    )
+    image = _viewer_descendant_body(text, ".fex-image")
+    assert image and re.search(r"max-width\s*:\s*100%", image) \
+        and re.search(r"max-height\s*:\s*70vh\b", image) \
+        and re.search(r"object-fit\s*:\s*contain\b", image), (
+        ".fex-image MUST carry `max-width: 100%` + `max-height: 70vh` + "
+        "`object-fit: contain` (PR 3c-iv-viewer.3)"
+    )
+    advisory = _viewer_descendant_body(text, ".fex-image-advisory")
+    assert advisory and re.search(
+        r"background\s*:\s*color-mix\(\s*in\s+srgb\s*,\s*var\(--primary\)\s+8%\s*,\s*var\(--surface\)\s*\)",
+        advisory,
+    ) and re.search(
+        r"border\s*:\s*1px\s+solid\s+color-mix\(\s*in\s+srgb\s*,\s*var\(--primary\)\s+24%\s*,\s*var\(--outline-variant\)\s*\)",
+        advisory,
+    ) and re.search(r"color\s*:\s*var\(--on-surface\)", advisory), (
+        ".fex-image-advisory MUST carry the legacy color-mix tinted "
+        "background + border + `color: var(--on-surface)` "
+        "(PR 3c-iv-viewer.3)"
+    )
+    icon = _viewer_descendant_body(
+        text, ".fex-image-advisory .material-symbols-outlined",
+    )
+    assert icon and re.search(r"color\s*:\s*var\(--primary\)", icon) \
+        and re.search(r"font-size\s*:\s*16px\b", icon), (
+        ".fex-image-advisory .material-symbols-outlined MUST carry "
+        "`color: var(--primary)` + `font-size: 16px` (PR 3c-iv-viewer.3)"
+    )
+
+
+def test_3c_iv_viewer_video_signatures():
+    """3c-iv-viewer.3 (T) — the video viewer chain (frame + el) MUST carry
+    the legacy visual + responsive signatures: ``.fex-video-frame`` is a
+    flex container with ``background: #000`` (the legacy letterbox),
+    ``min-height: 320px`` (prevents thumbnail collapse), and
+    ``overflow: hidden`` (the video letterbox clips overflow);
+    ``.fex-video-el`` mirrors the image viewer cap (``max-width: 100%`` +
+    ``max-height: 70vh``) and carries the ``#000`` background so the
+    black bars are seamless during load."""
+    text = _read(GLOBALS_CSS)
+    frame = _viewer_descendant_body(text, ".fex-video-frame")
+    assert frame and re.search(r"display\s*:\s*flex\b", frame) \
+        and re.search(r"background\s*:\s*#000\b", frame) \
+        and re.search(r"min-height\s*:\s*320px\b", frame) \
+        and re.search(r"overflow\s*:\s*hidden\b", frame), (
+        ".fex-video-frame MUST carry `display: flex` + `background: #000` "
+        "+ `min-height: 320px` + `overflow: hidden` (PR 3c-iv-viewer.3)"
+    )
+    el = _viewer_descendant_body(text, ".fex-video-el")
+    assert el and re.search(r"max-width\s*:\s*100%", el) \
+        and re.search(r"max-height\s*:\s*70vh\b", el) \
+        and re.search(r"background\s*:\s*#000\b", el), (
+        ".fex-video-el MUST carry `max-width: 100%` + `max-height: 70vh` "
+        "+ `background: #000` (PR 3c-iv-viewer.3)"
+    )
+
+
+# ---- 3c-iv-viewer.4 — nesting / layer contract -----------------------------
+
+@pytest.mark.parametrize("descendant", VIEWER_3C_IV_SELECTORS)
+def test_3c_iv_viewer_frames_collapse_into_research_explorer_inside_layer_components(descendant):
+    """3c-iv-viewer.4 (Refactor) — every viewer frame selector MUST live as
+    a DESCENDANT of ``.research-explorer`` AND inside the
+    ``@layer components`` block. Mirrors the 3c-iii.5 refactor contract
+    for file-explorer chrome so the React ``<FileViewer>`` in PR 5b can
+    consume the CSS via the stable ``.research-explorer`` parent
+    selector name. The helper ``_layer_components_block_for`` walks
+    every ``@layer components`` block in source order (the file carries
+    two: 3c-ii taxonomy then 3c-iii research-explorer) so the assertion
+    does NOT false-positive against the 3c-ii block when the viewer
+    lives in the 3c-iii block."""
+    text = _read(GLOBALS_CSS)
+    desc_escaped = re.escape(descendant).replace(re.escape("."), r"\.")
+    pattern = (
+        r"(?:^|[\s,{}>+~])" + re.escape(RESEARCH_EXPLORER_PARENT)
+        + r"\s+" + desc_escaped + r"(?:\s*\{|\s*,)"
+    )
+    m = re.search(pattern, text)
+    assert m, (
+        f"{descendant} MUST be a descendant rule of {RESEARCH_EXPLORER_PARENT} "
+        f"(PR 3c-iv-viewer.4 — collapse viewer frames into the parent so "
+        f"the React <FileViewer> consumes them via the stable selector)"
+    )
+    assert _layer_components_block_for(text, m.start()), (
+        f"{descendant} MUST live inside @layer components "
+        f"(descendant@{m.start()}) — the 3c-iv-viewer refactor step "
+        f"relocates the viewer frames under the stable layer name"
+    )
+
+
+def test_3c_iv_viewer_frames_follow_existing_research_explorer_chrome():
+    """3c-iv-viewer.4 (Refactor) — source-order invariant: the viewer
+    frames MUST appear AFTER the existing 3c-iii chrome (the last
+    rule in the layer is the legacy ``.fex-tree-truncated
+    .material-symbols-outlined``). Cascade source order matters inside
+    a single ``@layer components`` block: later rules win against
+    earlier rules of equal specificity."""
+    text = _read(GLOBALS_CSS)
+    last_chrome_m = re.search(
+        r"\.research-explorer\s+\.fex-tree-truncated\s+\.material-symbols-outlined\s*\{",
+        text,
+    )
+    assert last_chrome_m, (
+        "the legacy 3c-iii .fex-tree-truncated .material-symbols-outlined "
+        "selector MUST exist (3c-iii cascade contract — pre-condition "
+        "for the 3c-iv-viewer source-order invariant)"
+    )
+    for selector in VIEWER_3C_IV_SELECTORS:
+        desc_escaped = re.escape(selector).replace(re.escape("."), r"\.")
+        m = re.search(
+            r"(?:^|[\s,{}>+~])" + re.escape(RESEARCH_EXPLORER_PARENT)
+            + r"\s+" + desc_escaped + r"\s*\{",
+            text,
+        )
+        assert m, (
+            f"{selector} MUST be a descendant rule of .research-explorer "
+            f"(PR 3c-iv-viewer.4 — pre-condition)"
+        )
+        assert m.start() > last_chrome_m.start(), (
+            f"{selector} MUST appear AFTER the existing 3c-iii chrome "
+            f"(.fex-tree-truncated .material-symbols-outlined at "
+            f"{last_chrome_m.start()}; viewer at {m.start()}) — source "
+            f"order inside @layer components matters for the cascade"
+        )
+
+
+# ---- 3c-iv-viewer.5 — deferred Settings/colors guard preserved -------------
+
+def test_3c_iv_viewer_does_not_pre_assert_settings_or_colors_surfaces():
+    """3c-iv-viewer deferred guard: the viewer CSS MUST NOT pre-define
+    settings / colors surfaces (``LATER_CHILD_SURFACES``). Those still
+    land with PR 3c-iv-settings (9/22) + PR 3c-iv-colors (10/22)."""
+    text = _strip_comments(_read(GLOBALS_CSS))
+    leaked = [s for s in LATER_CHILD_SURFACES if _appears_as_css_token(text, s)]
+    assert not leaked, (
+        f"PR 3c-iv-viewer MUST NOT pre-define settings / colors surfaces; "
+        f"those stay deferred to PR 3c-iv-settings + PR 3c-iv-colors; "
+        f"leaked: {leaked!r}"
+    )
