@@ -231,22 +231,28 @@ default de `AGENTS.md` §4 de apuntar directo a
 | Posición | Sub-PR | Rama | Base (destino del PR) |
 |---|---|---|---|
 | Tracker | — | `docs/complete-taxa-frontend-migration-plan` (PR #146) | `develop` — **draft / no-merge** |
-| 1 / 16 | 3a | `feat/complete-taxa-frontend-migration-01-3a` | `docs/complete-taxa-frontend-migration-plan` (tracker) |
-| 2 / 16 | 3b | `feat/complete-taxa-frontend-migration-02-3b` | `feat/complete-taxa-frontend-migration-01-3a` |
-| 3 / 16 | 3c-i | `feat/complete-taxa-frontend-migration-03-3c-i` | `docs/complete-taxa-frontend-migration-plan` (tracker, **tras el merge de la reconciliación PR #146**) |
-| 4 / 16 | 3c-ii | `feat/complete-taxa-frontend-migration-04-3c-ii` | `feat/complete-taxa-frontend-migration-03-3c-i` |
-| 5 / 16 | 3c-iii | `feat/complete-taxa-frontend-migration-05-3c-iii` | `feat/complete-taxa-frontend-migration-04-3c-ii` |
-| 6 / 16 | 3c-iv | `feat/complete-taxa-frontend-migration-06-3c-iv` | `feat/complete-taxa-frontend-migration-05-3c-iii` |
-| 7 / 16 | 3d | `feat/complete-taxa-frontend-migration-07-3d` | `feat/complete-taxa-frontend-migration-06-3c-iv` |
-| 8 / 16 | 4a | `feat/complete-taxa-frontend-migration-08-4a` | `feat/complete-taxa-frontend-migration-07-3d` |
-| 9 / 16 | 4b | `feat/complete-taxa-frontend-migration-09-4b` | `feat/complete-taxa-frontend-migration-08-4a` |
-| 10 / 16 | 5a | `feat/complete-taxa-frontend-migration-10-5a` | `feat/complete-taxa-frontend-migration-09-4b` |
-| 11 / 16 | 5b | `feat/complete-taxa-frontend-migration-11-5b` | `feat/complete-taxa-frontend-migration-10-5a` |
-| 12 / 16 | 5c | `feat/complete-taxa-frontend-migration-12-5c` | `feat/complete-taxa-frontend-migration-11-5b` |
-| 13 / 16 | 6a | `feat/complete-taxa-frontend-migration-13-6a` | `feat/complete-taxa-frontend-migration-12-5c` |
-| 14 / 16 | 6b | `feat/complete-taxa-frontend-migration-14-6b` | `feat/complete-taxa-frontend-migration-13-6a` |
-| 15 / 16 | 6c | `feat/complete-taxa-frontend-migration-15-6c` | `feat/complete-taxa-frontend-migration-14-6b` |
-| 16 / 16 | 3e | `feat/complete-taxa-frontend-migration-16-3e` | `feat/complete-taxa-frontend-migration-15-6c` |
+| 1 / 22 | 3a | `feat/complete-taxa-frontend-migration-01-3a` | `docs/complete-taxa-frontend-migration-plan` (tracker) |
+| 2 / 22 | 3b | `feat/complete-taxa-frontend-migration-02-3b` | `feat/complete-taxa-frontend-migration-01-3a` |
+| 3 / 22 | 3c-i | `feat/complete-taxa-frontend-migration-03-3c-i` | `docs/complete-taxa-frontend-migration-plan` (tracker, **tras el merge de la reconciliación PR #146**) |
+| 4 / 22 | 3c-ii | `feat/complete-taxa-frontend-migration-04-3c-ii` | `feat/complete-taxa-frontend-migration-03-3c-i` |
+| 5 / 22 | 3c-iii | `feat/complete-taxa-frontend-migration-05-3c-iii` | `feat/complete-taxa-frontend-migration-04-3c-ii` |
+| 5.5 / 22 | 5.5 (aterrizado) | `feat/complete-taxa-frontend-migration-05-5-3c-iv-predecessor` | `feat/complete-taxa-frontend-migration-05-3c-iii` |
+| 5.6 / 22 | 5.6 (aterrizado) | `feat/complete-taxa-frontend-migration-05-6-3c-iv-predecessor` | `feat/complete-taxa-frontend-migration-05-5-3c-iv-predecessor` |
+| 6 / 22 | 3c-iv-barrel | `feat/complete-taxa-frontend-migration-06-3c-iv-barrel` | `feat/complete-taxa-frontend-migration-05-6-3c-iv-predecessor` (commit base post-PR-5.6; según el replan five-slice de 3c-iv) |
+| 7 / 22 | 3c-iv-keyframes | `feat/complete-taxa-frontend-migration-07-3c-iv-keyframes` | `feat/complete-taxa-frontend-migration-06-3c-iv-barrel` |
+| 8 / 22 | 3c-iv-viewer | `feat/complete-taxa-frontend-migration-08-3c-iv-viewer` | `feat/complete-taxa-frontend-migration-07-3c-iv-keyframes` |
+| 9 / 22 | 3c-iv-settings | `feat/complete-taxa-frontend-migration-09-3c-iv-settings` | `feat/complete-taxa-frontend-migration-08-3c-iv-viewer` |
+| 10 / 22 | 3c-iv-colors | `feat/complete-taxa-frontend-migration-10-3c-iv-colors` | `feat/complete-taxa-frontend-migration-09-3c-iv-settings` |
+| 11 / 22 | 3d | `feat/complete-taxa-frontend-migration-11-3d` | `feat/complete-taxa-frontend-migration-10-3c-iv-colors` (los consumidores CSS finales dependen de colors, según el replan five-slice de 3c-iv) |
+| 12 / 22 | 4a | `feat/complete-taxa-frontend-migration-12-4a` | `feat/complete-taxa-frontend-migration-06-3c-iv-barrel` (los consumidores de design-system dependen de barrel, según el replan five-slice de 3c-iv) |
+| 13 / 22 | 4b | `feat/complete-taxa-frontend-migration-13-4b` | `feat/complete-taxa-frontend-migration-12-4a` |
+| 14 / 22 | 5a | `feat/complete-taxa-frontend-migration-14-5a` | `feat/complete-taxa-frontend-migration-13-4b` |
+| 15 / 22 | 5b | `feat/complete-taxa-frontend-migration-15-5b` | `feat/complete-taxa-frontend-migration-14-5a` |
+| 16 / 22 | 5c | `feat/complete-taxa-frontend-migration-16-5c` | `feat/complete-taxa-frontend-migration-10-3c-iv-colors` (los consumidores CSS finales dependen de colors; según el replan five-slice de 3c-iv) |
+| 17 / 22 | 6a | `feat/complete-taxa-frontend-migration-17-6a` | `feat/complete-taxa-frontend-migration-16-5c` |
+| 18 / 22 | 6b | `feat/complete-taxa-frontend-migration-18-6b` | `feat/complete-taxa-frontend-migration-17-6a` |
+| 19 / 22 | 6c | `feat/complete-taxa-frontend-migration-19-6c` | `feat/complete-taxa-frontend-migration-18-6b` |
+| 20 / 22 | 3e | `feat/complete-taxa-frontend-migration-20-3e` | `feat/complete-taxa-frontend-migration-19-6c` |
 
 Los hijos se fusionan **en orden** dentro del tracker; a
 medida que cada hijo se fusiona, el siguiente se
@@ -256,8 +262,8 @@ acumula la feature completa y se fusiona a `develop`
 solo después de que PR 3e — el último hijo — aterrice.
 
 **Dependencia por sub-PR (contrato de la revisión
-correctiva del plan + corrección del defecto de
-dependencia + re-división del CSS)**:
+correctiva del plan + replan de la sub-secuencia del PR 3c +
+replan five-slice de 3c-iv)**:
 
 | Posición | Depende de | Satisface (testigo) |
 |---|---|---|
@@ -266,29 +272,35 @@ dependencia + re-división del CSS)**:
 | 3 / 3c-i (tokens / base / modo oscuro) | tracker tras PR #146 (= 1 + 2 + reconciliación) | `src/app/globals.css::@theme` declara cada token legacy `:root`; presente la cascada `[data-theme="dark"]`; presente la familia `--realm-*`; el test de paridad enumera cada token legacy `:root` y referencia `var(--name)`; `out/_next/static/chunks/*.css` carga las declaraciones esperadas. **Se basa en el tracker** (no en `feat/complete-taxa-frontend-migration-02-3b-reconcile`) para que la sub-secuencia 3c recoja el estado 3a + 3b + reconciliación ya fusionado sin un paso extra de reconciliación. |
 | 4 / 3c-ii (estilos de árbol / detalle de taxonomía) | 3 | `src/app/globals.css` carga cada selector legacy de taxonomía (`.tier-header`, `.tree-row`, `.rank-badge`, `.scientific-name`, `.tree-source-toggle`, `#detail-panel`, `.detail-card`, `.detail-section`, `.overview-section`, `.detail-item`, `.search-pulse`, `.detail-tabs`, `.search-icon-btn`, `.materialize-btn`, kebab, modal de materialize, variantes `.tree-row[data-realm="…"]` tintadas por reino); el test de paridad enumera cada uno. |
 | 5 / 3c-iii (estilos de Search / Folder / Browser global) | 4 | `src/app/globals.css` carga cada selector legacy de browser / search / folder (`.toast`, `.search-engines-grid`, `.search-category-header`, `.search-engine-btn`, `.fex-meta-strip`, `.fex-tab-strip`, `.fex-snippet-frame`, `.fex-shell`, `.fex-tree-pane`, `.fex-viewer-pane`, `.fex-splitter`, `.fex-row`, `.fex-tree-header`, `.fex-children`, `.fex-banner`, `.fex-empty-state`, `.fex-search-*`, `.fex-csv-*`, `.fex-json-*`, `.fex-tree-truncated`); el test de paridad enumera cada uno. |
-| 6 / 3c-iv (animaciones / utilidades + paridad CSS final + barrel de design-system) | 5 | `src/app/globals.css` carga cada regla `@keyframes` legacy (`detail-card-enter`, `detail-card-leave`, `search-pulse-anim`, `materialize-spin`, `toast-slide-in`) + `.animate-spin` + marcos del visor de imagen / vídeo + selectores de la vista Settings; el barrel `src/modules/design-system/` exporta `<Icon>` + `<Button>`; el test de paridad enumera cada clase de utilidad legacy; el test de pureza del design-system elimina literales hex de `src/` fuera del módulo design-system. |
-| 7 / 3d (Makefile/mount) | 2 + 6 | `make api` exit 0; uvicorn vincula solo `127.0.0.1:8765`; `curl /index.html` devuelve `out/index.html`; contrato AC-21 preservado |
-| 8 / 4a (typed store) | 3 | 4 sitios de lectura + 4 de escritura en `src/modules/browser-state/`; ningún otro módulo toca `localStorage` |
-| 9 / 4b (guardia de hidratación + integración de AppShell) | 8 + 2 + 3 | Playwright cero warnings de hidratación; `AppShell` integrado en `src/app/{layout,page}.tsx`; la corrección del defecto de dependencia y el barrel de design-system de PR 3c-i están en vivo |
-| 10 / 5a (port de taxonomy) | 9 + 4 | View-models de taxonomía renderizan; toggle de tree-source rehidrata vía `localStorage`; la capa de presentation de taxonomía se monta sobre los selectores de `@layer components` de PR 3c-ii |
-| 11 / 5b (port de research + pin CDN) | 10 + 7 + 5 | Archivos de research renderizan vía despachador de 9 formatos; URLs CDN pineadas; la capa de presentation de research se monta sobre los selectores de `@layer components` de PR 3c-iii |
-| 12 / 5c (e2e + borrar legacy) | 11 + 6 | Selectores e2e actualizados; contrato `data-*` preservado; `web/*` legacy borrado (el borrado del `web/index.html` retira el CSS inline legacy de 1.963 líneas que los cuatro hijos de la sub-secuencia PR 3c migraron a `src/app/globals.css`) |
-| 13–15 / 6a, 6b, 6c (validación) | 12 | G5 reproducible; G6 PASS; G4 PASS; `apply-progress.md` §Registro de cambios flipa para cada uno |
-| 16 / 3e (cutover atómico) | 13, 14, 15 + G1/G2/G3 Tier-1 trasladado | Las seis puertas verdes; flip de cutover-manifest Tier-2; uvicorn sirve `out/index.html` desde la build de producción |
+| 5.5 / 5.5 (reparación de pipeline Tailwind 4 / PostCSS, aterrizada) | 5 | `npx next build` exit 0; el bundle CSS compilado contiene el preflight de Tailwind 4 + la expansión `@layer theme { :root, :host { … } }`; `@tailwindcss/postcss` es el plugin PostCSS registrado; los literales `@theme {` / `@import "tailwindcss"` están ausentes del bundle CSS compilado. **Aterrizada; G2-PASS-pendiente-de-captura-Fase-6.** |
+| 5.6 / 5.6 (reparación de paridad estructural DOM↔CSS, aterrizada) | 5.5 + PR 5a + PR 5b | el bundle CSS compilado contiene los 15 ganchos estructurales emitidos por React + los 9 selectores de estado + las 2 reglas colapsadas de descendientes + el puente de selector kebab + las 5 declaraciones de triangulación visible-state / chainable / scrollable. **Aterrizada; G2-PASS-pendiente-de-captura-Fase-6.** |
+| 6 / 3c-iv-barrel (barrel de design-system + Icon/Button + purity test, NUEVO primer hijo de la sub-secuencia 3c-iv) | commit base post-PR-5.6 | el barrel `src/modules/design-system/infrastructure/index.ts` exporta los tokens de tema tipados + las primitivas `<Icon>` + `<Button>`; `src/modules/design-system/presentation/{Icon.tsx,Button.tsx}` envían el envoltorio de glyphs Material Symbols Outlined + la primitiva de layout Button; `tests/test_design_system_purity.py` afirma que cada literal hex vive dentro de `src/modules/design-system/` (sin fuga a otros módulos). |
+| 7 / 3c-iv-keyframes (cinco `@keyframes` legacy + paridad de `.animate-spin`) | 6 | `src/app/globals.css` carga cada regla `@keyframes` legacy (`detail-card-enter`, `detail-card-leave`, `search-pulse-anim`, `materialize-spin`, `toast-slide-in`) + `.animate-spin`; el test de paridad enumera cada uno. |
+| 8 / 3c-iv-viewer (paridad CSS del visor de imagen / vídeo) | 7 | `src/app/globals.css` carga cada selector de marco del visor (`.fex-image-frame`, `.fex-image`, `.fex-image-advisory`, `.fex-video-frame`, `.fex-video-el`); el test de paridad enumera cada uno. |
+| 9 / 3c-iv-settings (paridad CSS de la vista Settings) | 8 | `src/app/globals.css` carga cada selector de Settings (`.settings-shell`, `.settings-header`, `.settings-list`, `.settings-row`, `.settings-row-text`, `.settings-row-title`, `.settings-row-description`, `.settings-row-control`, `.settings-theme-toggle`, `.settings-theme-btn`, `.settings-theme-btn-active`, `.settings-action-btn`, `.settings-link-btn`); el test de paridad enumera cada uno. |
+| 10 / 3c-iv-colors (aliases del namespace `--color-*` de Tailwind + paridad de utility, hijo terminal de la sub-secuencia 3c-iv) | 9 | el bloque `@theme` de `src/app/globals.css` carga cada alias del namespace `--color-*` de Tailwind; el contrato de paridad de clases de utilidad legacy (`bg-primary`, `text-on-surface`, `border-outline-variant`, `bg-surface-container-lowest`, `bg-primary-fixed`, `text-on-primary-fixed`, etc.) resuelve a declaraciones CSS no vacías en `out/_next/static/chunks/*.css`; el test de paridad enumera cada uno. |
+| 11 / 3d (Makefile/mount) | 10 + 2 (los consumidores CSS finales dependen de colors, según el replan five-slice de 3c-iv) | `make api` exit 0; uvicorn vincula solo `127.0.0.1:8765`; `curl /index.html` devuelve `out/index.html`; contrato AC-21 preservado |
+| 12 / 4a (typed store) | 6 (los consumidores de design-system dependen de barrel, según el replan five-slice de 3c-iv) | 4 sitios de lectura + 4 de escritura en `src/modules/browser-state/`; ningún otro módulo toca `localStorage` |
+| 13 / 4b (guardia de hidratación) | 12 + 2 | Playwright cero warnings de hidratación; `AppShell` usa flag `mounted` reservado en `src/app/page.tsx` |
+| 14 / 5a (port de taxonomy) | 13 | View-models de taxonomía renderizan; toggle de tree-source rehidrata vía `localStorage` |
+| 15 / 5b (port de research + pin CDN) | 14 + 11 | Archivos de research renderizan vía despachador de 9 formatos; URLs CDN pineadas |
+| 16 / 5c (e2e + borrar legacy) | 15 + 10 (los consumidores CSS finales dependen de colors, según el replan five-slice de 3c-iv) | Selectores e2e actualizados; contrato `data-*` preservado; `web/*` legacy borrado |
+| 17–19 / 6a, 6b, 6c (validación) | 16 | G5 reproducible; G6 PASS; G4 PASS; `apply-progress.md` §Registro de cambios flipa para cada uno |
+| 20 / 3e (cutover atómico) | 17, 18, 19 + G1/G2/G3 Tier-1 trasladado | Las seis puertas verdes; flip de cutover-manifest Tier-2; uvicorn sirve `out/index.html` desde la build de producción |
 
 **La Fase 6 (6a, 6b, 6c) es trabajo de validación**, no
 un objetivo de migración. Corre **después** de que el
-camino candidato completo (posiciones 1–9) esté verde y
+camino candidato completo (posiciones 1–16) esté verde y
 acumulado en el tracker, y **antes** de que PR 3e pueda
 aterrizar. La Fase 6 puede entregarse como tres eslabones
-de la cadena (el default: posiciones 10 / 11 / 12) o
-colapsar en un único PR hijo en la posición 10, según la
-decisión `ask-on-risk` del mantenedor; colapsarla acorta
-la cadena sin cambiar la topología (el batch sigue
-apuntando a la rama del PR 5c, y PR 3e sigue apuntando
-al último eslabón de la Fase 6). Los LoC combinados son
-~190 authored + ~120 artefacto de medición, cómodamente
-bajo el presupuesto de 400 líneas.
+de la cadena (el default: posiciones 17 / 18 / 19 de la
+topología de 22 hijos) o colapsar en un único PR hijo en
+la posición 17, según la decisión `ask-on-risk` del
+mantenedor; colapsarla acorta la cadena sin cambiar la
+topología (el batch sigue apuntando a la rama del PR 5c,
+y PR 3e sigue apuntando al último eslabón de la Fase 6).
+Los LoC combinados son ~190 authored + ~120 artefacto de
+medición, cómodamente bajo el presupuesto de 400 líneas.
 
 ### Política de worktree
 
@@ -1886,3 +1898,7 @@ preservados ya está cubierto por
 - **G4 / G3 Tier-2 / cutover (unchanged)**. G4 Playwright + Lighthouse parity remains **blocked** (verifier not authored); G3 Tier-2 remains gated on G4 + G6 closure; G6 remains blocked; the atomic cutover PR 3e ships only when G1 + G2 + G3 Tier-1 + G3 Tier-2 + G4 + G5 + G6 are all green. **PR 5.6 does NOT flip G4** — only the browser-layer half of the G2 production-candidate evidence gap is closed.
 - **Deferrals (binding, this entry)**. Browser-runtime G2 capture (Chromium / Playwright against `127.0.0.1:8765`); Phase 6a validation work; G4 parity capture author; PR 3c-iv (animations / utilities + design-system barrel); PR 3d (Makefile/mount); PR 4a + 4b (browser-state + hydration guard); PR 5a + 5b + 5c (taxonomy + research ports + e2e + legacy deletion); Phase 6a/b/c; PR 3e cutover. No FileExplorer global mount, no Folder/Search research behaviour change, no `domain/keys.ts` / `infrastructure/store.ts` change, no e2e selector/harness updates, no legacy deletion (`web/*.{html,js,css}` + `tailwind.config.js` deferred to PR 5c), no G4 tests, no browser capture, no build outputs (`out/`), no commit/push, no FastAPI/SQLite/extension changes, no production `src/` content change beyond `src/app/globals.css`, no `next.config.mjs` change, no `tsconfig.json` change, no `Makefile` change, no `scripts/check-runtime.mjs` change, no `api/server.py` change, no `web/**` change, no `extension/**` change, no `package.json` / `package-lock.json` / `postcss.config.mjs` change.
 - **Scope of this attempt (binding)**: allowed edit surfaces limited to `src/app/globals.css`, `tests/test_tailwind_4_parity.py`, and the six OpenSpec files (3 EN + 3 ES — `proposal.md` is unchanged; `proposal-es.md` is unchanged; `design.md` + `design-es.md` + `tasks.md` + `tasks-es.md` + `apply-progress.md` + `apply-progress-es.md` each get a single append-only addendum entry). Total authored source/tests = ~1,147 LoC across the two files (CSS + parity tests), > 400 budget. **No gate flip, no cutover authority granted** — G1 / G2 / G3 Tier-1 / G3 Tier-2 / G4 / G5 / G6 status rows and PR 3e cutover-authority rows preserved verbatim from prior change-log entry. **No PR opened, no commit/push, no `gentle-ai review mode` enable** — review / CI / merge follow the ordinary feature-branch-chain process once the user-authorized parent task completes. Spanish mirror (`documents-es/openspec/changes/complete-taxa-frontend-migration/apply-progress-es.md`) carries the same semantics; any drift is resolved in favour of the English.
+
+## Addendum — 2026-09-09: PR 3c-iv five-slice replan (documentation-only; chain expands from 18 children to 22 children; user-approved documentation size exception to keep all six OpenSpec files internally coherent) (append-only)
+
+- **Replan five-slice de PR 3c-iv autorizado (esta entrada, reemplaza al antiguo PR 3c-iv único por cinco hijos lineales en posiciones 6/22 a 10/22, renumera los hijos aguas abajo para mantener lineal el contrato de dependencia, expande la cadena de 18 hijos a 22 hijos incluyendo las reparaciones fraccionales PR 5.5 + PR 5.6, abre la `size:exception` de documentación aprobada por el usuario para mantener los seis archivos OpenSpec internamente coherentes; este es un cambio sólo de planificación; ningún slice de código queda implementado, verificado, fusionado ni aprobado para entrega por esta entrada)**. El usuario autorizó partir el antiguo `PR 3c-iv` único (antiguo `feat/complete-taxa-frontend-migration-06-3c-iv`, luego `…-08-3c-iv` tras la renumeración de PR 5.5 + PR 5.6) en **cinco hijos lineales ≤ 400 líneas autorales** (`3c-iv-barrel`, `3c-iv-keyframes`, `3c-iv-viewer`, `3c-iv-settings`, `3c-iv-colors`) porque la superficie del antiguo PR único era heterogénea. **Topología objetivo requerida (cinco hijos en orden lineal)**: (1) `3c-iv-barrel` `feat/complete-taxa-frontend-migration-06-3c-iv-barrel` (basado en predecesor PR 5.6); (2) `3c-iv-keyframes` `…-07-3c-iv-keyframes` (basado en barrel); (3) `3c-iv-viewer` `…-08-3c-iv-viewer` (basado en keyframes); (4) `3c-iv-settings` `…-09-3c-iv-settings` (basado en viewer); (5) `3c-iv-colors` `…-10-3c-iv-colors` (basado en settings). **Renumeración aguas abajo (18 → 22 hijos; PR 5.5 permanece en 5.5/22, PR 5.6 permanece en 5.6/22)**: PR 3d → `11/22`; PR 4a → `12/22`; PR 4b → `13/22`; PR 5a → `14/22`; PR 5b → `15/22`; PR 5c → `16/22`; PR 6a → `17/22`; PR 6b → `18/22`; PR 6c → `19/22`; PR 3e → `20/22`. **Correcciones de dependencia (vinculantes)**: (a) **PR 3d y PR 5c ahora dependen de PR 3c-iv-colors**; (b) **PR 4a ahora depende de PR 3c-iv-barrel**; (c) **la sub-secuencia 3c-iv forma una cadena lineal de cinco eslabones** barrel → keyframes → viewer → settings → colors. **No queda referencia activa a la antigua rama única** después de esta entrada — toda referencia inline previa al `3c-iv` único (tabla de `Reconstruction State`, diagrama de `Reconstruction order`, párrafo de `Chain strategy`, tabla `Per-sub-PR dependency`, sección detallada de tarea `Phase 3c-iv`, dependencias de `Phase 5a` + `Phase 5b` + `Phase 5c` que cabalgan sobre la cascada 3c-iv, referencias cruzadas "3c-iv renumbered to 8/18" en entradas de change-log 5.5 + 5.6) queda actualizada. El presupuesto `~280 LoC` único se descompone en cinco presupuestos por-hijo (barrel ~120, keyframes ~80, viewer ~50, settings ~50, colors ~80 — suma ~380 LoC, ≤ 400 con −20 LoC de holgura); la tabla `Reconstruction State` se expande de una fila única a cinco filas; el diagrama `Reconstruction order` se redibuja con la sub-secuencia de cinco hijos entre PR 5.6 y PR 3d; la tabla `Per-sub-PR dependency` se actualiza para que PR 3d / PR 5c dependan de PR 3c-iv-colors, PR 4a dependa de PR 3c-iv-barrel; la sección detallada `Phase 3c-iv` se reemplaza por cinco secciones nuevas (una por hijo nuevo). **Lo que este replan explícitamente NO reclama**: (i) ningún slice de código queda implementado, verificado, fusionado ni aprobado para entrega; (ii) **no se abre ninguna nueva `size:exception`** — las excepciones existentes (PR 3a lockfile, PR 3c-ii/3c-iii CSS authored-LoC, PR 5.5 lockfile, PR 5.6 CSS-only authored-LoC) permanecen abiertas; el replan abre la excepción de tamaño de **documentación** aprobada por el usuario; (iii) no se habilita `gentle-ai review mode`; no se crea rama; no se autoriza commit; no se hace push; no se abre PR. **Preservado**: cada addendum / entrada de change-log previa permanece como registro histórico de auditoría; la restricción de predecesor congelado permanece vinculante; el estado G4 / G5 / G6 permanece sin cambios (G5 PASS-pending-Phase-6-capture, G4 bloqueado, G6 bloqueado, PR 3e gated en G1 + G2 + G3 Tier-1 + G3 Tier-2 + G4 + G5 + G6); el bloqueo del Enfoque A permanece FINAL; la fundación FastAPI/SQLite permanece sin cambios; la estrategia de Feature Branch Chain permanece sin cambios; las specs por-dominio permanecen sin cambios; la fidelidad de espejo EN/ES permanece vinculante. **Espejo español** (los otros cuatro espejos ES) lleva la misma semántica; cualquier deriva se resuelve a favor del inglés. Sin rebase; sin rama nueva; sin commit/push; sin PR abierto.

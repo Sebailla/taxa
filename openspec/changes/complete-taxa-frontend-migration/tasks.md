@@ -166,12 +166,12 @@
 
 | Field | Value |
 |-------|-------|
-| Estimated changed lines | ~3,485 authored across **16 sub-PRs** (toolchain bootstrap + App Router static export + **3c-i tokens/base/dark mode + 3c-ii taxonomy tree/detail styling + 3c-iii Search/Folder/global Browser styling + 3c-iv animations/utilities + final CSS parity** + Makefile/mount + 2 browser-state + 2 capability ports + e2e/delete-legacy + 3 Phase 6 validation + 1 atomic cutover). The +1,240 LoC delta from the prior ~2,245 estimate comes entirely from the 3c sub-sequence: the legacy inline `<style>` block in `web/index.html` (1,963 lines) must be ported verbatim into Tailwind 4 `@theme` + `@layer base` and a parity test must enumerate every legacy `:root` token, `var(--name)` reference, `--realm-*` selector, `@keyframes`, `.animate-spin`, `color-mix()` selector, and utility class. |
-| 400-line budget risk | **Low** for authored work in every child **except PR 3c-ii, which carries a user-approved size:exception for the complete taxonomy tree / detail CSS slice — see the dedicated addendum below**. Largest new sub-PR by actual diff is **PR 3c-ii at 831 LoC** (822 insertions + 9 deletions; overshoot +431 LoC against the 400-line budget); the other 3c children are 3c-i ~390, 3c-iii ~390, 3c-iv ~280. The previously-largest 5b stays at ~360 LoC; 3d stays at ~240 LoC. **All 16 sub-PRs ≤ 400 LoC authored except PR 3c-ii**, which carries the user-approved size:exception (the prior PR 3a regenerated-`package-lock.json` exception is generated-resolution-only and stays open as the second documented size:exception alongside PR 3c-ii). |
+| Estimated changed lines | ~3,485 authored across **22 sub-PRs** (toolchain bootstrap + App Router static export + **3c-i tokens/base/dark mode + 3c-ii taxonomy tree/detail styling + 3c-iii Search/Folder/global Browser styling + 5.5 PostCSS pipeline repair + 5.6 DOM↔CSS structural parity repair + 3c-iv-barrel design-system barrel + 3c-iv-keyframes five @keyframes + 3c-iv-viewer image/video viewer + 3c-iv-settings Settings view + 3c-iv-colors Tailwind `--color-*` aliases** + Makefile/mount + 2 browser-state + 2 capability ports + e2e/delete-legacy + 3 Phase 6 validation + 1 atomic cutover). The +1,240 LoC delta from the prior ~2,245 estimate comes entirely from the 3c sub-sequence: the legacy inline `<style>` block in `web/index.html` (1,963 lines) must be ported verbatim into Tailwind 4 `@theme` + `@layer base` and a parity test must enumerate every legacy `:root` token, `var(--name)` reference, `--realm-*` selector, `@keyframes`, `.animate-spin`, `color-mix()` selector, and utility class. |
+| 400-line budget risk | **Low** for authored work in every child **except PR 3c-ii (user-approved size:exception for the taxonomy CSS slice — see the dedicated addendum) and PR 3c-iii (user-approved size:exception for the Search/Folder/global Browser CSS slice — see the dedicated addendum)**. Largest new sub-PR by actual diff is **PR 3c-iii at 1735 review lines** (1669 insertions + 66 deletions; overshoot +1335 LoC against the 400-line budget); next is **PR 3c-ii at 831 LoC** (822 insertions + 9 deletions; overshoot +431 LoC); next is **PR 5.6 at ~1,147 LoC across `src/app/globals.css` + `tests/test_tailwind_4_parity.py`** (user-approved size:exception for CSS-only DOM↔CSS structural parity repair). The other 3c children are 3c-i ~390, 3c-iv-barrel ~120, 3c-iv-keyframes ~80, 3c-iv-viewer ~50, 3c-iv-settings ~50, 3c-iv-colors ~80 (sum of the five 3c-iv children ~380 LoC, ≤ 400 with −20 LoC headroom across the five children). The previously-largest 5b stays at ~360 LoC; 3d stays at ~240 LoC. **All 22 sub-PRs ≤ 400 LoC authored except PR 3c-ii (831 LoC), PR 3c-iii (1735 review lines), and PR 5.6 (~1,147 LoC across two files)** — all three carry user-approved size:exceptions (the prior PR 3a regenerated-`package-lock.json` exception is generated-resolution-only and stays open as the first documented size:exception; PR 5.5's regenerated `package-lock.json` exception stays open as the fourth; the present 3c-iv five-slice replan opens the user-approved **documentation** size exception necessary to keep all six OpenSpec files internally coherent, NOT a code slice exception). |
 | Chained PRs recommended | **Yes** — 16 chained child PRs (~3,485 total authored lines ≫ 400, and the atomic cutover requires the feature to integrate before it reaches `develop`). The 3c sub-sequence alone is now four reviewable children, each holding ~280–390 LoC, so no child carries the 1,963-line inline CSS burden. |
-| Suggested split | PR 3a (toolchain bootstrap) → 3b (App Router static export) → **3c-i (tokens / base / dark mode)** → **3c-ii (taxonomy tree / detail styling)** → **3c-iii (Search / Folder / global Browser styling)** → **3c-iv (animations / utilities + final CSS parity + design-system barrel)** → 3d (Makefile/mount) → 4a → 4b → 5a → 5b → 5c → Phase 6a (G5) → Phase 6b (G6) → Phase 6c (G4 measurement) → PR 3e (atomic cutover, gated) |
+| Suggested split | PR 3a (toolchain bootstrap) → 3b (App Router static export) → **3c-i (tokens / base / dark mode)** → **3c-ii (taxonomy tree / detail styling)** → **3c-iii (Search / Folder / global Browser styling)** → 5.5 (PostCSS pipeline repair) → 5.6 (DOM↔CSS structural parity repair) → **3c-iv-barrel (design-system barrel + Icon/Button + purity test)** → **3c-iv-keyframes (five @keyframes + .animate-spin)** → **3c-iv-viewer (image/video viewer)** → **3c-iv-settings (Settings view)** → **3c-iv-colors (Tailwind --color-* aliases + utility parity)** → 3d (Makefile/mount) → 4a → 4b → 5a → 5b → 5c → Phase 6a (G5) → Phase 6b (G6) → Phase 6c (G4 measurement) → PR 3e (atomic cutover, gated) |
 | Delivery strategy | ask-on-risk (per preflight; Approach A already locked, no override open) |
-| Chain strategy | **feature-branch-chain** (user-selected, unchanged by the 3c replan). Tracker `docs/complete-taxa-frontend-migration-plan` is draft/no-merge and is the **only** PR targeting `develop`. PR 3a targets the tracker; PR 3b targets PR 3a; **PR 3c-i targets the tracker** (i.e. the branch **after** PR #146 reconciliation merges, picking up the already-merged 3a + 3b + reconcile without an extra reconcile step); every later child targets its immediate predecessor branch. Supersedes the `AGENTS.md` §4 direct-to-`develop` default for this change. |
+| Chain strategy | **feature-branch-chain** (user-selected, unchanged by the 3c replans). Tracker `docs/complete-taxa-frontend-migration-plan` is draft/no-merge and is the **only** PR targeting `develop`. PR 3a targets the tracker; PR 3b targets PR 3a; **PR 3c-i targets the tracker** (i.e. the branch **after** PR #146 reconciliation merges, picking up the already-merged 3a + 3b + reconcile without an extra reconcile step); PR 3c-ii → 3c-iii → 5.5 → 5.6 → 3c-iv-barrel → 3c-iv-keyframes → 3c-iv-viewer → 3c-iv-settings → 3c-iv-colors form a 9-child linear sub-sequence (3c-i / 3c-ii / 3c-iii are the 3c CSS children; 5.5 + 5.6 are the fractional repair children interpolated post-3c-iii; 3c-iv-barrel / 3c-iv-keyframes / 3c-iv-viewer / 3c-iv-settings / 3c-iv-colors are the five 3c-iv children per the 3c-iv five-slice replan). Every later child targets its immediate predecessor branch; **PR 3c-iv-barrel targets the post-PR-5.6 repair base commit** (per the 3c-iv five-slice replan addendum). Supersedes the `AGENTS.md` §4 direct-to-`develop` default for this change. |
 
 ```text
 Decision needed before apply: No
@@ -234,41 +234,61 @@ merges.**
 | 3 / 16 | 3c-i | `feat/complete-taxa-frontend-migration-03-3c-i` | `docs/complete-taxa-frontend-migration-plan` (tracker, **after PR #146 reconciliation merges**) |
 | 4 / 16 | 3c-ii | `feat/complete-taxa-frontend-migration-04-3c-ii` | `feat/complete-taxa-frontend-migration-03-3c-i` |
 | 5 / 16 | 3c-iii | `feat/complete-taxa-frontend-migration-05-3c-iii` | `feat/complete-taxa-frontend-migration-04-3c-ii` |
-| 6 / 16 | 3c-iv | `feat/complete-taxa-frontend-migration-06-3c-iv` | `feat/complete-taxa-frontend-migration-05-3c-iii` |
-| 7 / 16 | 3d | `feat/complete-taxa-frontend-migration-07-3d` | `feat/complete-taxa-frontend-migration-06-3c-iv` |
-| 8 / 16 | 4a | `feat/complete-taxa-frontend-migration-08-4a` | `feat/complete-taxa-frontend-migration-07-3d` |
-| 9 / 16 | 4b | `feat/complete-taxa-frontend-migration-09-4b` | `feat/complete-taxa-frontend-migration-08-4a` |
-| 10 / 16 | 5a | `feat/complete-taxa-frontend-migration-10-5a` | `feat/complete-taxa-frontend-migration-09-4b` |
-| 11 / 16 | 5b | `feat/complete-taxa-frontend-migration-11-5b` | `feat/complete-taxa-frontend-migration-10-5a` |
-| 12 / 16 | 5c | `feat/complete-taxa-frontend-migration-12-5c` | `feat/complete-taxa-frontend-migration-11-5b` |
-| 13 / 16 | 6a | `feat/complete-taxa-frontend-migration-13-6a` | `feat/complete-taxa-frontend-migration-12-5c` |
-| 14 / 16 | 6b | `feat/complete-taxa-frontend-migration-14-6b` | `feat/complete-taxa-frontend-migration-13-6a` |
-| 15 / 16 | 6c | `feat/complete-taxa-frontend-migration-15-6c` | `feat/complete-taxa-frontend-migration-14-6b` |
-| 16 / 16 | 3e | `feat/complete-taxa-frontend-migration-16-3e` | `feat/complete-taxa-frontend-migration-15-6c` |
+| 6 / 22 | 3c-iv-barrel | `feat/complete-taxa-frontend-migration-06-3c-iv-barrel` | `feat/complete-taxa-frontend-migration-05-6-3c-iv-barrel-predecessor` (= post-PR-5.6 repair base commit; PR 3c-i bases off the tracker after PR #146; PR 5.6 interpolates between PR 3c-iii and the 3c-iv sub-sequence) |
+| 7 / 22 | 3c-iv-keyframes | `feat/complete-taxa-frontend-migration-07-3c-iv-keyframes` | `feat/complete-taxa-frontend-migration-06-3c-iv-barrel` |
+| 8 / 22 | 3c-iv-viewer | `feat/complete-taxa-frontend-migration-08-3c-iv-viewer` | `feat/complete-taxa-frontend-migration-07-3c-iv-keyframes` |
+| 9 / 22 | 3c-iv-settings | `feat/complete-taxa-frontend-migration-09-3c-iv-settings` | `feat/complete-taxa-frontend-migration-08-3c-iv-viewer` |
+| 10 / 22 | 3c-iv-colors | `feat/complete-taxa-frontend-migration-10-3c-iv-colors` | `feat/complete-taxa-frontend-migration-09-3c-iv-settings` |
+| 11 / 22 | 3d | `feat/complete-taxa-frontend-migration-11-3d` | `feat/complete-taxa-frontend-migration-10-3c-iv-colors` |
+| 12 / 22 | 4a | `feat/complete-taxa-frontend-migration-12-4a` | `feat/complete-taxa-frontend-migration-06-3c-iv-barrel` (design-system consumers depend on barrel; per the 3c-iv five-slice replan) |
+| 13 / 22 | 4b | `feat/complete-taxa-frontend-migration-13-4b` | `feat/complete-taxa-frontend-migration-12-4a` |
+| 14 / 22 | 5a | `feat/complete-taxa-frontend-migration-14-5a` | `feat/complete-taxa-frontend-migration-13-4b` |
+| 15 / 22 | 5b | `feat/complete-taxa-frontend-migration-15-5b` | `feat/complete-taxa-frontend-migration-14-5a` |
+| 16 / 22 | 5c | `feat/complete-taxa-frontend-migration-16-5c` | `feat/complete-taxa-frontend-migration-10-3c-iv-colors` (final CSS consumers depend on colors; per the 3c-iv five-slice replan) |
+| 17 / 22 | 6a | `feat/complete-taxa-frontend-migration-17-6a` | `feat/complete-taxa-frontend-migration-16-5c` |
+| 18 / 22 | 6b | `feat/complete-taxa-frontend-migration-18-6b` | `feat/complete-taxa-frontend-migration-17-6a` |
+| 19 / 22 | 6c | `feat/complete-taxa-frontend-migration-19-6c` | `feat/complete-taxa-frontend-migration-18-6b` |
+| 20 / 22 | 3e | `feat/complete-taxa-frontend-migration-20-3e` | `feat/complete-taxa-frontend-migration-19-6c` |
 
-    ```text
-    develop
-     └── docs/complete-taxa-frontend-migration-plan   ← tracker PR (draft / no-merge; carries PR #144 + PR #145 + PR #146)
-          ↑ PR 3a base: docs/complete-taxa-frontend-migration-plan
-          └── feat/complete-taxa-frontend-migration-01-3a   ← toolchain bootstrap (PR #144 merged)
-               ↑ PR 3b base: …-01-3a
-               └── feat/complete-taxa-frontend-migration-02-3b   ← App Router static export (PR #145 merged)
-                    ↑ PR 3b-reconcile base: …-02-3b
-                    └── feat/complete-taxa-frontend-migration-02-3b-reconcile   ← 3b reconcile (PR #146 merged)
-                         ↑ PR 3c-i base: tracker (after PR #146)
-                         └── feat/complete-taxa-frontend-migration-03-3c-i   ← tokens / base / dark mode
-                              ↑ PR 3c-ii base: …-03-3c-i
-                              └── feat/complete-taxa-frontend-migration-04-3c-ii   ← taxonomy tree / detail styling
-                                   ↑ PR 3c-iii base: …-04-3c-ii
-                                   └── feat/complete-taxa-frontend-migration-05-3c-iii   ← Search / Folder / global Browser styling
-                                        ↑ PR 3c-iv base: …-05-3c-iii
-                                        └── feat/complete-taxa-frontend-migration-06-3c-iv   ← animations / utilities + final CSS parity + design-system barrel
-                                             ↑ PR 3d base: …-06-3c-iv
-                                             └── feat/complete-taxa-frontend-migration-07-3d   ← Makefile/mount
-                                                  ↑ … 4a → 4b → 5a → 5b → 5c → 6a → 6b → 6c …
-                                                  └── feat/complete-taxa-frontend-migration-16-3e
-                                                       ← atomic cutover, last child in the chain
-    ```
+        ```text
+        develop
+         └── docs/complete-taxa-frontend-migration-plan   ← tracker PR (draft / no-merge; carries PR #144 + PR #145 + PR #146)
+              ↑ PR 3a base: docs/complete-taxa-frontend-migration-plan
+              └── feat/complete-taxa-frontend-migration-01-3a   ← toolchain bootstrap (PR #144 merged)
+                   ↑ PR 3b base: …-01-3a
+                   └── feat/complete-taxa-frontend-migration-02-3b   ← App Router static export (PR #145 merged)
+                        ↑ PR 3b-reconcile base: …-02-3b
+                        └── feat/complete-taxa-frontend-migration-02-3b-reconcile   ← 3b reconcile (PR #146 merged)
+                             ↑ PR 3c-i base: tracker (after PR #146)
+                             └── feat/complete-taxa-frontend-migration-03-3c-i   ← tokens / base / dark mode
+                                  ↑ PR 3c-ii base: …-03-3c-i
+                                  └── feat/complete-taxa-frontend-migration-04-3c-ii   ← taxonomy tree / detail styling
+                                       ↑ PR 3c-iii base: …-04-3c-ii
+                                       └── feat/complete-taxa-frontend-migration-05-3c-iii   ← Search / Folder / global Browser styling
+                                            ↑ PR 5.5 base: …-05-3c-iii   (interpolated, repair child)
+                                            └── feat/complete-taxa-frontend-migration-05-5-3c-iv-predecessor   ← PR 5.5 (Tailwind 4 / PostCSS pipeline repair)
+                                                 ↑ PR 5.6 base: …-05-5-3c-iv-predecessor   (interpolated, repair child)
+                                                 └── feat/complete-taxa-frontend-migration-05-6-3c-iv-predecessor   ← PR 5.6 (DOM↔CSS structural parity repair)
+                                                      ↑ PR 3c-iv-barrel base: …-05-6-3c-iv-predecessor   (3c-iv-barrel is the first child of the 3c-iv sub-sequence)
+                                                      └── feat/complete-taxa-frontend-migration-06-3c-iv-barrel   ← design-system barrel + Icon/Button + purity test
+                                                           ↑ PR 3c-iv-keyframes base: …-06-3c-iv-barrel
+                                                           └── feat/complete-taxa-frontend-migration-07-3c-iv-keyframes   ← five @keyframes + .animate-spin
+                                                                ↑ PR 3c-iv-viewer base: …-07-3c-iv-keyframes
+                                                                └── feat/complete-taxa-frontend-migration-08-3c-iv-viewer   ← image/video viewer CSS parity
+                                                                     ↑ PR 3c-iv-settings base: …-08-3c-iv-viewer
+                                                                     └── feat/complete-taxa-frontend-migration-09-3c-iv-settings   ← Settings CSS parity
+                                                                          ↑ PR 3c-iv-colors base: …-09-3c-iv-settings
+                                                                          └── feat/complete-taxa-frontend-migration-10-3c-iv-colors   ← Tailwind --color-* aliases + utility parity
+                                                                               ↑ PR 3d base: …-10-3c-iv-colors   (final CSS consumers depend on colors)
+                                                                               └── feat/complete-taxa-frontend-migration-11-3d   ← Makefile/mount
+                                                                                    ↑ PR 4a base: …-06-3c-iv-barrel   (design-system consumers depend on barrel)
+                                                                                    └── feat/complete-taxa-frontend-migration-12-4a   ← typed store
+                                                                                         ↑ PR 4b base: …-12-4a
+                                                                                         └── feat/complete-taxa-frontend-migration-13-4b   ← hydration guard
+                                                                                              ↑ … 5a → 5b → 5c → 6a → 6b → 6c …
+                                                                                              └── feat/complete-taxa-frontend-migration-20-3e
+                                                                                                   ← atomic cutover, last child in the chain
+        ```
 
 **Per-sub-PR dependency (the contract the corrective plan
 revision **and** the PR 3c sub-sequence replan enforce)**:
@@ -345,59 +365,34 @@ revision **and** the PR 3c sub-sequence replan enforce)**:
   truncation banner (`.fex-tree-truncated`). Parity test enumerates
   every legacy browser/search selector and asserts presence in
   the generated CSS.
-- **PR 3c-iv — animations / utilities + final CSS parity
-  (position 6)**. Depends on **3c-iii** (full legacy CSS cascade
-  now ported except `@keyframes` + utilities). Produces the final
-  slice of `src/app/globals.css` covering `@keyframes
-  detail-card-enter`, `@keyframes detail-card-leave`, `@keyframes
-  search-pulse-anim`, `@keyframes materialize-spin`, `@keyframes
-  toast-slide-in`, `.animate-spin`, the image + video viewer frames
-  (`.fex-image-frame`, `.fex-image`, `.fex-image-advisory`,
-  `.fex-video-frame`, `.fex-video-el`), and the Settings view
-  (`.settings-shell`, `.settings-header`, `.settings-list`,
-  `.settings-row`, `.settings-theme-toggle`,
-  `.settings-action-btn`, `.settings-link-btn`). Also produces the
-  `src/modules/design-system/{infrastructure/index.ts,
-  presentation/Icon.tsx, presentation/Button.tsx}` barrel. Parity
-  test enumerates every `@keyframes` rule + utility class the
-  legacy build emits and asserts presence in the generated CSS;
-  design-system purity test strips hex literals from `src/`
-  outside the design-system module.
-- **PR 3d — Makefile/mount (position 7)**. Depends on **3c-iv**
-  (full Tailwind 4 cascade ported so `next build` produces a
-  complete CSS payload) and **3b** (App Router produces
-  `out/index.html` when `next build` runs). Produces
-  `Makefile::api` rewrite (`check-runtime.mjs` → `npm run build:web`
-  → `uvicorn … --port 8765` in order, with `make css` becoming a
-  no-op shim), the 1-line `api/server.py:54` `WEB_DIR` repoint,
-  `src/data/search-engines.js` (byte copy of `web/search_urls.js`
-  with `SEARCH_ENGINES` named export), the `tests/test_smoke.py`
-  `open()` path update (AC-21 contract preserved), and the
-  `tests/test_make_api_build.py` witness plus
-  `tests/test_static_mount.py` witness.
-- **PR 4a — typed store (position 8)**. Depends on **3c-iv**
-  (design-system module loaded) and **3d** (now position 7);
-  produces `src/modules/browser-state/**` typed store with four
-  read + four write sites.
-- **PR 4b — hydration guard (position 9)**. Depends on **4a**
+- **PR 3c-iv-barrel — design-system barrel + Icon/Button + purity test (position 6)**. Depends on the **PR 5.6 DOM↔CSS structural parity repair predecessor** (the `@tailwindcss/postcss` expansion + the React-emitted structural hooks are in place; the design-system module is the next module to populate). Bases off `feat/complete-taxa-frontend-migration-05-6-3c-iv-predecessor` (= the post-PR-5.6 base commit; the predecessor is the prior 5.6 base commit per the 3c-iv five-slice replan addendum). Produces `src/modules/design-system/infrastructure/index.ts` (barrel re-exporting the typed theme tokens + the `<Icon>` + `<Button>` primitives), `src/modules/design-system/presentation/{Icon.tsx, Button.tsx}` (the `<Icon>` Material Symbols Outlined glyph wrapper + the `<Button>` layout primitive), and `tests/test_design_system_purity.py` (the hex-literal grep guard that ensures every hex literal lives only in the design-system module). Parity test enumerates every frozen Material Symbols Outlined glyph name (`search`, `folder_open`, `folder`, `chevron_right`, `expand_more`, `close`, `settings`, `help`, `science`, `science_off`, `download`) and asserts the design-system module exports each.
+- **PR 3c-iv-keyframes — five legacy `@keyframes` + `.animate-spin` parity (position 7)**. Depends on **3c-iv-barrel** (design-system module + Icon/Button primitives in place so a working `@keyframes` parity contract can ride on the live design-system surface). Bases off `feat/complete-taxa-frontend-migration-06-3c-iv-barrel`. Produces the next slice of `src/app/globals.css` covering the five legacy `@keyframes` rules (`detail-card-enter`, `detail-card-leave`, `search-pulse-anim`, `materialize-spin`, `toast-slide-in`) + the `.animate-spin` utility class. Parity test enumerates every `@keyframes` rule the legacy build emits and asserts presence in the generated CSS.
+- **PR 3c-iv-viewer — image / video viewer CSS parity (position 8)**. Depends on **3c-iv-keyframes** (`@keyframes` rules + `.animate-spin` live so the viewer-frame `animation:` references resolve). Bases off `feat/complete-taxa-frontend-migration-07-3c-iv-keyframes`. Produces the next slice of `src/app/globals.css` covering the image + video viewer frames (`.fex-image-frame`, `.fex-image`, `.fex-image-advisory`, `.fex-video-frame`, `.fex-video-el`). Parity test enumerates every viewer-frame selector the legacy build emits and asserts presence in the generated CSS.
+- **PR 3c-iv-settings — Settings CSS parity (position 9)**. Depends on **3c-iv-viewer** (viewer frames live so the Settings view reuses the same token surface). Bases off `feat/complete-taxa-frontend-migration-08-3c-iv-viewer`. Produces the next slice of `src/app/globals.css` covering the Settings view (`.settings-shell`, `.settings-header`, `.settings-list`, `.settings-row`, `.settings-row-text`, `.settings-row-title`, `.settings-row-description`, `.settings-row-control`, `.settings-theme-toggle`, `.settings-theme-btn`, `.settings-theme-btn:hover`, `.settings-theme-btn .material-symbols-outlined`, `.settings-theme-btn-active`, `.settings-theme-btn-active:hover`, `.settings-action-btn`, `.settings-action-btn:hover`, `.settings-action-btn .material-symbols-outlined`, `.settings-link-btn`, `.settings-link-btn:hover`, `.settings-link-btn .material-symbols-outlined`). Parity test enumerates every Settings selector and asserts presence in the generated CSS.
+- **PR 3c-iv-colors — Tailwind `--color-*` namespace aliases + utility parity (position 10)**. Depends on **3c-iv-settings** (Settings selectors live, sharing the `--color-*` consumer surface). Bases off `feat/complete-taxa-frontend-migration-09-3c-iv-settings`. Produces the final slice of `src/app/globals.css` carrying the Tailwind `--color-*` namespace aliases (so `bg-primary`, `text-on-surface`, `border-outline-variant`, `bg-surface-container-lowest`, `bg-primary-fixed`, `text-on-primary-fixed`, `bg-surface`, `text-outline`, `text-on-surface-variant`, `hover:text-on-surface`, `focus:border-primary`, `focus:ring-primary/20`, `transition-all`, `transition-colors`, `font-h1`, `text-h1`, `font-body-md`, `text-body-sm`, `fixed`, `top-0`, `w-full`, `z-50`, `bg-surface/95`, `backdrop-blur-md`, `shadow-[0_1px_8px_rgba(0,0,0,0.04)]`, `h-16`, `px-row-padding-x`, `flex`, `items-center`, `justify-between`, `gap-gutter`, `min-w-0`, `whitespace-nowrap`, `relative`, `w-64`, `lg:w-96`, `absolute`, `left-3`, `top-1/2`, `-translate-y-1/2`, `text-[18px]`, `py-2`, `pl-10`, `pr-4`, `rounded-xl`, `focus:outline-none`, `focus:ring-2`, `shrink-0`, `aria-pressed` resolve via Tailwind 4 utilities). Parity test enumerates every legacy utility class and asserts each resolves to a non-empty CSS declaration in `out/_next/static/chunks/*.css`.
+- **PR 3d — Makefile/mount (position 11)**. Depends on **3c-iv-colors** (full Tailwind 4 cascade ported so `next build` produces a complete CSS payload with every `--color-*` alias resolving) and **3b** (App Router produces `out/index.html` when `next build` runs). Bases off `feat/complete-taxa-frontend-migration-10-3c-iv-colors` (per the 3c-iv five-slice replan; **final CSS consumers depend on colors**). Produces `Makefile::api` rewrite (`check-runtime.mjs` → `npm run build:web` → `uvicorn … --port 8765` in order, with `make css` becoming a no-op shim), the 1-line `api/server.py:54` `WEB_DIR` repoint, `src/data/search-engines.js` (byte copy of `web/search_urls.js` with `SEARCH_ENGINES` named export), the `tests/test_smoke.py` `open()` path update (AC-21 contract preserved), and the `tests/test_make_api_build.py` witness plus `tests/test_static_mount.py` witness.
+- **PR 4a — typed store (position 12)**. Depends on **3c-iv-barrel** (design-system module + Icon/Button primitives loaded; per the 3c-iv five-slice replan, **design-system consumers depend on barrel**) and **3d** (now position 11); produces `src/modules/browser-state/**` typed store with four read + four write sites. Bases off `feat/complete-taxa-frontend-migration-06-3c-iv-barrel`.
+- **PR 4b — hydration guard (position 13)**. Depends on **4a**
   (store available) and **3b** (`AppShell` host composition;
   hydration-safe `mounted` flag). Produces `src/modules/app-shell/**`
   and the Playwright zero-hydration-warnings witness.
-- **PR 5a — taxonomy port (position 10)**. Depends on **4b**
+- **PR 5a — taxonomy port (position 14)**. Depends on **4b**
   (hydration-safe state read for `tree-source`). Produces
   `src/modules/taxonomy/**` + the port of `web/{tree,
   detail,breadcrumb}.js` to React.
-- **PR 5b — research port + CDN pin (position 11)**. Depends on
+- **PR 5b — research port + CDN pin (position 15)**. Depends on
   **5a** (taxonomy state read flows shared with research) and
   **3d** (`src/data/search-engines.js` for the `Engine` named
   export). Produces `src/modules/research/**` + CDN pin.
 - **PR 5c — E2E selectors + `data-*` contract + delete legacy
-  (position 12)**. Depends on **5b** (all UI components live).
-  Deletes `web/*.{html,js,css}` + `tailwind.config.js`.
-- **PR 6a / 6b / 6c — Phase 6 validation (positions 13 / 14 / 15)**.
+  (position 16)**. Depends on **5b** (all UI components live)
+  and **3c-iv-colors** (per the 3c-iv five-slice replan, **final
+  CSS consumers depend on colors**). Deletes `web/*.{html,js,css}`
+  + `tailwind.config.js`.
+- **PR 6a / 6b / 6c — Phase 6 validation (positions 17 / 18 / 19)**.
   Depends on **5c** (candidate path complete). Author the three
   gate-closure verifiers against the candidate build.
-- **PR 3e — atomic cutover (position 16)**. Depends on all six
+- **PR 3e — atomic cutover (position 20)**. Depends on all six
   gates green. Flips `cutover-manifest.json` working copy, re-runs
   G3 Tier-2 verifier against the activated selection, flips
   `apply-progress.md` §Status footer.
@@ -422,14 +417,19 @@ own slice is a **base bug**, not a review finding. Retarget or
 rebase onto the correct predecessor until only the current work
 unit appears.
 
-> Order: **3a → 3b → 3c-i → 3c-ii → 3c-iii → 3c-iv → 3d → 4a →
-> 4b → 5a → 5b → 5c → 6a (G5) → 6b (G6) → 6c (G4 measurement) →
-> 3e**. Each child PR targets its **immediate predecessor
-> branch**, except PR 3c-i which **targets the tracker** (the
+> Order: **3a → 3b → 3c-i → 3c-ii → 3c-iii → 5.5 (PostCSS repair)
+> → 5.6 (DOM↔CSS repair) → 3c-iv-barrel → 3c-iv-keyframes →
+> 3c-iv-viewer → 3c-iv-settings → 3c-iv-colors → 3d → 4a → 4b →
+> 5a → 5b → 5c → 6a (G5) → 6b (G6) → 6c (G4 measurement) → 3e**.
+> Each child PR targets its **immediate predecessor branch**,
+> except PR 3c-i which **targets the tracker** (the
 > `docs/complete-taxa-frontend-migration-plan` branch after PR
 > #146 reconciliation merges, picking up the already-merged 3a +
-> 3b + reconcile). Only the tracker targets `develop`. Phase 6
-> runs **after** the complete candidate path (positions 1–12) is
+> 3b + reconcile) and except PR 3c-iv-barrel which **targets the
+> PR 5.6 DOM↔CSS structural parity repair predecessor** (the
+> post-5.6 base commit per the 3c-iv five-slice replan addendum).
+> Only the tracker targets `develop`. Phase 6 runs **after** the
+> complete candidate path (positions 1–16) is
 > green and accumulated on the tracker, and **before** PR 3e can
 > land. PR 3e is gated on G1 + G2 + G3 Tier-1 (all recorded from
 > the predecessor) plus G4 + G5 + G6 closure (all three delivered
@@ -982,116 +982,102 @@ lives in its own child to stay ≤ 400 LoC authored.
 | 3c-iii.2, 3c-iii.4 | same | same | same |
 | 3c-iii.5 | same | same | same |
 
-### Phase 3c-iv: Animations / utilities + final CSS parity + design-system barrel (PR 3c-iv → PR 3c-iii branch)
+### Phase 3c-iv-barrel: Design-system barrel + Icon/Button primitives + purity test (PR 3c-iv-barrel → post-PR-5.6 repair predecessor, position 6/22)
 
-Depends on PR 3c-iii (full legacy CSS cascade now ported except
-`@keyframes` + image/video viewer + Settings view + design-system
-barrel). Produces the final slice of `src/app/globals.css`,
-ships the design-system barrel that the predecessor PR 2a
-scaffolded but did not populate, and runs the parity test across
-**all** 1,963 lines of legacy inline CSS to assert every rule
-landed in `src/app/globals.css` (or a `@layer components` /
-`@layer utilities` block PR 3c-i / 3c-ii / 3c-iii / 3c-iv
-extracted into).
+Depends on the **PR 5.6 DOM↔CSS structural parity repair predecessor** (the `@tailwindcss/postcss` expansion + the React-emitted structural hooks are in place; the design-system module is the next module to populate per the 3c-iv five-slice replan addendum). Bases off `feat/complete-taxa-frontend-migration-05-6-3c-iv-predecessor` (the post-PR-5.6 base commit). This is the **first child of the 3c-iv sub-sequence**: it lands the design-system barrel + the `<Icon>` + `<Button>` primitives + the design-system purity test. Subsequent 3c-iv children (3c-iv-keyframes / 3c-iv-viewer / 3c-iv-settings / 3c-iv-colors) extend `src/app/globals.css` and inherit the design-system module this PR ships.
 
-- [ ] 3c-iv.1 R — extend `tests/test_tailwind_4_parity.py`
-      (`@keyframes` + viewer slice): reads `web/index.html`
-      lines 273, 500, 834, 874, 1750–1972 and asserts every
-      legacy `@keyframes` rule (`detail-card-enter`,
-      `detail-card-leave`, `search-pulse-anim`,
-      `materialize-spin`, `toast-slide-in`) is present in
-      `src/app/globals.css`; asserts the
-      `.animate-spin { animation: materialize-spin 1s linear
-      infinite; }` rule is present; asserts the image + video
-      viewer frames (`.fex-image-frame`, `.fex-image`,
-      `.fex-video-frame`, `.fex-video-el`) and the Settings
-      view (`.settings-shell`, `.settings-header`,
-      `.settings-list`, `.settings-row`, `.settings-row-text`,
-      `.settings-row-title`, `.settings-row-description`,
-      `.settings-row-control`, `.settings-theme-toggle`,
-      `.settings-theme-btn`, `.settings-theme-btn:hover`,
-      `.settings-theme-btn .material-symbols-outlined`,
-      `.settings-theme-btn-active`,
-      `.settings-theme-btn-active:hover`,
-      `.settings-action-btn`, `.settings-action-btn:hover`,
-      `.settings-action-btn .material-symbols-outlined`,
-      `.settings-link-btn`, `.settings-link-btn:hover`,
-      `.settings-link-btn .material-symbols-outlined`) are
-      present with non-empty declarations. <!-- sdd-owner: implementation -->
-- [ ] 3c-iv.2 G — `src/app/globals.css` (extended, ~120 LoC
-      delta): append the `@keyframes` rules, the
-      `.animate-spin` utility, the image + video viewer frames,
-      and the Settings view selectors under `@layer base` in
-      cascade order. The Settings view reuses the
-      `--surface-container-low`, `--outline-variant`,
-      `--primary`, `--on-surface`, `--on-surface-variant`
-      tokens from PR 3c-i. <!-- sdd-owner: implementation -->
-- [ ] 3c-iv.3 G — `src/modules/design-system/infrastructure/index.ts`
-      (new, ~20 LoC): barrel exports the `<Icon>` (Material
-      Symbols Outlined glyph wrapper, frozen names: `search`,
-      `folder_open`, `folder`, `chevron_right`, `expand_more`,
-      `close`, `settings`, `help`, `science`, `science_off`,
-      `download`) plus `<Button>` layout primitive. <!-- sdd-owner: implementation -->
-- [ ] 3c-iv.4 G — `src/modules/design-system/presentation/{Icon.tsx,
-      Button.tsx}` (new, ~40 LoC combined): the `<Icon>`
-      component renders `<span class="material-symbols-outlined">`
-      with the frozen glyph name; `<Button>` is a thin wrapper
-      around `<button>` with the `.fex-snippet-btn` class for
-      parity with the legacy file-explorer button visual.
-      <!-- sdd-owner: implementation -->
-- [ ] 3c-iv.5 T — extend `tests/test_tailwind_4_parity.py` to
-      enumerate **every legacy utility class** the legacy build
-      emits (`bg-primary`, `text-on-surface`,
-      `border-outline-variant`, `bg-surface-container-lowest`,
-      `bg-surface-container`, `bg-surface-container-high`,
-      `shadow-sm`, `rounded-r-md`, `rounded-xl`,
-      `bg-primary-fixed`, `text-on-primary-fixed`,
-      `border-outline`, `bg-surface`, `text-outline`,
-      `text-on-surface-variant`, `hover:text-on-surface`,
-      `focus:border-primary`, `focus:ring-primary/20`,
-      `transition-all`, `transition-colors`, `font-h1`,
-      `text-h1`, `font-body-md`, `text-body-sm`, `fixed`,
-      `top-0`, `w-full`, `z-50`, `bg-surface/95`,
-      `backdrop-blur-md`, `shadow-[0_1px_8px_rgba(0,0,0,0.04)]`,
-      `h-16`, `px-row-padding-x`, `flex`, `items-center`,
-      `justify-between`, `gap-gutter`, `min-w-0`, `whitespace-nowrap`,
-      `relative`, `w-64`, `lg:w-96`, `absolute`, `left-3`,
-      `top-1/2`, `-translate-y-1/2`, `text-[18px]`, `w-full`,
-      `py-2`, `pl-10`, `pr-4`, `rounded-xl`, `text-body-sm`,
-      `focus:outline-none`, `focus:border-primary`,
-      `focus:ring-2`, `focus:ring-primary/20`, `transition-all`,
-      `shrink-0`, `aria-pressed`, `role="group"`, …) and
-      assert each resolves to a non-empty CSS declaration in
-      `out/_next/static/chunks/*.css`. The enumeration list
-      comes from the legacy `web/index.html` `<body>` /
-      `<header>` markup (lines 1975–2109) and from
-      `web/dist/tailwind.css` (the legacy Tailwind 3.4 compiled
-      output the predecessor uses). <!-- sdd-owner: implementation -->
-- [ ] 3c-iv.6 Refactor — strip any hex literals from `src/`
-      outside the design-system module; the grep guard goes
-      into `tests/test_design_system_purity.py` (parametrized).
-      Tokens that need a hex literal reference it via the
-      design-system module's `infrastructure/tokens.ts`
-      re-export; consumers import the token, not the literal.
-      <!-- sdd-owner: implementation -->
+- [ ] 3c-iv-barrel.1 R — `tests/test_design_system_purity.py` (new, parametrized): greps every `src/**` file under `src/modules/design-system/{infrastructure,presentation}/` for hex literal patterns (`#[0-9a-fA-F]{6}` / `#[0-9a-fA-F]{3}\b`) and asserts the only files that contain hex literals are inside the design-system module (the design-system module owns the token table). Asserts that **every other module under `src/modules/{taxonomy,research,browser-state,app-shell}/` is hex-literal-free** (no `#1d7ea9` / `#5ebd9b` / etc. leakage outside the design-system module). The test MUST fail on the post-PR-5.6 base (no `src/modules/design-system/` exists yet). <!-- sdd-owner: implementation -->
+- [ ] 3c-iv-barrel.2 G — `src/modules/design-system/infrastructure/index.ts` (new, ~20 LoC): barrel exports the `<Icon>` (Material Symbols Outlined glyph wrapper, frozen names: `search`, `folder_open`, `folder`, `chevron_right`, `expand_more`, `close`, `settings`, `help`, `science`, `science_off`, `download`) plus `<Button>` layout primitive + the typed theme tokens (`--primary`, `--accent`, `--surface`, `--elevated`, `--on-surface`, `--on-surface-variant`, `--outline`, `--outline-variant`, `--surface-container-low`, `--surface-container`, `--surface-container-high`, `--surface-container-highest`, `--primary-fixed`, `--on-primary-fixed`, `--realm-bacteria`, `--realm-archaea`, `--realm-viruses`, `--realm-animalia`, `--realm-fungi`, `--realm-plantae`, `--realm-chromista`, `--realm-other`). <!-- sdd-owner: implementation -->
+- [ ] 3c-iv-barrel.3 G — `src/modules/design-system/presentation/Icon.tsx` (new, ~20 LoC): the `<Icon>` component renders `<span class="material-symbols-outlined">` with the frozen glyph name; the glyph name is type-narrowed against the frozen union of names; the component accepts a `className` prop for layout consumers. <!-- sdd-owner: implementation -->
+- [ ] 3c-iv-barrel.4 G — `src/modules/design-system/presentation/Button.tsx` (new, ~20 LoC): `<Button>` is a thin wrapper around `<button>` with the `.fex-snippet-btn` class for parity with the legacy file-explorer button visual; the component accepts `onClick` + `disabled` + `children` props. <!-- sdd-owner: implementation -->
+- [ ] 3c-iv-barrel.5 T — `tests/test_design_system_purity.py` triangulation: assert every frozen Material Symbols Outlined glyph name (`search`, `folder_open`, `folder`, `chevron_right`, `expand_more`, `close`, `settings`, `help`, `science`, `science_off`, `download`) is exported from the design-system module barrel; assert the `<Button>` component accepts the `disabled` prop and renders the `.fex-snippet-btn` class; assert the `<Icon>` component type-narrows the glyph prop against the frozen union. <!-- sdd-owner: implementation -->
+- [ ] 3c-iv-barrel.6 Refactor — alphabetize the typed theme tokens in the design-system module's `infrastructure/index.ts` barrel so subsequent 3c-iv children can locate tokens by prefix scan; extract the hex literal table into `infrastructure/tokens.ts` so consumers import the typed token (not the literal). <!-- sdd-owner: implementation -->
 
 **Per-task evidence**:
 
 | Task | Focused test command | Runtime harness | Rollback boundary |
 |------|----------------------|-----------------|-------------------|
-| 3c-iv.1, 3c-iv.5 | `.venv/bin/python3 -m pytest tests/test_tailwind_4_parity.py -v` | `npx next build` exit 0; `out/_next/static/chunks/*.css` carries every `@keyframes` rule + every utility class + every viewer + Settings selector | `git revert <3c-iv-sha>` reverts the appended `@keyframes` + viewer + Settings selectors; the design-system module is removed; 3c-i / 3c-ii / 3c-iii stay; Phase 5 ports (4a / 4b / 5a / 5b / 5c) have not landed yet so the design-system module is the sole consumer |
-| 3c-iv.2, 3c-iv.3, 3c-iv.4 | same | same | same |
-| 3c-iv.6 | `.venv/bin/python3 -m pytest tests/test_design_system_purity.py -v` | same | same |
+| 3c-iv-barrel.1, 3c-iv-barrel.5 | `.venv/bin/python3 -m pytest tests/test_design_system_purity.py -v` | `npx next build` exit 0; `out/_next/static/chunks/*.js` carries the design-system module barrel | `git revert <3c-iv-barrel-sha>` removes the design-system module; post-PR-5.6 base state restored; 3c-i / 3c-ii / 3c-iii / 5.5 / 5.6 stay |
+| 3c-iv-barrel.2, 3c-iv-barrel.3, 3c-iv-barrel.4 | same | `npx tsc --noEmit` against `src/modules/design-system/` exit 0 | same |
+| 3c-iv-barrel.6 | same | same | same |
 
-## Phase 3d: Makefile rewrite + `WEB_DIR` repoint + AC-21 reader (PR 3d → PR 3c-iv branch, position 7/16)
+### Phase 3c-iv-keyframes: Five legacy `@keyframes` + `.animate-spin` parity (PR 3c-iv-keyframes → PR 3c-iv-barrel branch, position 7/22)
+
+Depends on PR 3c-iv-barrel (the design-system module + Icon/Button primitives are in place so a working `@keyframes` parity contract can ride on the live design-system surface). Bases off `feat/complete-taxa-frontend-migration-06-3c-iv-barrel`. Produces the next slice of `src/app/globals.css` covering the five legacy `@keyframes` rules + the `.animate-spin` utility class.
+
+- [ ] 3c-iv-keyframes.1 R — extend `tests/test_tailwind_4_parity.py` (`@keyframes` slice): reads `web/index.html` lines 273, 500, 834, 874 (the legacy `@keyframes` rule definitions) and asserts every legacy `@keyframes` rule (`detail-card-enter`, `detail-card-leave`, `search-pulse-anim`, `materialize-spin`, `toast-slide-in`) is present in `src/app/globals.css`; asserts the `.animate-spin { animation: materialize-spin 1s linear infinite; }` utility rule is present. The test MUST fail on the post-PR-3c-iv-barrel base (no `@keyframes` rules yet). <!-- sdd-owner: implementation -->
+- [ ] 3c-iv-keyframes.2 G — `src/app/globals.css` (extended, ~50 LoC delta): append the five `@keyframes` rules (`detail-card-enter`, `detail-card-leave`, `search-pulse-anim`, `materialize-spin`, `toast-slide-in`) under `@layer base` in cascade order; append the `.animate-spin` utility class. The `@keyframes materialize-spin` rule is the canonical source for the `materialize-spin` animation that `.animate-spin` consumes. <!-- sdd-owner: implementation -->
+- [ ] 3c-iv-keyframes.3 T — extend `tests/test_tailwind_4_parity.py` to assert every `@keyframes` rule carries the legacy transform / opacity keyframes verbatim (no keyframe drift between the legacy block and `src/app/globals.css`); assert the `.animate-spin` utility binds to `materialize-spin` specifically (not to a generic `spin` keyframe — the legacy block uses `materialize-spin` as the animation name); assert the `1s linear infinite` timing function is preserved. <!-- sdd-owner: implementation -->
+- [ ] 3c-iv-keyframes.4 Refactor — alphabetize the `@keyframes` rule declarations so subsequent 3c-iv children can locate the keyframes by prefix scan; ensure the `.animate-spin` utility sits after the `@keyframes materialize-spin` declaration (CSS source-order requirement for the animation binding). <!-- sdd-owner: implementation -->
+
+**Per-task evidence**:
+
+| Task | Focused test command | Runtime harness | Rollback boundary |
+|------|----------------------|-----------------|-------------------|
+| 3c-iv-keyframes.1, 3c-iv-keyframes.3 | `.venv/bin/python3 -m pytest tests/test_tailwind_4_parity.py -v` | `npx next build` exit 0; `out/_next/static/chunks/*.css` carries every `@keyframes` rule + the `.animate-spin` utility | `git revert <3c-iv-keyframes-sha>` reverts the appended `@keyframes` rules; 3c-iv-barrel stays; viewer / settings / colors have not landed yet |
+| 3c-iv-keyframes.2 | same | same | same |
+| 3c-iv-keyframes.4 | same | same | same |
+
+### Phase 3c-iv-viewer: Image / video viewer CSS parity (PR 3c-iv-viewer → PR 3c-iv-keyframes branch, position 8/22)
+
+Depends on PR 3c-iv-keyframes (`@keyframes` rules + `.animate-spin` live so the viewer-frame `animation:` references resolve). Bases off `feat/complete-taxa-frontend-migration-07-3c-iv-keyframes`. Produces the next slice of `src/app/globals.css` covering the image + video viewer frames.
+
+- [ ] 3c-iv-viewer.1 R — extend `tests/test_tailwind_4_parity.py` (viewer slice): reads `web/index.html` lines 1750–1900 (the legacy image / video viewer selectors) and asserts every legacy viewer selector (`.fex-image-frame`, `.fex-image`, `.fex-image-advisory`, `.fex-video-frame`, `.fex-video-el`) is present in `src/app/globals.css` with a non-empty declaration block. The test MUST fail on the post-PR-3c-iv-keyframes base (no viewer selectors yet). <!-- sdd-owner: implementation -->
+- [ ] 3c-iv-viewer.2 G — `src/app/globals.css` (extended, ~30 LoC delta): append the legacy image viewer frames (`.fex-image-frame` + `.fex-image` + `.fex-image-advisory`) and video viewer frames (`.fex-video-frame` + `.fex-video-el`) under `@layer base` in cascade order. The frames reuse `--surface-container-low`, `--outline-variant`, `--on-surface-variant` tokens from PR 3c-i. <!-- sdd-owner: implementation -->
+- [ ] 3c-iv-viewer.3 T — extend `tests/test_tailwind_4_parity.py` to assert the `.fex-image-frame` and `.fex-video-frame` declare non-empty layout declarations (`display: flex` / `flex-direction: column` / `padding` / `overflow`); assert the `.fex-image-advisory` carries a visible-state declaration (the legacy advisory has a tinted background that signals big-file risk). <!-- sdd-owner: implementation -->
+- [ ] 3c-iv-viewer.4 Refactor — extract the viewer frames into a `@layer components { .fex-image-frame, .fex-video-frame { … } }` block so the React `<FileViewer>` component in PR 5b can consume them via a stable layer name. <!-- sdd-owner: implementation -->
+
+**Per-task evidence**:
+
+| Task | Focused test command | Runtime harness | Rollback boundary |
+|------|----------------------|-----------------|-------------------|
+| 3c-iv-viewer.1, 3c-iv-viewer.3 | `.venv/bin/python3 -m pytest tests/test_tailwind_4_parity.py -v` | `npx next build` exit 0; `out/_next/static/chunks/*.css` carries the expected viewer selectors | `git revert <3c-iv-viewer-sha>` reverts the appended viewer selectors; 3c-iv-barrel + 3c-iv-keyframes stay; settings / colors have not landed yet |
+| 3c-iv-viewer.2, 3c-iv-viewer.4 | same | same | same |
+
+### Phase 3c-iv-settings: Settings view CSS parity (PR 3c-iv-settings → PR 3c-iv-viewer branch, position 9/22)
+
+Depends on PR 3c-iv-viewer (viewer frames live so the Settings view reuses the same token surface). Bases off `feat/complete-taxa-frontend-migration-08-3c-iv-viewer`. Produces the next slice of `src/app/globals.css` covering the Settings view.
+
+- [ ] 3c-iv-settings.1 R — extend `tests/test_tailwind_4_parity.py` (Settings slice): reads `web/index.html` lines 1900–1972 (the legacy Settings view selectors) and asserts every legacy Settings selector (`.settings-shell`, `.settings-header`, `.settings-list`, `.settings-row`, `.settings-row-text`, `.settings-row-title`, `.settings-row-description`, `.settings-row-control`, `.settings-theme-toggle`, `.settings-theme-btn`, `.settings-theme-btn:hover`, `.settings-theme-btn .material-symbols-outlined`, `.settings-theme-btn-active`, `.settings-theme-btn-active:hover`, `.settings-action-btn`, `.settings-action-btn:hover`, `.settings-action-btn .material-symbols-outlined`, `.settings-link-btn`, `.settings-link-btn:hover`, `.settings-link-btn .material-symbols-outlined`) is present in `src/app/globals.css` with a non-empty declaration block. The test MUST fail on the post-PR-3c-iv-viewer base (no Settings selectors yet). <!-- sdd-owner: implementation -->
+- [ ] 3c-iv-settings.2 G — `src/app/globals.css` (extended, ~30 LoC delta): append the legacy Settings view selectors (`.settings-shell` + `.settings-header` + `.settings-list` + `.settings-row` + `.settings-row-text` + `.settings-row-title` + `.settings-row-description` + `.settings-row-control` + `.settings-theme-toggle` + `.settings-theme-btn` + `:hover` variants + `.material-symbols-outlined` glyph wrappers + `.settings-theme-btn-active` + `.settings-action-btn` + `:hover` variants + `.settings-link-btn` + `:hover` variants) under `@layer base` in cascade order. The Settings view reuses `--surface-container-low`, `--outline-variant`, `--primary`, `--on-surface`, `--on-surface-variant` tokens from PR 3c-i. <!-- sdd-owner: implementation -->
+- [ ] 3c-iv-settings.3 T — extend `tests/test_tailwind_4_parity.py` to assert the `.settings-row` declares non-empty layout declarations (`display: flex` / `flex-direction: row` / `align-items: center` / `padding` / `border-bottom`); assert the `.settings-theme-btn-active` carries a visible-state declaration (the active theme button has a tinted background); assert the `.settings-link-btn:hover` carries a visible-state declaration (the link button hover state). <!-- sdd-owner: implementation -->
+- [ ] 3c-iv-settings.4 Refactor — alphabetize the Settings selector declarations so the colors child can locate them by prefix scan; ensure the `.settings-theme-btn-active` declaration sits before the `.settings-action-btn` declaration in source order. <!-- sdd-owner: implementation -->
+
+**Per-task evidence**:
+
+| Task | Focused test command | Runtime harness | Rollback boundary |
+|------|----------------------|-----------------|-------------------|
+| 3c-iv-settings.1, 3c-iv-settings.3 | `.venv/bin/python3 -m pytest tests/test_tailwind_4_parity.py -v` | `npx next build` exit 0; `out/_next/static/chunks/*.css` carries the expected Settings selectors | `git revert <3c-iv-settings-sha>` reverts the appended Settings selectors; 3c-iv-barrel + 3c-iv-keyframes + 3c-iv-viewer stay; colors has not landed yet |
+| 3c-iv-settings.2, 3c-iv-settings.4 | same | same | same |
+
+### Phase 3c-iv-colors: Tailwind `--color-*` namespace aliases + utility parity (PR 3c-iv-colors → PR 3c-iv-settings branch, position 10/22)
+
+Depends on PR 3c-iv-settings (Settings selectors live, sharing the `--color-*` consumer surface). Bases off `feat/complete-taxa-frontend-migration-09-3c-iv-settings`. Produces the final slice of `src/app/globals.css` carrying the Tailwind `--color-*` namespace aliases + the legacy utility class parity contract.
+
+- [ ] 3c-iv-colors.1 R — extend `tests/test_tailwind_4_parity.py` (`--color-*` + utility slice): reads `web/index.html` lines 1975–2109 (the legacy `<body>` / `<header>` markup) and `web/dist/tailwind.css` (the legacy Tailwind 3.4 compiled output); asserts every Tailwind `--color-*` namespace alias (`--color-primary`, `--color-on-surface`, `--color-outline-variant`, `--color-surface-container-lowest`, `--color-surface-container`, `--color-surface-container-high`, `--color-primary-fixed`, `--color-on-primary-fixed`, `--color-surface`, `--color-outline`, `--color-on-surface-variant`, `--color-elevated`) is declared in `src/app/globals.css::@theme`; asserts every legacy utility class (`bg-primary`, `text-on-surface`, `border-outline-variant`, `bg-surface-container-lowest`, `bg-primary-fixed`, `text-on-primary-fixed`, `bg-surface`, `text-outline`, `text-on-surface-variant`, `hover:text-on-surface`, `focus:border-primary`, `focus:ring-primary/20`, `transition-all`, `transition-colors`, `font-h1`, `text-h1`, `font-body-md`, `text-body-sm`, `fixed`, `top-0`, `w-full`, `z-50`, `bg-surface/95`, `backdrop-blur-md`, `shadow-[0_1px_8px_rgba(0,0,0,0.04)]`, `h-16`, `px-row-padding-x`, `flex`, `items-center`, `justify-between`, `gap-gutter`, `min-w-0`, `whitespace-nowrap`, `relative`, `w-64`, `lg:w-96`, `absolute`, `left-3`, `top-1/2`, `-translate-y-1/2`, `text-[18px]`, `py-2`, `pl-10`, `pr-4`, `rounded-xl`, `focus:outline-none`, `focus:ring-2`, `shrink-0`, `aria-pressed`, `role="group"`) resolves to a non-empty CSS declaration in `out/_next/static/chunks/*.css`. The test MUST fail on the post-PR-3c-iv-settings base (no `--color-*` aliases yet). <!-- sdd-owner: implementation -->
+- [ ] 3c-iv-colors.2 G — `src/app/globals.css` (extended, ~60 LoC delta): extend the `@theme` block with every Tailwind `--color-*` namespace alias mapped to the legacy `:root` token values (`--color-primary: var(--primary)`, `--color-on-surface: var(--on-surface)`, `--color-outline-variant: var(--outline-variant)`, etc.); the aliases sit alongside the existing `:root` / `[data-theme="dark"]` tokens so every Tailwind 4 utility (`bg-primary`, `text-on-surface`, `border-outline-variant`, etc.) resolves via the `@tailwindcss/postcss` expansion that PR 5.5 registers. <!-- sdd-owner: implementation -->
+- [ ] 3c-iv-colors.3 T — extend `tests/test_tailwind_4_parity.py` to assert each `--color-*` namespace alias resolves to the legacy `:root` token value (catch silent namespace drift); assert every utility class referenced by the legacy `web/index.html` `<body>` / `<header>` markup (lines 1975–2109) is emitted in the compiled CSS bundle; assert the utility class surface is byte-stable between consecutive `next build` runs (no subset leakage). <!-- sdd-owner: implementation -->
+- [ ] 3c-iv-colors.4 Refactor — alphabetize the `--color-*` namespace aliases inside `@theme` so the design-system purity test can locate them by prefix scan; ensure the aliases sit after the `:root` / `[data-theme="dark"]` token declarations and before any `@layer base` rules, matching the legacy cascade order. <!-- sdd-owner: implementation -->
+
+**Per-task evidence**:
+
+| Task | Focused test command | Runtime harness | Rollback boundary |
+|------|----------------------|-----------------|-------------------|
+| 3c-iv-colors.1, 3c-iv-colors.3 | `.venv/bin/python3 -m pytest tests/test_tailwind_4_parity.py -v` | `npx next build` exit 0; `out/_next/static/chunks/*.css` carries every `--color-*` alias + every utility class | `git revert <3c-iv-colors-sha>` reverts the appended `--color-*` aliases; 3c-iv-barrel + 3c-iv-keyframes + 3c-iv-viewer + 3c-iv-settings stay; downstream 3d / 4a / 5c have not landed yet |
+| 3c-iv-colors.2, 3c-iv-colors.4 | same | same | same |
+
+## Phase 3d: Makefile rewrite + `WEB_DIR` repoint + AC-21 reader (PR 3d → PR 3c-iv-colors branch, position 11/22)
 
 Depends on PR 3b (`next build` produces `out/index.html`) and
-PR 3c-iv (Tailwind 4 tokens + `@layer base` + `@layer components`
-flow through `next build`; the final Tailwind 4 parity test is
-on disk). Fuses the original Phase 3c's `Makefile::api` rewrite
-+ the original Phase 3d's `WEB_DIR` repoint + AC-21 reader
-update into a single sub-PR sized at ~240 authored LoC (well
-under 400). The Node ≥ 20.9.0 runtime contract lands here as a
+PR 3c-iv-colors (Tailwind 4 tokens + `--color-*` namespace
+aliases + `@layer base` + `@layer components` flow through
+`next build`; the final Tailwind 4 parity test is on disk —
+**per the 3c-iv five-slice replan, final CSS consumers depend
+on colors, NOT on the former single PR 3c-iv**). Fuses the
+original Phase 3c's `Makefile::api` rewrite + the original
+Phase 3d's `WEB_DIR` repoint + AC-21 reader update into a
+single sub-PR sized at ~240 authored LoC (well under 400).
+The Node ≥ 20.9.0 runtime contract lands here as a
 `Makefile` recipe step (the script itself was authored in
 PR 3a).
 
@@ -1184,12 +1170,14 @@ PR 3a).
 | 3d.8–3d.9 | same as 3d.1–3d.3 | same | same |
 | 3d.10 | n/a (refactor) | same | same |
 
-## Phase 4a: Typed store + 4 read + 4 write sites (PR 4a → PR 3d branch, position 8/16)
+## Phase 4a: Typed store + 4 read + 4 write sites (PR 4a → PR 3c-iv-barrel branch, position 12/22)
 
 Slices predecessor tasks 4.1 + 4.2
 (`src/modules/browser-state/{store,keys,defaults}.ts` + 4 read
-+ 4 write sites inside `useEffect`). Depends on PR 3c-iv
-(design-system barrel loaded); produces
++ 4 write sites inside `useEffect`). Depends on PR 3c-iv-barrel
+(design-system barrel + Icon/Button primitives loaded; **per
+the 3c-iv five-slice replan, design-system consumers depend on
+barrel, NOT on the former single PR 3c-iv**); produces
 `src/modules/browser-state/**` typed store with four read + four
 write sites.
 
@@ -1331,7 +1319,7 @@ system barrel loaded for `next build`; PR 3c-i ships the
 | 4b.5 | same | same | same |
 | 4b.6 | `.venv/bin/python3 -m pytest tests/test_hydration_console.py -v` | `npx next build` exit 0; `out/_next/static/chunks/*.js` references the `@taxa/app-shell` barrel; Playwright zero-hydration-warnings against the integrated AppShell | `git revert <4b-sha>` reverts the AppShell integration delta in `src/app/{layout,page}.tsx` AND removes `src/modules/app-shell/**`; Phase 4a store stays |
 
-## Phase 5a: Taxonomy module port (PR 5a → PR 4b branch, position 10/16)
+## Phase 5a: Taxonomy module port (PR 5a → PR 4b branch, position 14/22)
 
 Slices predecessor tasks 5.1 + 5.2 + 5.3
 (`src/modules/taxonomy/{domain,application,infrastructure,
@@ -1458,7 +1446,7 @@ into.
 | 5a.1, 5a.7, 5a.8 | `.venv/bin/python3 -m pytest tests/test_taxonomy_infra.py -v` | `make api` boots uvicorn; `curl /api/domains` returns the JSON shape; Playwright tab-strip witness exits 0 | `git revert <5a-sha>` removes `src/modules/taxonomy/**` (except `domain/taxon.ts` shipped by predecessor PR 2d — that stays); nothing else touched |
 | 5a.2–5a.6, 5a.9 | same | `npx next build` exits 0; `npx tsc --noEmit` against `src/modules/taxonomy/` | same |
 
-## Phase 5b: Research module port + CDN pin (PR 5b → PR 5a branch, position 11/16)
+## Phase 5b: Research module port + CDN pin (PR 5b → PR 5a branch, position 15/22)
 
 Slices predecessor tasks 5.4 + 5.5 + 5.6
 (`src/modules/research/{domain,application,infrastructure,
@@ -1604,15 +1592,17 @@ MUST NOT scope the explorer to that taxon).
 | 5b.1, 5b.8 | `.venv/bin/python3 -m pytest tests/test_research_infra.py -v` | `make api` boots uvicorn; `curl /api/taxon/<id>/files` returns the JSON shape; CDN URLs return 200 | `git revert <5b-sha>` removes `src/modules/research/**` and the `Browser` tab delta in `src/modules/app-shell/infrastructure/page-chrome.tsx`; `src/data/search-engines.js` (Phase 3d) stays |
 | 5b.2–5b.7, 5b.9 | same | `npx next build` exits 0; `npx tsc --noEmit` against `src/modules/research/` | same |
 
-## Phase 5c: E2E selectors + `data-*` contract + delete legacy (PR 5c → PR 5b branch, position 12/16)
+## Phase 5c: E2E selectors + `data-*` contract + delete legacy (PR 5c → PR 5b branch, position 16/22)
 
 Slices predecessor tasks 5.7 + 5.8 + 5.9 (Playwright + e2e
 selector updates + `data-*` contract preservation + delete
 `web/*.{html,js,css}` + `tailwind.config.js`). Depends on PR 5b
-(all UI components live) and PR 3c-iv (the final Tailwind 4
-parity test is on disk; the 1,963-line legacy inline CSS has
-been migrated into `src/app/globals.css` end-to-end and is
-ready to be retired).
+(all UI components live) and PR 3c-iv-colors (the final
+Tailwind 4 parity test is on disk — **per the 3c-iv five-slice
+replan, final CSS consumers depend on colors, NOT on the
+former single PR 3c-iv** — the 1,963-line legacy inline CSS
+has been migrated into `src/app/globals.css` end-to-end via
+the five-child 3c-iv sub-sequence and is ready to be retired).
 
 **PR 5c re-split (this entry, supersedes the inline 5c.1–5c.7 enumeration
 for the next code worktree)**. The seven-TDD sub-PRs below collapse
@@ -2267,3 +2257,7 @@ and the animations / utilities / design-system barrel can
 - **The fifth user-approved size:exception for the CSS-only repair authored-LoC delta (this entry, opens a fifth size:exception alongside the existing PR 3a + PR 3c-ii + PR 3c-iii + PR 5.5 exceptions; PR 3a is a generated-resolution-only lockfile exception and stays open; PR 3c-ii is an authored-LoC exception for the taxonomy-tree CSS slice and stays open; PR 3c-iii is an authored-LoC exception for the Search/Folder/global Browser CSS slice and stays open; PR 5.5 is a generated-resolution-only lockfile exception and stays open; the present PR 5.6 exception is an authored-LoC exception for the CSS-only DOM↔CSS structural parity repair)**: the actual implementation required **491 insertions and 64 deletions in `src/app/globals.css` (net +427) + 539 insertions and 53 deletions in `tests/test_tailwind_4_parity.py` (net +486) — total authored LoC delta ≈ 1,147 across the two files**, against the prior `~120 LoC` estimate for the CSS-only repair alone. The implementation overshoots the 400-line per-PR review budget that Approach A locked on 2026-09-02 by **+747 LoC** and the prior `~120 LoC` estimate by **+1,027 LoC**. The contributor breakdown: (a) the 15 React-emitted structural hook rules + the 9 state selector rules + the 2 collapsed descendant rules + the 1 kebab selector bridge + the 7 visible-state / chainable / scrollable triangulation declarations together account for the bulk of the `src/app/globals.css` LoC (the rules are inherently larger than the legacy `@layer base` rules because the React surface adds `:hover` + `:focus-visible` + `[data-selected="true"]` + `.active` + `[data-tab="..."]` + `[data-action="toggle-kebab"]` state selectors per hook); (b) the 37 new PR 5.6 test cases + the 3 repurpose docstring updates + the 2 `TAXONOMY_SELECTORS` updates together account for the bulk of the `tests/test_tailwind_4_parity.py` LoC (the parametrized selector catalogue is the dominant contributor, mirroring the PR 3c-ii / PR 3c-iii pattern). **Authorization rationale** (why a single reviewable PR is preferred over further slicing): (a) the 15 React-emitted structural hooks + the 9 state selectors + the 2 collapsed descendant rules + the 1 kebab selector bridge + the 5 visible-state / chainable / scrollable triangulation declarations are INSEPARABLE from the 3 React components they target — the `.taxa-tree` + `.tree-row` + `[data-selected="true"]` selectors only make sense together (the React `<Tree>` emits them as a unit), the `.tab-strip > .tab-button` + `.active` + `[data-tab="..."]` selectors only make sense together (the React `<TabStrip>` emits them as a unit), and the `.kebab` + `.kebab > button[data-action="toggle-kebab"]` + `.kebab > .kebab-menu` + `.kebab > .kebab-menu.open` selectors only make sense together (the React `<Kebab>` emits them as a unit); (b) splitting PR 5.6 further into a 5.6-a / 5.6-b / 5.6-c triple (tree / detail / kebab) would duplicate the source-CSS + test-enumeration surface across three PRs and force the later children to re-touch selectors the earlier children already locked — duplicating the planning defect the four-child 3c sub-sequence already closed; (c) the 37 test cases are themselves an inseparable slice (splitting the parametrized selector catalogue across three PRs would leave a half-coherent test that nobody can review coherently and would still need to be re-merged at PR 5c); (d) the CSS-only repair lives entirely in `src/app/globals.css` + `tests/test_tailwind_4_parity.py` — a single reviewable diff surface (two files) without any cross-cutting concern.
 - **G2 production-candidate evidence gap (PR 5.6 closes the BROWSER-LAYER half but does NOT flip G2; G2 remains pending the full Phase 6 capture)**. The prior chain (PR 5.5) closed the BUILD-PIPELINE half of the G2 evidence gap (the `@tailwindcss/postcss` expansion makes every `var(--token)` reference resolve at runtime, the Tailwind preflight paints, the compiled CSS bundle carries every React-emitted className the CSS rules target). PR 5.6 closes the BROWSER-LAYER half: the React-emitted structural hooks (`.taxa-tree` + `.tree-row[data-selected="true"]` + `.tab-strip > .tab-button.active` + `.breadcrumb` + `.detail-body` + the `.kebab > button[data-action="toggle-kebab"]` selector bridge) now have non-empty CSS rules in `src/app/globals.css` AND the compiled CSS bundle at `out/_next/static/chunks/2c4tn6w2gxss3.css` post-PR-5.6 contains those rules (the rule shapes survive the Turbopack minification intact — verified via the new `tests/test_5_6_*` parametrized tests, every selector appears in the source CSS and is asserted to resolve under `@layer components`). **What PR 5.6 does NOT close**: the actual visual rendering against `127.0.0.1:8765` — a real Chromium / Playwright capture is still required to prove that the static-export bundle paints the React-emitted structural hooks as visibly structural + interactive. G2 production-candidate remains **PASS-pending-Phase-6-capture**, NOT flipped by PR 5.6 alone. The browser capture is the Phase 6a validation work, not PR 5.6.
 - **Spanish mirror** (`documents-es/openspec/changes/complete-taxa-frontend-migration/tasks-es.md`) carries the same semantics; any drift is resolved in favour of the English. No rebase; no new branch; no commit/push; no PR open.
+
+## Addendum — 2026-09-09: PR 3c-iv five-slice replan (documentation-only; chain expands from 18 children to 22 children; user-approved documentation size exception to keep all six OpenSpec files internally coherent) (append-only)
+
+- **PR 3c-iv five-slice replan authorized (this entry, replaces the former single PR 3c-iv with five linear reviewable children at positions 6/22 through 10/22, renumbers the downstream 3d → 4a → 4b → 5a → 5b → 5c → 6a → 6b → 6c → 3e children to keep the dependency contract linear, expands the chain from 18 children to 22 children including the existing PR 5.5 + PR 5.6 fractional repairs, opens the user-approved documentation size exception necessary to keep all six OpenSpec files — the three EN/ES `tasks` + `design` + `apply-progress` mirrors — internally coherent under this single planning revision; this is a planning-only change; no code slice is implemented, verified, merged, or approved for delivery by this addendum)**. The user authorized splitting the existing single `PR 3c-iv` (former `feat/complete-taxa-frontend-migration-06-3c-iv`, then `…-08-3c-iv` after PR 5.5 + PR 5.6 renumbering) into **five linear ≤ 400 authored-line children** (`3c-iv-barrel`, `3c-iv-keyframes`, `3c-iv-viewer`, `3c-iv-settings`, `3c-iv-colors`) because the former single PR's surface was heterogeneous — it bundled the design-system barrel + the legacy `@keyframes` rules + the image / video viewer frames + the Settings view + the Tailwind `--color-*` namespace aliases — which is unsatisfiable as a single ≤ 400 LoC PR while preserving the binding dependency contract. The five-slice replan replaces the single branch with five new branches, each ≤ 400 authored LoC and each carrying exactly one of the five concerns the former single PR bundled together. **Required target topology (replaces the former single PR 3c-iv with five children, in linear dependency order)**: (1) `3c-iv-barrel`, branch `feat/complete-taxa-frontend-migration-06-3c-iv-barrel`, **based on the existing PR 5.6 DOM↔CSS structural parity repair predecessor** (`feat/complete-taxa-frontend-migration-18-3c-iv-barrel` predecessor slot; the predecessor is the prior 5.6 base commit): ships the design-system barrel (`src/modules/design-system/infrastructure/index.ts`) + the `<Icon>` Material Symbols Outlined glyph wrapper + the `<Button>` layout primitive + the design-system purity test (`tests/test_design_system_purity.py`). (2) `3c-iv-keyframes`, branch `feat/complete-taxa-frontend-migration-07-3c-iv-keyframes`, based on `…-06-3c-iv-barrel`: ships the five legacy `@keyframes` rules (`detail-card-enter`, `detail-card-leave`, `search-pulse-anim`, `materialize-spin`, `toast-slide-in`) + the `.animate-spin` utility class parity contract. (3) `3c-iv-viewer`, branch `feat/complete-taxa-frontend-migration-08-3c-iv-viewer`, based on `…-07-3c-iv-keyframes`: ships the image + video viewer CSS parity selectors (`.fex-image-frame`, `.fex-image`, `.fex-image-advisory`, `.fex-video-frame`, `.fex-video-el`). (4) `3c-iv-settings`, branch `feat/complete-taxa-frontend-migration-09-3c-iv-settings`, based on `…-08-3c-iv-viewer`: ships the Settings view CSS parity selectors (`.settings-shell`, `.settings-header`, `.settings-list`, `.settings-row`, `.settings-row-text`, `.settings-row-title`, `.settings-row-description`, `.settings-row-control`, `.settings-theme-toggle`, `.settings-theme-btn`, `.settings-theme-btn-active`, `.settings-action-btn`, `.settings-link-btn`). (5) `3c-iv-colors`, branch `feat/complete-taxa-frontend-migration-10-3c-iv-colors`, based on `…-09-3c-iv-settings`: ships the Tailwind `--color-*` namespace aliases + the legacy utility class parity contract (`bg-primary`, `text-on-surface`, `border-outline-variant`, `bg-surface-container-lowest`, `bg-primary-fixed`, `text-on-primary-fixed`, `bg-surface`, `text-outline`, `text-on-surface-variant`, `hover:text-on-surface`, `focus:border-primary`, `focus:ring-primary/20`, `transition-all`, `transition-colors`, `font-h1`, `text-h1`, `font-body-md`, `text-body-sm`, `fixed`, `top-0`, `w-full`, `z-50`, `bg-surface/95`, `backdrop-blur-md`, `shadow-[0_1px_8px_rgba(0,0,0,0.04)]`, `h-16`, `px-row-padding-x`, `flex`, `items-center`, `justify-between`, `gap-gutter`, `min-w-0`, `whitespace-nowrap`, `relative`, `w-64`, `lg:w-96`, `absolute`, `left-3`, `top-1/2`, `-translate-y-1/2`, `text-[18px]`, `py-2`, `pl-10`, `pr-4`, `rounded-xl`, `focus:outline-none`, `focus:ring-2`, `shrink-0`, `aria-pressed`). **Downstream renumbering (chain expands from 18 children to 22 children; PR 5.5 stays at 5.5/22, PR 5.6 stays at 5.6/22)**: PR 3d (Makefile/mount) renumbers `7/16 → 8/18 → 11/22`; PR 4a (typed store) renumbers `8/16 → 9/18 → 12/22`; PR 4b (hydration guard) renumbers `9/16 → 10/18 → 13/22`; PR 5a (taxonomy port) renumbers `10/16 → 11/18 → 14/22`; PR 5b (research port + CDN pin) renumbers `11/16 → 12/18 → 15/22`; PR 5c (e2e + delete legacy) renumbers `12/16 → 13/18 → 16/22`; PR 6a (G5) renumbers `13/16 → 14/18 → 17/22`; PR 6b (G6) renumbers `14/16 → 15/18 → 18/22`; PR 6c (G4 measurement) renumbers `15/16 → 16/18 → 19/22`; PR 3e (atomic cutover) renumbers `16/16 → 17/18 → 20/22`. **Downstream dependency corrections (binding under this replan, replaces the prior 3c-iv dependency statements throughout this file)**: (a) **PR 3d (Makefile/mount) and PR 5c (delete legacy) now depend on PR 3c-iv-colors** — these are the consumers of the complete Tailwind 4 cascade (`next build` produces a complete CSS payload because every `--color-*` alias resolves at the colors step). (b) **PR 4a (typed store) now depends on PR 3c-iv-barrel** — PR 4a's typed store consumes the design-system `<Icon>` + `<Button>` primitives only (it does not need keyframes / viewer / settings / colors to be in place). (c) **The 3c-iv sub-sequence forms a five-link linear chain**: barrel → keyframes → viewer → settings → colors; each child targets its immediate predecessor branch; no downstream consumer reaches across the sub-sequence to a non-terminal child (design-system consumers depend on barrel; final CSS consumers depend on colors; intermediate children carry their respective parity contracts but no other child depends on them). **No active reference to the old single branch** (`feat/complete-taxa-frontend-migration-06-3c-iv` or its post-5.5/5.6 renumbered `…-08-3c-iv`) **remains in the active topology after this addendum** — every prior inline reference to the single `3c-iv` (the `Scope boundary` line, the `Dependency-order contract` line, the `Review Workload Forecast`, the chain strategy line, the `PR 3c sub-sequence replan rationale` callout, the chain topology table, the dependency diagram, the per-PR dependency description for PR 3d / PR 4a / PR 5c, the Order line, the `Phase 3c-iv` detailed task section, and the 5.5 + 5.6 addenda's "3c-iv renumbered to 8/18" cross-references) is updated by this replan to reflect the five-slice structure: the single PR 3c-iv is decomposed into five children at positions 6/22 through 10/22; the former single `~280 LoC` aggregate budget is decomposed into five per-child budgets (barrel ~120, keyframes ~80, viewer ~50, settings ~50, colors ~80 — sum ~380 LoC, ≤ 400 with −20 LoC headroom across the five children); the dependency diagram is re-drawn with the five-child sub-sequence between PR 5.6 and PR 3d; the per-PR dependency descriptions for PR 3d / PR 4a / PR 5c are corrected to point at the appropriate terminal child of the new sub-sequence (3c-iv-colors for 3d + 5c; 3c-iv-barrel for 4a). **What this replan explicitly does NOT claim**: (i) **No code slice is implemented, verified, merged, or approved for delivery by this addendum** — this is a planning-only revision; (ii) **No new `size:exception` is opened for the 3c-iv five-slice replan itself** — the existing PR 3a (generated-lockfile-only) + PR 3c-ii (taxonomy CSS slice authored-LoC) + PR 3c-iii (Search/Folder/global Browser CSS slice authored-LoC) + PR 5.5 (regenerated-lockfile) + PR 5.6 (CSS-only DOM↔CSS authored-LoC) exceptions stay open unchanged; the present replan opens the user-approved **documentation** size exception necessary to keep all six OpenSpec files internally coherent under a single planning revision, not a code slice exception; (iii) No `gentle-ai review mode` is enabled; no branch is created; no commit is authored; no push happens; no PR opens; review / CI / merge follow the ordinary feature-branch-chain process once the user-authorized parent task completes. **Preserved (binding, this entry)**: every prior addendum (`5c.1a`, `5c.1b-A`, `5c.1b-B`, `5c.2-A`, `5c.2-B.1a`, `5c.2-B.1b-i`, `5c.2-B.1b-ii-a`, `5c.2-B.1b-ii-b`, `5c.2-B.1b-ii-c`, `3c-ii`, `3c-iii`, `5.5`, `5.6`) remains in the change log as historical audit record; the **frozen predecessor restriction** on `openspec/changes/migrate-nextjs-tailwind4/**` stays binding; **G4 / G5 / G6 status stays unchanged** — G5 remains PASS-pending-Phase-6-capture (recorded PASS from the user-approved replacement protocol), G4 stays blocked (verifier not authored), G6 stays blocked, PR 3e (atomic cutover) stays gated on G1 + G2 + G3 Tier-1 + G3 Tier-2 + G4 + G5 + G6 closure; the **Approach A lock** stays FINAL; the **FastAPI/SQLite foundation** stays unchanged; the **Feature Branch Chain strategy** stays unchanged; the **per-domain specs** stay unchanged; the **EN/ES mirror fidelity** stays binding (any drift is resolved in favour of the English). **Spanish mirror** (`documents-es/openspec/changes/complete-taxa-frontend-migration/tasks-es.md` + the four other ES mirrors) carries the same semantics; any drift is resolved in favour of the English. No rebase; no new branch; no commit/push; no PR open.

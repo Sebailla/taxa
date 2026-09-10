@@ -132,39 +132,57 @@
 | PR 3c-i | **Tokens / base / dark mode** (NEW position 3; bases off the tracker after PR #146) | ~390 (≤ 400; -10 LoC headroom) | `src/app/globals.css` (new, `@import "tailwindcss"` + `@theme` block with every legacy `:root` token + `[data-theme="dark"]` cascade + `--realm-*` family) + `@layer base` (body / html / `main > :first-child` resets + global focus-visible selectors) + `tests/test_tailwind_4_parity.py` (new, `:root` token slice) | reconstruction pending (first child of the 3c sub-sequence) |
 | PR 3c-ii | **Taxonomy tree / detail styling** (NEW position 4; depends on 3c-i) | ~380 (≤ 400; -20 LoC headroom) | `src/app/globals.css` (extended, taxonomy selectors: `.tier-header`, `.tree-row`, `.rank-badge`, `.scientific-name`, `.tree-source-toggle`, `#detail-panel`, `.detail-card`, `.detail-section`, `.overview-section`, `.detail-item`, `.search-pulse`, `.detail-tabs`, `.search-icon-btn`, `.materialize-btn`, kebab, materialize modal, realm-tinted `.tree-row[data-realm="…"]` variants) + `tests/test_tailwind_4_parity.py` (taxonomy selector slice) | reconstruction pending |
 | PR 3c-iii | **Search / Folder / global Browser styling** (NEW position 5; depends on 3c-ii) | ~390 (≤ 400; -10 LoC headroom) | `src/app/globals.css` (extended, browser / search / folder selectors: `.toast`, `.search-engines-grid`, `.search-category-header`, `.search-engine-btn`, `.fex-meta-strip`, `.fex-tab-strip`, `.fex-snippet-frame`, `.fex-shell`, `.fex-tree-pane`, `.fex-viewer-pane`, `.fex-splitter`, `.fex-row`, `.fex-tree-header`, `.fex-children`, `.fex-banner`, `.fex-empty-state`, `.fex-search-*`, `.fex-csv-*`, `.fex-json-*`, `.fex-tree-truncated`) + `tests/test_tailwind_4_parity.py` (browser selector slice) | reconstruction pending |
-| PR 3c-iv | **Animations / utilities + final CSS parity + design-system barrel** (NEW position 6; depends on 3c-iii) | ~280 (≤ 400; -120 LoC headroom) | `src/app/globals.css` (extended, `@keyframes` rules, `.animate-spin`, image / video viewer frames, Settings view selectors) + `src/modules/design-system/{infrastructure/index.ts,presentation/Icon.tsx,presentation/Button.tsx}` (new) + `tests/test_tailwind_4_parity.py` (`@keyframes` + utility-class enumeration) + `tests/test_design_system_purity.py` (new) | reconstruction pending |
-| PR 3d | **Makefile/mount** (position 7; depends on 3c-iv + 3b) | ~240 | `Makefile` (modified, `api:` target runs `check-runtime.mjs` → `npm ci` → `npm run build:web` → `uvicorn … --port 8765`; `make css` becomes no-op shim) + `api/server.py` (modified, 1-line delta at line 54, `WEB_DIR = Path(__file__).parent.parent / "out"`) + `src/data/search-engines.js` (new, byte copy of `web/search_urls.js` with `SEARCH_ENGINES` named export) + `tests/test_smoke.py` (modified, `open()` path update) + `tests/test_static_mount.py` (new) + `tests/test_make_api_build.py` (new) | reconstruction pending |
-| PR 4a | Typed store + 4 read + 4 write (position 8; unchanged scope) | ~180 | `src/modules/browser-state/{domain/keys.ts,infrastructure/store.ts,index.ts}` (new) + `tests/test_browser_state_keys.py` (new) | reconstruction pending |
-| PR 4b | Hydration guard + Playwright zero-warnings (position 9; unchanged scope) | ~90 | `src/modules/app-shell/{presentation/AppShell.tsx,infrastructure/page-chrome.tsx}` (new) + `tests/test_hydration_console.py` (new, Playwright) | reconstruction pending |
-| PR 5a | Taxonomy module port (position 10; unchanged scope) | ~280 | `src/modules/taxonomy/{domain/taxon.ts,infrastructure/api.ts,application/useTaxonTree.ts,presentation/{Tree,DetailPanel,Breadcrumb}.tsx}` (new + extension) + `tests/test_taxonomy_infra.py` (new) | reconstruction pending |
-| PR 5b | Research module port + CDN pin (position 11; unchanged scope) | ~360 | `src/modules/research/{domain/{research-file,engine,file-node}.ts,infrastructure/{api,search-engines}.{ts,js},application/{useFileExplorer,useFileViewer}.ts,presentation/{FileExplorer,FileViewer,RawTableTreeTabs,MetaStrip,BreadcrumbPanel,Banners}.tsx}` (new) + `tests/test_research_infra.py` (new) | reconstruction pending |
-| PR 5c | E2E selectors + `data-*` contract + delete legacy (position 12; unchanged scope) | ~200 | `tests/test_e2e_file_explorer.py` (modified, DOM selector update) + `tests/test_web_toggle.py` (modified, theme toggle update) + `tests/test_evidence_baseline.py` (modified, legacy roster assertion flips to "absent") + `web/{index.html,index.css}` deletion + `web/{app,state,api,tree,breadcrumb,detail,nav,dom,banner,help,keymap,settings,search,file_explorer,file_viewer,format,search_urls}.js` deletion (18 files) + `tailwind.config.js` deletion + `web/dist/tailwind.css` no longer tracked | reconstruction pending |
-| Phase 6a | G5 hydration baseline closure (position 13; unchanged scope) | ~50 (mostly measurement) | `scripts/reconstruct_hydration_baseline.py` (new) + `scripts/g5_close.sh` (new) + `web/dist/evidence-baseline.json` (regenerated, schema-pinned by `tests/test_hydration_timing.py`) + `apply-progress.md` §Change log delta | reconstruction pending (validation work after candidate path) |
-| Phase 6b | G6 cutover rehearsal (position 14; unchanged scope) | ~120 | `scripts/rehearse_cutover.py` (new) + `tests/test_rehearse_cutover.py` (new) + `openspec/changes/complete-taxa-frontend-migration/cutover-manifest.json` (working copy; predecessor copy stays byte-identical frozen) + `apply-progress.md` §Change log delta | reconstruction pending (validation work after candidate path) |
-| Phase 6c | G4 Playwright + Lighthouse parity (position 15; unchanged scope) | ~20 (mostly measurement) | `scripts/g4_measure.sh` (new) + `out/g4-parity-report.json` (Playwright + Lighthouse artifact) + `apply-progress.md` §Change log delta | reconstruction pending (validation work after candidate path) |
+| PR 5.5 (landed, repair) | **Tailwind 4 / PostCSS pipeline repair** (position 5.5/22; interpolated between PR 3c-iii and the 3c-iv sub-sequence; depends on PR 3c-iii) | ~259 authored (≤ 400; −141 LoC headroom); user-approved regenerated-lockfile exception | `package.json` (+2 deps: `@tailwindcss/postcss@^4.3.3` + `postcss@^8.5.0`) + `postcss.config.mjs` (new; ESM; registers `@tailwindcss/postcss`) + regenerated `package-lock.json` (user-approved size:exception; 16 new tailwind/postcss entries; total 121 packages) + `tests/test_toolchain_bootstrap.py` (updated: `REQUIRED_DEPS_PRODUCTION` expanded; `FORBIDDEN_LEGACY_DEPS` shrunk) + `tests/test_tailwind_build_pipeline.py` (new; 7 cases; real `next build` + compiled-CSS artifact assertions) | landed (build-pipeline repair; G2-PASS-pending-Phase-6-capture; no G3 Tier-2 / cutover status flip) |
+| PR 5.6 (landed, repair) | **DOM↔CSS structural parity repair** (position 5.6/22; interpolated between PR 5.5 and the 3c-iv sub-sequence; depends on PR 5.5 + PR 5a + PR 5b) | ~1,147 across two files (491 + 64 in `src/app/globals.css` + 539 + 53 in `tests/test_tailwind_4_parity.py`); user-approved CSS-only authored-LoC exception | `src/app/globals.css` (CSS-only repair: 15 React-emitted structural hooks + 9 state selectors + 2 collapsed descendant rules + 1 kebab selector bridge + 5 visible-state / chainable / scrollable triangulation declarations; legacy `data-realm` realm-tinted + dead `.kebab-trigger` + dead `.detail-item .authorship` rules REMOVED; `.scientific-name` MOVED to `@layer components`) + `tests/test_tailwind_4_parity.py` (+37 PR 5.6 test cases; 3 pre-existing PR 3c-ii realm-tinted tests REPURPOSED to assert dead-code absence; `TAXONOMY_SELECTORS` constant updated) | landed (browser-layer repair; G2-PASS-pending-Phase-6-capture; no G3 Tier-2 / cutover status flip) |
+| PR 3c-iv-barrel | **Design-system barrel + Icon/Button primitives + purity test** (NEW position 6/22; first child of the 3c-iv sub-sequence; depends on PR 5.6 DOM↔CSS structural parity repair predecessor) | ~120 (≤ 400; -280 LoC headroom) | `src/modules/design-system/infrastructure/index.ts` (new, barrel + typed theme tokens) + `src/modules/design-system/presentation/{Icon.tsx,Button.tsx}` (new) + `tests/test_design_system_purity.py` (new, parametrized hex-literal grep guard) | reconstruction pending |
+| PR 3c-iv-keyframes | **Five legacy `@keyframes` + `.animate-spin` parity** (NEW position 7/22; depends on 3c-iv-barrel) | ~80 (≤ 400; -320 LoC headroom) | `src/app/globals.css` (extended, `@keyframes detail-card-enter` / `detail-card-leave` / `search-pulse-anim` / `materialize-spin` / `toast-slide-in` + `.animate-spin` utility) + `tests/test_tailwind_4_parity.py` (`@keyframes` slice) | reconstruction pending |
+| PR 3c-iv-viewer | **Image / video viewer CSS parity** (NEW position 8/22; depends on 3c-iv-keyframes) | ~50 (≤ 400; -350 LoC headroom) | `src/app/globals.css` (extended, `.fex-image-frame` / `.fex-image` / `.fex-image-advisory` / `.fex-video-frame` / `.fex-video-el`) + `tests/test_tailwind_4_parity.py` (viewer slice) | reconstruction pending |
+| PR 3c-iv-settings | **Settings view CSS parity** (NEW position 9/22; depends on 3c-iv-viewer) | ~50 (≤ 400; -350 LoC headroom) | `src/app/globals.css` (extended, `.settings-shell` / `.settings-header` / `.settings-list` / `.settings-row*` / `.settings-theme-toggle` / `.settings-action-btn` / `.settings-link-btn`) + `tests/test_tailwind_4_parity.py` (Settings slice) | reconstruction pending |
+| PR 3c-iv-colors | **Tailwind `--color-*` namespace aliases + utility parity** (NEW position 10/22; depends on 3c-iv-settings; terminal child of the 3c-iv sub-sequence) | ~80 (≤ 400; -320 LoC headroom) | `src/app/globals.css` (extended, Tailwind `--color-*` namespace aliases + legacy utility class parity) + `tests/test_tailwind_4_parity.py` (utility slice) | reconstruction pending |
+| PR 3d | **Makefile/mount** (position 11/22; depends on 3c-iv-colors + 3b — **final CSS consumers depend on colors, per the 3c-iv five-slice replan**) | ~240 | `Makefile` (modified, `api:` target runs `check-runtime.mjs` → `npm ci` → `npm run build:web` → `uvicorn … --port 8765`; `make css` becomes no-op shim) + `api/server.py` (modified, 1-line delta at line 54, `WEB_DIR = Path(__file__).parent.parent / "out"`) + `src/data/search-engines.js` (new, byte copy of `web/search_urls.js` with `SEARCH_ENGINES` named export) + `tests/test_smoke.py` (modified, `open()` path update) + `tests/test_static_mount.py` (new) + `tests/test_make_api_build.py` (new) | reconstruction pending |
+| PR 4a | Typed store + 4 read + 4 write (position 12/22; depends on **3c-iv-barrel**, NOT on the former single PR 3c-iv — **design-system consumers depend on barrel, per the 3c-iv five-slice replan**) | ~180 | `src/modules/browser-state/{domain/keys.ts,infrastructure/store.ts,index.ts}` (new) + `tests/test_browser_state_keys.py` (new) | reconstruction pending |
+| PR 4b | Hydration guard + Playwright zero-warnings (position 13/22; unchanged scope) | ~90 | `src/modules/app-shell/{presentation/AppShell.tsx,infrastructure/page-chrome.tsx}` (new) + `tests/test_hydration_console.py` (new, Playwright) | reconstruction pending |
+| PR 5a | Taxonomy module port (position 14/22; unchanged scope) | ~280 | `src/modules/taxonomy/{domain/taxon.ts,infrastructure/api.ts,application/useTaxonTree.ts,presentation/{Tree,DetailPanel,Breadcrumb}.tsx}` (new + extension) + `tests/test_taxonomy_infra.py` (new) | reconstruction pending |
+| PR 5b | Research module port + CDN pin (position 15/22; unchanged scope) | ~360 | `src/modules/research/{domain/{research-file,engine,file-node}.ts,infrastructure/{api,search-engines}.{ts,js},application/{useFileExplorer,useFileViewer}.ts,presentation/{FileExplorer,FileViewer,RawTableTreeTabs,MetaStrip,BreadcrumbPanel,Banners}.tsx}` (new) + `tests/test_research_infra.py` (new) | reconstruction pending |
+| PR 5c | E2E selectors + `data-*` contract + delete legacy (position 16/22; depends on 5b + **3c-iv-colors** — **final CSS consumers depend on colors, per the 3c-iv five-slice replan**) | ~200 | `tests/test_e2e_file_explorer.py` (modified, DOM selector update) + `tests/test_web_toggle.py` (modified, theme toggle update) + `tests/test_evidence_baseline.py` (modified, legacy roster assertion flips to "absent") + `web/{index.html,index.css}` deletion + `web/{app,state,api,tree,breadcrumb,detail,nav,dom,banner,help,keymap,settings,search,file_explorer,file_viewer,format,search_urls}.js` deletion (18 files) + `tailwind.config.js` deletion + `web/dist/tailwind.css` no longer tracked | reconstruction pending |
+| Phase 6a | G5 hydration baseline closure (position 17/22; unchanged scope) | ~50 (mostly measurement) | `scripts/reconstruct_hydration_baseline.py` (new) + `scripts/g5_close.sh` (new) + `web/dist/evidence-baseline.json` (regenerated, schema-pinned by `tests/test_hydration_timing.py`) + `apply-progress.md` §Change log delta | reconstruction pending (validation work after candidate path) |
+| Phase 6b | G6 cutover rehearsal (position 18/22; unchanged scope) | ~120 | `scripts/rehearse_cutover.py` (new) + `tests/test_rehearse_cutover.py` (new) + `openspec/changes/complete-taxa-frontend-migration/cutover-manifest.json` (working copy; predecessor copy stays byte-identical frozen) + `apply-progress.md` §Change log delta | reconstruction pending (validation work after candidate path) |
+| Phase 6c | G4 Playwright + Lighthouse parity (position 19/22; unchanged scope) | ~20 (mostly measurement) | `scripts/g4_measure.sh` (new) + `out/g4-parity-report.json` (Playwright + Lighthouse artifact) + `apply-progress.md` §Change log delta | reconstruction pending (validation work after candidate path) |
 | Phase 6c slice 6c.0 (landed, non-closing) | G4 navigation-only sub-slice | ~400 (producer) + ~200 (tests) + ~15 (Makefile) | `tools/g4-capture/scripts/parity_navigation.mjs` (new; Playwright driver; isolated pinned `playwright@1.49.1`) + `tools/g4-capture/package.json` (1-line delta; `playwright@1.49.1`) + `tools/g4-capture/package-lock.json` (regenerated via `npm install --package-lock-only`) + `tests/test_capture_parity.py` (25 new hermetic tests) + `Makefile` (`parity-navigation` target) + `tools/g4-capture/README.md` (slice 3 contract documented as non-closing) + `apply-progress.md` §Change log delta | landed (navigation-only; G4 stays blocked; no G3 Tier-2 / cutover status flip) |
 | PR 5c.2-B.1b-i (landed, non-closing) | React export capture CLI + Chromium navigation runner | ~250 authored (run.mjs + chromium-driver.mjs + README + package.json +3) + ~30 OpenSpec docs (EN+ES) | `tools/react-e2e-harness/scripts/run.mjs` (new; CLI; `--origin` + `--output-root` mandatory; fail-closed origin validation; atomic timestamped `evidence.json` only on success; dynamic `runFn` injection) + `tools/react-e2e-harness/scripts/chromium-driver.mjs` (new; headless Chromium navigation; dynamic `playwright` import; React data-contract assertions; concise trace; reliable browser close) + `tools/react-e2e-harness/package.json` (+3 lines; `scripts.capture = "node scripts/run.mjs"`) + `tools/react-e2e-harness/README.md` (concise caller-provided-origin usage + fail-closed list + deferral list) + 6 OpenSpec doc files (§Change log / §Addendum entries; deferral narrowed) | landed (capture CLI + runner only; G4 stays blocked; no G3 Tier-2 / cutover status flip; no fixture API server, no export HTTP server, no Makefile target, no hermetic driver tests, no legacy deletion, no G4 aggregation) |
 | PR 5c.2-B.1b-ii-c (landed, non-closing) | React E2E composition orchestrator + CLI driver + Makefile target + `capture:composed` package-script + hermetic composition test slice | ~25 authored delta on `composed-capture.mjs` (partial impl preserved; LOOPBACK_HOSTS + tightened `validateTaxonId`/`validateHost` + injected `startFixtureFn`/`startExportFn`) + ~289 authored on `tests/test_5c_2_b_react_harness.py` (composition block, 11 hermetic cases) + ~3 each in `tasks.md` / `tasks-es.md` (entry flip) + ~6 OpenSpec doc files (this addendum + mirror) | `tools/react-e2e-harness/scripts/composed-capture.mjs` (partial impl + validation tightening + injected `startFixtureFn`/`startExportFn`) + `Makefile` (existing `capture-react-e2e` recipe; requires `OUTPUT_ROOT`) + `tools/react-e2e-harness/package.json` (existing `scripts.capture:composed`) + `tests/test_5c_2_b_react_harness.py` (composition block) + 6 OpenSpec doc files | landed (composition + CLI + Makefile target + package script + hermetic test slice only; G4 stays blocked; no G3 Tier-2 / cutover status flip; no real Chromium execution; no e2e selector modernization; no legacy `web/*` deletion; no G4 aggregation) |
-| PR 3e | Atomic cutover (position 16; unchanged scope) | ~120 (mostly `apply-progress.md` delta) | `apply-progress.md` (gate-status footer flip + change-log entry) + re-runs of `tests/test_verify_consumers.py`, `tests/test_verify_build.py`, `make api`, `make smoke` | reconstruction pending (gated on all six gates green) |
+| PR 3e | Atomic cutover (position 20/22; unchanged scope) | ~120 (mostly `apply-progress.md` delta) | `apply-progress.md` (gate-status footer flip + change-log entry) + re-runs of `tests/test_verify_consumers.py`, `tests/test_verify_build.py`, `make api`, `make smoke` | reconstruction pending (gated on all six gates green) |
 
-**Sub-PR count**: **16** (1 toolchain bootstrap + 1 App Router
+**Sub-PR count**: **22** (1 toolchain bootstrap + 1 App Router
 static export + **4 3c sub-sequence** (tokens/base/dark, taxonomy
-tree/detail, Search/Folder/global Browser, animations/utilities +
-final CSS parity + design-system barrel) + 1 Makefile/mount + 2
+tree/detail, Search/Folder/global Browser; the former single
+PR 3c-iv was split into five children per the 3c-iv five-slice
+replan: 3c-iv-barrel + 3c-iv-keyframes + 3c-iv-viewer +
+3c-iv-settings + 3c-iv-colors) + **2 fractional repair
+children** (5.5 Tailwind 4 / PostCSS pipeline repair + 5.6
+DOM↔CSS structural parity repair, interpolated between PR
+3c-iii and the 3c-iv sub-sequence) + 1 Makefile/mount + 2
 browser-state + 2 capability ports + 1 e2e + delete legacy + 3
 Phase 6 validation + 1 atomic cutover).
 
-**Total authored**: ~3,485 LoC across the 16 sub-PRs (up from
+**Total authored**: ~3,485 LoC across the 22 sub-PRs (up from
 ~2,245 across 13 sub-PRs; the +1,240 delta is the full port of
 the legacy inline `<style>` block). Largest sub-PR is **3c-i at
 ~390 LoC** (under 400-line budget with -10 LoC headroom); the
-previously-largest 5b is now second at ~360 LoC. The sole
-`size:exception` is user-approved for PR 3a's regenerated
-`package-lock.json`; its authored work remains ≤400 and
-unrelated lockfile churn is rejected. **No new
-`size:exception`** is opened for the 3c sub-sequence. Heaviest
-of the new re-scoped sub-PRs is **3d** at ~240 LoC (under
-400-line budget with -160 LoC headroom).
+previously-largest 5b is now second at ~360 LoC. The user-approved
+`size:exception`s are PR 3a's regenerated `package-lock.json`
+(generated-resolution-only); PR 3c-ii taxonomy CSS slice
+(831 LoC overshoot); PR 3c-iii Search/Folder/global Browser CSS
+slice (1735 review lines); PR 5.5 regenerated `package-lock.json`
+(16 new tailwind/postcss entries); PR 5.6 CSS-only DOM↔CSS
+structural parity repair (~1,147 LoC across two files); **no new
+code-slice `size:exception` is opened for the 3c-iv five-slice
+replan itself** (the present replan opens the user-approved
+**documentation** size exception necessary to keep all six
+OpenSpec files internally coherent). Heaviest of the new re-scoped
+sub-PRs is **3d** at ~240 LoC (under 400-line budget with -160 LoC
+headroom); sum of the five 3c-iv children is ~380 LoC (under
+400-line budget with −20 LoC headroom).
 
 ### Reconstruction order (deterministic, sequential along the chain)
 
@@ -174,9 +192,17 @@ of the new re-scoped sub-PRs is **3d** at ~240 LoC (under
 3c-i (tokens / base / dark mode; bases off tracker) →
 3c-ii (taxonomy tree / detail styling) →
 3c-iii (Search / Folder / global Browser styling) →
-3c-iv (animations / utilities + final CSS parity + design-system barrel) →
+5.5 (Tailwind 4 / PostCSS pipeline repair; interpolated) →
+5.6 (DOM↔CSS structural parity repair; interpolated) →
+3c-iv-barrel (design-system barrel + Icon/Button + purity test) →
+3c-iv-keyframes (five @keyframes + .animate-spin) →
+3c-iv-viewer (image / video viewer CSS parity) →
+3c-iv-settings (Settings view CSS parity) →
+3c-iv-colors (Tailwind --color-* aliases + utility parity) →
 3d (Makefile/mount) →
-4a → 4b → 5a → 5b → 5c →
+4a (depends on 3c-iv-barrel; design-system consumers depend on barrel) →
+4b → 5a → 5b →
+5c (depends on 5b + 3c-iv-colors; final CSS consumers depend on colors) →
 6a (G5) → 6b (G6) → 6c (G4 measurement) →
 3e (atomic cutover, gated)
 ```
@@ -195,23 +221,29 @@ default for this change.
 
 | Position | Sub-PR | Branch | Base (PR target) |
 |---|---|---|---|
-| Tracker | — | `docs/complete-taxa-frontend-migration-plan` | `develop` — **draft / no-merge** (now carries PR #144 + PR #145 + PR #146 merges) |
-| 1 / 16 | 3a | `feat/complete-taxa-frontend-migration-01-3a` | `docs/complete-taxa-frontend-migration-plan` (tracker, **PR #144 merged**) |
-| 2 / 16 | 3b | `feat/complete-taxa-frontend-migration-02-3b` | `feat/complete-taxa-frontend-migration-01-3a` (**PR #145 merged**) |
-| 3 / 16 | 3c-i | `feat/complete-taxa-frontend-migration-03-3c-i` | `docs/complete-taxa-frontend-migration-plan` (tracker, **after PR #146 reconciliation merges**) |
-| 4 / 16 | 3c-ii | `feat/complete-taxa-frontend-migration-04-3c-ii` | `feat/complete-taxa-frontend-migration-03-3c-i` |
-| 5 / 16 | 3c-iii | `feat/complete-taxa-frontend-migration-05-3c-iii` | `feat/complete-taxa-frontend-migration-04-3c-ii` |
-| 6 / 16 | 3c-iv | `feat/complete-taxa-frontend-migration-06-3c-iv` | `feat/complete-taxa-frontend-migration-05-3c-iii` |
-| 7 / 16 | 3d | `feat/complete-taxa-frontend-migration-07-3d` | `feat/complete-taxa-frontend-migration-06-3c-iv` |
-| 8 / 16 | 4a | `feat/complete-taxa-frontend-migration-08-4a` | `feat/complete-taxa-frontend-migration-07-3d` |
-| 9 / 16 | 4b | `feat/complete-taxa-frontend-migration-09-4b` | `feat/complete-taxa-frontend-migration-08-4a` |
-| 10 / 16 | 5a | `feat/complete-taxa-frontend-migration-10-5a` | `feat/complete-taxa-frontend-migration-09-4b` |
-| 11 / 16 | 5b | `feat/complete-taxa-frontend-migration-11-5b` | `feat/complete-taxa-frontend-migration-10-5a` |
-| 12 / 16 | 5c | `feat/complete-taxa-frontend-migration-12-5c` | `feat/complete-taxa-frontend-migration-11-5b` |
-| 13 / 16 | 6a | `feat/complete-taxa-frontend-migration-13-6a` | `feat/complete-taxa-frontend-migration-12-5c` |
-| 14 / 16 | 6b | `feat/complete-taxa-frontend-migration-14-6b` | `feat/complete-taxa-frontend-migration-13-6a` |
-| 15 / 16 | 6c | `feat/complete-taxa-frontend-migration-15-6c` | `feat/complete-taxa-frontend-migration-14-6b` |
-| 16 / 16 | 3e | `feat/complete-taxa-frontend-migration-16-3e` | `feat/complete-taxa-frontend-migration-15-6c` |
+| Tracker | — | `docs/complete-taxa-frontend-migration-plan` | `develop` — **draft / no-merge** (now carries PR #144 + PR #145 + PR #146 + PR 5.5 + PR 5.6 merges) |
+| 1 / 22 | 3a | `feat/complete-taxa-frontend-migration-01-3a` | `docs/complete-taxa-frontend-migration-plan` (tracker, **PR #144 merged**) |
+| 2 / 22 | 3b | `feat/complete-taxa-frontend-migration-02-3b` | `feat/complete-taxa-frontend-migration-01-3a` (**PR #145 merged**) |
+| 3 / 22 | 3c-i | `feat/complete-taxa-frontend-migration-03-3c-i` | `docs/complete-taxa-frontend-migration-plan` (tracker, **after PR #146 reconciliation merges**) |
+| 4 / 22 | 3c-ii | `feat/complete-taxa-frontend-migration-04-3c-ii` | `feat/complete-taxa-frontend-migration-03-3c-i` |
+| 5 / 22 | 3c-iii | `feat/complete-taxa-frontend-migration-05-3c-iii` | `feat/complete-taxa-frontend-migration-04-3c-ii` |
+| 5.5 / 22 | 5.5 (landed) | `feat/complete-taxa-frontend-migration-05-5-3c-iv-predecessor` | `feat/complete-taxa-frontend-migration-05-3c-iii` |
+| 5.6 / 22 | 5.6 (landed) | `feat/complete-taxa-frontend-migration-05-6-3c-iv-predecessor` | `feat/complete-taxa-frontend-migration-05-5-3c-iv-predecessor` |
+| 6 / 22 | 3c-iv-barrel | `feat/complete-taxa-frontend-migration-06-3c-iv-barrel` | `feat/complete-taxa-frontend-migration-05-6-3c-iv-predecessor` (post-PR-5.6 base commit; per the 3c-iv five-slice replan) |
+| 7 / 22 | 3c-iv-keyframes | `feat/complete-taxa-frontend-migration-07-3c-iv-keyframes` | `feat/complete-taxa-frontend-migration-06-3c-iv-barrel` |
+| 8 / 22 | 3c-iv-viewer | `feat/complete-taxa-frontend-migration-08-3c-iv-viewer` | `feat/complete-taxa-frontend-migration-07-3c-iv-keyframes` |
+| 9 / 22 | 3c-iv-settings | `feat/complete-taxa-frontend-migration-09-3c-iv-settings` | `feat/complete-taxa-frontend-migration-08-3c-iv-viewer` |
+| 10 / 22 | 3c-iv-colors | `feat/complete-taxa-frontend-migration-10-3c-iv-colors` | `feat/complete-taxa-frontend-migration-09-3c-iv-settings` |
+| 11 / 22 | 3d | `feat/complete-taxa-frontend-migration-11-3d` | `feat/complete-taxa-frontend-migration-10-3c-iv-colors` (final CSS consumers depend on colors, per the 3c-iv five-slice replan) |
+| 12 / 22 | 4a | `feat/complete-taxa-frontend-migration-12-4a` | `feat/complete-taxa-frontend-migration-06-3c-iv-barrel` (design-system consumers depend on barrel, per the 3c-iv five-slice replan) |
+| 13 / 22 | 4b | `feat/complete-taxa-frontend-migration-13-4b` | `feat/complete-taxa-frontend-migration-12-4a` |
+| 14 / 22 | 5a | `feat/complete-taxa-frontend-migration-14-5a` | `feat/complete-taxa-frontend-migration-13-4b` |
+| 15 / 22 | 5b | `feat/complete-taxa-frontend-migration-15-5b` | `feat/complete-taxa-frontend-migration-14-5a` |
+| 16 / 22 | 5c | `feat/complete-taxa-frontend-migration-16-5c` | `feat/complete-taxa-frontend-migration-10-3c-iv-colors` (final CSS consumers depend on colors; per the 3c-iv five-slice replan; carries the immediate predecessor 5b via merge order, not via base-branch) |
+| 17 / 22 | 6a | `feat/complete-taxa-frontend-migration-17-6a` | `feat/complete-taxa-frontend-migration-16-5c` |
+| 18 / 22 | 6b | `feat/complete-taxa-frontend-migration-18-6b` | `feat/complete-taxa-frontend-migration-17-6a` |
+| 19 / 22 | 6c | `feat/complete-taxa-frontend-migration-19-6c` | `feat/complete-taxa-frontend-migration-18-6b` |
+| 20 / 22 | 3e | `feat/complete-taxa-frontend-migration-20-3e` | `feat/complete-taxa-frontend-migration-19-6c` |
 
 Children merge **in order** into the tracker; as each child
 merges, the next is retargeted onto the tracker (GitHub
@@ -219,8 +251,7 @@ retargets automatically when the base branch is merged and
 deleted). The tracker accumulates the full feature and merges
 to `develop` only after PR 3e — the last child — lands.
 
-**Per-sub-PR dependency (corrective plan revision + PR 3c
-sub-sequence replan contract)**:
+**Per-sub-PR dependency (corrective plan revision + PR 3c sub-sequence replan + 3c-iv five-slice replan contract)**:
 
 | Position | Depends on | Satisfies (witness) |
 |---|---|---|
@@ -229,27 +260,34 @@ sub-sequence replan contract)**:
 | 3 / 3c-i (tokens / base / dark mode) | tracker after PR #146 (= 1 + 2 + reconcile) | `src/app/globals.css::@theme` declares every legacy `:root` token; `[data-theme="dark"]` cascade present; `--realm-*` family present; parity test enumerates every legacy `:root` token and `var(--name)` reference; `out/_next/static/chunks/*.css` carries the expected declarations. **Bases off the tracker** (not off `feat/complete-taxa-frontend-migration-02-3b-reconcile`) so the 3c sub-sequence picks up the already-merged 3a + 3b + reconcile without an extra reconcile step. |
 | 4 / 3c-ii (taxonomy tree / detail styling) | 3 | `src/app/globals.css` carries every legacy taxonomy selector (`.tier-header`, `.tree-row`, `.rank-badge`, `.scientific-name`, `.tree-source-toggle`, `#detail-panel`, `.detail-card`, `.detail-section`, `.overview-section`, `.detail-item`, `.search-pulse`, `.detail-tabs`, `.search-icon-btn`, `.materialize-btn`, kebab, materialize modal, realm-tinted `.tree-row[data-realm="…"]`); parity test enumerates each. |
 | 5 / 3c-iii (Search / Folder / global Browser styling) | 4 | `src/app/globals.css` carries every legacy browser / search / folder selector (`.toast`, `.search-engines-grid`, `.search-category-header`, `.search-engine-btn`, `.fex-meta-strip`, `.fex-tab-strip`, `.fex-snippet-frame`, `.fex-shell`, `.fex-tree-pane`, `.fex-viewer-pane`, `.fex-splitter`, `.fex-row`, `.fex-tree-header`, `.fex-children`, `.fex-banner`, `.fex-empty-state`, `.fex-search-*`, `.fex-csv-*`, `.fex-json-*`, `.fex-tree-truncated`); parity test enumerates each. |
-| 6 / 3c-iv (animations / utilities + final CSS parity + design-system barrel) | 5 | `src/app/globals.css` carries every legacy `@keyframes` rule (`detail-card-enter`, `detail-card-leave`, `search-pulse-anim`, `materialize-spin`, `toast-slide-in`) + `.animate-spin` + image / video viewer frames + Settings view selectors; `src/modules/design-system/` barrel exports `<Icon>` + `<Button>`; parity test enumerates every legacy utility class; design-system purity test strips hex literals from `src/` outside the design-system module. |
-| 7 / 3d (Makefile/mount) | 6 + 2 | `make api` exit 0; uvicorn binds only `127.0.0.1:8765`; `curl /index.html` returns `out/index.html`; AC-21 contract preserved |
-| 8 / 4a (typed store) | 6 | 4 read + 4 write sites in `src/modules/browser-state/`; no other module touches `localStorage` |
-| 9 / 4b (hydration guard) | 8 + 2 | Playwright zero-hydration-warnings; `AppShell` uses `mounted` flag reserved at `src/app/page.tsx` |
-| 10 / 5a (taxonomy port) | 9 | Taxonomy view-models render; tree-source toggle rehydrates via `localStorage` |
-| 11 / 5b (research port + CDN pin) | 10 + 7 | Research files render via 9-format dispatcher; CDN URLs pinned |
-| 12 / 5c (e2e + delete legacy) | 11 | E2E selectors updated; `data-*` contract preserved; legacy `web/*` deleted |
-| 13–15 / 6a, 6b, 6c (validation) | 12 | G5 reproducible; G6 PASS; G4 PASS; `apply-progress.md` §Change log flips for each |
-| 16 / 3e (atomic cutover) | 13, 14, 15 + G1/G2/G3 Tier-1 carried | All six gates green; cutover-manifest Tier-2 flip; uvicorn serves `out/index.html` from production build |
+| 5.5 / 5.5 (Tailwind 4 / PostCSS pipeline repair, landed) | 5 | `npx next build` exit 0; compiled CSS bundle contains Tailwind 4 preflight + `@layer theme { :root, :host { … } }` expansion; `@tailwindcss/postcss` is the registered PostCSS plugin; literal `@theme {` / `@import "tailwindcss"` are absent from the compiled CSS bundle. **Landed; G2-PASS-pending-Phase-6-capture.** |
+| 5.6 / 5.6 (DOM↔CSS structural parity repair, landed) | 5.5 + PR 5a + PR 5b | compiled CSS bundle contains the 15 React-emitted structural hooks + the 9 state selectors + the 2 collapsed descendant rules + the kebab selector bridge + the 5 visible-state / chainable / scrollable triangulation declarations. **Landed; G2-PASS-pending-Phase-6-capture.** |
+| 6 / 3c-iv-barrel (design-system barrel + Icon/Button + purity test, NEW first child of the 3c-iv sub-sequence) | post-PR-5.6 base commit | `src/modules/design-system/infrastructure/index.ts` barrel exports the typed theme tokens + `<Icon>` + `<Button>` primitives; `src/modules/design-system/presentation/{Icon.tsx,Button.tsx}` ship the Material Symbols Outlined glyph wrapper + the Button layout primitive; `tests/test_design_system_purity.py` asserts every hex literal lives inside `src/modules/design-system/` (no leakage to other modules). |
+| 7 / 3c-iv-keyframes (five legacy `@keyframes` + `.animate-spin` parity) | 6 | `src/app/globals.css` carries every legacy `@keyframes` rule (`detail-card-enter`, `detail-card-leave`, `search-pulse-anim`, `materialize-spin`, `toast-slide-in`) + `.animate-spin`; parity test enumerates each. |
+| 8 / 3c-iv-viewer (image / video viewer CSS parity) | 7 | `src/app/globals.css` carries every viewer-frame selector (`.fex-image-frame`, `.fex-image`, `.fex-image-advisory`, `.fex-video-frame`, `.fex-video-el`); parity test enumerates each. |
+| 9 / 3c-iv-settings (Settings view CSS parity) | 8 | `src/app/globals.css` carries every Settings selector (`.settings-shell`, `.settings-header`, `.settings-list`, `.settings-row`, `.settings-row-text`, `.settings-row-title`, `.settings-row-description`, `.settings-row-control`, `.settings-theme-toggle`, `.settings-theme-btn`, `.settings-theme-btn-active`, `.settings-action-btn`, `.settings-link-btn`); parity test enumerates each. |
+| 10 / 3c-iv-colors (Tailwind `--color-*` namespace aliases + utility parity, terminal child of the 3c-iv sub-sequence) | 9 | `src/app/globals.css` `@theme` block carries every Tailwind `--color-*` namespace alias; legacy utility class parity contract (`bg-primary`, `text-on-surface`, `border-outline-variant`, `bg-surface-container-lowest`, `bg-primary-fixed`, `text-on-primary-fixed`, etc.) resolves to non-empty CSS declarations in `out/_next/static/chunks/*.css`; parity test enumerates each. |
+| 11 / 3d (Makefile/mount) | 10 + 2 (final CSS consumers depend on colors, per the 3c-iv five-slice replan) | `make api` exit 0; uvicorn binds only `127.0.0.1:8765`; `curl /index.html` returns `out/index.html`; AC-21 contract preserved |
+| 12 / 4a (typed store) | 6 (design-system consumers depend on barrel, per the 3c-iv five-slice replan) | 4 read + 4 write sites in `src/modules/browser-state/`; no other module touches `localStorage` |
+| 13 / 4b (hydration guard) | 12 + 2 | Playwright zero-hydration-warnings; `AppShell` uses `mounted` flag reserved at `src/app/page.tsx` |
+| 14 / 5a (taxonomy port) | 13 | Taxonomy view-models render; tree-source toggle rehydrates via `localStorage` |
+| 15 / 5b (research port + CDN pin) | 14 + 11 | Research files render via 9-format dispatcher; CDN URLs pinned |
+| 16 / 5c (e2e + delete legacy) | 15 + 10 (final CSS consumers depend on colors, per the 3c-iv five-slice replan) | E2E selectors updated; `data-*` contract preserved; legacy `web/*` deleted |
+| 17–19 / 6a, 6b, 6c (validation) | 16 | G5 reproducible; G6 PASS; G4 PASS; `apply-progress.md` §Change log flips for each |
+| 20 / 3e (atomic cutover) | 17, 18, 19 + G1/G2/G3 Tier-1 carried | All six gates green; cutover-manifest Tier-2 flip; uvicorn serves `out/index.html` from production build |
 
 **Phase 6 (6a, 6b, 6c) is validation work**, not a migration
 objective. It runs **after** the complete candidate path
-(positions 1–12) is green and accumulated on the tracker, and
+(positions 1–16) is green and accumulated on the tracker, and
 **before** PR 3e can land. Phase 6 may ship as three chain
-links (the default: positions 13 / 14 / 15) or collapse into
-a single child PR at position 13, depending on the
-maintainer's `ask-on-risk` decision; collapsing shortens the
-chain without changing the topology (the batch still targets
-the PR 5c branch, and PR 3e still targets the last Phase 6
-link). The combined LoC is ~190 authored + ~120 measurement
-artifact, comfortably under the 400-line budget.
+links (the default: positions 17 / 18 / 19 of the 22-child
+topology) or collapse into a single child PR at position 17,
+depending on the maintainer's `ask-on-risk` decision;
+collapsing shortens the chain without changing the topology
+(the batch still targets the PR 5c branch, and PR 3e still
+targets the last Phase 6 link). The combined LoC is ~190
+authored + ~120 measurement artifact, comfortably under the
+400-line budget.
 
 ### Worktree policy
 
@@ -831,7 +869,7 @@ every gate below is PASS:
 | G1 (single origin) | **PASS recorded** | Predecessor `design.md::§1` |
 | G2 (foundation build) | **PASS recorded** against the verified Next 16.3.3 / Turbopack clean build | Predecessor `apply-progress.md` 2026-08-30 entry |
 | G3 Tier-1 (consumer readiness, legacy pre-cut) | **PASS recorded** — all 26 §3.1 consumers green via the controlled fixture, `scripts/verify_consumers.py` | Predecessor `apply-progress.md` (PR #109 + #111 + #115 + #116) |
-| G4 (Playwright + Lighthouse parity) | **blocked — verifier not authored**; must close in apply phase | Phase 6c — `scripts/g4_measure.sh` against the positions 1–9-landed candidate build |
+| G4 (Playwright + Lighthouse parity) | **blocked — verifier not authored**; must close in apply phase | Phase 6c — `scripts/g4_measure.sh` against the positions 1–16-landed candidate build |
 | G5 (hydration baseline) | **PASS recorded — fresh capture under the user-approved replacement protocol** (`scripts/g5_close.sh` exit 0; both baseline and candidate served through controlled HTTP — `http://127.0.0.1:64809/` and `http://127.0.0.1:64824/`; observable metric `DOMContentLoaded`; 1 warm-up + 9 retained measured samples per side; per-side median aggregation with raw samples + provenance preserved; absolute (candidate − baseline) ≤ 10 ms tolerance satisfied — baseline median `3.3 ms`, candidate median `3.2 ms`, delta `−0.1 ms`, threshold `10 ms`; `baseline_source: "captured"` in `evidence/g5/status.json` and `source: "captured"` in `out/hydration-candidate.json`; `evidence/g5/status.json` records `status: "ready"`, `regression: false`, no `blocker`; `evidence/g5/regression-report.json` records `pass: true`, the full per-side samples/warmup/origin/median contract, and the absolute delta). The previous 5+2 percentage/median rule (baseline 0.0 / 3.0 ms vs candidate 1.0 / 4.0 ms; `initial_paint_delta_pct: Infinity`, `interaction_latency_delta_pct: 33.33%`; comparison exit 4) is **superseded** by this fresh protocol and is retained in the change log as audit history only. **G5 is closed** under the user-approved replacement protocol. | Phase 6a — `scripts/reconstruct_hydration_baseline.py` (HTTP-served legacy fixture capture), `scripts/capture_hydration_candidate.py` (HTTP-served candidate `out/` capture), and `scripts/g5_close.sh` (the runtime harness) together produced the fresh protocol evidence recorded in `evidence/g5/{status,regression-report}.json`. The user-approved replacement protocol recorded in `design.md` §"G5 — hydration baseline" binds every future reattempt: failure stays blocked, no automatic PASS, no previous PASS carried across a failure. |
 | G6 (cutover rehearsal) | **PASS recorded — `cutover-rehearsal.json` captured at `2026-09-06T15:10:54Z`** (controlled port 55637 — never the ambient FastAPI 8765; `activation_complete: true`; all 26 §3.1 consumers selected; `unselected_count: 0`; `silent_fallback_paths: []`; `g3_tier2_exit_code: 0`); atomic cutover unit + rollback unit consistent | Phase 6b — `scripts/rehearse_cutover.py` dry-runs the atomic cutover unit against the activated working-copy manifest; the activated working-copy manifest (`openspec/changes/complete-taxa-frontend-migration/cutover-manifest.json`) carries the Tier-2 flip for all 26 §3.1 consumers; predecessor `openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json` stays byte-identical frozen |
 
@@ -852,7 +890,7 @@ every gate below is PASS:
 4. Run `make smoke` + Playwright + Lighthouse; verify the
    parity checklist (per `design.md` §"Parity / evidence
    plan").
-5. Mark the cutover PR (child 16 / 16, targeting the PR 6c
+5. Mark the cutover PR (child 20 / 22, targeting the PR 6c
    branch) ready for review and flip the gate-status footer
    in §Status below from "blocked / blocked / blocked" to "PASS
    recorded" only after each gate is independently verified.
@@ -865,7 +903,7 @@ every gate below is PASS:
 
 ---
 
-## Forecast reconciliation (corrected + PR 3c sub-sequence replan)
+## Forecast reconciliation (corrected + PR 3c sub-sequence replan + 3c-iv five-slice replan)
 
 > **2026-09-02 — PR 3c sub-sequence replan**: the original
 > single PR 3c at ~230 LoC was unsatisfiable against the
@@ -878,6 +916,28 @@ every gate below is PASS:
 > is opened; the PR 3a lockfile exception remains the sole
 > one. **Approach A, FastAPI/SQLite, the frozen predecessor,
 > and the Feature Branch Chain strategy remain unchanged.**
+>
+> **2026-09-09 — PR 3c-iv five-slice replan (this entry)**: the
+> former single PR 3c-iv at position 6 (later 8/18 after PR 5.5
+> + PR 5.6) was unsatisfiable as a single ≤ 400 LoC PR while
+> preserving the binding dependency contract — its surface was
+> heterogeneous (design-system barrel + five `@keyframes` rules
+> + image / video viewer frames + Settings view + Tailwind
+> `--color-*` namespace aliases). The 3c-iv slot is now five
+> linear children at positions 6/22 through 10/22 (3c-iv-barrel
+> ~120 + 3c-iv-keyframes ~80 + 3c-iv-viewer ~50 + 3c-iv-settings
+> ~50 + 3c-iv-colors ~80 — sum ~380 LoC, ≤ 400 with −20 LoC
+> headroom across the five children). The 22-child chain
+> preserves the dependency contract: PR 3c-iv-barrel is the
+> first child and is based on the existing PR 5.6 DOM↔CSS
+> structural parity repair predecessor; each subsequent 3c-iv
+> child targets its immediate predecessor branch; downstream
+> consumers (PR 3d + PR 5c) depend on the terminal child
+> (3c-iv-colors); PR 4a depends on the first child
+> (3c-iv-barrel). **No new code-slice `size:exception` is
+> opened**; the present replan opens the user-approved
+> **documentation** size exception necessary to keep all six
+> OpenSpec files internally coherent.
 
 - **3a** ~210 LoC authored (toolchain bootstrap — absorbs
 ~40 LoC of `package.json` dep pins + ~25 LoC of
@@ -890,28 +950,43 @@ every gate below is PASS:
   materialize modal + realm-tinted tree variants);
   **3c-iii** ~390 (Search / Folder / global Browser styling
   + file explorer chrome + CSV / JSON viewers);
-  **3c-iv** ~280 (animations + image / video viewer frames +
-  Settings view + design-system barrel + final utility-class
-  parity); **3d** ~240 (the heaviest re-scoped sub-PR at
-  the position-7 boundary, fusing Makefile + WEB_DIR + AC-21);
-  **4a** ~180; **4b** ~90; **5a** ~280; **5b** ~360;
-  **5c** ~200; **6a** ~50; **6b** ~120; **6c** ~20;
+  **5.5** ~259 (Tailwind 4 / PostCSS pipeline repair; the
+  fourth user-approved size:exception for the regenerated
+  `package-lock.json`; landed); **5.6** ~1,147 across two
+  files (DOM↔CSS structural parity repair; the fifth
+  user-approved authored-LoC size:exception; landed);
+  **3c-iv-barrel** ~120 (design-system barrel + Icon/Button
+  + purity test); **3c-iv-keyframes** ~80 (five `@keyframes`
+  + `.animate-spin`); **3c-iv-viewer** ~50 (image / video
+  viewer CSS parity); **3c-iv-settings** ~50 (Settings CSS
+  parity); **3c-iv-colors** ~80 (Tailwind `--color-*` aliases
+  + utility parity); **3d** ~240 (the heaviest re-scoped
+  sub-PR, fusing Makefile + WEB_DIR + AC-21; **depends on
+  PR 3c-iv-colors per the 3c-iv five-slice replan**);
+  **4a** ~180 (**depends on PR 3c-iv-barrel per the 3c-iv
+  five-slice replan**); **4b** ~90; **5a** ~280; **5b** ~360;
+  **5c** ~200 (**depends on PR 3c-iv-colors per the 3c-iv
+  five-slice replan**); **6a** ~50; **6b** ~120; **6c** ~20;
   **3e** ~120 (mostly `apply-progress.md` delta).
-  **Total**: ~3,485 LoC authored across **16 sub-PRs** (up
+  **Total**: ~3,485 LoC authored across **22 sub-PRs** (up
   from ~2,245 across 13 sub-PRs; the +1,240 delta is the
   full port of the legacy inline `<style>` block).
-- Largest sub-PR is **3c-i at ~390 LoC**, with -10 LoC
-  (-2.5 %) headroom against the **400-line per-PR review
-  budget**. The previously-largest 5b is now second at
-  ~360 LoC (-40 LoC, -10 % headroom). **No `size:exception`
-  required** (the PR 3a lockfile exception remains the sole
-  one).
-- Heaviest 3c sub-child is **3c-i at ~390 LoC**; the
-  lightest is **3c-iv at ~280 LoC** (because the design-
-  system barrel is small). Sub-PR **6c** is the smallest
-  overall at ~20 LoC; the G4 measurement artifact is
-  recorded in `apply-progress.md` rather than in a code
-  diff.
+- Largest sub-PR by plan is **3c-i at ~390 LoC**, with
+  -10 LoC (-2.5 %) headroom against the **400-line per-PR
+  review budget**. The previously-largest 5b is now second
+  at ~360 LoC (-40 LoC, -10 % headroom). **No `size:exception`
+  required for the 3c-iv five-slice replan**; the prior PR 3a
+  lockfile exception + PR 3c-ii taxonomy CSS slice (831 LoC) +
+  PR 3c-iii Search/Folder/global Browser CSS slice (1735 review
+  lines) + PR 5.5 regenerated-lockfile + PR 5.6 CSS-only DOM↔CSS
+  authored-LoC exceptions stay open.
+- Heaviest 3c sub-child by plan is **3c-i at ~390 LoC**; the
+  lightest is **3c-iv-colors at ~80 LoC** (because the Tailwind
+  `--color-*` namespace alias surface is small). The sum of the
+  five 3c-iv children is **~380 LoC** (≤ 400 with −20 LoC
+  headroom). Sub-PR **6c** is the smallest overall at ~20 LoC;
+  the G4 measurement artifact is recorded in `apply-progress.md`
+  rather than in a code diff.
 - **Chained PRs recommended**: **Yes** — each sub-PR fits
   the per-PR budget on its own, but the ~3,485-line total
   and the atomic cutover (the feature MUST integrate before
@@ -954,19 +1029,27 @@ every gate below is PASS:
 
 - **Mode**: **Feature Branch Chain** — 1 draft/no-merge
   tracker (`docs/complete-taxa-frontend-migration-plan` →
-  `develop`) plus **16 sequential child PRs** (toolchain
+  `develop`) plus **22 sequential child PRs** (toolchain
   bootstrap → App Router static export → **3c-i tokens /
   base / dark mode → 3c-ii taxonomy tree / detail styling →
-  3c-iii Search / Folder / global Browser styling → 3c-iv
-  animations / utilities + final CSS parity + design-system
-  barrel** → Makefile/mount → 4a → 4b → 5a → 5b → 5c,
+  3c-iii Search / Folder / global Browser styling → 5.5
+  PostCSS pipeline repair → 5.6 DOM↔CSS structural parity
+  repair → 3c-iv-barrel design-system barrel → 3c-iv-keyframes
+  five `@keyframes` → 3c-iv-viewer image/video viewer → 3c-iv-settings
+  Settings view → 3c-iv-colors Tailwind `--color-*` aliases**
+  → Makefile/mount → 4a → 4b → 5a → 5b → 5c,
   followed by the Phase 6 validation links, followed by the
   PR 3e atomic cutover as the last child).
-- **Total sub-PRs**: **16** (3a, 3b, **3c-i, 3c-ii, 3c-iii,
-  3c-iv**, 3d, 4a, 4b, 5a, 5b, 5c, 6a, 6b, 6c, 3e — the
-  3c sub-sequence replaces the original single PR 3c; 6a,
-  6b, 6c are validation work after the candidate path; 3e
-  is gated on all six gates green).
+- **Total sub-PRs**: **22** (3a, 3b, **3c-i, 3c-ii, 3c-iii,
+  5.5, 5.6, 3c-iv-barrel, 3c-iv-keyframes, 3c-iv-viewer,
+  3c-iv-settings, 3c-iv-colors**, 3d, 4a, 4b, 5a, 5b, 5c,
+  6a, 6b, 6c, 3e — the 3c sub-sequence replaces the original
+  single PR 3c; the 3c-iv five-slice replan replaces the
+  former single PR 3c-iv with five children; the 5.5 +
+  5.6 fractional repair children are interpolated between
+  PR 3c-iii and the 3c-iv sub-sequence; 6a, 6b, 6c are
+  validation work after the candidate path; 3e is gated on
+  all six gates green).
 - **Each sub-PR ≤ 390 LoC authored**; **no** sub-PR exceeds
   the 400-line per-PR review budget. **No new
   `size:exception` is expected or planned** (the PR 3a
@@ -1094,6 +1177,38 @@ largest sub-PR is **3c-i at ~390 LoC** (-10 LoC headroom
 under 400). **No new `size:exception`** is opened; the PR 3a
 lockfile exception remains the sole one.
 
+**PR 3c-iv five-slice replan applied 2026-09-09** (this
+status note; after PR 5.5 + PR 5.6 fractional repair children
+landed on the tracker and renumbered the 3c-iv sub-sequence
+from position 6/16 to position 8/18): the former single
+PR 3c-iv at the position-8 slot of the 18-child chain was
+unsatisfiable as a single ≤ 400 LoC PR while preserving the
+binding dependency contract — its surface was heterogeneous
+(design-system barrel + five `@keyframes` rules + image /
+video viewer frames + Settings view + Tailwind `--color-*`
+namespace aliases). The 3c-iv slot is now **five linear ≤
+400 LoC children at positions 6/22 through 10/22** (3c-iv-barrel
+~120 + 3c-iv-keyframes ~80 + 3c-iv-viewer ~50 + 3c-iv-settings
+~50 + 3c-iv-colors ~80 — sum ~380 LoC, ≤ 400 with −20 LoC
+headroom across the five children). The downstream children
+are **renumbered** (`3d → 11`, `4a → 12`, `4b → 13`, `5a → 14`,
+`5b → 15`, `5c → 16`, `6a → 17`, `6b → 18`, `6c → 19`,
+`3e → 20`). The new **22-child** chain preserves the
+dependency contract: **PR 3c-iv-barrel is the first child and
+is based on the existing PR 5.6 DOM↔CSS structural parity
+repair predecessor** (the post-5.6 base commit; per the 3c-iv
+five-slice replan addendum); each subsequent 3c-iv child
+targets its immediate predecessor branch; **downstream
+consumers depend on the terminal child** (PR 3d + PR 5c
+depend on PR 3c-iv-colors — final CSS consumers depend on
+colors); **PR 4a depends on the first child** (PR 3c-iv-barrel
+— design-system consumers depend on barrel). **No new
+code-slice `size:exception`** is opened for the 3c-iv
+five-slice replan itself; the present replan opens the
+user-approved **documentation** size exception necessary to
+keep all six OpenSpec files internally coherent under a
+single planning revision.
+
 **UI surface & tab-structure corrective revision applied
 2026-09-02**: the live browser inspection of
 `http://127.0.0.1:8765/` revealed a verified UI surface
@@ -1148,7 +1263,7 @@ The **apply phase** (`sdd-apply`) reads `tasks.md` and this
 `apply-progress.md`, then executes the reconstruction
 manifest (§Reconstruction manifest) sub-PR by sub-PR. Phase
 6 validation work (6a, 6b, 6c) runs after the candidate
-path (positions 1–9) is green and before PR 3e. The atomic
+path (positions 1–16) is green and before PR 3e. The atomic
 cutover PR 3e ships only when all six gates are green. The
 **verify phase** (`sdd-verify`) confirms the parity checklist
 (per `design.md` §"Parity / evidence plan") and the rollback
@@ -2326,3 +2441,7 @@ covered by `tests/test_api_freshwater.py::test_searches_urls_are_well_formed`
 - **G4 / G3 Tier-2 / cutover (unchanged)**. G4 Playwright + Lighthouse parity remains **blocked** (verifier not authored); G3 Tier-2 remains gated on G4 + G6 closure; G6 remains blocked; the atomic cutover PR 3e ships only when G1 + G2 + G3 Tier-1 + G3 Tier-2 + G4 + G5 + G6 are all green. **PR 5.6 does NOT flip G4** — only the browser-layer half of the G2 production-candidate evidence gap is closed.
 - **Deferrals (binding, this entry)**. Browser-runtime G2 capture (Chromium / Playwright against `127.0.0.1:8765`); Phase 6a validation work; G4 parity capture author; PR 3c-iv (animations / utilities + design-system barrel); PR 3d (Makefile/mount); PR 4a + 4b (browser-state + hydration guard); PR 5a + 5b + 5c (taxonomy + research ports + e2e + legacy deletion); Phase 6a/b/c; PR 3e cutover. No FileExplorer global mount, no Folder/Search research behaviour change, no `domain/keys.ts` / `infrastructure/store.ts` change, no e2e selector/harness updates, no legacy deletion (`web/*.{html,js,css}` + `tailwind.config.js` deferred to PR 5c), no G4 tests, no browser capture, no build outputs (`out/`), no commit/push, no FastAPI/SQLite/extension changes, no production `src/` content change beyond `src/app/globals.css`, no `next.config.mjs` change, no `tsconfig.json` change, no `Makefile` change, no `scripts/check-runtime.mjs` change, no `api/server.py` change, no `web/**` change, no `extension/**` change, no `package.json` / `package-lock.json` / `postcss.config.mjs` change.
 - **Scope of this attempt (binding)**: allowed edit surfaces limited to `src/app/globals.css`, `tests/test_tailwind_4_parity.py`, and the six OpenSpec files (3 EN + 3 ES — `proposal.md` is unchanged; `proposal-es.md` is unchanged; `design.md` + `design-es.md` + `tasks.md` + `tasks-es.md` + `apply-progress.md` + `apply-progress-es.md` each get a single append-only addendum entry). Total authored source/tests = ~1,147 LoC across the two files (CSS + parity tests), > 400 budget. **No gate flip, no cutover authority granted** — G1 / G2 / G3 Tier-1 / G3 Tier-2 / G4 / G5 / G6 status rows and PR 3e cutover-authority rows preserved verbatim from prior change-log entry. **No PR opened, no commit/push, no `gentle-ai review mode` enable** — review / CI / merge follow the ordinary feature-branch-chain process once the user-authorized parent task completes. Spanish mirror (`documents-es/openspec/changes/complete-taxa-frontend-migration/apply-progress-es.md`) carries the same semantics; any drift is resolved in favour of the English.
+
+### 2026-09-09 — PR 3c-iv five-slice replan (documentation-only; chain expands from 18 children to 22 children; user-approved documentation size exception to keep all six OpenSpec files internally coherent) (append-only)
+
+- **PR 3c-iv five-slice replan authorized (this entry, replaces the former single PR 3c-iv with five linear reviewable children at positions 6/22 through 10/22, renumbers the downstream 3d → 4a → 4b → 5a → 5b → 5c → 6a → 6b → 6c → 3e children to keep the dependency contract linear, expands the chain from 18 children to 22 children including the existing PR 5.5 + PR 5.6 fractional repairs, opens the user-approved documentation size exception necessary to keep all six OpenSpec files — the three EN/ES `tasks` + `design` + `apply-progress` mirrors — internally coherent under this single planning revision; this is a planning-only change; no code slice is implemented, verified, merged, or approved for delivery by this entry)**. The user authorized splitting the existing single `PR 3c-iv` (former `feat/complete-taxa-frontend-migration-06-3c-iv`, then `…-08-3c-iv` after PR 5.5 + PR 5.6 renumbering) into **five linear ≤ 400 authored-line children** (`3c-iv-barrel`, `3c-iv-keyframes`, `3c-iv-viewer`, `3c-iv-settings`, `3c-iv-colors`) because the former single PR's surface was heterogeneous — it bundled the design-system barrel + the legacy `@keyframes` rules + the image / video viewer frames + the Settings view + the Tailwind `--color-*` namespace aliases — which is unsatisfiable as a single ≤ 400 LoC PR while preserving the binding dependency contract. **Required target topology (replaces the former single PR 3c-iv with five children, in linear dependency order)**: (1) `3c-iv-barrel`, branch `feat/complete-taxa-frontend-migration-06-3c-iv-barrel`, **based on the existing PR 5.6 DOM↔CSS structural parity repair predecessor**: ships the design-system barrel + `<Icon>` + `<Button>` + design-system purity test. (2) `3c-iv-keyframes`, branch `feat/complete-taxa-frontend-migration-07-3c-iv-keyframes`, based on `…-06-3c-iv-barrel`: ships the five legacy `@keyframes` rules + the `.animate-spin` parity contract. (3) `3c-iv-viewer`, branch `feat/complete-taxa-frontend-migration-08-3c-iv-viewer`, based on `…-07-3c-iv-keyframes`: ships the image + video viewer CSS parity selectors. (4) `3c-iv-settings`, branch `feat/complete-taxa-frontend-migration-09-3c-iv-settings`, based on `…-08-3c-iv-viewer`: ships the Settings view CSS parity selectors. (5) `3c-iv-colors`, branch `feat/complete-taxa-frontend-migration-10-3c-iv-colors`, based on `…-09-3c-iv-settings`: ships the Tailwind `--color-*` namespace aliases + the legacy utility class parity contract. **Downstream renumbering (chain expands from 18 children to 22 children; PR 5.5 stays at 5.5/22, PR 5.6 stays at 5.6/22)**: PR 3d → `11/22`; PR 4a → `12/22`; PR 4b → `13/22`; PR 5a → `14/22`; PR 5b → `15/22`; PR 5c → `16/22`; PR 6a → `17/22`; PR 6b → `18/22`; PR 6c → `19/22`; PR 3e → `20/22`. **Downstream dependency corrections (binding under this replan, replaces the prior 3c-iv dependency statements throughout this file)**: (a) **PR 3d (Makefile/mount) and PR 5c (delete legacy) now depend on PR 3c-iv-colors** — these are the consumers of the complete Tailwind 4 cascade (`next build` produces a complete CSS payload because every `--color-*` alias resolves at the colors step). (b) **PR 4a (typed store) now depends on PR 3c-iv-barrel** — PR 4a's typed store consumes the design-system `<Icon>` + `<Button>` primitives only (it does not need keyframes / viewer / settings / colors to be in place). (c) **The 3c-iv sub-sequence forms a five-link linear chain**: barrel → keyframes → viewer → settings → colors; each child targets its immediate predecessor branch; no downstream consumer reaches across the sub-sequence to a non-terminal child (design-system consumers depend on barrel; final CSS consumers depend on colors; intermediate children carry their respective parity contracts but no other child depends on them). **No active reference to the old single branch** (`feat/complete-taxa-frontend-migration-06-3c-iv` or its post-5.5/5.6 renumbered `…-08-3c-iv`) **remains in the active topology after this entry** — every prior inline reference to the single `3c-iv` (the `Reconstruction State` table rows, the `Reconstruction order` diagram, the `Chain strategy` paragraph, the `Per-sub-PR dependency` table, the `Phase 3c-iv` detailed task section, the `Phase 5a` + `Phase 5b` + `Phase 5c` dependency statements that ride on the 3c-iv cascade, and the 5.5 + 5.6 change-log entries' "3c-iv renumbered to 8/18" cross-references) is updated by this replan to reflect the five-slice structure: the single PR 3c-iv is decomposed into five children at positions 6/22 through 10/22; the former single `~280 LoC` aggregate budget is decomposed into five per-child budgets (barrel ~120, keyframes ~80, viewer ~50, settings ~50, colors ~80 — sum ~380 LoC, ≤ 400 with −20 LoC headroom across the five children); the `Reconstruction State` table is expanded from a single `3c-iv` row to five rows; the `Reconstruction order` diagram is re-drawn with the five-child sub-sequence between PR 5.6 and PR 3d; the `Per-sub-PR dependency` table is updated so PR 3d / PR 5c depend on PR 3c-iv-colors, PR 4a depends on PR 3c-iv-barrel; the `Phase 3c-iv` detailed task section is replaced by five new sections (one per new child). **What this replan explicitly does NOT claim**: (i) **No code slice is implemented, verified, merged, or approved for delivery by this entry** — this is a planning-only revision; (ii) **No new `size:exception` is opened for the 3c-iv five-slice replan itself** — the existing PR 3a (generated-lockfile-only) + PR 3c-ii (taxonomy CSS slice authored-LoC) + PR 3c-iii (Search/Folder/global Browser CSS slice authored-LoC) + PR 5.5 (regenerated-lockfile) + PR 5.6 (CSS-only DOM↔CSS authored-LoC) exceptions stay open unchanged; the present replan opens the user-approved **documentation** size exception necessary to keep all six OpenSpec files internally coherent under a single planning revision, not a code slice exception; (iii) No `gentle-ai review mode` is enabled; no branch is created; no commit is authored; no push happens; no PR opens; review / CI / merge follow the ordinary feature-branch-chain process once the user-authorized parent task completes. **Preserved (binding, this entry)**: every prior addendum / change-log entry (`5c.1a`, `5c.1b-A`, `5c.1b-B`, `5c.2-A`, `5c.2-B.1a`, `5c.2-B.1b-i`, `5c.2-B.1b-ii-a`, `5c.2-B.1b-ii-b`, `5c.2-B.1b-ii-c`, `3c-ii`, `3c-iii`, `5.5`, `5.6`) remains in the change log as historical audit record; the **frozen predecessor restriction** on `openspec/changes/migrate-nextjs-tailwind4/**` stays binding; **G4 / G5 / G6 status stays unchanged** — G5 remains PASS-pending-Phase-6-capture (recorded PASS from the user-approved replacement protocol), G4 stays blocked (verifier not authored), G6 stays blocked, PR 3e (atomic cutover) stays gated on G1 + G2 + G3 Tier-1 + G3 Tier-2 + G4 + G5 + G6 closure; the **Approach A lock** stays FINAL; the **FastAPI/SQLite foundation** stays unchanged; the **Feature Branch Chain strategy** stays unchanged; the **per-domain specs** stay unchanged; the **EN/ES mirror fidelity** stays binding (any drift is resolved in favour of the English). **Spanish mirror** (`documents-es/openspec/changes/complete-taxa-frontend-migration/apply-progress-es.md` + the four other ES mirrors) carries the same semantics; any drift is resolved in favour of the English. No rebase; no new branch; no commit/push; no PR open.
