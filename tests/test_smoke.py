@@ -74,8 +74,23 @@ def test_openapi_schema_is_valid_json():
     )
 
 
+# PR 5c.2-A: canonical 14-engine roster (alphabetical by category
+# position). Both `api/server.py::_SEARCH_ENGINES` and
+# `src/data/search-engines.js::SEARCH_ENGINES` MUST declare exactly
+# these keys, in this exact order. The earlier 17-engine roster
+# included three `general` social/share entries (threads_acipenser,
+# facebook_acipenser_baerii, threads_shared_post) that did not fit
+# the 5-category UI; they were retired in this slice and are no
+# longer in either mirror.
+_CANONICAL_ENGINE_KEYS = [
+    "google", "imagen", "documentos", "pdf", "wikipedia",
+    "bhl", "researchgate", "plos", "academia", "scielo", "scholar",
+    "youtube", "zootaxa", "scribd",
+]
+
+
 def test_search_engine_contract():
-    """AC-21: api/server.py::_SEARCH_ENGINES and web/search_urls.js::SEARCH_ENGINES
+    """AC-21: api/server.py::_SEARCH_ENGINES and src/data/search-engines.js::SEARCH_ENGINES
     must agree on `key`, `label`, and `with_authorship` in the same order.
 
     This is the cross-file engine contract — it catches accidental drift
@@ -84,12 +99,27 @@ def test_search_engine_contract():
     fields. The `template` and `icon` fields are not compared (template is
     server-only; icon is intentionally free to differ between the server's
     material-symbols-outlined glyph and the frontend's unicode fallback).
+
+    PR 5c.2-A adds two explicit pins on top of the parity check:
+      1. both mirrors MUST hold exactly 14 entries (the count, not
+         just parity);
+      2. the ordered key list MUST match the canonical roster above.
+    These pins close the engine-count and engine-order drift holes
+    that the parity check alone cannot catch (parity only fires when
+    both sides drift in lock-step).
     """
     import re
     import ast
 
     server_src = open("api/server.py").read()
-    js_src = open("web/search_urls.js").read()
+    # PR 3d: the canonical JS mirror of _SEARCH_ENGINES moved to
+    # `src/data/search-engines.js`. Reading the legacy
+    # `web/search_urls.js` path here would silently re-import the
+    # Tailwind 3 frontend's copy after `web/` is deleted in Phase 5
+    # (PR 5.9). The contract is now enforced against the new path;
+    # the legacy file may stay around as a transitional artifact but
+    # the AC-21 reader MUST follow the canonical location.
+    js_src = open("src/data/search-engines.js").read()
 
     # ---- Python side: extract _SEARCH_ENGINES literal via regex + ast.literal_eval
     # The constant is a list of dicts, one per line. The regex `[^]]*` matches
@@ -114,6 +144,34 @@ def test_search_engine_contract():
         re.DOTALL,  # entries span multiple lines (template strings have \n)
     )
 
+    # PR 5c.2-A — pin 1: exact engine count on both mirrors. The
+    # parity check below would still pass if both mirrors drift
+    # together (e.g. both shrink from 17 to 5), so the count pin is
+    # the only thing that catches a same-direction drift.
+    assert len(py_entries) == len(_CANONICAL_ENGINE_KEYS), (
+        f"PR 5c.2-A: api/server.py::_SEARCH_ENGINES must hold "
+        f"{len(_CANONICAL_ENGINE_KEYS)} engines (the canonical "
+        f"14-engine roster); got {len(py_entries)}"
+    )
+    assert len(js_entries) == len(_CANONICAL_ENGINE_KEYS), (
+        f"PR 5c.2-A: src/data/search-engines.js::SEARCH_ENGINES must "
+        f"hold {len(_CANONICAL_ENGINE_KEYS)} engines (the canonical "
+        f"14-engine roster); got {len(js_entries)}"
+    )
+    # PR 5c.2-A — pin 2: ordered key list. Catch order drift even if
+    # the count is right and the keys all exist somewhere.
+    py_keys = [e["key"] for e in py_entries]
+    js_keys = [e[0] for e in js_entries]
+    assert py_keys == _CANONICAL_ENGINE_KEYS, (
+        f"PR 5c.2-A: api/server.py::_SEARCH_ENGINES key order drift; "
+        f"expected {_CANONICAL_ENGINE_KEYS!r}, got {py_keys!r}"
+    )
+    assert js_keys == _CANONICAL_ENGINE_KEYS, (
+        f"PR 5c.2-A: src/data/search-engines.js::SEARCH_ENGINES key "
+        f"order drift; expected {_CANONICAL_ENGINE_KEYS!r}, "
+        f"got {js_keys!r}"
+    )
+
     assert len(py_entries) == len(js_entries), (
         f"entry count drift: py={len(py_entries)} js={len(js_entries)}; "
         "both must contain the same engines"
@@ -131,34 +189,78 @@ def test_search_engine_contract():
         )
 
 
-def test_fixed_search_destinations_are_returned_unchanged():
-    """The curated external destinations remain available in the Search tab."""
-    from api.server import _build_search
-
-    links = {link.engine: link.url for link in _build_search("Any taxon", None)}
-
-    assert links["threads_acipenser"] == (
-        "https://www.threads.com/search?q=acipenser&serp_type=default&"
-        "xmt=AQG0AC54-jrPT9LBkalK5Lx_FGM7VtC3KUhDTE2hJLKTAwE"
-    )
-    assert links["facebook_acipenser_baerii"] == (
-        "https://www.facebook.com/search/top?q=acipenser%20baerii"
-    )
-    assert links["threads_shared_post"] == "https://www.threads.com/share/BAnZDpDtPZ/"
-
-
 def test_static_index_html_served():
-    """The web/ directory is mounted as static files at root."""
+    """The mounted directory (out/, post PR 3d) is served as static files at root.
+
+    PR 3d repointed the mount from `web/` to `out/` (the Next 16 static
+    export target). On a clean checkout, `out/` is missing because the
+    Next build has not run yet — the test then SKIPs (no false failure).
+    Once `make api` has run end-to-end (next build emits out/), the same
+    test confirms the mount serves the real Next HTML.
+    """
+    from pathlib import Path
+    out_dir = Path(__file__).resolve().parent.parent / "out"
+    if not out_dir.is_dir():
+        pytest.skip(
+            f"out/ not built at {out_dir}; run `make api` (next build) "
+            "to populate it"
+        )
     resp = client.get("/index.html")
     assert resp.status_code == 200
     assert "<title>" in resp.text or "<html" in resp.text
 
 
 def test_static_app_js_served():
-    """Frontend bundle is reachable from the same origin."""
-    resp = client.get("/app.js")
-    assert resp.status_code == 200
-    assert len(resp.text) > 1000, "app.js looks suspiciously small"
+    """A concrete emitted Next chunk is reachable from the same origin.
+
+    Same skip semantics as `test_static_index_html_served` — until the
+    Next build runs, `out/_next/static/...` does not exist.
+
+    Derives the chunk path from the generated `out/index.html` (the HTML
+    references the exact chunks it loads, so we don't have to guess at
+    Turbopack's hashed filenames). Falls back to the first `*.js` under
+    `out/_next/static/chunks/` when no chunk reference is found in the
+    HTML. Starlette StaticFiles does not list directories — `GET
+    /_next/static/` returns 404 even when the mount is wired correctly —
+    so we always request a concrete file, never a directory listing.
+    """
+    import re
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent
+    out_dir = repo_root / "out"
+    if not out_dir.is_dir():
+        pytest.skip(
+            f"out/ not built at {out_dir}; run `make api` (next build) "
+            "to populate it"
+        )
+
+    chunk_path: str | None = None
+    index_html = out_dir / "index.html"
+    if index_html.is_file():
+        html = index_html.read_text(encoding="utf-8")
+        m = re.search(
+            r'src="(/_next/static/chunks/[^"]+\.js)"', html,
+        )
+        if m:
+            chunk_path = m.group(1)
+        if chunk_path is None:
+            chunks_dir = out_dir / "_next" / "static" / "chunks"
+            if chunks_dir.is_dir():
+                for js_file in sorted(chunks_dir.glob("*.js")):
+                    chunk_path = f"/_next/static/chunks/{js_file.name}"
+                    break
+
+    assert chunk_path is not None, (
+        "no JS chunk found under out/_next/static/chunks/ and no chunk "
+        "reference in out/index.html; rebuild the Next export"
+    )
+
+    resp = client.get(chunk_path)
+    assert resp.status_code == 200, (
+        f"chunk mount failed: GET {chunk_path} returned {resp.status_code}"
+    )
+    assert len(resp.content) > 0, f"{chunk_path} returned an empty body"
 
 
 def test_health_endpoint_returns_503_without_db():

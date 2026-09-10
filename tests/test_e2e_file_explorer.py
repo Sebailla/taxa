@@ -237,7 +237,29 @@ def test_file_explorer_full_flow(e2e_env):
         except Exception as exc:
             pytest.skip(f"chromium binary not available: {exc!r}")
         try:
-            page = browser.new_page()
+            # Phase 5c - seed the typed persisted `last-taxon-id` so
+            # the AppShell rehydrates the taxonomy-detail context on
+            # first paint (URL hash + persisted `taxa.tree.lastTaxonId`
+            # key restored before the page renders). The Browser
+            # surface stays GLOBAL and UNFILTERED - the seed only
+            # narrows the taxonomy panel's initial focus, NOT the
+            # file explorer's taxonId (hard-coded null per 5b.4
+            # global-surface contract).
+            #
+            # The init script runs in EVERY new context before any
+            # page script executes, so the persisted value is in
+            # place before the AppShell's first useEffect reads it.
+            context = browser.new_context()
+            context.add_init_script(
+                # The typed store writes the int as a JSON-encoded
+                # string; the seed must mirror the same shape so
+                # `tryJsonParse` accepts it.
+                "try { window.localStorage.setItem("
+                "'taxa.tree.lastTaxonId', JSON.stringify("
+                + str(e2e_env["test_taxon_id"])
+                + ")); } catch (e) { /* private mode */ }"
+            )
+            page = context.new_page()
             page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
 
             # --- Step 1: select the test taxon row -------------------------

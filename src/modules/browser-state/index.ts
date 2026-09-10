@@ -1,28 +1,32 @@
 /**
- * Public barrel for the `browser-state` capability module.
+ * Public barrel for the `browser-state` capability module (PR 4a).
  *
  * spec.md rule 5: cross-module consumers MUST import only from this
- * file (or via the `@taxa/browser-state` path alias defined in
- * `tsconfig.json`). Direct imports into the layer folders below are
- * blocked by `.eslintrc.cjs::no-restricted-imports`.
+ * file (or via the `@taxa/browser-state` path alias). Direct imports
+ * into the layer folders below are blocked by `.eslintrc.cjs`.
  *
- * PR 2a (Phase 2 scaffold work unit) ships an empty barrel — the real
- * exports land with the PR 4 browser-state work unit (tasks 4.1–4.4):
- *   - `keys.ts`                  → four localStorage keys, exactly
- *                                  one getItem + one setItem each
- *   - `defaults.ts`              → typed default values
- *   - `store.ts`                 → useThemeStore, useTreeSourceStore,
- *                                  useLastTaxonStore, useKebabStore
- *                                  (each behind a `mounted` flag)
- *
- * Rehydration gates behind a `mounted` flag inside `useEffect` to
- * prevent SSR/CSR hydration mismatches. The four keys are pinned:
- *   - `theme`            → "light" | "dark"
- *   - `tree-source`      → "col"   | "worms"
- *   - `last-taxon-id`    → number | null
- *   - `kebab-open-id`    → string | null
- *
- * An empty barrel is intentionally a no-op re-export so this file is
- * a valid TypeScript module and `tsc --noEmit` accepts it.
+ * PR 4a exports: the four pinned key literals, the typed defaults, the
+ * typed value unions, the typed store factory + interface, and the
+ * typed listener signature. The barrel exposes typed APIs only — the
+ * raw platform-storage reference and the JSON helpers stay private
+ * inside the infrastructure layer.
  */
-export {};
+
+export {
+  BROWSER_STATE_KEYS,
+  BROWSER_STATE_DEFAULTS,
+  type BrowserStateKey,
+  type BrowserStateValueMap,
+  type Theme,
+  type TreeSource,
+} from "./domain/keys";
+
+export {
+  createBrowserStateStore,
+  type BrowserStateStore,
+} from "./infrastructure/store";
+
+/** Typed listener signature used by `BrowserStateStore.subscribe`. */
+export type BrowserStateListener = () => void;
+
+export { useMounted } from "./presentation/use-mounted";

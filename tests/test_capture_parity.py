@@ -33,6 +33,7 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CAPTURE = REPO_ROOT / "tools" / "g4-capture"
 SCRIPT = CAPTURE / "scripts" / "capture.mjs"
 ASGI = CAPTURE / "scripts" / "g4_asgi.py"
+NAV_SCRIPT = CAPTURE / "scripts" / "parity_navigation.mjs"
 PKG = CAPTURE / "package.json"
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "g4"
 CORPUS_MANIFEST = FIXTURES / "corpus" / "manifest.json"
@@ -730,7 +732,7 @@ def test_g4_asgi_launcher_rewires_db_path_and_research_dir_only():
     # WEB_DIR must NOT be touched — the launcher rewires only DB_PATH and
     # RESEARCH_DIR. Anything else would mean api/server.py was implicitly
     # modified, which the parent task forbids.
-    expected_web_dir = str((REPO_ROOT / "web").resolve())
+    expected_web_dir = str((REPO_ROOT / "out").resolve())
     assert out["web_dir"] == expected_web_dir, (
         f"launcher must NOT modify api.server.WEB_DIR "
         f"(production change forbidden); got {out['web_dir']!r}, want {expected_web_dir!r}"
@@ -1225,3 +1227,610 @@ def test_validate_manifest_rejects_empty_expected_dom_marker(tmp_path):
     assert r2.returncode != 0, (
         "validateManifest must reject an entry missing expectedDOMMarker"
     )
+
+
+# ── G4 parity-navigation slice (first G4 parity slice) ───────────────
+# User-approved decisions (recorded as the slice contract):
+#   - navigation-only slice; the other four reports (api, search, a11y,
+#     browser-state) remain pending.
+#   - Playwright is the browser driver; injected in tests so no real
+#     browser or live network is required.
+#   - Both legacy and candidate HTTP origins are driven in a single
+#     invocation; each side gets its own timestamped run directory.
+#   - Run-directory names use UTC seconds-precision timestamps of the
+#     form YYYY-MM-DDTHH-MM-SSZ (filename-safe; the colon would not
+#     survive Windows paths). The `captured_at` ISO-8601 value lives in
+#     the JSON and uses the seconds-precision Z form per
+#     scripts/verify_parity.py::ISO_FMT.
+#   - Fail-closed on missing/invalid origins, unavailable runner, 5xx
+#     or network errors on either side, manifest path mismatch, and
+#     output collision; no `file://` targets are accepted.
+#
+# Hermetic tests inject `runFn` (per-side callable) and `now()` (fixed
+# Date for deterministic timestamps). The CLI is exercised via a Node
+# wrapper that imports the producer and calls `capture()` with the
+# injected hooks.
+NAVIGATION_FIXED_NOW = datetime(2026, 9, 8, 15, 30, 45, tzinfo=timezone.utc)
+# The locked UTC run-directory timestamp for NAVIGATION_FIXED_NOW.
+NAVIGATION_RUN_TS = "2026-09-08T15-30-45Z"
+# The locked ISO-8601 `captured_at` for NAVIGATION_FIXED_NOW.
+NAVIGATION_CAPTURED_AT = "2026-09-08T15:30:45Z"
+NAVIGATION_FIXED_PATHS = ("/index.html", "/api/health", "/api/domains")
+# Hermetic canned results: identical status per path for both sides so
+# the producer's failure-mode branch (5xx / status==0) is not exercised.
+NAVIGATION_HERMETIC_RESULTS = [
+    {"path": "/index.html", "status": 200},
+    {"path": "/api/health", "status": 200},
+    {"path": "/api/domains", "status": 200},
+]
+NAVIGATION_MANIFEST_SCHEMA = "taxa.g4-parity.navigation-manifest/1"
+
+def _run_navigation_with_runner(
+    tmp_path, *,
+    legacy_origin="http://127.0.0.1:65001",
+    candidate_origin="http://127.0.0.1:65002",
+    paths_arg=None,  # unused; kept for forward-compat with CLI smoke tests
+    manifest_path=None,
+    output_root=None,
+    run_fn_invocations=None,
+    run_fn_legacy=None,
+    run_fn_candidate=None,
+    fixed_now=None,
+):
+    """Hermetic helper: write a Node wrapper that imports the navigation
+    producer and calls capture() with injected runFn / now(). Captures
+    stdout (JSON envelope) and stderr. No Playwright is loaded — the
+    injected runFn returns canned results synchronously.
+
+    `run_fn_legacy` / `run_fn_candidate` are JavaScript literal bodies
+    that the wrapper assigns into the runFn closure via process.env;
+    pass either None (default: return the canned NAVIGATION_HERMETIC_RESULTS)
+    or a literal that evaluates to an array of `{path, status}` objects,
+    or a literal like `({origin, paths}) => { throw new Error('foo') }`.
+    """
+    out_root = output_root if output_root is not None else tmp_path / "out"
+    out_root.mkdir(parents=True, exist_ok=True)
+    invocation_log = tmp_path / "_run_fn_invocations.json"
+    fixed_now = fixed_now or NAVIGATION_FIXED_NOW
+    if run_fn_legacy is None:
+        run_fn_legacy = "() => " + json.dumps(NAVIGATION_HERMETIC_RESULTS)
+    if run_fn_candidate is None:
+        run_fn_candidate = "() => " + json.dumps(NAVIGATION_HERMETIC_RESULTS)
+    log_literal = json.dumps(str(invocation_log))
+    fixed_now_iso = fixed_now.isoformat().replace("+00:00", "Z")
+    manifest_literal = (
+        "JSON.parse(await (await import('node:fs/promises'))"
+        f".readFile({json.dumps(str(manifest_path))}, 'utf8'))"
+        if manifest_path is not None else "null"
+    )
+    script = (
+        "import { capture } from "
+        + json.dumps("file://" + str(NAV_SCRIPT))
+        + ";\n"
+        f"const legacyOrigin = {json.dumps(legacy_origin)};\n"
+        f"const candidateOrigin = {json.dumps(candidate_origin)};\n"
+        f"const paths = {json.dumps(list(NAVIGATION_FIXED_PATHS))};\n"
+        f"const outputRoot = {json.dumps(str(out_root))};\n"
+        f"const fixedNowIso = {json.dumps(fixed_now_iso)};\n"
+        f"const invocationLogPath = {log_literal};\n"
+        f"const manifest = {manifest_literal};\n"
+        "const __log = async (entry) => {\n"
+        "  const fs = await import('node:fs/promises');\n"
+        "  let arr = [];\n"
+        "  try { arr = JSON.parse(await fs.readFile(invocationLogPath, 'utf8')); } catch {}\n"
+        "  arr.push(entry);\n"
+        "  await fs.writeFile(invocationLogPath, JSON.stringify(arr));\n"
+        "};\n"
+        "const runFn = async (callArgs) => {\n"
+        "  await __log(callArgs);\n"
+        "  const src = callArgs.side === 'legacy' ? process.env.RUNFN_LEGACY : process.env.RUNFN_CANDIDATE;\n"
+        "  const fn = eval('(' + src + ')');\n"
+        "  return await fn(callArgs);\n"
+        "};\n"
+        "const args = {legacyOrigin, candidateOrigin, paths, outputRoot, manifest, runFn,\n"
+        "  now: () => new Date(fixedNowIso)};\n"
+        "try {\n"
+        "  const result = await capture(args);\n"
+        "  process.stdout.write(JSON.stringify({ok: true, result: {\n"
+        "    runTimestamp: result.runTimestamp,\n"
+        "    legacyRunDir: result.legacyRunDir,\n"
+        "    candidateRunDir: result.candidateRunDir,\n"
+        "    legacyNavigation: result.legacyNavigation,\n"
+        "    candidateNavigation: result.candidateNavigation,\n"
+        "  }}));\n"
+        "} catch (err) {\n"
+        "  process.stdout.write(JSON.stringify({ok: false, err: err.message}));\n"
+        "  process.exit(2);\n"
+        "}\n"
+    )
+    wrapper = tmp_path / "_nav_wrapper.mjs"
+    wrapper.write_text(script)
+    proc = subprocess.run(
+        ["node", str(wrapper)], capture_output=True, text=True,
+        env={
+            **os.environ,
+            "NODE_NO_WARNINGS": "1",
+            "RUNFN_LEGACY": run_fn_legacy,
+            "RUNFN_CANDIDATE": run_fn_candidate,
+        },
+    )
+    invocations = []
+    if invocation_log.is_file():
+        try:
+            invocations = json.loads(invocation_log.read_text())
+        except Exception:
+            invocations = []
+    return proc, out_root, invocations
+
+def _run_navigation_cli(args, **kwargs):
+    return subprocess.run(
+        ["node", str(NAV_SCRIPT), *args],
+        capture_output=True, text=True, **kwargs,
+    )
+
+def _nav_manifest(tmp_path, *, paths=NAVIGATION_FIXED_PATHS, schema=NAVIGATION_MANIFEST_SCHEMA):
+    manifest_path = tmp_path / "nav-manifest.json"
+    manifest_path.write_text(json.dumps({"schema": schema, "paths": list(paths)}))
+    return manifest_path
+
+
+# ── Module surface + manifest isolation ───────────────────────────────
+def test_parity_navigation_script_is_esm_library():
+    assert NAV_SCRIPT.is_file(), f"missing: {NAV_SCRIPT}"
+    src = NAV_SCRIPT.read_text()
+    for sym in (
+        "export function parseArgs",
+        "export function validateOrigin",
+        "export function validatePaths",
+        "export function utcRunTimestamp",
+        "export function utcCapturedAt",
+        "export async function capture",
+        "export async function defaultRunNavigation",
+    ):
+        assert sym in src, f"missing export: {sym}"
+
+
+def test_parity_navigation_dependencies_are_pinned():
+    pkg = json.loads(PKG.read_text())
+    deps = pkg.get("dependencies", {})
+    assert "playwright" in deps, "playwright must be a pinned dep in tools/g4-capture"
+    version = deps["playwright"]
+    assert not version.startswith(("^", "~")), (
+        f"playwright must be exact-pinned (no caret/tilde); got {version!r}"
+    )
+    # The capture-2 lighthouse/chrome-launcher pin must NOT regress.
+    for name in ("lighthouse", "chrome-launcher"):
+        assert name in deps, f"{name} must remain pinned"
+        assert not deps[name].startswith(("^", "~")), (
+            f"{name} must stay exact-pinned; got {deps[name]!r}"
+        )
+    assert pkg.get("private") is True and pkg.get("type") == "module"
+
+
+# ── CLI argument parsing ─────────────────────────────────────────────
+def test_parity_navigation_cli_rejects_missing_required_arg():
+    r = _run_navigation_cli([])
+    assert r.returncode != 0, (
+        f"missing --legacy-origin must fail; got stdout={r.stdout!r} "
+        f"stderr={r.stderr!r}"
+    )
+    combined = (r.stdout or "") + (r.stderr or "")
+    assert "missing --legacy-origin" in combined
+
+
+def test_parity_navigation_cli_rejects_unknown_arg():
+    r = _run_navigation_cli([
+        "--legacy-origin", "http://127.0.0.1:1",
+        "--candidate-origin", "http://127.0.0.1:2",
+        "--paths", "/index.html",
+        "--output-root", "/tmp/nav-unknown-arg",
+        "--bogus", "x",
+    ])
+    assert r.returncode != 0, (
+        f"unknown arg must fail; got stdout={r.stdout!r} stderr={r.stderr!r}"
+    )
+    combined = (r.stdout or "") + (r.stderr or "")
+    assert "unknown argument" in combined
+
+
+# ── Origin validation (file://, malformed, equal sides) ─────────────
+@pytest.mark.parametrize("bad_origin", [
+    "file:///tmp/index.html",
+    "ftp://example.com/",
+    "javascript:alert(1)",
+    "not-a-url",
+    "",
+])
+def test_parity_navigation_validate_origin_rejects_non_http(tmp_path, bad_origin):
+    """The producer MUST refuse any origin that is not http(s); file://
+    is explicitly forbidden by the controlled-HTTP-transport contract."""
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e",
+         f"import {{ validateOrigin }} from 'file://{NAV_SCRIPT}';\n"
+         f"try {{ validateOrigin({json.dumps(bad_origin)}, 'legacy-origin'); "
+         "process.exit(11); } catch (e) { process.stdout.write(e.message); }"],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "invalid origin" in proc.stdout, (
+        f"validateOrigin({bad_origin!r}) must reject with 'invalid origin'; "
+        f"got {proc.stdout!r}"
+    )
+
+
+def test_parity_navigation_validate_origin_rejects_trailing_path():
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e",
+         f"import {{ validateOrigin }} from 'file://{NAV_SCRIPT}';\n"
+         "try { validateOrigin('http://127.0.0.1:8765/some/path', 'x'); "
+         "process.exit(11); } catch (e) { process.stdout.write(e.message); }"],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "must not include a path" in proc.stdout, proc.stdout
+
+
+def test_parity_navigation_capture_rejects_equal_origins(tmp_path):
+    """The legacy and candidate origins MUST differ — running both
+    sides against the same URL would silently 'pass' the parity check
+    even when the candidate is broken."""
+    out_root = tmp_path / "out"
+    proc, _, _ = _run_navigation_with_runner(
+        tmp_path,
+        legacy_origin="http://127.0.0.1:65001",
+        candidate_origin="http://127.0.0.1:65001",  # same!
+        output_root=out_root,
+    )
+    assert proc.returncode != 0, proc.stderr
+    assert "must differ" in proc.stdout or "must differ" in proc.stderr, (
+        f"equal origins must be rejected; got stdout={proc.stdout!r} "
+        f"stderr={proc.stderr!r}"
+    )
+    # No run directory created on rejection.
+    assert not (out_root / NAVIGATION_RUN_TS).exists(), (
+        "rejected run must not create a timestamped run directory"
+    )
+
+
+# ── Path validation (empty, manifest mismatch) ─────────────────────
+def test_parity_navigation_validate_paths_rejects_empty(tmp_path):
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e",
+         f"import {{ validatePaths }} from 'file://{NAV_SCRIPT}';\n"
+         "try { validatePaths({paths: []}); process.exit(11); } "
+         "catch (e) { process.stdout.write(e.message); }"],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "non-empty list" in proc.stdout, proc.stdout
+
+
+def test_parity_navigation_validate_paths_rejects_path_without_slash(tmp_path):
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e",
+         f"import {{ validatePaths }} from 'file://{NAV_SCRIPT}';\n"
+         "try { validatePaths({paths: ['index.html']}); process.exit(11); } "
+         "catch (e) { process.stdout.write(e.message); }"],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "starting with '/'" in proc.stdout, proc.stdout
+
+
+def test_parity_navigation_path_mismatch_rejected(tmp_path):
+    """If a manifest is supplied, every declared path MUST appear in
+    manifest.paths. A declared path that the manifest does not pin is
+    rejected so the producer can never silently 'visit' an
+    un-validated URL."""
+    manifest_path = _nav_manifest(tmp_path, paths=("/index.html", "/api/health"))
+    out_root = tmp_path / "out"
+    proc, _, _ = _run_navigation_with_runner(
+        tmp_path, manifest_path=manifest_path, output_root=out_root,
+    )
+    assert proc.returncode != 0, proc.stderr
+    combined = (proc.stdout or "") + (proc.stderr or "")
+    assert "not declared in manifest" in combined or "path mismatch" in combined.lower(), (
+        f"path-mismatch rejection must surface; got {combined!r}"
+    )
+    assert not (out_root / NAVIGATION_RUN_TS).exists()
+
+
+# ── UTC timestamp helpers ──────────────────────────────────────────
+def test_parity_navigation_utc_run_timestamp_format():
+    """The run-directory name MUST be YYYY-MM-DDTHH-MM-SSZ (filename-
+    safe; colon replaced with hyphen). Stable across calls with the
+    same input."""
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e",
+         f"import {{ utcRunTimestamp }} from 'file://{NAV_SCRIPT}';\n"
+         "const fixed = new Date('2026-09-08T15:30:45.123Z');\n"
+         "const a = utcRunTimestamp(fixed);\n"
+         "const b = utcRunTimestamp(fixed);\n"
+         "process.stdout.write(JSON.stringify({a, b, "
+         "hasColon: a.includes(':'), "
+         "hasSubSec: /\\.\\d+/.test(a), "
+         "endsZ: a.endsWith('Z'), "
+         "same: a === b}));"],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["a"] == "2026-09-08T15-30-45Z", (
+        f"run timestamp must be filename-safe UTC seconds; got {out['a']!r}"
+    )
+    assert out["b"] == out["a"], "utcRunTimestamp must be deterministic"
+    assert out["hasColon"] is False, "directory name must not contain ':'"
+    assert out["hasSubSec"] is False, "directory name must not include sub-seconds"
+    assert out["endsZ"] is True, "directory name must end with Z"
+    assert out["same"] is True
+
+
+def test_parity_navigation_utc_captured_at_iso_format():
+    """The `captured_at` ISO-8601 value MUST match scripts/verify_parity.py's
+    ISO_FMT = '%Y-%m-%dT%H:%M:%SZ' (seconds precision, no sub-second)."""
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e",
+         f"import {{ utcCapturedAt }} from 'file://{NAV_SCRIPT}';\n"
+         "const fixed = new Date('2026-09-08T15:30:45.789Z');\n"
+         "process.stdout.write(JSON.stringify({"
+         "v: utcCapturedAt(fixed),"
+         "re: /^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$/.test(utcCapturedAt(fixed))"
+         "}));"],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["v"] == "2026-09-08T15:30:45Z", (
+        f"captured_at must truncate to seconds; got {out['v']!r}"
+    )
+    assert out["re"] is True, (
+        "captured_at must match scripts/verify_parity.py ISO_FMT shape"
+    )
+
+
+# ── Happy path: both sides driven, atomic outputs ──────────────────
+def test_parity_navigation_capture_writes_both_sides_atomic(tmp_path):
+    """End-to-end hermetic capture: with injected runFn returning the
+    canned (path, status) list, the producer drives both origins,
+    writes one navigation.json per side under
+    <outputRoot>/<UTC-timestamp>/{legacy,candidate}/, plus
+    manifest.snapshot.json + run.json. All writes are atomic — a
+    rejected run leaves no partial siblings behind."""
+    out_root = tmp_path / "out"
+    manifest_path = _nav_manifest(tmp_path)
+    proc, _, invocations = _run_navigation_with_runner(
+        tmp_path, manifest_path=manifest_path, output_root=out_root,
+    )
+    assert proc.returncode == 0, f"stdout={proc.stdout!r} stderr={proc.stderr!r}"
+    env = json.loads(proc.stdout)
+    assert env["ok"] is True
+    run_ts = NAVIGATION_RUN_TS
+    legacy_dir = out_root / run_ts / "legacy"
+    candidate_dir = out_root / run_ts / "candidate"
+    # Both sides present, each with navigation.json + manifest.snapshot.json + run.json.
+    for side_dir in (legacy_dir, candidate_dir):
+        assert side_dir.is_dir(), f"missing side dir: {side_dir}"
+        assert (side_dir / "navigation.json").is_file()
+        assert (side_dir / "manifest.snapshot.json").is_file()
+        assert (side_dir / "run.json").is_file()
+    # runFn was called exactly twice — once per side — with the expected arguments.
+    assert len(invocations) == 2, f"expected 2 runFn invocations, got {invocations!r}"
+    sides_called = sorted(invoc["side"] for invoc in invocations)
+    assert sides_called == ["candidate", "legacy"], sides_called
+    legacy_invoc = next(i for i in invocations if i["side"] == "legacy")
+    candidate_invoc = next(i for i in invocations if i["side"] == "candidate")
+    assert legacy_invoc["origin"].rstrip("/") == "http://127.0.0.1:65001"
+    assert candidate_invoc["origin"].rstrip("/") == "http://127.0.0.1:65002"
+    assert legacy_invoc["paths"] == list(NAVIGATION_FIXED_PATHS)
+    assert candidate_invoc["paths"] == list(NAVIGATION_FIXED_PATHS)
+    # navigation.json schema matches scripts/verify_parity.py:
+    #   - schema_version == "1.0.0"
+    #   - captured_at is seconds-precision UTC ISO-8601
+    #   - paths is a list of {path: str, status: int}
+    nav = json.loads((legacy_dir / "navigation.json").read_text())
+    assert nav["schema_version"] == "1.0.0"
+    assert nav["captured_at"] == NAVIGATION_CAPTURED_AT
+    assert nav["paths"] == NAVIGATION_HERMETIC_RESULTS
+    for entry in nav["paths"]:
+        assert isinstance(entry["path"], str) and isinstance(entry["status"], int)
+    nav_c = json.loads((candidate_dir / "navigation.json").read_text())
+    assert nav_c == nav, "both sides share the same canned results in this test"
+    # run.json carries provenance (nodeVersion, playwrightVersion (or
+    # 'unknown' if not loaded), capturedAt, host).
+    run = json.loads((legacy_dir / "run.json").read_text())
+    assert run["schema"] == "taxa.g4-parity.run/1"
+    assert run["capturedAt"] == NAVIGATION_CAPTURED_AT
+    assert run["runTimestamp"] == NAVIGATION_RUN_TS
+    assert run["nodeVersion"].startswith("v")
+    # manifest.snapshot.json matches the on-disk manifest verbatim.
+    snap = json.loads((legacy_dir / "manifest.snapshot.json").read_text())
+    assert snap == json.loads(manifest_path.read_text())
+    # No staging / backup siblings leaked.
+    siblings = [p for p in out_root.iterdir() if p.name.startswith("navigation.tmp")
+                or p.name.startswith("navigation.bak")
+                or ".tmp-" in p.name or ".bak-" in p.name]
+    assert siblings == [], (
+        f"atomic write must not leave staging/backup siblings; got {[str(s) for s in siblings]}"
+    )
+
+
+# ── Failure modes: 5xx / network / path-mismatch / output collision ──
+def test_parity_navigation_capture_rejects_5xx_from_either_side(tmp_path):
+    """If either side returns a 5xx status, the run MUST fail closed
+    before writing any artifact."""
+    manifest_path = _nav_manifest(tmp_path)
+    out_root = tmp_path / "out"
+    bad_results = [
+        {"path": "/index.html", "status": 200},
+        {"path": "/api/health", "status": 503},  # 5xx on candidate side
+        {"path": "/api/domains", "status": 200},
+    ]
+    proc, _, _ = _run_navigation_with_runner(
+        tmp_path,
+        manifest_path=manifest_path,
+        output_root=out_root,
+        run_fn_legacy="() => " + json.dumps(NAVIGATION_HERMETIC_RESULTS),
+        run_fn_candidate="() => " + json.dumps(bad_results),
+    )
+    assert proc.returncode != 0, (
+        f"5xx must fail closed; got stdout={proc.stdout!r} stderr={proc.stderr!r}"
+    )
+    combined = (proc.stdout or "") + (proc.stderr or "")
+    assert "/api/health" in combined and "503" in combined, (
+        f"rejection must identify the failing path + status; got {combined!r}"
+    )
+    # No run directory published.
+    assert not (out_root / NAVIGATION_RUN_TS).exists(), (
+        "5xx must prevent the timestamped run directory from being created"
+    )
+
+
+def test_parity_navigation_capture_rejects_network_failure(tmp_path):
+    """If the injected runner throws (simulating network failure /
+    navigation timeout), the run MUST fail closed with no artifact."""
+    manifest_path = _nav_manifest(tmp_path)
+    out_root = tmp_path / "out"
+    proc, _, _ = _run_navigation_with_runner(
+        tmp_path,
+        manifest_path=manifest_path,
+        output_root=out_root,
+        run_fn_legacy="() => { throw new Error('ECONNREFUSED simulated'); }",
+    )
+    assert proc.returncode != 0, (
+        f"runner throw must fail closed; got stdout={proc.stdout!r} "
+        f"stderr={proc.stderr!r}"
+    )
+    combined = (proc.stdout or "") + (proc.stderr or "")
+    assert "ECONNREFUSED" in combined, (
+        f"rejection must surface the runner error; got {combined!r}"
+    )
+    assert not (out_root / NAVIGATION_RUN_TS).exists()
+
+
+def test_parity_navigation_capture_rejects_output_collision(tmp_path):
+    """If the timestamped run directory already exists under
+    outputRoot, the producer MUST refuse to overwrite it (fail-closed
+    collision guard)."""
+    manifest_path = _nav_manifest(tmp_path)
+    out_root = tmp_path / "out"
+    # Pre-create the timestamped run directory the producer would write.
+    existing = out_root / NAVIGATION_RUN_TS / "legacy"
+    existing.mkdir(parents=True)
+    sentinel = existing / "sentinel.txt"
+    sentinel.write_text("prior evidence")
+    proc, _, _ = _run_navigation_with_runner(
+        tmp_path, manifest_path=manifest_path, output_root=out_root,
+    )
+    assert proc.returncode != 0, (
+        f"output collision must fail closed; got stdout={proc.stdout!r} "
+        f"stderr={proc.stderr!r}"
+    )
+    combined = (proc.stdout or "") + (proc.stderr or "")
+    assert "collision" in combined.lower() or "exists" in combined.lower(), (
+        f"collision rejection must surface; got {combined!r}"
+    )
+    # The pre-existing sentinel must remain intact.
+    assert sentinel.is_file() and sentinel.read_text() == "prior evidence"
+
+
+def test_parity_navigation_capture_collides_with_different_timestamp(tmp_path):
+    """Triangulate: the collision guard rejects ANY pre-existing run
+    timestamp directory under outputRoot, not only the one matching
+    the current now()."""
+    manifest_path = _nav_manifest(tmp_path)
+    out_root = tmp_path / "out"
+    # Pre-create a different timestamp's run dir under outputRoot.
+    existing = out_root / "2026-09-08T16-00-00Z" / "candidate"
+    existing.mkdir(parents=True)
+    proc, _, _ = _run_navigation_with_runner(
+        tmp_path, manifest_path=manifest_path, output_root=out_root,
+    )
+    # The pre-existing dir must remain intact (the producer never
+    # touches timestamps that are not its own).
+    assert (out_root / "2026-09-08T16-00-00Z" / "candidate").is_dir()
+    # The new run still succeeds and writes its own timestamp dir
+    # (collision guard is scoped to the current run's timestamp).
+    assert proc.returncode == 0, (
+        f"unrelated prior timestamp dir must not block the new run; "
+        f"got stdout={proc.stdout!r} stderr={proc.stderr!r}"
+    )
+    assert (out_root / NAVIGATION_RUN_TS / "legacy").is_dir()
+
+
+def test_parity_navigation_capture_rejects_legacy_url_with_path(tmp_path):
+    """The CLI must refuse origins that carry a path component (the
+    transport must be origin-only; per-path URLs are a path
+    declaration, not an origin)."""
+    r = _run_navigation_cli([
+        "--legacy-origin", "http://127.0.0.1:8765/some/path",
+        "--candidate-origin", "http://127.0.0.1:8766",
+        "--paths", "/index.html",
+        "--output-root", str(tmp_path / "out"),
+    ])
+    assert r.returncode != 0, (
+        f"origin with path must fail; got stdout={r.stdout!r} stderr={r.stderr!r}"
+    )
+    combined = (r.stdout or "") + (r.stderr or "")
+    assert "must not include a path" in combined
+
+
+def test_parity_navigation_capture_path_outcome_drift_fails_closed(tmp_path):
+    """If the two sides report DIFFERENT (path, status) outcomes for the
+    same declared path, the producer MUST fail closed. The verifier's
+    pairwise comparator would flag this as a regression, but the
+    producer must catch it at write time so a broken run never
+    publishes a 'clean' navigation.json for either side."""
+    manifest_path = _nav_manifest(tmp_path)
+    out_root = tmp_path / "out"
+    # Candidate side reports /index.html as 404 while legacy reports 200.
+    drifted_candidate = [
+        {"path": "/index.html", "status": 404},
+        {"path": "/api/health", "status": 200},
+        {"path": "/api/domains", "status": 200},
+    ]
+    proc, _, _ = _run_navigation_with_runner(
+        tmp_path,
+        manifest_path=manifest_path,
+        output_root=out_root,
+        run_fn_legacy="() => " + json.dumps(NAVIGATION_HERMETIC_RESULTS),
+        run_fn_candidate="() => " + json.dumps(drifted_candidate),
+    )
+    # 4xx on candidate is NOT a 5xx (so not a hard 5xx rejection), but
+    # a path-outcome drift must still fail closed at the producer
+    # boundary — otherwise the verifier would be the sole gate, which
+    # the contract forbids for this slice.
+    assert proc.returncode != 0, (
+        f"path-outcome drift must fail closed; got stdout={proc.stdout!r} "
+        f"stderr={proc.stderr!r}"
+    )
+    combined = (proc.stdout or "") + (proc.stderr or "")
+    assert "drift" in combined.lower() or "mismatch" in combined.lower(), (
+        f"drift rejection must surface; got {combined!r}"
+    )
+    assert not (out_root / NAVIGATION_RUN_TS).exists()
+
+
+def test_parity_navigation_capture_rejects_missing_paths_arg(tmp_path):
+    r = _run_navigation_cli([
+        "--legacy-origin", "http://127.0.0.1:1",
+        "--candidate-origin", "http://127.0.0.1:2",
+        "--output-root", str(tmp_path / "out"),
+    ])
+    assert r.returncode != 0, (
+        f"missing --paths must fail; got stdout={r.stdout!r} stderr={r.stderr!r}"
+    )
+    combined = (r.stdout or "") + (r.stderr or "")
+    assert "missing --paths" in combined
+
+
+def test_parity_navigation_capture_rejects_missing_output_root(tmp_path):
+    r = _run_navigation_cli([
+        "--legacy-origin", "http://127.0.0.1:1",
+        "--candidate-origin", "http://127.0.0.1:2",
+        "--paths", "/index.html",
+    ])
+    assert r.returncode != 0, (
+        f"missing --output-root must fail; got stdout={r.stdout!r} stderr={r.stderr!r}"
+    )
+    combined = (r.stdout or "") + (r.stderr or "")
+    assert "missing --output-root" in combined

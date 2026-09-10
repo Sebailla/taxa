@@ -51,7 +51,7 @@ from pydantic import BaseModel
 from etl.migrations import CURRENT_SCHEMA_VERSION, get_applied_version  # pyright: ignore
 
 DB_PATH = Path(__file__).parent.parent / "data" / "db" / "taxa.db"
-WEB_DIR = Path(__file__).parent.parent / "web"
+WEB_DIR = Path(__file__).parent.parent / "out"
 # Where the materialize endpoint creates folder structures. Configurable via
 # env var so tests can monkeypatch to a tmp dir without touching the real
 # research folder. Resolved to absolute so the response's `absolute_path`
@@ -709,10 +709,15 @@ _SEARCH_ENGINES = [
     {"key": "youtube",      "label": "YouTube",       "template": "https://www.youtube.com/results?search_query={name}",                                                         "template_with_auth": None,                                                     "with_authorship": False, "icon": "play_circle"},
     {"key": "zootaxa",      "label": "Zootaxa",       "template": "https://www.biotaxa.org/Zootaxa/search?query={name}",                                                         "template_with_auth": None,                                                     "with_authorship": False, "icon": "bug_report"},
     {"key": "scribd",       "label": "Scribd",        "template": "https://www.scribd.com/search?query={name}",                                                                  "template_with_auth": None,                                                     "with_authorship": False, "icon": "auto_stories"},
-    {"key": "threads_acipenser", "label": "Threads: Acipenser", "template": "https://www.threads.com/search?q=acipenser&serp_type=default&xmt=AQG0AC54-jrPT9LBkalK5Lx_FGM7VtC3KUhDTE2hJLKTAwE", "template_with_auth": None, "with_authorship": False, "icon": "share"},
-    {"key": "facebook_acipenser_baerii", "label": "Facebook: Acipenser baerii", "template": "https://www.facebook.com/search/top?q=acipenser%20baerii", "template_with_auth": None, "with_authorship": False, "icon": "share"},
-    {"key": "threads_shared_post", "label": "Threads: Shared post", "template": "https://www.threads.com/share/BAnZDpDtPZ/", "template_with_auth": None, "with_authorship": False, "icon": "share"},
 ]
+# PR 5c.2-A: the earlier 17-engine roster also declared three `general`
+# social/share entries (`threads_acipenser`, `facebook_acipenser_baerii`,
+# `threads_shared_post`) that targeted specific Acipenser queries and a
+# shared-post URL — none of which fit the 5-category UI grouping pinned by
+# `tests/test_search_categories.py::test_search_engines_grouped_by_category`.
+# They are retired in this slice; the canonical roster is the 14 entries
+# above, mirrored by `src/data/search-engines.js::SEARCH_ENGINES` and
+# enforced by `tests/test_smoke.py::test_search_engine_contract`.
 
 
 def _build_search(scientific_name: str, authorship: Optional[str]) -> list[SearchLink]:

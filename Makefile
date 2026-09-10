@@ -7,7 +7,7 @@
 # assignment. All three are false positives when shellcheck runs against
 # a Makefile that uses .ONESHELL: + $(VAR) expansion + URL variables.
 
-.PHONY: venv download etl coldp worms col load api clean test smoke css
+.PHONY: venv download etl coldp worms col load api clean test smoke css parity-navigation
 
 # Pass each recipe to a single shell invocation so multi-line shell
 # constructs (if/then/else/fi, for/done) parse cleanly without `\<newline>`
@@ -36,13 +36,15 @@ venv:
 	.venv/bin/pip install --quiet --upgrade pip
 	.venv/bin/pip install --quiet -r requirements.txt
 
-# Frontend CSS build — installs the Node toolchain on first run, then
-# compiles web/index.css into web/dist/tailwind.css via the Tailwind CLI.
-# Run before `make api` (the dev server serves web/dist/tailwind.css).
-# Idempotent: npm install is a no-op when node_modules/ is already in sync.
+# Frontend CSS build — RETIRED in PR 3d. The Tailwind 3 pipeline
+# (`tailwindcss -i web/index.css -o web/dist/tailwind.css --minify`) was
+# replaced by the Tailwind 4 stylesheet produced by `next build` at PR 3c
+# (the stylesheet is emitted under `out/_next/static/css/`). Kept as a
+# successful no-op so `make css` keeps working for callers that still
+# reach for it (back-compat) — it MUST NOT hit the network, run any
+# compile step, or invoke the Tailwind CLI.
 css:
-	npm install --no-audit --no-fund
-	npm run build:css
+	@echo "[make css] no-op: Tailwind 4 stylesheet ships with \`next build\` (out/_next/static/css/)"
 
 download:
 	@mkdir -p data/raw
@@ -105,7 +107,14 @@ $(WORMS_ZIP):
 	@mkdir -p $(WORMS_DIR)
 	@if [ ! -f $(WORMS_TSV) ]; then echo "Downloading WoRMS ColDP (26 MB compressed)..."; curl -sSL -o $(WORMS_ZIP) "$(WORMS_URL)"; unzip -o -q $(WORMS_ZIP) -d $(WORMS_DIR); else echo "WoRMS ColDP already extracted at $(WORMS_DIR)"; fi
 
-api: css
+api:
+	@echo "[make api] step 1/4: Node runtime guard"
+	node scripts/check-runtime.mjs
+	@echo "[make api] step 2/4: clean install from package-lock.json"
+	npm ci --no-audit --no-fund
+	@echo "[make api] step 3/4: next build (static export -> out/)"
+	npm run build:web
+	@echo "[make api] step 4/4: uvicorn on 127.0.0.1:8765"
 	.venv/bin/python3 -m uvicorn api.server:app --host 127.0.0.1 --port 8765
 
 test:
@@ -127,3 +136,66 @@ clean:
 	rm -f data/etl.log data/api.log data/load.log
 	rm -rf data/db data/raw
 	rm -rf .venv __pycache__ */__pycache__
+
+# G4 navigation-parity producer (first G4 parity slice).
+#
+# Drives both a legacy and a candidate HTTP origin through the navigation
+# paths declared in the supplied manifest, and writes a fail-closed
+# `navigation.json` per side under <OUTPUT_ROOT>/<UTC-timestamp>/{legacy,
+# candidate}/. Producer lives at tools/g4-capture/scripts/parity_navigation.mjs
+# (isolated pinned Playwright workspace). Pass production ports explicitly;
+# the recipe never bakes default origins.
+#
+#   make parity-navigation \
+#       LEGACY_ORIGIN=http://127.0.0.1:8765 \
+#       CANDIDATE_ORIGIN=http://127.0.0.1:8766 \
+#       PATHS=/index.html,/api/health,/api/domains \
+#       MANIFEST=tests/fixtures/g4/nav-manifest.json \
+#       OUTPUT_ROOT=parity-reports/navigation
+#
+# Other slices (api / search / a11y / browser-state) and the umbrella
+# `make parity` target remain pending; this is the navigation-only slice.
+parity-navigation:
+	@if [ -z "$(LEGACY_ORIGIN)" ] || [ -z "$(CANDIDATE_ORIGIN)" ] || [ -z "$(PATHS)" ] || [ -z "$(OUTPUT_ROOT)" ]; then \
+		echo "Usage: make parity-navigation LEGACY_ORIGIN=<url> CANDIDATE_ORIGIN=<url> PATHS=/a,/b MANIFEST=<path> OUTPUT_ROOT=<dir>" >&2; \
+		exit 1; \
+	fi
+	@if [ ! -d "tools/g4-capture/node_modules/playwright" ]; then \
+		echo "[make parity-navigation] installing isolated Playwright workspace (tools/g4-capture)" >&2; \
+		cd tools/g4-capture && npm ci --no-audit --no-fund; \
+	fi
+	node tools/g4-capture/scripts/parity_navigation.mjs \
+		--legacy-origin "$(LEGACY_ORIGIN)" \
+		--candidate-origin "$(CANDIDATE_ORIGIN)" \
+		--paths "$(PATHS)" \
+		--output-root "$(OUTPUT_ROOT)" \
+		$(if $(MANIFEST),--manifest "$(MANIFEST)",)
+
+
+# React E2E composition driver (PR 5c.2-B.1b-ii-c).
+#
+# Wires the hermetic fixture API (5c.2-B.1b-ii-a) + static export HTTP
+# server (5c.2-B.1b-ii-b) + capture CLI / Chromium runner (5c.2-B.1b-i)
+# into a single end-to-end composition. The recipe installs ONLY the
+# isolated harness workspace dependencies (`tools/react-e2e-harness/`
+# `node_modules/`); root `node_modules/` is NOT touched. The orchestrator
+# binds both servers on OS-assigned ports (`--port 0`); no default port
+# is baked into the recipe. The caller MUST supply `OUTPUT_ROOT`; the
+# recipe never defaults it.
+#
+#   make capture-react-e2e OUTPUT_ROOT=parity-reports/react-e2e
+#
+# Optional `HARNESS_DIR` overrides the default
+# `tools/react-e2e-harness/` (used by the hermetic test slice).
+capture-react-e2e:
+	@if [ -z "$(OUTPUT_ROOT)" ]; then \
+		echo "Usage: make capture-react-e2e OUTPUT_ROOT=<dir> [HARNESS_DIR=<dir>]" >&2; \
+		exit 1; \
+	fi
+	@if [ ! -d "tools/react-e2e-harness/node_modules" ]; then \
+		echo "[make capture-react-e2e] installing isolated React E2E harness workspace (tools/react-e2e-harness)" >&2; \
+		cd tools/react-e2e-harness && npm ci --no-audit --no-fund; \
+	fi
+	node tools/react-e2e-harness/scripts/composed-capture.mjs \
+		--output-root "$(OUTPUT_ROOT)" \
+		$(if $(HARNESS_DIR),--harness-dir "$(HARNESS_DIR)",)

@@ -44,7 +44,7 @@ conventions:
 # Delivery
 delivery:
   strategy: ask-on-risk
-  chain_strategy: unset # set when sdd-tasks triggers auto-chain or chained split
+  chain_strategy: feature-branch-chain # user-selected 2026-09-02 for complete-taxa-frontend-migration
 
 # Active change under preparation
-active_change: file-explorer
+active_change: complete-taxa-frontend-migration # successor to migrate-nextjs-tailwind4 (frozen as planning history); selected_change in preflight 2026-09-02

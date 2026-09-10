@@ -1,45 +1,83 @@
 {
-  "//": "TypeScript config for the migrate-nextjs-tailwind4 modular monolith. PR 2a (Phase 2 scaffold work unit) ships the file with strict mode + path aliases for the five capability modules. The full Next.js config (jsx, plugins, etc.) lands with PR 3 (Phase 3 frontend-bootstrap, task 3.1).",
-
+  "//": "TypeScript config for the complete-taxa-frontend-migration modular monolith. PR 3a (Phase 3a toolchain bootstrap) modifies this file in place to align the strict-mode flag set, the path-alias map, and the Next.js `jsx`/`noUncheckedIndexedAccess` flags with the Next 16 + React 19 + Tailwind 4 stack the migration adopts. The full Next.js plugin (jsx-runtime, app-router types) lands with PR 3b (Phase 3b App Router static export).",
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "jsx": "react-jsx",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-
-    "//": "Strictness — every flag flipped on here pins the bar the future capability ports (PR 3–5) must meet. Domain layer MUST compile under these flags without React, Next, FastAPI, or any I/O subsystem (modular-architecture/spec.md rule 4).",
+    "allowImportingTsExtensions": false,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
     "strict": true,
     "noImplicitAny": true,
     "strictNullChecks": true,
+    "noUncheckedIndexedAccess": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
-
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
     "allowSyntheticDefaultImports": true,
     "verbatimModuleSyntax": false,
-
-    "//": "Path aliases per design.md §Architecture Decisions, 'Cross-module import guard'. Every capability module has a public alias matching its `src/modules/<name>/` barrel. ESLint (`.eslintrc.cjs`, ships with PR 2b) rejects deep imports into the layer folders.",
-    "baseUrl": ".",
     "paths": {
-      "@taxa/taxonomy": ["src/modules/taxonomy/index.ts"],
-      "@taxa/taxonomy/*": ["src/modules/taxonomy/*"],
-      "@taxa/research": ["src/modules/research/index.ts"],
-      "@taxa/research/*": ["src/modules/research/*"],
-      "@taxa/design-system": ["src/modules/design-system/index.ts"],
-      "@taxa/design-system/*": ["src/modules/design-system/*"],
-      "@taxa/browser-state": ["src/modules/browser-state/index.ts"],
-      "@taxa/browser-state/*": ["src/modules/browser-state/*"],
-      "@taxa/app-shell": ["src/modules/app-shell/index.ts"],
-      "@taxa/app-shell/*": ["src/modules/app-shell/*"]
-    }
+      "@taxa/taxonomy": [
+        "./src/modules/taxonomy/index.ts"
+      ],
+      "@taxa/taxonomy/*": [
+        "./src/modules/taxonomy/*"
+      ],
+      "@taxa/research": [
+        "./src/modules/research/index.ts"
+      ],
+      "@taxa/research/*": [
+        "./src/modules/research/*"
+      ],
+      "@taxa/design-system": [
+        "./src/modules/design-system/index.ts"
+      ],
+      "@taxa/design-system/*": [
+        "./src/modules/design-system/*"
+      ],
+      "@taxa/browser-state": [
+        "./src/modules/browser-state/index.ts"
+      ],
+      "@taxa/browser-state/*": [
+        "./src/modules/browser-state/*"
+      ],
+      "@taxa/app-shell": [
+        "./src/modules/app-shell/index.ts"
+      ],
+      "@taxa/app-shell/*": [
+        "./src/modules/app-shell/*"
+      ]
+    },
+    "allowJs": true,
+    "noEmit": true,
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
   },
-
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["node_modules", "web", "etl", "tests", "api"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "web",
+    "etl",
+    "tests",
+    "api"
+  ]
 }

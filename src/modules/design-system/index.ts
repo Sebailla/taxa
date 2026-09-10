@@ -2,22 +2,26 @@
  * Public barrel for the `design-system` capability module.
  *
  * spec.md rule 5: cross-module consumers MUST import only from this
- * file (or via the `@taxa/design-system` path alias defined in
- * `tsconfig.json`). Direct imports into the layer folders below are
- * blocked by `.eslintrc.cjs::no-restricted-imports`.
+ * file (or via `@taxa/design-system`). Deep imports into the layer
+ * folders below are blocked by `.eslintrc.cjs::no-restricted-imports`.
  *
- * PR 2a (Phase 2 scaffold work unit) ships an empty barrel — the real
- * exports land with the PR 3 frontend-bootstrap (tasks 3.1–3.8):
- *   - `infrastructure/globals.css`      → `@import "tailwindcss"` + `@theme`
- *   - `infrastructure/tailwind-preset.ts` → legacy utility → Tailwind 4 mapping
- *   - `domain/tokens.ts`                → typed design-token surface
- *
- * The legacy `--primary`, `--bg-surface`, `--realm-*` tokens resolve
- * unchanged because they are re-exported as aliases inside `@layer
- * base { :root { … } }` (design.md §Architecture Decisions, "Design
- * tokens" row).
- *
- * An empty barrel is intentionally a no-op re-export so this file is
- * a valid TypeScript module and `tsc --noEmit` accepts it.
+ * Exports: `TabStrip` + types (PR 5b.4); `Icon` / `Button` + types
+ * (PR 3c-iv-barrel.3 / .4); `THEME_TOKENS` + `ThemeToken` typed token
+ * surface (3c-iv-barrel.2 — literal hex values live in
+ * `src/app/globals.css::@theme`).
  */
-export {};
+
+export {
+  THEME_TOKENS,
+  type ThemeToken,
+} from "./infrastructure";
+export {
+  Button,
+  type ButtonProps,
+  Icon,
+  type IconName,
+  type IconProps,
+  TabStrip,
+  type TabDefinition,
+  type TabStripProps,
+} from "./presentation";

@@ -1,0 +1,330 @@
+{
+  "activation_complete": true,
+  "captured_at": "2026-09-06T15:10:54Z",
+  "consumer_readiness": {
+    "all_selected": true,
+    "change": "complete-taxa-frontend-migration",
+    "consumers": [
+      {
+        "id": "mount-runtime-html-root-001",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b G6 rehearsal, working copy, 2026-09-06): the FastAPI WEB_DIR repoint in api/server.py:54 (`... / \"out\"`) routes the legacy `/` request to `out/index.html` \u2014 the Next.js 16.3.3 / Turbopack static export. The on-disk Tier-1 web/index.html is retired by PR 5c.",
+          "path": "out/index.html",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:55637/",
+          "expect": "200"
+        }
+      },
+      {
+        "id": "mount-runtime-html-direct-002",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b): direct GET /index.html is served by the FastAPI StaticFiles mount against out/ \u2014 the Next.js static export. Same URL pattern as Tier-1, different runtime directory.",
+          "path": "out/index.html",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:55637/index.html",
+          "expect": "200"
+        }
+      },
+      {
+        "id": "mount-runtime-link-tag-css-003",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b G6 rehearsal, working copy, 2026-09-06; updated from pre-cut selector after the PR 5c legacy web/* retirement): the legacy 'web/dist/tailwind.css (loaded by web/index.html:13 <link rel=stylesheet>)' reference is replaced by the post-cut equivalent at out/_next/static/chunks/1uy6e-3ovok5_.css (the Tailwind 4 + globals.css compiled CSS bundle linked via `<link rel=\"stylesheet\">` in out/index.html). The command now exercises the post-cut surface; the original command is preserved as the rollback contract \u2014 the predecessor `migrate-nextjs-tailwind4/cutover-manifest.json` stays byte-identical frozen.",
+          "path": "out/_next/static/chunks/1uy6e-3ovok5_.css (the Tailwind 4 + globals.css compiled CSS bundle linked via `<link rel=\"stylesheet\">` in out/index.html)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:55637/_next/static/chunks/1uy6e-3ovok5_.css",
+          "expect": "200"
+        }
+      },
+      {
+        "id": "mount-runtime-script-tag-app-004",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b G6 rehearsal, working copy, 2026-09-06; updated from pre-cut selector after the PR 5c legacy web/* retirement): the legacy 'web/app.js (loaded by web/index.html:2163 <script type=module>, sole direct script tag)' reference is replaced by the post-cut equivalent at out/_next/static/chunks/3l04zcqx63h3y.js (the main Next.js page entry chunk; the post-cut equivalent of the legacy sole `<script type=\"module\">` tag in web/index.html that loaded web/app.js). The command now exercises the post-cut surface; the original command is preserved as the rollback contract \u2014 the predecessor `migrate-nextjs-tailwind4/cutover-manifest.json` stays byte-identical frozen.",
+          "path": "out/_next/static/chunks/3l04zcqx63h3y.js (the main Next.js page entry chunk; the post-cut equivalent of the legacy sole `<script type=\"module\">` tag in web/index.html that loaded web/app.js)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:55637/_next/static/chunks/3l04zcqx63h3y.js",
+          "expect": "200"
+        }
+      },
+      {
+        "id": "mount-runtime-import-app-js-modules-005",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b G6 rehearsal, working copy, 2026-09-06; updated from pre-cut selector after the PR 5c legacy web/* retirement): the legacy 'web/{state,api,tree,breadcrumb,detail,nav,dom,banner,help,keymap}.js (imported by web/app.js:39-54)' reference is replaced by the post-cut equivalent at out/_next/static/chunks/<hashed-state,api,tree,...-bundles> (the eight post-cut hashed JS chunks that collectively bundle the ten legacy web/{state,api,tree,breadcrumb,detail,nav,dom,banner,help,keymap}.js modules retired by PR 5c). The command now exercises the post-cut surface; the original command is preserved as the rollback contract \u2014 the predecessor `migrate-nextjs-tailwind4/cutover-manifest.json` stays byte-identical frozen.",
+          "path": "out/_next/static/chunks/<hashed-state,api,tree,...-bundles> (the eight post-cut hashed JS chunks that collectively bundle the ten legacy web/{state,api,tree,breadcrumb,detail,nav,dom,banner,help,keymap}.js modules retired by PR 5c)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "for c in 41qfcvra0dvw4 1mh6a-0e61pyc turbopack-0_i3ve-33z88y 1xpmarwxfzgo9 3ex5_ptjcvltd 140cp3hjc8elr 0cz1d0mv5g_q7 3l04zcqx63h3y; do curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:55637/_next/static/chunks/$c.js; done",
+          "expect": "200 for each"
+        }
+      },
+      {
+        "id": "mount-runtime-dynamic-import-app-js-settings-006",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b G6 rehearsal, working copy, 2026-09-06; updated from pre-cut selector after the PR 5c legacy web/* retirement): the legacy 'web/settings.js (dynamic-imported lazily by web/app.js:88 for settings panel)' reference is replaced by the post-cut equivalent at out/_next/static/chunks/3ex5_ptjcvltd.js (the AppShell + Settings view hashed chunk that bundles the post-cut equivalent of the legacy lazy-loaded web/settings.js). The command now exercises the post-cut surface; the original command is preserved as the rollback contract \u2014 the predecessor `migrate-nextjs-tailwind4/cutover-manifest.json` stays byte-identical frozen.",
+          "path": "out/_next/static/chunks/3ex5_ptjcvltd.js (the AppShell + Settings view hashed chunk that bundles the post-cut equivalent of the legacy lazy-loaded web/settings.js)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:55637/_next/static/chunks/3ex5_ptjcvltd.js",
+          "expect": "200"
+        }
+      },
+      {
+        "id": "mount-runtime-import-nav-js-modules-007",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b G6 rehearsal, working copy, 2026-09-06; updated from pre-cut selector after the PR 5c legacy web/* retirement): the legacy 'web/{detail,search,tree,state,api,dom}.js (imported by web/nav.js:14-17)' reference is replaced by the post-cut equivalent at out/_next/static/chunks/<hashed-detail,search,tree,state,api,dom-bundles> (the three AppShell + page hashed chunks that bundle the post-cut equivalent of the six legacy web/{detail,search,tree,state,api,dom}.js modules imported by the retired web/nav.js). The command now exercises the post-cut surface; the original command is preserved as the rollback contract \u2014 the predecessor `migrate-nextjs-tailwind4/cutover-manifest.json` stays byte-identical frozen.",
+          "path": "out/_next/static/chunks/<hashed-detail,search,tree,state,api,dom-bundles> (the three AppShell + page hashed chunks that bundle the post-cut equivalent of the six legacy web/{detail,search,tree,state,api,dom}.js modules imported by the retired web/nav.js)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "for c in 1xpmarwxfzgo9 3ex5_ptjcvltd 140cp3hjc8elr; do curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:55637/_next/static/chunks/$c.js; done",
+          "expect": "200 for each"
+        }
+      },
+      {
+        "id": "mount-runtime-dynamic-import-nav-js-008",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b G6 rehearsal, working copy, 2026-09-06; updated from pre-cut selector after the PR 5c legacy web/* retirement): the legacy 'web/{settings,file_explorer}.js (dynamic-imported lazily by web/nav.js:252,295,308,331,685)' reference is replaced by the post-cut equivalent at out/_next/static/chunks/<hashed-settings,file-explorer-bundles> (the two AppShell hashed chunks that bundle the post-cut equivalent of the legacy lazy-loaded web/{settings,file_explorer}.js). The command now exercises the post-cut surface; the original command is preserved as the rollback contract \u2014 the predecessor `migrate-nextjs-tailwind4/cutover-manifest.json` stays byte-identical frozen.",
+          "path": "out/_next/static/chunks/<hashed-settings,file-explorer-bundles> (the two AppShell hashed chunks that bundle the post-cut equivalent of the legacy lazy-loaded web/{settings,file_explorer}.js)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:55637/_next/static/chunks/1xpmarwxfzgo9.js && curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:55637/_next/static/chunks/3ex5_ptjcvltd.js",
+          "expect": "200 for each"
+        }
+      },
+      {
+        "id": "mount-runtime-import-breadcrumb-format-009",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b G6 rehearsal, working copy, 2026-09-06; updated from pre-cut selector after the PR 5c legacy web/* retirement): the legacy 'web/format.js (imported by web/breadcrumb.js:8 alongside dom.js + state.js)' reference is replaced by the post-cut equivalent at out/_next/static/chunks/1xpmarwxfzgo9.js (the AppShell + breadcrumb hashed chunk that bundles the post-cut equivalent of the legacy web/format.js imported by web/breadcrumb.js). The command now exercises the post-cut surface; the original command is preserved as the rollback contract \u2014 the predecessor `migrate-nextjs-tailwind4/cutover-manifest.json` stays byte-identical frozen.",
+          "path": "out/_next/static/chunks/1xpmarwxfzgo9.js (the AppShell + breadcrumb hashed chunk that bundles the post-cut equivalent of the legacy web/format.js imported by web/breadcrumb.js)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:55637/_next/static/chunks/1xpmarwxfzgo9.js",
+          "expect": "200"
+        }
+      },
+      {
+        "id": "mount-runtime-import-search-format-010",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b G6 rehearsal, working copy, 2026-09-06; updated from pre-cut selector after the PR 5c legacy web/* retirement): the legacy 'web/format.js (imported by web/search.js:7 alongside state.js + api.js + dom.js)' reference is replaced by the post-cut equivalent at out/_next/static/chunks/1xpmarwxfzgo9.js (the AppShell hashed chunk that bundles the post-cut equivalent of the legacy web/format.js imported by web/search.js). The command now exercises the post-cut surface; the original command is preserved as the rollback contract \u2014 the predecessor `migrate-nextjs-tailwind4/cutover-manifest.json` stays byte-identical frozen.",
+          "path": "out/_next/static/chunks/1xpmarwxfzgo9.js (the AppShell hashed chunk that bundles the post-cut equivalent of the legacy web/format.js imported by web/search.js)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:55637/_next/static/chunks/1xpmarwxfzgo9.js",
+          "expect": "200"
+        }
+      },
+      {
+        "id": "mount-runtime-dynamic-import-detail-file-explorer-011",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b G6 rehearsal, working copy, 2026-09-06; updated from pre-cut selector after the PR 5c legacy web/* retirement): the legacy 'web/file_explorer.js (dynamic-imported lazily by web/detail.js:482 for file viewer)' reference is replaced by the post-cut equivalent at out/_next/static/chunks/1xpmarwxfzgo9.js (the FileExplorer presenter hashed chunk that bundles the post-cut equivalent of the legacy lazy-loaded web/file_explorer.js). The command now exercises the post-cut surface; the original command is preserved as the rollback contract \u2014 the predecessor `migrate-nextjs-tailwind4/cutover-manifest.json` stays byte-identical frozen.",
+          "path": "out/_next/static/chunks/1xpmarwxfzgo9.js (the FileExplorer presenter hashed chunk that bundles the post-cut equivalent of the legacy lazy-loaded web/file_explorer.js)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:55637/_next/static/chunks/1xpmarwxfzgo9.js",
+          "expect": "200"
+        }
+      },
+      {
+        "id": "mount-runtime-import-file-explorer-file-viewer-012",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b G6 rehearsal, working copy, 2026-09-06; updated from pre-cut selector after the PR 5c legacy web/* retirement): the legacy 'web/file_viewer.js (imported by web/file_explorer.js:24 alongside format.js)' reference is replaced by the post-cut equivalent at out/_next/static/chunks/3ex5_ptjcvltd.js (the FileViewer + AppShell hashed chunk that bundles the post-cut equivalent of the legacy web/file_viewer.js imported by the retired web/file_explorer.js). The command now exercises the post-cut surface; the original command is preserved as the rollback contract \u2014 the predecessor `migrate-nextjs-tailwind4/cutover-manifest.json` stays byte-identical frozen.",
+          "path": "out/_next/static/chunks/3ex5_ptjcvltd.js (the FileViewer + AppShell hashed chunk that bundles the post-cut equivalent of the legacy web/file_viewer.js imported by the retired web/file_explorer.js)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:55637/_next/static/chunks/3ex5_ptjcvltd.js",
+          "expect": "200"
+        }
+      },
+      {
+        "id": "mount-runtime-cdn-lib-pins-013",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b G6 rehearsal, working copy, 2026-09-06; updated from pre-cut selector after the PR 5c legacy web/* retirement): the legacy 'web/index.html:2180,2188,2194 (mammoth@1.8.0, xlsx@0.18.5, epubjs@0.3.93 CDN URLs loaded by web/file_viewer.js::loadScriptOnce)' reference is replaced by the post-cut equivalent at src/modules/research/infrastructure/api.ts:141-143 (the canonical React location of the three CDN library pins; the legacy web/index.html:2180,2188,2194 CDN URL lines were deleted by PR 5c, and the same CDN versions are re-anchored in the typed infrastructure module). The command now exercises the post-cut surface; the original command is preserved as the rollback contract \u2014 the predecessor `migrate-nextjs-tailwind4/cutover-manifest.json` stays byte-identical frozen.",
+          "path": "src/modules/research/infrastructure/api.ts:141-143 (the canonical React location of the three CDN library pins; the legacy web/index.html:2180,2188,2194 CDN URL lines were deleted by PR 5c, and the same CDN versions are re-anchored in the typed infrastructure module)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "grep -nE 'mammoth@1\\.8\\.0|xlsx@0\\.18\\.5|epubjs@0\\.3\\.93' src/modules/research/infrastructure/api.ts",
+          "expect": "three matches at lines 141, 142, 143"
+        }
+      },
+      {
+        "id": "mount-test-smoke-static-index-014",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b): the on-disk legacy tests/test_smoke.py:150 test_static_index_html_served reader (GET /index.html) is preserved as-is \u2014 the FastAPI WEB_DIR repoint serves out/index.html from the same URL, so the test reads the post-cut HTML byte stream from the same endpoint.",
+          "path": "tests/test_smoke.py:150 (post-cut reader)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "pytest tests/test_smoke.py::test_static_index_html_served -q",
+          "expect": "1 passed"
+        }
+      },
+      {
+        "id": "mount-test-smoke-static-app-js-015",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b): the on-disk legacy tests/test_smoke.py:157 test_static_app_js_served reader is preserved as-is \u2014 the FastAPI WEB_DIR repoint serves the React candidate from the same /app.js (or /_next/static/chunks/<hash>.js) endpoint.",
+          "path": "tests/test_smoke.py:157 (post-cut reader)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "pytest tests/test_smoke.py::test_static_app_js_served -q",
+          "expect": "1 passed"
+        }
+      },
+      {
+        "id": "mount-test-evidence-baseline-html-016",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b G6 rehearsal, working copy, 2026-09-06; updated from pre-cut selector after the PR 5c legacy web/* retirement): the legacy 'tests/test_evidence_baseline.py:276 test_legacy_html_present_and_nontrivial (reads WEB_DIR/index.html)' reference is replaced by the post-cut equivalent at tests/test_evidence_baseline.py:277 (post-cut reader; the legacy test_legacy_html_present_and_nontrivial ID was retired by PR 5c \u2014 the post-cut contract is the inverse: the legacy HTML MUST be absent). The command now exercises the post-cut surface; the original command is preserved as the rollback contract \u2014 the predecessor `migrate-nextjs-tailwind4/cutover-manifest.json` stays byte-identical frozen.",
+          "path": "tests/test_evidence_baseline.py:277 (post-cut reader; the legacy test_legacy_html_present_and_nontrivial ID was retired by PR 5c \u2014 the post-cut contract is the inverse: the legacy HTML MUST be absent)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "pytest tests/test_evidence_baseline.py::test_legacy_html_absent -q",
+          "expect": "1 passed"
+        }
+      },
+      {
+        "id": "mount-test-evidence-baseline-modules-017",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b G6 rehearsal, working copy, 2026-09-06; updated from pre-cut selector after the PR 5c legacy web/* retirement): the legacy \"tests/test_evidence_baseline.py:294 test_legacy_module_count_matches_exploration (reads WEB_DIR.glob('*.js'))\" reference is replaced by the post-cut equivalent at tests/test_evidence_baseline.py:291 (post-cut reader; the legacy test_legacy_module_count_matches_exploration ID was retired by PR 5c \u2014 the post-cut contract is the inverse: the 17 legacy JS modules MUST be absent, per the pinned per-name roster). The command now exercises the post-cut surface; the original command is preserved as the rollback contract \u2014 the predecessor `migrate-nextjs-tailwind4/cutover-manifest.json` stays byte-identical frozen.",
+          "path": "tests/test_evidence_baseline.py:291 (post-cut reader; the legacy test_legacy_module_count_matches_exploration ID was retired by PR 5c \u2014 the post-cut contract is the inverse: the 17 legacy JS modules MUST be absent, per the pinned per-name roster)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "pytest tests/test_evidence_baseline.py::test_legacy_module_roster_absent -q",
+          "expect": "1 passed"
+        }
+      },
+      {
+        "id": "mount-test-evidence-baseline-source-size-018",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b G6 rehearsal, working copy, 2026-09-06; updated from pre-cut selector after the PR 5c legacy web/* retirement): the legacy 'tests/test_evidence_baseline.py:316 test_legacy_total_source_size_below_threshold (walks WEB_DIR bytes)' reference is replaced by the post-cut equivalent at tests/test_evidence_baseline.py:332 (post-cut reader; the legacy test_legacy_total_source_size_below_threshold ID was retired by PR 5c \u2014 the post-cut contract pins the absence of the legacy 1,963-line web/index.css via the dedicated absence test, which is the dominant contributor to the legacy source-size budget). The command now exercises the post-cut surface; the original command is preserved as the rollback contract \u2014 the predecessor `migrate-nextjs-tailwind4/cutover-manifest.json` stays byte-identical frozen.",
+          "path": "tests/test_evidence_baseline.py:332 (post-cut reader; the legacy test_legacy_total_source_size_below_threshold ID was retired by PR 5c \u2014 the post-cut contract pins the absence of the legacy 1,963-line web/index.css via the dedicated absence test, which is the dominant contributor to the legacy source-size budget)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "pytest tests/test_evidence_baseline.py::test_legacy_index_css_absent -q",
+          "expect": "1 passed"
+        }
+      },
+      {
+        "id": "mount-test-build-profile-emit-019",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b): the on-disk legacy tests/test_build_profile.py reader of `web/dist/build-profile.json` is preserved as-is (the test reads from the post-cut WEB_DIR; the build-profile.json path migrates with the WEB_DIR repoint).",
+          "path": "tests/test_build_profile.py (post-cut reader)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "pytest tests/test_build_profile.py -q",
+          "expect": "all passed"
+        }
+      },
+      {
+        "id": "mount-test-hydration-timing-measure-020",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b): the on-disk legacy tests/test_hydration_timing.py server-shell measurement against `web/index.html` is preserved as-is (the test reads from the post-cut WEB_DIR; the hydration target migrates with the WEB_DIR repoint).",
+          "path": "tests/test_hydration_timing.py (post-cut reader)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "pytest tests/test_hydration_timing.py -q",
+          "expect": "all passed"
+        }
+      },
+      {
+        "id": "mount-extension-host-permissions-021",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b): the on-disk legacy extension/manifest.json host_permissions + content_scripts.matches pair pinning Chrome content-script injection to http://localhost:8765/* is PRESERVED UNCHANGED (the single-origin contract G1 is binding; FastAPI continues to serve on 127.0.0.1:8765 after WEB_DIR repoint).",
+          "path": "extension/manifest.json:13-15, extension/manifest.json:21",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "grep -nE 'localhost:8765|127\\.0\\.0\\.1:8765' extension/manifest.json",
+          "expect": "host_permissions:[\"http://localhost:8765/*\"] at lines 13-15 AND content_scripts.matches:[\"http://localhost:8765/*\"] at line 21"
+        }
+      },
+      {
+        "id": "search-urls-runtime-import-detail-001",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b G6 cutover-rehearsal working copy, 2026-09-06; repointed from the stale 'grep -n SEARCH_ENGINES\\|CATEGORIES web/detail.js' which targeted the PR 5c-deleted web/detail.js): the post-cut equivalent validates the canonical AC-21 source at src/data/search-engines.js, the same file the AC-21 contract test (tests/test_smoke.py::test_search_engine_contract) reads. The command exits 0 with matches at line 7 (SEARCH_ENGINES export) and line 27 (CATEGORIES export). The predecessor `migrate-nextjs-tailwind4/cutover-manifest.json` stays byte-identical frozen.",
+          "path": "src/data/search-engines.js (the canonical AC-21 JS mirror that exports SEARCH_ENGINES at line 7 and CATEGORIES at line 27; the legacy web/search_urls.js and web/detail.js were retired by PR 3d + PR 5c; the React candidate re-exports this module via src/modules/research/** (PR 5b.1))",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "grep -nE 'SEARCH_ENGINES|CATEGORIES' src/data/search-engines.js",
+          "expect": "SEARCH_ENGINES exported at line 7 AND CATEGORIES exported at line 27"
+        }
+      },
+      {
+        "id": "search-urls-runtime-engine-by-key-002",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b G6 rehearsal, working copy, 2026-09-06; updated from pre-cut selector after the PR 5c legacy web/* retirement): the legacy 'web/search_urls.js (SEARCH_ENGINES used by web/detail.js:325 to build engineByKey Map)' reference is replaced by the post-cut equivalent at src/modules/research/presentation/SearchTab.tsx (the canonical React location where the post-cut SearchTab presenter filters the SEARCH_ENGINES catalog by category \u2014 the equivalent of the legacy web/detail.js:325 `new Map(SEARCH_ENGINES.map((e) => [e.key, e]))` engineByKey Map construction; web/detail.js was retired by PR 5c). The command now exercises the post-cut surface; the original command is preserved as the rollback contract \u2014 the predecessor `migrate-nextjs-tailwind4/cutover-manifest.json` stays byte-identical frozen.",
+          "path": "src/modules/research/presentation/SearchTab.tsx (the canonical React location where the post-cut SearchTab presenter filters the SEARCH_ENGINES catalog by category \u2014 the equivalent of the legacy web/detail.js:325 `new Map(SEARCH_ENGINES.map((e) => [e.key, e]))` engineByKey Map construction; web/detail.js was retired by PR 5c)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "grep -n 'SEARCH_ENGINES' src/modules/research/presentation/SearchTab.tsx | head -5",
+          "expect": "matches at lines 10 (comment), 12 (comment), 30 (import), 65 (comment), 69 (filter)"
+        }
+      },
+      {
+        "id": "search-urls-runtime-search-tab-ui-003",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b G6 rehearsal, working copy, 2026-09-06; updated from pre-cut selector after the PR 5c legacy web/* retirement): the legacy 'web/search_urls.js (SEARCH_ENGINES iterated by web/detail.js:332 to populate Search tab UI)' reference is replaced by the post-cut equivalent at src/modules/research/presentation/SearchTab.tsx (the canonical React location where the post-cut SearchTab presenter iterates CATEGORY_ORDER (`general` / `taxonomic` / `academic` / `multimedia` / `documents`) to render the five category sections \u2014 the equivalent of the legacy web/detail.js:332 `for (const e of SEARCH_ENGINES)` Search-tab UI iteration; web/detail.js was retired by PR 5c). The command now exercises the post-cut surface; the original command is preserved as the rollback contract \u2014 the predecessor `migrate-nextjs-tailwind4/cutover-manifest.json` stays byte-identical frozen.",
+          "path": "src/modules/research/presentation/SearchTab.tsx (the canonical React location where the post-cut SearchTab presenter iterates CATEGORY_ORDER (`general` / `taxonomic` / `academic` / `multimedia` / `documents`) to render the five category sections \u2014 the equivalent of the legacy web/detail.js:332 `for (const e of SEARCH_ENGINES)` Search-tab UI iteration; web/detail.js was retired by PR 5c)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "grep -n 'CATEGORIES\\|CATEGORY_ORDER' src/modules/research/presentation/SearchTab.tsx | head -5",
+          "expect": "matches for CATEGORIES at lines 29 (import), 84 (find); matches for CATEGORY_ORDER at lines 51 (definition), 75 (map iteration)"
+        }
+      },
+      {
+        "id": "search-urls-test-ac21-contract-004",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b): the AC-21 contract test (tests/test_smoke.py:77-100 test_search_engine_contract) reads from the CANONICAL src/data/search-engines.js path (the web/search_urls.js path was retired by PR 3d; the test was redirected there per the PR 3d slice). The AC-21 byte-shape contract is preserved unchanged on the canonical path.",
+          "path": "tests/test_smoke.py:77-100 (canonical reader)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "pytest tests/test_smoke.py::test_search_engine_contract -q",
+          "expect": "1 passed"
+        }
+      },
+      {
+        "id": "search-urls-test-search-categories-005",
+        "replacement": {
+          "note": "Tier-2 post-cut activation (Phase 6b): the tests/test_search_categories.py:141 reader of CATEGORIES is preserved as-is (it now reads the post-cut canonical src/data/search-engines.js via the bundled React chunks; the test target migrates with the WEB_DIR repoint).",
+          "path": "tests/test_search_categories.py:141 (canonical reader)",
+          "status": "selected"
+        },
+        "verification": {
+          "command": "pytest tests/test_search_categories.py -q",
+          "expect": "all passed"
+        }
+      }
+    ],
+    "schema_version": "1.0.0"
+  },
+  "g3_tier2_exit_code": 0,
+  "gate": "G6",
+  "manifest_path": "/Users/sebailla/Developer/taxa-worktrees/complete-taxa-frontend-migration-23-6b-post-6a/openspec/changes/complete-taxa-frontend-migration/cutover-manifest.json",
+  "schema_version": "1.0.0",
+  "silent_fallback_paths": [],
+  "status": "ready",
+  "unselected_count": 0
+}

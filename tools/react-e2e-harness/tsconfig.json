@@ -1,0 +1,81 @@
+{
+  "//": "TypeScript config for the React E2E harness (PR 5c.2-B.1a). Mirrors the strict-mode flag set + Next 16 App Router jsx-runtime from the root tsconfig.json, and adds a SAFE alias map that resolves each @taxa/* module to its source tree path under ../../src/modules/. The aliases are scoped to the research barrel (the only module the harness mounts) plus the standard five-module capability set, so a future slice can compose additional ports without changing the harness tsconfig. The harness MUST NOT touch root globals.css, the production page, or AppShell — those stay outside the harness.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": false,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "noEmit": true,
+    "incremental": true,
+    "baseUrl": ".",
+    "paths": {
+      "@taxa/research": [
+        "../../src/modules/research/index.ts"
+      ],
+      "@taxa/research/*": [
+        "../../src/modules/research/*"
+      ],
+      "@taxa/taxonomy": [
+        "../../src/modules/taxonomy/index.ts"
+      ],
+      "@taxa/taxonomy/*": [
+        "../../src/modules/taxonomy/*"
+      ],
+      "@taxa/design-system": [
+        "../../src/modules/design-system/index.ts"
+      ],
+      "@taxa/design-system/*": [
+        "../../src/modules/design-system/*"
+      ],
+      "@taxa/browser-state": [
+        "../../src/modules/browser-state/index.ts"
+      ],
+      "@taxa/browser-state/*": [
+        "../../src/modules/browser-state/*"
+      ],
+      "@taxa/app-shell": [
+        "../../src/modules/app-shell/index.ts"
+      ],
+      "@taxa/app-shell/*": [
+        "../../src/modules/app-shell/*"
+      ]
+    },
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "allowJs": true
+  },
+  "include": [
+    "next-env.d.ts",
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "out"
+  ]
+}
