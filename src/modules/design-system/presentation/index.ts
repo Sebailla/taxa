@@ -6,6 +6,15 @@
 // are blocked by `.eslintrc.cjs::no-restricted-imports`.
 
 export {
+  type ButtonProps,
+  Button,
+} from "./Button";
+export {
+  Icon,
+  type IconName,
+  type IconProps,
+} from "./Icon";
+export {
   TabStrip,
   type TabDefinition,
   type TabStripProps,
