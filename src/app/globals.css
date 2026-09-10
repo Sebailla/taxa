@@ -1424,7 +1424,76 @@
         font-size: 16px;
         color: var(--on-surface-variant);
       }
-    }
+          /* PR 3c-iv-viewer — image + video viewer frames. Faithful
+             port of the legacy ``web/index.html`` lines 1750–1822 selectors
+             (retired in PR #171, read-only). The frames reuse the 3c-i
+             tokens (``--surface-container-low``, ``--outline-variant``,
+             ``--on-surface``, ``--primary``) and ride the 3c-iii.9
+             ``color-mix()`` relaxation for the big-file advisory tint
+             (the legacy cascade uses the primary-tinted alpha for the
+             warning strip; stays consistent with the rest of the
+             research-explorer chrome in this same ``@layer components``
+             block). Descendants of ``.research-explorer`` per the
+             3c-iii.5 refactor contract so the React ``<FileViewer>`` in
+             PR 5b consumes them via the stable parent selector name.
+             Settings / colors surfaces stay deferred to PR 3c-iv-settings
+             (9/22) + PR 3c-iv-colors (10/22). */
+          .research-explorer .fex-image-frame {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--surface-container-low);
+            border: 1px solid var(--outline-variant);
+            border-radius: 8px;
+            min-height: 320px;
+            max-height: 100%;
+            overflow: auto;
+            padding: 12px;
+          }
+          .research-explorer .fex-image {
+            display: block;
+            max-width: 100%;
+            max-height: 70vh;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+          }
+          .research-explorer .fex-image-advisory {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            margin-bottom: 8px;
+            background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+            border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--outline-variant));
+            border-radius: 6px;
+            font-family: "Raleway", sans-serif;
+            font-size: 12px;
+            color: var(--on-surface);
+          }
+          .research-explorer .fex-image-advisory .material-symbols-outlined {
+            font-size: 16px;
+            color: var(--primary);
+          }
+          .research-explorer .fex-video-frame {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            border-radius: 8px;
+            min-height: 320px;
+            max-height: 100%;
+            overflow: hidden;
+          }
+          .research-explorer .fex-video-el {
+            display: block;
+            max-width: 100%;
+            max-height: 70vh;
+            width: auto;
+            height: auto;
+            background: #000;
+          }
+        }
 
 
 /* PR 3c-iv-keyframes — five legacy `@keyframes` + `.animate-spin` parity
