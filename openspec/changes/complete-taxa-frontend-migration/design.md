@@ -627,6 +627,40 @@ Approach A within the 400-line review budget per sub-PR.
 | 17–19 / 22 | Phase 6a / 6b / 6c (validation) | NEW | G5 baseline reconstruction / G6 cutover rehearsal / G4 Playwright + Lighthouse parity measurement (validation work; no new `web/**` or `api/server.py` route handlers or `extension/**`) | New (measurement) | ~190 + ~120 measurement (≤ 400 each) |
 | 20 / 22 | PR 3e (cutover) | atomic cutover unit | The four-set release + cutover-manifest Tier-2 flip + G3 Tier-2 verifier rerun + status-footer flips for G4 / G5 / G6 closure | Atomic | ~120 (≤ 400) |
 
+> **2026-09-10 — 4a / 4b marker cross-reference (append-only
+> reconciliation addendum, kept from upstream tracker
+> `3a2e32a`)**. The 22-child slice table above is preserved
+> verbatim as this branch's authoritative sub-PR plan (the
+> 5.5 / 5.6 fractional repair children + the 3c-iv
+> five-slice replan that this branch owns). In parallel,
+> **PR #208** =
+> `feat/complete-taxa-frontend-migration-12-4a-marker`
+> and **PR #209** =
+> `feat/complete-taxa-frontend-migration-13-4b-marker`
+> merged into the upstream tracker as **documentation /
+> verification markers**, not as the PR 4a / PR 4b
+> candidate work units. The marker branches ship one
+> spec-subset / spec-superset triangulation test each
+> (238 LoC for #208, 399 LoC for #209); the PR 4a / PR
+> 4b candidate branches
+> (`feat/complete-taxa-frontend-migration-08-4a` /
+> `feat/complete-taxa-frontend-migration-09-4b`)
+> remain reconstruction pending, with all Phase 4a /
+> Phase 4b source files (`src/modules/browser-state/**`
+> for 4a; `src/modules/app-shell/**` +
+> `src/app/{layout,page}.tsx` AppShell integration
+> delta for 4b) NOT authored by the marker PRs and
+> NOT delivered to `develop`. The marker branch
+> position numbers (12 / 13) belong to the marker
+> chain; on this branch the same positions (12 / 22
+> and 13 / 22 in the 22-child plan above) are owned by
+> the PR 4a / PR 4b **candidate** branches. The
+> candidate-chain positions (8/16 / 9/16) referenced
+> in the upstream tracker's 16-child predecessor view
+> are preserved verbatim. LoC budgets, the
+> dependency-defect-fix contract, the chain topology,
+> and the sub-PR slicing on this branch are unchanged.
+
 ### Dependency order (corrective plan revision + PR 3c sub-sequence replan contract)
 
 - **PR 3a — toolchain bootstrap**. Self-contained.
@@ -649,9 +683,58 @@ Approach A within the 400-line review budget per sub-PR.
 - **PR 3c-iv-colors — Tailwind `--color-*` namespace aliases + utility parity** depends on 3c-iv-settings (Settings selectors live, sharing the `--color-*` consumer surface). **Terminal child of the 3c-iv sub-sequence** — every downstream consumer depends on the colors child (the complete Tailwind 4 cascade).
 - **PR 3d — Makefile/mount** depends on 3c-iv-colors (full Tailwind 4 cascade ported so `next build` produces a complete CSS payload with every `--color-*` alias resolving) and 3b (App Router produces `out/index.html` when `next build` runs). **Per the 3c-iv five-slice replan, final CSS consumers depend on colors.**
 - **PR 4a — typed store** depends on 3c-iv-barrel (design-system module + Icon/Button primitives loaded). **Per the 3c-iv five-slice replan, design-system consumers depend on barrel — not on the former single PR 3c-iv.**
+
+  > **2026-09-10 — 4a marker cross-reference (append-only
+  > reconciliation addendum, kept from upstream tracker
+  > `3a2e32a`)**. PR **#208** =
+  > `feat/complete-taxa-frontend-migration-12-4a-marker`
+  > merged into the upstream tracker as a **documentation /
+  > verification marker** for PR 4a. PR #208 ships a
+  > single spec-subset triangulation test
+  > (`tests/test_browser_state_keys_4a_spec_subset.py`,
+  > 238 LoC); it does NOT author the typed store, the
+  > 4 read + 4 write sites, or the store barrel, and
+  > it does NOT consume the 8/16 candidate-chain
+  > position in the upstream tracker's 16-child
+  > predecessor view. The candidate PR 4a branch
+  > (`feat/complete-taxa-frontend-migration-08-4a`)
+  > stays reconstruction pending. On this branch the
+  > same position (12 / 22 in the 22-child plan above)
+  > is owned by the PR 4a candidate branch (typed
+  > store + 4 read + 4 write sites + store barrel).
+  > The marker branch and the candidate branch are
+  > different branches with different scopes; both
+  > reconciliation facts are preserved verbatim.
+
 - **PR 4b — hydration guard** depends on 4a (store
   available) and 3b (AppShell host + `mounted` flag
   slot).
+
+  > **2026-09-10 — 4b marker cross-reference (append-only
+  > reconciliation addendum, kept from upstream tracker
+  > `3a2e32a`)**. PR **#209** =
+  > `feat/complete-taxa-frontend-migration-13-4b-marker`
+  > merged into the upstream tracker as a **documentation /
+  > verification marker** for PR 4b. PR #209 ships a
+  > single spec-superset triangulation test
+  > (`tests/test_hydration_app_shell_superset_4b_spec_subset.py`,
+  > 399 LoC); it does NOT author the AppShell module,
+  > the page-chrome module, the hydration guard, or
+  > the `<AppShell>` integration into
+  > `src/app/{layout,page}.tsx`, and it does NOT
+  > consume the 9/16 candidate-chain position in the
+  > upstream tracker's 16-child predecessor view. The
+  > candidate PR 4b branch
+  > (`feat/complete-taxa-frontend-migration-09-4b`)
+  > stays reconstruction pending. On this branch the
+  > same position (13 / 22 in the 22-child plan above)
+  > is owned by the PR 4b candidate branch
+  > (`useSyncExternalStore` + `mounted` flag +
+  > Playwright zero-hydration-warnings assertion).
+  > The dependency-defect-fix contract (PR 4b owns
+  > both the `app-shell` module **and** the App Router
+  > host integration) is preserved verbatim on both
+  > the upstream tracker and this branch.
 - **PR 5a — taxonomy port** depends on 4b
   (hydration-safe state read) and 3c-ii (the taxonomy
   selectors are in place — the taxonomy
@@ -726,6 +809,8 @@ verifications).
 | `tests/test_browser_state_keys.py` | Created (PR 4a) | new |
 | `src/modules/app-shell/**` | Created (PR 4b) — AppShell + page-chrome + hydration guard. PR 4b **also** integrates `<AppShell>` from this module into `src/app/{layout,page}.tsx` (the dependency-defect fix — PR 4b owns both the AppShell module **and** the App Router host integration; PR 3b's placeholder layout/page is replaced by the integrated AppShell composition in 4b) | new |
 | `tests/test_hydration_console.py` | Created (PR 4b) | new |
+| `tests/test_browser_state_keys_4a_spec_subset.py` | Created (PR **#208**, **4a marker** — documentation / verification marker, NOT the candidate PR 4a) — spec-subset triangulation pinning the planned 4a contract | new |
+| `tests/test_hydration_app_shell_superset_4b_spec_subset.py` | Created (PR **#209**, **4b marker** — documentation / verification marker, NOT the candidate PR 4b) — spec-superset triangulation pinning the planned 4b contract | new |
 | `src/modules/taxonomy/**` | Ported (PR 5a) — port of `web/{tree,detail,breadcrumb}.js` to React + `DetailPanel` tab strip (`Overview` / `Search` / `Folder`, all three always reachable; `Overview` always available per user policy) + `OverviewTab` + `Kebab` menu with `Search online` action forcing the `Search` tab | new |
 | `tests/test_taxonomy_infra.py` | Created (PR 5a) — plus assertions for the three-tab strip, the `Overview`-always-visible contract, and the `Search online` → `Search` tab force (closes the current live regression where top-level taxa land on `Overview`) | new |
 | `src/modules/research/**` | Ported (PR 5b) — port of `web/{file_explorer,file_viewer,format,keymap}.js` + CDN pin + `SearchTab` with categorized outbound-link list (`General` / `Taxonomic` / `Academic` / `Multimedia` / `Documents`) + `FolderTab` (separate) + `SearchLinkList` presenter + header `Browser` tab re-anchored as global Research / file explorer (NOT taxon-scoped) | new |

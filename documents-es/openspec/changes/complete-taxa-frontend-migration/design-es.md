@@ -635,7 +635,7 @@ líneas por sub-PR.
 | 20 / 22 | PR 3e (cutover) | unidad de cutover atómico | El release de los cuatro conjuntos + inversión del cutover-manifest a Tier-2 + reejecución del verificador G3 Tier-2 + inversiones del status-footer para el cierre de G4 / G5 / G6 | Atómico | ~120 (≤ 400) |
 
 ### Orden de dependencia (contrato de la revisión correctiva del plan + replan de la sub-secuencia del PR 3c)
-
+    
 - **PR 3a — bootstrap de toolchain**. Autocontenido.
 - **PR 3b — exportación estática del App Router** depende
   de 3a (deps instaladas + contrato Node ≥ 20.9.0).
@@ -657,9 +657,60 @@ líneas por sub-PR.
 - **PR 3c-iv-colors — aliases del namespace `--color-*` de Tailwind + paridad de utility** depende de 3c-iv-settings (selectores de Settings vivos, compartiendo la superficie consumidora `--color-*`). **Hijo terminal de la sub-secuencia 3c-iv** — cada consumidor aguas abajo depende del hijo colors (la cascada completa de Tailwind 4).
 - **PR 3d — Makefile/mount** depende de 3c-iv-colors (cascada completa de Tailwind 4 portada de modo que `next build` produce un payload CSS completo con cada alias `--color-*` resolviendo) y de 3b (el App Router produce `out/index.html` cuando `next build` corre). **Según el replan five-slice de 3c-iv, los consumidores CSS finales dependen de colors.**
 - **PR 4a — typed store** depende de 3c-iv-barrel (módulo design-system + primitivas Icon/Button cargadas). **Según el replan five-slice de 3c-iv, los consumidores de design-system dependen de barrel — NO del antiguo PR 3c-iv único.**
+
+  > **2026-09-10 — Cross-reference del marcador 4a
+  > (adenda de reconciliación append-only, preservada del
+  > tracker upstream `3a2e32a`)**. PR **#208** =
+  > `feat/complete-taxa-frontend-migration-12-4a-marker`
+  > fusionado al tracker upstream como **marcador de
+  > documentación / verificación** para PR 4a. PR #208
+  > envía un único test de triangulación de subconjunto
+  > del spec
+  > (`tests/test_browser_state_keys_4a_spec_subset.py`,
+  > 238 LoC); NO autordea el typed store, los 4 sitios
+  > de lectura + 4 de escritura, ni el barrel del store,
+  > y NO consume la posición 8/16 de la cadena candidata
+  > en la vista predecesora de 16 hijos del tracker
+  > upstream. La rama candidata PR 4a
+  > (`feat/complete-taxa-frontend-migration-08-4a`)
+  > queda pendiente de reconstrucción. En esta rama la
+  > misma posición (12 / 22 en el plan de 22 hijos
+  > arriba) pertenece a la rama candidata PR 4a (typed
+  > store + 4 sitios de lectura + 4 de escritura + barrel
+  > del store). La rama marcadora y la rama candidata son
+  > ramas distintas con ámbitos distintos; ambos hechos
+  > de reconciliación se preservan literalmente.
+
 - **PR 4b — guardia de hidratación** depende de 4a
   (store disponible) y de 3b (host AppShell + slot de
   flag `mounted`).
+
+  > **2026-09-10 — Cross-reference del marcador 4b
+  > (adenda de reconciliación append-only, preservada del
+  > tracker upstream `3a2e32a`)**. PR **#209** =
+  > `feat/complete-taxa-frontend-migration-13-4b-marker`
+  > fusionado al tracker upstream como **marcador de
+  > documentación / verificación** para PR 4b. PR #209
+  > envía un único test de triangulación de superconjunto
+  > del spec
+  > (`tests/test_hydration_app_shell_superset_4b_spec_subset.py`,
+  > 399 LoC); NO autordea el módulo AppShell, el módulo
+  > page-chrome, la guardia de hidratación, ni la
+  > integración de `<AppShell>` en
+  > `src/app/{layout,page}.tsx`, y NO consume la posición
+  > 9/16 de la cadena candidata en la vista predecesora
+  > de 16 hijos del tracker upstream. La rama candidata
+  > PR 4b (`feat/complete-taxa-frontend-migration-09-4b`)
+  > queda pendiente de reconstrucción. En esta rama la
+  > misma posición (13 / 22 en el plan de 22 hijos
+  > arriba) pertenece a la rama candidata PR 4b
+  > (`useSyncExternalStore` + flag `mounted` + aserción
+  > Playwright de cero warnings de hidratación). El
+  > contrato de corrección del defecto de dependencia
+  > (PR 4b posee tanto el módulo `app-shell` **como** la
+  > integración del host del App Router) se preserva
+> literalmente tanto en el tracker upstream como en
+  > esta rama.
 - **PR 5a — port de taxonomy** depende de 4b (lectura
   de estado segura de hidratación) y de 3c-ii (los
   selectores de taxonomía están en su lugar — la capa de
@@ -731,6 +782,8 @@ mismo aterriza después de las verificaciones de cierre).
 | `tests/test_browser_state_keys.py` | Creado (PR 4a) | nuevo |
 | `src/modules/app-shell/**` | Creado (PR 4b) — AppShell + page-chrome + guardia de hidratación. PR 4b **también** integra `<AppShell>` desde este módulo en `src/app/{layout,page}.tsx` (la corrección del defecto de dependencia — el PR 4b posee tanto el módulo AppShell **como** la integración del host del App Router; el layout/page marcador del PR 3b se reemplaza por la composición del AppShell integrada en 4b) | nuevos |
 | `tests/test_hydration_console.py` | Creado (PR 4b) | nuevo |
+| `tests/test_browser_state_keys_4a_spec_subset.py` | Creado (PR **#208**, **marcador 4a** — marcador de documentación / verificación, NO el PR 4a candidato) — triangulación de subconjunto del spec que ancla el contrato 4a planificado | nuevo |
+| `tests/test_hydration_app_shell_superset_4b_spec_subset.py` | Creado (PR **#209**, **marcador 4b** — marcador de documentación / verificación, NO el PR 4b candidato) — triangulación de superconjunto del spec que ancla el contrato 4b planificado | nuevo |
 | `src/modules/taxonomy/**` | Porteado (PR 5a) — port de `web/{tree,detail,breadcrumb}.js` a React + strip de pestañas de `DetailPanel` (`Overview` / `Search` / `Folder`, las tres siempre alcanzables; `Overview` siempre disponible según la política de usuario) + `OverviewTab` + menú `Kebab` con la acción `Search online` que fuerza la pestaña `Search` | nuevos |
 | `tests/test_taxonomy_infra.py` | Creado (PR 5a) — más aserciones para el strip de tres pestañas, el contrato `Overview`-siempre-visible, y la fuerza kebab `Search online` → pestaña `Search` (cierra la regresión actual en vivo donde taxones de nivel superior aterrizan en `Overview`) | nuevo |
 | `src/modules/research/**` | Porteado (PR 5b) — port de `web/{file_explorer,file_viewer,format,keymap}.js` + pin CDN + `SearchTab` con lista categorizada de enlaces salientes (`General` / `Taxonomic` / `Academic` / `Multimedia` / `Documents`) + `FolderTab` (separado) + presentador `SearchLinkList` + pestaña `Browser` del header re-anclada como Research global / file explorer (NO scoped por taxón) | nuevos |
