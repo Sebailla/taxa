@@ -1199,10 +1199,255 @@ Espejos en español actualizados en paralelo. No se realiza
                           `tests/test_evidence_baseline.py`) está
                           materialmente errada contra `pytest -rs`
                           real: el skip de evidence-baseline es el
-                          **CSS compilado gitignored** faltante en
-                          `web/dist/tailwind.css` (el test imprime
-                          "not present locally (git-ignored). Run
-                          \`make css\` to regenerate before measuring
-                          the baseline."), no chromium — chromium no
-                          se invoca siquiera en el camino de captura
-                          hermético de G5. Sin nuevos fallos.
+                              **CSS compilado gitignored** faltante en
+                                  `web/dist/tailwind.css` (el test imprime
+                                  "not present locally (git-ignored). Run
+                                  \`make css\` to regenerate before measuring
+                                  the baseline."), no chromium — chromium no
+                                  se invoca siquiera en el camino de captura
+                                  hermético de G5. Sin nuevos fallos.
+
+                            - **2026-09-11** — Rebanada de ledger de PASS de
+                              dry-run canónico G6 (esta entrada — **rebanada
+                              de ledger solo en español**; **pasada
+                              documental PR 6/6**; los docs en inglés y el
+                              `cutover-manifest.json` canónico quedan sin
+                              cambios). Según la tarea del padre, el PASS de
+                              dry-run canónico G6 para el manifiesto
+                              normalizado de 26 consumidores queda registrado
+                              aquí y en `design-es.md` (tabla de puertas al
+                              principio, fila §3.3.6 `Disposición
+                              (2026-09-11 — PASS de dry-run canónico G6)`,
+                              y el pie de estado). **No se tocan, comitean,
+                              ni pushean fuentes / tests / scripts / tareas /
+                              ficheros de producto / ficheros de evidencia /
+                              workspace candidato / `cutover-manifest.json`
+                              / `package-lock.json` en esta pasada. El
+                              `cutover-manifest.json` canónico queda sin
+                              cambios.** G6 **aprueba para dry-run
+                              canónico**; **G6 NO aprueba la ejecución
+                              atomic-cut de Nivel-2 / ensayo de rollback**
+                              (sigue acoado por evidencia por un artefacto
+                              de build de un Enfoque A / B / C elegido +
+                              PASS de G4). Resumen de evidencia (factual,
+                              derivado de los scripts / tests mergeados
+                              actuales en HEAD `dd1c218` de `origin/develop`):
+                              - **PRs mergeadas en `origin/develop` al
+                                momento de captura del PASS** — PR #217
+                                (PR 1/6): andamio de
+                                `scripts/rehearse_cutover.py` +
+                                `tests/test_rehearse_cutover.py` (CLI solo
+                                dry-run, rehúsa sin `--dry-run`, nunca
+                                ejecuta `verification.command` / `rollback`,
+                                escribe atómicamente
+                                `cutover-rehearsal.json` vía temp-file +
+                                `os.replace`, sale `EXIT_OK = 0` /
+                                `EXIT_USAGE = 2` / `EXIT_SCHEMA = 4` /
+                                `EXIT_IO = 5`); PR #218 (PR 2/6):
+                                `scripts/rehearse_cutover_path_text.py` +
+                                `tests/test_rehearse_cutover_path_text.py`
+                                (helpers puro stdlib
+                                `validate_repo_relative_path` +
+                                `parse_shell_text` consumidos por el
+                                validador de esquema de PR 4/6); PR #219
+                                (PR 3/6): normalización de rutas del
+                                `cutover-manifest.json` canónico + tests de
+                                triangulación de seguridad de rutas; PR #220
+                                (PR 4/6): validación de esquema fail-closed
+                                `_validate_manifest` delegada a los helpers
+                                de PR 2/6 (sin lógica duplicada), junta
+                                todos los errores, registra cada problema a
+                                stderr, sale `EXIT_SCHEMA = 4`, no emite
+                                artefacto. Las cuatro PRs están en HEAD
+                                `dd1c218` de `origin/develop`.
+                              - **Línea de comando canónica** —
+                                `python3 scripts/rehearse_cutover.py --manifest openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json --out <out> --dry-run`
+                                con `cwd = repo-root`; sale `0` contra el
+                                manifiesto canónico normalizado; `--dry-run`
+                                es REQUERIDO (no se ofrece variante
+                                `--execute`).
+                              - **Artefacto emitido** —
+                                `<out>/cutover-rehearsal.json`, escrito
+                                atómicamente vía temp-file + `os.replace`.
+                                Contenido canónico: `manifest_path =
+                                "openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json"`,
+                                `manifest_sha256` coincide con el hash del
+                                manifiesto canónico en disco (estable entre
+                                ejecuciones consecutivas del verificador),
+                                `validated_at` ISO-8601 UTC, `mode =
+                                "dry-run"`, `out_dir`, `consumer_count
+                                = 26`, `consumer_ids[]` = 26 IDs de
+                                consumidor únicos en orden de declaración,
+                                `validation_errors = []`,
+                                `verification_executed = false`,
+                                `rollback_executed = false`. El artefacto
+                                es **válido** según el contrato de PR 4/6
+                                para `cutover-rehearsal.json`.
+                              - **Cobertura (canónica)** — los **26 /
+                                26** consumidores de §3.1 enumerados en el
+                                manifiesto normalizado quedan reflejados en
+                                `consumer_ids[]` (21 §3.1.1 mount web
+                                FastAPI + 5 §3.1.2 `web/search_urls.js`); el
+                                pin canónico de happy-path
+                                `tests/test_rehearse_cutover.py::test_canonical_happy_path_emits_artifact_for_all_26_consumers`
+                                aplica los invariantes `returncode == 0` +
+                                `(out / "cutover-rehearsal.json").is_file()`
+                                + 26 IDs únicos + `validation_errors`
+                                vacío + `consumer_count == 26` +
+                                `verification_executed is False` +
+                                `rollback_executed is False` end-to-end
+                                contra el manifiesto canónico normalizado.
+                              - **Tests que respaldan el PASS** —
+                                `python3 -m pytest tests/test_rehearse_cutover.py tests/test_rehearse_cutover_path_text.py -q`
+                                → **137 pasaron en 1.40s** (31 en
+                                `tests/test_rehearse_cutover.py` + 106 en
+                                `tests/test_rehearse_cutover_path_text.py`),
+                                todos verdes en `origin/develop`
+                                post-merge de PR #217 + PR #218 + PR #219
+                                + PR #220. Sin skips; sin nuevos fallos.
+                              - **Contrato de estabilidad** — la rama
+                                fail-closed de PR #220 junta todos los
+                                errores de esquema vía `_validate_manifest`,
+                                registra cada error a stderr, sale
+                                `EXIT_SCHEMA = 4`, y no emite
+                                `cutover-rehearsal.json`; los helpers
+                                `parse_shell_text` +
+                                `validate_repo_relative_path` de PR #218
+                                descartan rutas absolutas, componentes
+                                `..`, caracteres de control /
+                                metacaracteres, shell vacío / nulo, y
+                                cadenas `verification.command` / `rollback`
+                                con comillas desbalanceadas antes de
+                                cualquier paso posterior. El
+                                `manifest_sha256` del artefacto de ensayo
+                                es estable entre ejecuciones consecutivas
+                                del verificador (verificado por el pin
+                                canónico de happy-path).
+                              - **Nota de riesgo** — el PASS de dry-run
+                                canónico es un registro de evidencia
+                                **solo de planificación** para la puerta
+                                §3.3.6; **G6 sigue siendo solo dry-run por
+                                diseño** (no se ofrece variante `--execute`
+                                — `verification.command` / `rollback` nunca
+                                se invocan; por tanto el ensayo de
+                                rollback sigue **planificado, no
+                                ejercitado**, y la selección atomic-cut
+                                sigue acoada por PASS de G2 + PASS de G4 +
+                                PASS de G5, ninguno de los cuales
+                                constituye ejecución de
+                                `verification.command` contra el artefacto
+                                de build de un Enfoque elegido).
+                              - **Verdad preservada** — PASS de G2
+                                registrado el 2026-08-30 (sin cambios); G3
+                                **APROBADO para Nivel-1**, **NO APROBADO
+                                para Nivel-2** (la atomic-cut de Nivel-2
+                                sigue acoada por G4 + G5 + G6, y la
+                                atomic-cut requiere un Enfoque A / B / C
+                                elegido, ninguno seleccionado); G4 sigue
+                                **`bloqueada`** (verificador no autordado);
+                                G5 **paso 1 del camino de cierre completo**,
+                                pasos 2 + 3 siguen bloqueados; los
+                                Enfoques A / B / C siguen sin seleccionar;
+                                sin activación de FastAPI (sin repoint de
+                                `WEB_DIR`, sin cutover atómico, sin cambio
+                                en `api/server.py` / Makefile / extensión /
+                                API / fuente de producto); el
+                                `cutover-manifest.json` canónico queda sin
+                                cambios (26 consumidores de §3.1, Nivel-1
+                                `selected`, Nivel-2 sin seleccionar); el
+                                `CONSUMER-READINESS.json` previamente
+                                emitido (si lo hay) queda sin cambios.
+                                **Disposición de G6: `APROBADO para
+                                dry-run canónico; ejecución atomic-cut de
+                                Nivel-2 / ensayo de rollback sigue acoada
+                                por evidencia`**. El espejo en inglés (y la
+                                pasada de ledger PR #221) queda registrado
+                                en `openspec/changes/migrate-nextjs-tailwind4/apply-progress.md`
+                                / `design.md`; los docs en español se
+                                actualizan en lockstep en esta pasada
+                                (PR 6/6, espejo en español de PR #221).
+                              - **Deltas en `design.md` / `design-es.md`
+                                (esta pasada)** — fila G6 de la tabla de
+                                puertas actualizada de "andamio PR 1/5
+                                autordado ... validación G6 completa sigue
+                                pendiente PRs 2–5" a "PRs 1–4/6 mergeadas
+                                en `origin/develop` (PR #217 andamio +
+                                PR #218 seguridad de ruta + PR #219
+                                normalización del manifiesto + PR #220
+                                validación de esquema fail-closed); PASS de
+                                dry-run canónico registrado el 2026-09-11
+                                contra el manifiesto normalizado de 26
+                                consumidores (esta pasada de planificación
+                                es la rebanada de ledger documental de G6
+                                en español — PR 6/6)"; filas §3.3.6 G6
+                                Productor / Comando / Artefacto / Umbral
+                                actualizadas para referenciar el andamio
+                                mergeado + los `consumer_ids` /
+                                `validation_errors` de PR 4/6 + las ramas
+                                de esquema fail-closed; nueva fila §3.3.6
+                                **`Disposición (2026-09-11 — PASS de
+                                dry-run canónico G6)`** añadida
+                                registrando la línea de comando canónica +
+                                la evidencia de 137 tests enfocados + la
+                                disposición de G6 + la nota de lockstep
+                                del espejo en español; sub-cláusula de la
+                                fila de paso 1 del camino de cierre G5
+                                "G6 andamio PR 1/5 autordado ...
+                                validación G6 completa sigue pendiente
+                                PRs 2–5" reemplazada con "G6 PASS
+                                registrado el 2026-09-11 (dry-run canónico
+                                sobre el manifiesto normalizado de 26
+                                consumidores; PR #217 + #218 + #219 + #220
+                                mergeadas en `origin/develop`)"; línea G6
+                                del pie de `status:` conmutada de "G6
+                                andamio PR 1/5 autordado en disco ...
+                                validación G6 completa sigue pendiente
+                                PRs 2–5" a "G6 PASS registrado el
+                                2026-09-11 ... G6 queda `APROBADO para
+                                dry-run canónico`; ejecución atomic-cut
+                                de Nivel-2 / ensayo de rollback sigue
+                                acoado por evidencia"; todo el lenguaje de
+                                PASS de G2 / G3 Nivel-1 APROBADO /
+                                Nivel-2 bloqueado / G4 bloqueada /
+                                paso 1 del camino de cierre G5 completo /
+                                Enfoques A / B / C sin seleccionar / sin
+                                activación de FastAPI / sin-tocar /
+                                sin-commit / sin-push preservado verbatim
+                                en el pie.
+                              **Verdad preservada** — G6 **PASS de
+                              dry-run canónico** (artefacto canónico
+                              emitido con `consumer_count = 26`,
+                              `validation_errors = []`, contrato dry-run
+                              satisfecho; 137 tests enfocados verdes en
+                              HEAD `dd1c218` de `origin/develop`); G6
+                              ejecución atomic-cut de Nivel-2 / ensayo de
+                              rollback NO APROBADO (no se ofrece variante
+                              `--execute`; la atomic-cut sigue acoada por
+                              un artefacto de build de un Enfoque A / B /
+                              C elegido + G4 + G5 + G6 aquí == PASS de
+                              dry-run); PASS de G2 registrado el 2026-08-30
+                              (sin cambios); G3 **APROBADO para Nivel-1**,
+                              **NO APROBADO para Nivel-2**; G4 sigue
+                              **`bloqueada`**; G5 **paso 1 del camino de
+                              cierre completo**, pasos 2 + 3 siguen
+                              bloqueados; los Enfoques A / B / C siguen
+                              sin seleccionar; sin activación de FastAPI
+                              (sin repoint de `WEB_DIR`, sin cutover
+                              atómico, sin cambio en `api/server.py` /
+                              Makefile / extensión / API / fuente de
+                              producto); el `cutover-manifest.json`
+                              canónico queda sin cambios (26 consumidores
+                              de §3.1, Nivel-1 `selected`, Nivel-2 sin
+                              seleccionar); el `CONSUMER-READINESS.json`
+                              previamente emitido (si lo hay) queda sin
+                              cambios; esta pasada registra la evidencia
+                              del PASS de dry-run canónico G6 sin mutar
+                              ningún artefacto previo. El espejo en
+                              inglés queda registrado en lockstep en
+                              `openspec/changes/migrate-nextjs-tailwind4/apply-progress.md`
+                              y `design.md` (PR #221 mergeada); los docs
+                              en español (y la traducción espejo
+                              `documents-es/openspec/changes/migrate-nextjs-tailwind4/{design-es,apply-progress-es}.md`)
+                              se actualizan en esta pasada (PR 6/6, espejo
+                              en español de PR #221). Sin commit, push, ni
+                              apertura de PR abiertos en esta pasada.
