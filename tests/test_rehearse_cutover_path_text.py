@@ -204,3 +204,55 @@ def test_import_has_no_side_effects(tmp_path):
         f"importing {MODULE} wrote to {tmp_path}; the module MUST be "
         f"side-effect free. Found: {leftovers}"
     )
+
+
+
+# PR 3/6 manifest normalization contract — strict-path + 7-G3-fields +
+# Tier-1 selection invariants, parametrized over 26 canonical §3.1
+# consumers. Aux fields (`current_paths`, `current_path_lines`,
+# `current_path_note`, `replacement.paths`, `replacement.lines`,
+# `replacement.path_note`) preserve human annotations verbatim.
+
+import json as _json
+
+MANIFEST = Path(__file__).resolve().parent.parent / "openspec" / "changes" / "migrate-nextjs-tailwind4" / "cutover-manifest.json"
+CANONICAL_CONSUMER_IDS = (
+    "mount-runtime-html-root-001", "mount-runtime-html-direct-002",
+    "mount-runtime-link-tag-css-003", "mount-runtime-script-tag-app-004",
+    "mount-runtime-import-app-js-modules-005", "mount-runtime-dynamic-import-app-js-settings-006",
+    "mount-runtime-import-nav-js-modules-007", "mount-runtime-dynamic-import-nav-js-008",
+    "mount-runtime-import-breadcrumb-format-009", "mount-runtime-import-search-format-010",
+    "mount-runtime-dynamic-import-detail-file-explorer-011", "mount-runtime-import-file-explorer-file-viewer-012",
+    "mount-runtime-cdn-lib-pins-013", "mount-test-smoke-static-index-014",
+    "mount-test-smoke-static-app-js-015", "mount-test-evidence-baseline-html-016",
+    "mount-test-evidence-baseline-modules-017", "mount-test-evidence-baseline-source-size-018",
+    "mount-test-build-profile-emit-019", "mount-test-hydration-timing-measure-020",
+    "mount-extension-host-permissions-021", "search-urls-runtime-import-detail-001",
+    "search-urls-runtime-engine-by-key-002", "search-urls-runtime-search-tab-ui-003",
+    "search-urls-test-ac21-contract-004", "search-urls-test-search-categories-005",
+)
+REQUIRED_G3 = ("id", "ownership_edge", "current_path", "replacement", "verification", "activation_status", "rollback")
+
+
+def _record(cid):
+    recs = _json.loads(MANIFEST.read_text())["consumers"] if MANIFEST.is_file() else []
+    return next((c for c in recs if c.get("id") == cid), None)
+
+
+@pytest.mark.parametrize("consumer_id", CANONICAL_CONSUMER_IDS)
+def test_canonical_consumer_paths_are_strict(consumer_id):
+    rec = _record(consumer_id)
+    assert rec is not None, f"consumer {consumer_id!r} not found"
+    from scripts.rehearse_cutover_path_text import validate_repo_relative_path as v
+    assert v(rec["current_path"]) is True, f"{consumer_id}: current_path fails"
+    assert v(rec["replacement"]["path"]) is True, f"{consumer_id}: replacement.path fails"
+
+
+@pytest.mark.parametrize("consumer_id", CANONICAL_CONSUMER_IDS)
+def test_canonical_consumer_retains_required_g3_fields(consumer_id):
+    rec = _record(consumer_id)
+    assert rec is not None, f"consumer {consumer_id!r} not found"
+    for f in REQUIRED_G3:
+        assert f in rec, f"{consumer_id}: required field {f!r} missing"
+    assert rec["activation_status"] == "selected"
+    assert rec["replacement"].get("status") == "selected"
