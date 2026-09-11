@@ -1098,9 +1098,250 @@ canonical `cutover-manifest.json` unchanged; no
 materially wrong against real `pytest -rs`:
                           the evidence-baseline skip is the missing
                           **gitignored compiled CSS** at
-                          `web/dist/tailwind.css` (the test prints
-                          "not present locally (git-ignored). Run
-                          \`make css\` to regenerate before measuring
-                          the baseline."), not chromium — chromium is
-                          not even invoked by the G5 hermetic capture
-                          path. No new failures.
+                              `web/dist/tailwind.css` (the test prints
+                              "not present locally (git-ignored). Run
+                              \`make css\` to regenerate before measuring
+                              the baseline."), not chromium — chromium is
+                              not even invoked by the G5 hermetic capture
+                              path. No new failures.
+
+                            - **2026-09-11** — G6 canonical dry-run PASS
+                              ledger slice (this entry — **English-only**
+                              ledger slice; **PR 5/6 documentation pass**;
+                              Spanish docs and the canonical
+                              `cutover-manifest.json` stay unchanged).
+                              Per the parent task, the G6 canonical
+                              dry-run PASS for the normalized 26-consumer
+                              manifest is recorded here and in
+                              `design.md` (gate table at the top, §3.3.6
+                              `Disposition (2026-09-11 — canonical G6
+                              dry-run PASS)` row, and the status footer).
+                              **No source / tests / scripts / tasks /
+                              product files / evidence files / candidate
+                              workspace / `cutover-manifest.json` /
+                              `package-lock.json` are touched, committed,
+                              or pushed in this pass. The canonical
+                              `cutover-manifest.json` is unchanged.** G6
+                              **passes for canonical dry-run**; **G6
+                              does NOT pass Tier-2 atomic-cut
+                              execution / rollback-rehearsal** (still
+                              evidence-gated by a chosen Approach A /
+                              B / C build artifact + G4 PASS).
+                              Evidence summary (factual, derived from
+                              current merged scripts / tests on
+                              `origin/develop` HEAD `dd1c218`):
+                              - **Merged PRs on `origin/develop` at PASS
+                                capture time** — PR #217 (PR 1/6):
+                                `scripts/rehearse_cutover.py` scaffold
+                                + `tests/test_rehearse_cutover.py`
+                                (dry-run-only CLI, refuses without
+                                `--dry-run`, never executes
+                                `verification.command` / `rollback`,
+                                atomically writes
+                                `cutover-rehearsal.json` via temp-file
+                                + `os.replace`, exits `EXIT_OK = 0` /
+                                `EXIT_USAGE = 2` / `EXIT_SCHEMA = 4` /
+                                `EXIT_IO = 5`); PR #218 (PR 2/6):
+                                `scripts/rehearse_cutover_path_text.py`
+                                + `tests/test_rehearse_cutover_path_text.py`
+                                (pure-stdlib `validate_repo_relative_path`
+                                + `parse_shell_text` helpers consumed
+                                by the PR 4/6 schema validator); PR #219
+                                (PR 3/6): canonical `cutover-manifest.json`
+                                path normalization + path-safety
+                                triangulation tests; PR #220 (PR 4/6):
+                                fail-closed `_validate_manifest` schema
+                                validation delegated to the PR 2/6
+                                helpers (no duplicated logic), collects
+                                all errors, logs every problem to
+                                stderr, exits `EXIT_SCHEMA = 4`, emits
+                                no artifact. All four PRs are on
+                                `origin/develop` HEAD `dd1c218`.
+                              - **Canonical command line** —
+                                `python3 scripts/rehearse_cutover.py --manifest openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json --out <out> --dry-run`
+                                with `cwd = repo-root`; exit `0`
+                                against the canonical normalized
+                                manifest; `--dry-run` is REQUIRED (no
+                                `--execute` variant is offered).
+                              - **Artifact emitted** — `<out>/cutover-rehearsal.json`,
+                                written atomically via temp-file + `os.replace`.
+                                Canonical contents: `manifest_path =
+                                "openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json"`,
+                                `manifest_sha256` matches the on-disk
+                                canonical manifest hash (stable across
+                                consecutive verifier runs),
+                                `validated_at` ISO-8601 UTC, `mode =
+                                "dry-run"`, `out_dir`, `consumer_count
+                                = 26`, `consumer_ids[]` = 26 unique
+                                consumer IDs in declaration order,
+                                `validation_errors = []`,
+                                `verification_executed = false`,
+                                `rollback_executed = false`. The
+                                artifact is **valid** by the PR 4/6
+                                `cutover-rehearsal.json` contract.
+                              - **Coverage (canonical)** — all **26 /
+                                26** §3.1 consumers enumerated in the
+                                normalized manifest are reflected in
+                                `consumer_ids[]` (21 §3.1.1 FastAPI
+                                web mount + 5 §3.1.2
+                                `web/search_urls.js`); the
+                                canonical happy-path pin
+                                `tests/test_rehearse_cutover.py::test_canonical_happy_path_emits_artifact_for_all_26_consumers`
+                                enforces the `returncode == 0` +
+                                `(out / "cutover-rehearsal.json").is_file()`
+                                + 26-unique-IDs + empty-`validation_errors`
+                                + `consumer_count == 26` +
+                                `verification_executed is False` +
+                                `rollback_executed is False` invariants
+                                end-to-end against the canonical
+                                normalized manifest.
+                              - **Tests supporting the PASS** — `python3 -m pytest tests/test_rehearse_cutover.py tests/test_rehearse_cutover_path_text.py -q`
+                                → **137 passed in 1.40s** (31 in
+                                `tests/test_rehearse_cutover.py` + 106
+                                in `tests/test_rehearse_cutover_path_text.py`),
+                                all green on `origin/develop` post-merge
+                                of PR #217 + PR #218 + PR #219 + PR
+                                #220. No skips; no new failures.
+                              - **Stability contract** — the PR #220
+                                fail-closed branch collects all schema
+                                errors via `_validate_manifest`, logs
+                                every error to stderr, exits
+                                `EXIT_SCHEMA = 4`, and emits no
+                                `cutover-rehearsal.json`; the PR #218
+                                `parse_shell_text` +
+                                `validate_repo_relative_path` helpers
+                                rule out absolute paths, `..`
+                                components, control chars / metachars,
+                                empty / null-shell, unmatched-quote
+                                `verification.command` / `rollback`
+                                strings before any further step. The
+                                rehearsal artifact's
+                                `manifest_sha256` is stable across
+                                consecutive verifier runs (verified by
+                                the canonical happy-path pin).
+                              - **Risk note** — the canonical dry-run
+                                PASS is a **planning-only** evidence
+                                record for the §3.3.6 gate; **G6
+                                remains dry-run-only by design** (no
+                                `--execute` variant is offered —
+                                `verification.command` / `rollback` are
+                                never invoked; rollback rehearsal is
+                                therefore still **planned, not
+                                exercised**, and atomic-cut selection
+                                remains evidence-gated by G2 PASS + G4
+                                PASS + G5 PASS, none of which
+                                constitute `verification.command`
+                                execution against a chosen Approach's
+                                build artifact).
+                              - **Truth preserved** — G2 **PASS**
+                                recorded 2026-08-30 (unchanged); G3
+                                **PASSED for Tier-1**, **NOT PASSED
+                                for Tier-2** (Tier-2 atomic-cut is
+                                still evidence-gated by G4 + G5 + G6,
+                                and atomic-cut requires a chosen
+                                Approach A / B / C, none of which is
+                                selected); G4 still **`blocked`**
+                                (verifier not authored); G5 closure-path
+                                **step 1 complete**, steps 2 + 3 still
+                                blocked; Approach A / B / C remain
+                                unselected; no FastAPI activation (no
+                                `WEB_DIR` repoint, no atomic cutover,
+                                no `api/server.py` / Makefile /
+                                extension / API / product-source
+                                change); canonical
+                                `cutover-manifest.json` is unchanged
+                                (26 §3.1 consumers, Tier-1 `selected`,
+                                Tier-2 unselected); the previously
+                                emitted `CONSUMER-READINESS.json` (if
+                                any) is unchanged. **G6 disposition:
+                                `PASSED for canonical dry-run; Tier-2
+                                atomic-cut execution / rollback-rehearsal
+                                still evidence-gated`**. Spanish docs
+                                (and the Spanish mirrors
+                                `documents-es/openspec/changes/migrate-nextjs-tailwind4/{design-es,apply-progress-es}.md`)
+                                stay unchanged in this pass — the
+                                English-only ledger slice does NOT
+                                mirror to Spanish and does NOT touch
+                                the canonical `cutover-manifest.json`.
+                              - **Design.md deltas (this pass)** —
+                                gate-table G6 status row updated from
+                                "PR 1/5 scaffold authored ... full G6
+                                validation still pending PRs 2–5" to
+                                "PRs 1–4/6 merged on `origin/develop`
+                                (PR #217 scaffold + PR #218 path
+                                safety + PR #219 manifest
+                                normalization + PR #220 fail-closed
+                                schema validation); canonical dry-run
+                                PASS recorded 2026-09-11 against the
+                                normalized 26-consumer manifest (this
+                                planning pass is the English-only G6
+                                documentation ledger slice — PR 5/6)";
+                                §3.3.6 G6 Producer / Command /
+                                Artifact / Threshold rows updated to
+                                reference the merged scaffold + the PR
+                                4/6 consumer_ids / validation_errors
+                                + the fail-closed schema branches;
+                                new §3.3.6 **`Disposition (2026-09-11 —
+                                canonical G6 dry-run PASS)`** row added
+                                recording the canonical command line +
+                                the 137-focus-test evidence + the G6
+                                disposition + the English-only
+                                ledger-slice note; G5 closure-path
+                                step 1 row's "G6 PR 1/5 scaffold
+                                authored ... full G6 validation still
+                                pending PRs 2–5" sub-clause replaced
+                                with "G6 PASS recorded 2026-09-11
+                                (canonical dry-run over normalized
+                                26-consumer manifest; PR #217 + #218
+                                + #219 + #220 merged on
+                                `origin/develop`)"; `status:` footer
+                                G6 line flipped from "G6 PR 1/5
+                                scaffold authored on disk ... full G6
+                                validation still pending PRs 2–5" to
+                                "G6 PASS recorded 2026-09-11 ... G6
+                                is `PASSED for canonical dry-run`;
+                                Tier-2 atomic-cut execution /
+                                rollback-rehearsal still
+                                evidence-gated"; all G2 PASS / G3
+                                Tier-1 PASS-Tier-2-blocked / G4 blocked
+                                / G5 closure-path-step-1-complete /
+                                Approach-A-B-C-unselected /
+                                no-FastAPI-activation /
+                                no-touch-no-commit-no-push / Spanish
+                                mirror language preserved verbatim in
+                                the footer.
+                              **Truth preserved** — G6 **canonical
+                              dry-run PASS** (canonical artifact
+                              emitted with `consumer_count = 26`,
+                              `validation_errors = []`, dry-run
+                              contract satisfied; 137 focused tests
+                              green on `origin/develop` HEAD
+                              `dd1c218`); G6 Tier-2 atomic-cut
+                              execution / rollback-rehearsal NOT
+                              PASSED (no `--execute` variant is
+                              offered; atomic-cut remains
+                              evidence-gated by a chosen Approach A /
+                              B / C build artifact + G4 + G5 + G6
+                              here = dry-run PASS); G2 PASS recorded
+                              2026-08-30 (unchanged); G3 **PASSED
+                              for Tier-1**, **NOT PASSED for
+                              Tier-2**; G4 still **`blocked`**;
+                              G5 closure-path **step 1 complete**,
+                              steps 2 + 3 still blocked; Approach A /
+                              B / C remain unselected; no FastAPI
+                              activation (no `WEB_DIR` repoint, no
+                              atomic cutover, no `api/server.py` /
+                              Makefile / extension / API /
+                              product-source change); canonical
+                              `cutover-manifest.json` is unchanged
+                              (26 §3.1 consumers, Tier-1 `selected`,
+                              Tier-2 unselected); the previously
+                              emitted `CONSUMER-READINESS.json` (if
+                              any) is unchanged; this pass records
+                              the G6 canonical dry-run PASS evidence
+                              without mutating any prior artifact.
+                              Spanish docs and the Spanish mirror
+                              `documents-es/openspec/changes/migrate-nextjs-tailwind4/{design-es,apply-progress-es}.md`
+                              stay unchanged in this English-only
+                              ledger slice. No commit, push, or PR
+                              opened in this pass.
