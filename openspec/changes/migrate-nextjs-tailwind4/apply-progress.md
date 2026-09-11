@@ -1017,13 +1017,90 @@ updated: G2 remains `blocked — contract defined; verifier not
                   + `verifier_contract_summary.threshold_tier1_*` +
                   `threshold_tier2_*` + `evaluation_state`) plus the
                   `design.md` / `design-es.md` §3.3.3 row update +
-                  `design.md::§3.3.3.1` four new rows
-                  (Tier-1 selection rule + Tier-2 selection rule +
-                  Combined selection state + Provenance second-pass
-                  note) + `design.md` Threshold cell `Nivel-1 / Nivel-2`
-                  language + `design.md::§3.3.3.1` `Ruta del manifiesto
-                  canónico` flip + `Semántica de fallo` Tier-1/2
-                  extension + `Procedencia` second-pass note + status
-                  footer update (≈ 28 net lines across the two files).
-                  Total authored planning-doc additions in this pass
-                  stay well under the 400-line per-PR review budget.
+                      `design.md::§3.3.3.1` four new rows
+                      (Tier-1 selection rule + Tier-2 selection rule +
+                      Combined selection state + Provenance second-pass
+                      note) + `design.md` Threshold cell `Nivel-1 / Nivel-2`
+                      language + `design.md::§3.3.3.1` `Ruta del manifiesto
+                      canónico` flip + `Semántica de fallo` Tier-1/2
+                      extension + `Procedencia` second-pass note + status
+                      footer update (≈ 28 net lines across the two files).
+                      Total authored planning-doc additions in this pass
+                      stay well under the 400-line per-PR review budget.
+
+                        - **2026-09-11** — G5 closure-path step 1
+                          (planning-only, after the scope-reduction
+                          pass per the parent task's verifier feedback).
+                          `scripts/measure_hydration.py` extends the
+                          PR 1b.3a positional `validate <artifact>`
+                          contract (exit codes 0/1/2/3 preserved
+                          verbatim — usage errors map to exit 1) with
+                          a hermetic `--baseline --candidate
+                          --iterations` capture mode. Compare-mode
+                          DEFERRED to G5 closure-path step 3 (candidate
+                          capture is step 2 and requires G2 + G4
+                          evidence that does not exist). Capture is
+                          hermetic (no browser, no network, no live
+                          FastAPI); same candidate root → byte-identical
+                          artifact (modulo `captured_at`). Artifact
+                          records `provenance.{schema, command_line,
+                          iterations, captured_at}` and is reproducible
+                          on demand. **NOT a substitute for a real
+                          Playwright + Lighthouse capture** — a future
+                          PR 3d replaces synthetic numbers with measured
+                          ones. `tests/test_hydration_timing.py` adds
+                          6 focused tests; the 11 original PR 1b.3a
+                          tests stay green. `.gitignore` adds
+                          `docs/baselines/`. `design.md` /
+                          `design-es.md` gain one `Disposition
+                          (2026-09-11)` row and the status-footer G5
+                          language flips from "still `unreproducible`"
+                          to "closure-path step 1 complete; comparison
+                          not yet attempted (steps 2 + 3 pending)"
+                          while preserving verbatim the G2 PASS record,
+                          the G3 Tier-1 / Tier-2 disposition, the
+                          static-export-unselected language, the
+                          four-correction G2 contract, the
+                          no-FastAPI-activation language, and the
+                          no-touch / no-commit / no-push language.
+                          **Truth preserved** — G5 closure-path step 1
+                          complete (legacy baseline capture reproducible
+                          under the documented G5 CLI; 6 focused tests
+                          green; legacy baseline artifact reproducible
+                          on demand under
+                          `docs/baselines/legacy-web-2026-08-26.json`,
+                          gitignored, generated locally against
+                          `tools/g3-legacy-fixture/web/` with
+                          `iterations=10`); G5 closure-path steps 2 + 3
+                          still blocked; G3 Tier-1 still PASSED
+                          2026-08-30; G3 Tier-2 still blocked by G4 + G5
+                          + G6; G4 / G6 still blocked; G2 PASS recorded
+                          2026-08-30; static export (Approach A) and B
+                          / C still unselected; no FastAPI activation;
+canonical `cutover-manifest.json` unchanged; no
+                          commit, push, or PR opened in this pass. **LoC
+                          / skip-count claim corrections** (per
+                          parent-task verifier feedback) — previous
+                          pass's LoC claim ("script grew from 197 to
+                          412 LoC, +215" and "test delta of +412 LoC
+                          bringing the file from 331 to 743") was
+                          materially wrong against real `git show HEAD`
+                          / `wc -l`: script 189 → 481 LoC (+292), test
+                          file 331 → 427 LoC (+96) after the
+                          scope-reduction pass removed compare mode, the
+                          six duplicate test definitions, and the verbose
+                          narration. Skip-count claim ("540 tests pass,
+                          10 skipped") was wrong against real `python3
+                          -m pytest tests/ -q`: **532 passed, 30
+                          skipped**. The previously attributed skip
+                          cause (chromium binary skip path in
+                          `tests/test_evidence_baseline.py`) is
+materially wrong against real `pytest -rs`:
+                          the evidence-baseline skip is the missing
+                          **gitignored compiled CSS** at
+                          `web/dist/tailwind.css` (the test prints
+                          "not present locally (git-ignored). Run
+                          \`make css\` to regenerate before measuring
+                          the baseline."), not chromium — chromium is
+                          not even invoked by the G5 hermetic capture
+                          path. No new failures.

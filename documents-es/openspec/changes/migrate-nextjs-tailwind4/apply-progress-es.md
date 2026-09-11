@@ -1119,3 +1119,90 @@ Espejos en español actualizados en paralelo. No se realiza
                   adiciones autoradas de planning-doc en esta pasada
                   se queda bien por debajo del presupuesto de revisión
                   por PR de 400 líneas.
+
+                        - **2026-09-11** — Paso 1 del camino de cierre
+                          G5 (planning-only, registrado tras la pasada
+                          de reducción de alcance según el feedback
+                          del verificador de la tarea padre).
+                          `scripts/measure_hydration.py` extiende el
+                          contrato posicional `validate <artifact>` de
+                          PR 1b.3a (códigos de salida 0/1/2/3
+                          preservados verbatim — errores de uso
+                          mapean a exit 1) con un modo capture
+                          hermético `--baseline --candidate
+                          --iterations`. La superficie compare se
+                          DIFIERE al paso 3 del camino de cierre G5
+                          (la captura del lado candidato es el paso 2
+                          y requiere evidencia G2 + G4 que no existe).
+                          La captura es hermética (sin navegador, sin
+                          red, sin FastAPI en vivo); misma raíz
+                          candidata → artefacto byte-idéntico
+                          (modulo `captured_at`). El artefacto
+                          registra `provenance.{schema, command_line,
+                          iterations, captured_at}` y es reproducible
+                          bajo demanda. **NO es sustituto de una
+                          captura real Playwright + Lighthouse** — un
+                          futuro PR 3d reemplaza los números sintéticos
+                          con medidos. `tests/test_hydration_timing.py`
+                          añade 6 tests enfocados; los 11 tests
+                          originales de PR 1b.3a siguen verdes.
+                          `.gitignore` añade `docs/baselines/`.
+                          `design.md` / `design-es.md` ganan una fila
+                          `Disposición (2026-09-11)` y el lenguaje G5
+                          del pie de estado cambia de "sigue
+                          `irreproducible`" a "paso 1 del camino de
+                          cierre completo; comparación todavía no
+                          intentada (pasos 2 + 3 pendientes)" mientras
+                          preserva verbatim el registro PASS de G2,
+                          la disposición G3 Tier-1 / Tier-2, el
+                          lenguaje de exportación estática sin
+                          seleccionar, el contrato G2 de cuatro
+                          correcciones, el lenguaje sin activación de
+                          FastAPI, y el lenguaje sin-tocar /
+                          sin-commit / sin-push. **Verdad
+                          preservada** — paso 1 del camino de cierre
+                          G5 completo (captura de línea base del
+                          legado reproducible bajo el CLI G5
+                          documentado; 6 tests enfocados verdes;
+                          artefacto de línea base del legado
+                          reproducible bajo demanda en
+                          `docs/baselines/legacy-web-2026-08-26.json`,
+                          gitignored, generado localmente contra
+                          `tools/g3-legacy-fixture/web/` con
+                          `iterations=10`); pasos 2 + 3 del camino de
+                          cierre G5 siguen bloqueados; G3 Tier-1
+                          sigue APROBADO el 2026-08-30; G3 Tier-2
+                          sigue bloqueado por G4 + G5 + G6; G4 / G6
+                          siguen bloqueadas; G2 PASS registrado el
+                          2026-08-30; exportación estática (Enfoque
+                          A) y B / C siguen sin seleccionar; sin
+                          activación de FastAPI; el
+`cutover-manifest.json` canónico sin
+                          cambios; sin commit, push, ni PR abiertos
+                          en esta pasada. **Correcciones de reclamo de LoC / skip-count** (según el
+                          feedback del verificador de la tarea padre)
+                          — el reclamo de LoC de la pasada anterior
+                          ("el script creció de 197 a 412 LoC, +215"
+                          y "delta de +412 LoC llevando el fichero
+                          de tests de 331 a 743") estaba
+                          materialmente errado contra `git show HEAD`
+                          / `wc -l` real: script 189 → 481 LoC (+292),
+                          fichero de tests 331 → 427 LoC (+96) tras
+                          la pasada de reducción de alcance que eliminó
+                          el modo compare, las seis definiciones de
+                          tests duplicadas, y la narración verbosa. El
+                          reclamo de skip-count ("540 tests pasan, 10
+                          skipped") estaba errado contra `python3 -m
+                          pytest tests/ -q` real: **532 pasaron, 30
+                          skipped**. La causa de skip atribuida antes
+                          (camino de skip del binario chromium en
+                          `tests/test_evidence_baseline.py`) está
+                          materialmente errada contra `pytest -rs`
+                          real: el skip de evidence-baseline es el
+                          **CSS compilado gitignored** faltante en
+                          `web/dist/tailwind.css` (el test imprime
+                          "not present locally (git-ignored). Run
+                          \`make css\` to regenerate before measuring
+                          the baseline."), no chromium — chromium no
+                          se invoca siquiera en el camino de captura
+                          hermético de G5. Sin nuevos fallos.
