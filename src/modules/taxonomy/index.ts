@@ -8,9 +8,9 @@
  * blocked by `.eslintrc.cjs::no-restricted-imports`.
  *
  * PR 5a (Phase 5 infrastructure work unit) ships the typed HTTP
- * adapter re-export. Subsequent PR 5 slices add:
- *   - `application/useTaxonTree`, `application/useDetail`
- *   - `presentation/{Tree,DetailPanel,Breadcrumb}/` React components
+ * adapter re-export. PR 5b (this slice) adds the application
+ * port + readonly view-models. Subsequent PR 5 slices add the
+ * presentation React components.
  *
  * The `infrastructure` layer's error type is re-exported too so
  * consumers can `instanceof`-narrow without a deep import.
@@ -24,3 +24,14 @@ export type {
   FetchOptions,
   FetchChildrenOptions,
 } from "./infrastructure/api.js";
+
+// Application layer — typed port + readonly view-models.
+export type { SourceFilter, TaxonomyRepository } from "./application/ports.js";
+export { TAXONOMY_PORT_NAME } from "./application/ports.js";
+export type {
+  TaxonNodeViewModel,
+  TaxonTreeViewModel,
+  TaxonBreadcrumbSegment,
+  TaxonDetailViewModel,
+} from "./application/view-models.js";
+export { buildTaxonTree, buildTaxonDetail } from "./application/view-models.js";
