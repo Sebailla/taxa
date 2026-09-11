@@ -7,14 +7,20 @@
  * (`presentation`, `application`, `domain`, `infrastructure`) are
  * blocked by `.eslintrc.cjs::no-restricted-imports`.
  *
- * PR 2a (Phase 2 scaffold work unit) ships an empty barrel — the real
- * exports land with the PR 5 capability port (tasks 5.1–5.3):
- *   - `domain/taxon.ts`        → plain TS types + invariants
- *   - `infrastructure/api.ts`   → `fetchTaxon`, `fetchChildren`
+ * PR 5a (Phase 5 infrastructure work unit) ships the typed HTTP
+ * adapter re-export. Subsequent PR 5 slices add:
  *   - `application/useTaxonTree`, `application/useDetail`
  *   - `presentation/{Tree,DetailPanel,Breadcrumb}/` React components
  *
- * An empty barrel is intentionally a no-op re-export so this file is
- * a valid TypeScript module and `tsc --noEmit` accepts it.
+ * The `infrastructure` layer's error type is re-exported too so
+ * consumers can `instanceof`-narrow without a deep import.
  */
-export {};
+export {
+  fetchTaxon,
+  fetchChildren,
+  TaxonomyApiError,
+} from "./infrastructure/api.js";
+export type {
+  FetchOptions,
+  FetchChildrenOptions,
+} from "./infrastructure/api.js";
