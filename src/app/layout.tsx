@@ -59,6 +59,7 @@ export default function RootLayout({
     <html lang="en" className={raleway.variable}>
       <body>
         <AppShell>{children}</AppShell>
+        <div data-testid="g4-probe-marker" aria-hidden="true" hidden />
       </body>
     </html>
   );

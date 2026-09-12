@@ -10,6 +10,7 @@
     "build:css": "tailwindcss -i web/index.css -o web/dist/tailwind.css --minify",
     "watch:css": "tailwindcss -i web/index.css -o web/dist/tailwind.css --watch",
     "build:web": "next build",
+    "manifest:generate": "node scripts/generate_g4_candidate_manifest.mjs",
     "check-runtime": "node scripts/check-runtime.mjs"
   },
   "dependencies": {
