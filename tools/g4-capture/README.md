@@ -93,11 +93,37 @@ is retained unchanged.
 G2/G4/G5/G6 PASS; static export remains unselected), `Makefile` target, CI
 wiring.
 
+## Composed use from `make parity`
+
+`tools/g4-capture/scripts/capture.mjs` is invoked from the repo-root
+`make parity` target as the Lighthouse evidence producer (the second leg of
+the `&&` chain). `make parity` validates `PARITY_URL`, `PARITY_OUT`,
+`PARITY_MANIFEST` and (optionally) `PARITY_QUERIES_FILE` before any producer
+runs and aborts fail-closed on missing inputs.
+
+### `PARITY_QUERIES_FILE` semantics
+
+`PARITY_QUERIES_FILE` is an optional path to a UTF-8 newline-delimited query
+file consumed by the first producer (`scripts/capture_parity_reports.py`)
+via its existing `--queries` flag. Each nonblank/non-comment line becomes one
+literal `--queries` argv element; terminal CR is stripped from CRLF inputs;
+lines beginning with `-` are rejected before any producer runs (defense
+against argv injection). When the file is unset, behaves identically to the
+base slice (no `--queries` flag is passed). When the file is set but yields
+no valid queries after filtering, the target aborts fail-closed with a stderr
+message naming the file.
+
+The propagation runs inside a single bash subshell so each query flows
+through bash array expansion — no shell-metachar escaping, no eval, no
+printf %q command construction, no word-splitting or globbing. See
+`tests/test_makefile_parity.py` for the contract tests.
+
 ## Build & test
 
 ```sh
 python tools/g4-capture/scripts/seed_fixture.py
 .venv/bin/python -m pytest tests/test_capture_parity.py -v
+.venv/bin/python -m pytest tests/test_makefile_parity.py -v
 ```
 
 Hermetic tests inject a synthetic LHR (or a runner that throws) — no real

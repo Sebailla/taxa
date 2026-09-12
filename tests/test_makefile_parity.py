@@ -1,12 +1,13 @@
-"""G4 Makefile parity composition tests (PR base slice).
+"""G4 Makefile parity composition tests (PR base slice + PARITY_QUERIES_FILE slice).
 
 Hermetic: every test runs the system `make` against the repository Makefile
 with PATH shims for `python3` / `node`, so no real Playwright / Lighthouse /
 network / package install is touched. Validates the `make parity` external-URL
 composition contract (PARITY_URL / PARITY_OUT / PARITY_MANIFEST required;
-PARITY_QUERIES rejected; producer order; no lifecycle / install commands;
-preflight gates; component atomicity boundaries; --queries omitted from the
-base-slice producer). Reference: design.md §3.3.4 (G4).
+PARITY_QUERIES rejected; PARITY_QUERIES_FILE opt-in file-backed queries;
+producer order; no lifecycle / install commands; preflight gates;
+component atomicity boundaries; --queries omitted from the base-slice
+producer). Reference: design.md §3.3.4 (G4).
 """
 from __future__ import annotations
 
@@ -26,7 +27,8 @@ def _make(*args, env=None, cwd=None, make_path=None):
     """Run `make` against the repo Makefile; strips inherited PARITY_*.
     Pass `make_path` (absolute) for hermetic PATH-override tests."""
     full_env = os.environ.copy()
-    for k in ("PARITY_URL", "PARITY_OUT", "PARITY_MANIFEST", "PARITY_QUERIES"):
+    for k in ("PARITY_URL", "PARITY_OUT", "PARITY_MANIFEST",
+              "PARITY_QUERIES", "PARITY_QUERIES_FILE"):
         full_env.pop(k, None)
     if env:
         full_env.update(env)
@@ -187,32 +189,65 @@ def test_make_parity_dry_run_emits_producers_in_correct_order(tmp_path):
 
 def test_make_parity_dry_run_passes_correct_flags(tmp_path):
     """Each producer invocation carries the exact flags/args derived
-    from the current source contracts."""
+    from the current source contracts. In the merged composition, the
+    first producer runs inside a bash -c subshell with the URL/OUT passed
+    as positional args (`$1`/`$2`); the bash invocation line carries the
+    literal URL value (from the `bash "$URL" ...` arg) and the producer
+    invocation line carries `--url "$1"` --out-dir ...`. The other two
+    producers (lighthouse, a11y) carry the literal URL inline."""
     out_dir = str(tmp_path / "out")
     manifest = str(tmp_path / "manifest.json")
     out = _dry_run_recipe(_env(tmp_path))
-    lines = out.splitlines()
-    nav_line = next(ln for ln in lines if "python3 scripts/capture_parity_reports.py" in ln)
-    assert "--url" in nav_line and SAMPLE_URL in nav_line
-    assert "--out-dir" in nav_line and out_dir in nav_line
-    lh_line = next(ln for ln in lines if "node scripts/capture.mjs" in ln)
+    # The bash -c invocation must carry the literal URL (as $1) and the
+    # literal OUT (as $2). The bash script itself passes them as
+    # `--url "$1"` --out-dir "$2"` to capture_parity_reports.py.
+    bash_invocation = next(
+        ln for ln in out.splitlines()
+        if "bash -c" in ln and "capture_parity_reports.py" in ln
+    )
+    assert "capture_parity_reports.py" in bash_invocation
+    assert '--url "$1"' in bash_invocation
+    assert '--out-dir "$2"' in bash_invocation
+    # The bash args (URL, OUT) appear as positional args on the
+    # follow-up line that runs bash:
+    assert SAMPLE_URL in out, (
+        f"SAMPLE_URL not propagated to bash invocation:\n{out}"
+    )
+    assert out_dir in out, (
+        f"out_dir not propagated to bash invocation:\n{out}"
+    )
+    # Lighthouse line carries the literal URL/manifest/out.
+    lh_line = next(ln for ln in out.splitlines() if "node scripts/capture.mjs" in ln)
     assert "--url" in lh_line and SAMPLE_URL in lh_line
     assert "--manifest" in lh_line and manifest in lh_line
     assert "--out" in lh_line and out_dir in lh_line
-    a11y_line = next(ln for ln in lines if "python3 scripts/capture_a11y_report.py" in ln)
+    # a11y line carries the literal evidence/out.
+    a11y_line = next(ln for ln in out.splitlines() if "python3 scripts/capture_a11y_report.py" in ln)
     assert "--evidence" in a11y_line and "evidence.json" in a11y_line
     assert "--out-dir" in a11y_line and out_dir in a11y_line
 
 
-def test_make_parity_dry_run_omits_queries_flag_for_capture_parity_reports(tmp_path):
-    """Base-slice invariant: capture_parity_reports.py is invoked WITHOUT
-    --queries. Search query support is deferred to the next PR."""
+def test_make_parity_dry_run_has_without_queries_exec_branch(tmp_path):
+    """Base-slice invariant: the producer invocation form WITHOUT --queries
+    exists in the recipe, so runtime can select it when PARITY_QUERIES_FILE
+    is unset or yields no queries. (In the merged composition the producer
+    is invoked via bash -c with two exec branches: one with --queries
+    and one without — runtime chooses based on PARITY_QUERIES_FILE.)"""
     out = _dry_run_recipe(_env(tmp_path))
-    nav_line = next(
-        ln for ln in out.splitlines()
-        if "python3 scripts/capture_parity_reports.py" in ln
+    # The without-queries exec form must exist in the recipe source.
+    without_queries = (
+        'exec python3 scripts/capture_parity_reports.py --url "$1" --out-dir "$2";'
     )
-    assert "--queries" not in nav_line
+    assert without_queries in out, (
+        f"without-queries producer exec branch not found:\n{out}"
+    )
+    # The with-queries exec form must also exist (for the query path).
+    with_queries = (
+        'exec python3 scripts/capture_parity_reports.py --url "$1" --out-dir "$2" --queries'
+    )
+    assert with_queries in out, (
+        f"with-queries producer exec branch not found:\n{out}"
+    )
 
 
 # ── No lifecycle / install commands ───────────────────────────────────
@@ -338,3 +373,238 @@ def test_make_parity_quotes_caller_vars_against_shell_injection(tmp_path):
     r = _make("parity", env={"PATH": str(shim), **_env(sandbox, **env_all)},
               cwd=sandbox, make_path=_system_make())
     assert not (tmp_path / "leak-marker").exists(), r.stderr
+
+
+# ── PARITY_QUERIES_FILE (file-backed query propagation) ────────────────
+
+
+def _write_queries_file(path: Path, content: str) -> Path:
+    """Write a UTF-8 queries file. Does NOT add a trailing newline."""
+    path.write_bytes(content.encode("utf-8"))
+    return path
+
+
+def _argv_shim_dir(tmp_path: Path, *, with_python3: bool = True,
+                   with_node: bool = True, python_exit: int = 0,
+                   node_exit: int = 0) -> Path:
+    """Hermetic shim dir that logs each argv wrapped in <[...]> so spaces
+    and shell metacharacters are visible in the log. Uses argv_shim.log
+    (separate from shim.log) so existing argv-agnostic tests are not
+    perturbed by the bracket format."""
+    d = tmp_path / "shims"
+    d.mkdir()
+    log = tmp_path / "argv_shim.log"
+    if with_python3:
+        _write_shim(d / "python3", (
+            "#!/bin/bash\n"
+            f"printf 'python3' >> {log}\n"
+            f"for a in \"$@\"; do printf ' <[%s]>' \"$a\" >> {log}; done\n"
+            f"printf '\\n' >> {log}\n"
+            f"exit {python_exit}\n"
+        ))
+    if with_node:
+        _write_shim(d / "node", (
+            "#!/bin/bash\n"
+            f"printf 'node' >> {log}\n"
+            f"for a in \"$@\"; do printf ' <[%s]>' \"$a\" >> {log}; done\n"
+            f"printf '\\n' >> {log}\n"
+            f"exit {node_exit}\n"
+        ))
+    _write_shim(d / "mkdir", "#!/bin/bash\nexec /bin/mkdir \"$@\"\n")
+    return d
+
+
+def _argv_shim_log(parent: Path) -> str:
+    p = parent / "argv_shim.log"
+    return p.read_text() if p.exists() else ""
+
+
+def test_make_parity_queries_file_propagates_each_line_as_separate_argv(tmp_path):
+    """PARITY_QUERIES_FILE → one literal query per line, each becomes a
+    distinct argv element. Controlled shim logs argv in <[...]> brackets
+    so we can prove `blue whale` and `cat&dog` arrive intact and as
+    separate arguments (not word-split or globbed)."""
+    qfile = _write_queries_file(tmp_path / "queries.txt",
+                                "blue whale\ncat&dog\nthird\n")
+    sandbox = _build_sandbox(tmp_path)
+    shim_parent = tmp_path / "shim_parent"; shim_parent.mkdir()
+    shim = _argv_shim_dir(shim_parent)
+    r = _make("parity", env={"PATH": str(shim),
+                             **_env(sandbox, PARITY_QUERIES_FILE=str(qfile))},
+              cwd=sandbox, make_path=_system_make())
+    assert r.returncode == 0, r.stdout + r.stderr
+    log = _argv_shim_log(shim_parent)
+    nav_line = next(ln for ln in log.splitlines()
+                    if "capture_parity_reports.py" in ln)
+    # Each argv element is preserved as a distinct unit.
+    assert "<[scripts/capture_parity_reports.py]>" in nav_line, nav_line
+    assert "<[--queries]>" in nav_line, nav_line
+    assert "<[blue whale]>" in nav_line, nav_line
+    assert "<[cat&dog]>" in nav_line, nav_line
+    assert "<[third]>" in nav_line, nav_line
+
+
+def test_make_parity_queries_file_strips_crlf_terminal_cr(tmp_path):
+    """CRLF input: terminal CR is stripped from each query; no CR leaks
+    into argv."""
+    qfile = _write_queries_file(tmp_path / "queries.txt",
+                                "alpha\r\nbeta\r\ngamma\r\n")
+    sandbox = _build_sandbox(tmp_path)
+    shim_parent = tmp_path / "shim_parent"; shim_parent.mkdir()
+    shim = _argv_shim_dir(shim_parent)
+    r = _make("parity", env={"PATH": str(shim),
+                             **_env(sandbox, PARITY_QUERIES_FILE=str(qfile))},
+              cwd=sandbox, make_path=_system_make())
+    assert r.returncode == 0, r.stdout + r.stderr
+    nav_line = next(ln for ln in _argv_shim_log(shim_parent).splitlines()
+                    if "capture_parity_reports.py" in ln)
+    assert "<[alpha]>" in nav_line
+    assert "<[beta]>" in nav_line
+    assert "<[gamma]>" in nav_line
+    assert "\r" not in nav_line
+
+
+def test_make_parity_queries_file_ignores_blank_and_comment_lines(tmp_path):
+    """Blank lines and # lines are filtered; nonblank/non-comment queries
+    are wired to --queries in user order."""
+    qfile = _write_queries_file(tmp_path / "queries.txt",
+                                "# header\n\nalpha\n# inline\nbeta\n")
+    sandbox = _build_sandbox(tmp_path)
+    shim_parent = tmp_path / "shim_parent"; shim_parent.mkdir()
+    shim = _argv_shim_dir(shim_parent)
+    r = _make("parity", env={"PATH": str(shim),
+                             **_env(sandbox, PARITY_QUERIES_FILE=str(qfile))},
+              cwd=sandbox, make_path=_system_make())
+    assert r.returncode == 0, r.stdout + r.stderr
+    nav_line = next(ln for ln in _argv_shim_log(shim_parent).splitlines()
+                    if "capture_parity_reports.py" in ln)
+    assert "<[alpha]>" in nav_line
+    assert "<[beta]>" in nav_line
+    assert "<[# header]>" not in nav_line
+    assert "<[# inline]>" not in nav_line
+
+
+def test_make_parity_queries_file_fails_closed_on_missing_source(tmp_path):
+    """PARITY_QUERIES_FILE → nonexistent path → fail closed BEFORE any
+    producer runs."""
+    missing = tmp_path / "does_not_exist.txt"
+    sandbox = _build_sandbox(tmp_path)
+    shim_parent = tmp_path / "shim_parent"; shim_parent.mkdir()
+    shim = _argv_shim_dir(shim_parent)
+    r = _make("parity", env={"PATH": str(shim),
+                             **_env(sandbox, PARITY_QUERIES_FILE=str(missing))},
+              cwd=sandbox, make_path=_system_make())
+    assert r.returncode != 0, r.stdout + r.stderr
+    log = _argv_shim_log(shim_parent)
+    assert "capture_parity_reports.py" not in log
+    assert "capture.mjs" not in log
+    assert "capture_a11y_report.py" not in log
+
+
+def test_make_parity_queries_file_fails_closed_on_empty_source(tmp_path):
+    """PARITY_QUERIES_FILE points to a file with no valid queries after
+    filtering → fail closed BEFORE any producer runs."""
+    qfile = _write_queries_file(tmp_path / "queries.txt",
+                                "# only comments\n\n# more\n")
+    sandbox = _build_sandbox(tmp_path)
+    shim_parent = tmp_path / "shim_parent"; shim_parent.mkdir()
+    shim = _argv_shim_dir(shim_parent)
+    r = _make("parity", env={"PATH": str(shim),
+                             **_env(sandbox, PARITY_QUERIES_FILE=str(qfile))},
+              cwd=sandbox, make_path=_system_make())
+    assert r.returncode != 0, r.stdout + r.stderr
+    log = _argv_shim_log(shim_parent)
+    assert "capture_parity_reports.py" not in log
+    assert "capture.mjs" not in log
+    assert "capture_a11y_report.py" not in log
+
+
+def test_make_parity_queries_file_fails_closed_on_dash_leading_line(tmp_path):
+    """PARITY_QUERIES_FILE contains a line beginning with - → fail
+    closed BEFORE any producer runs (defense against argv injection)."""
+    qfile = _write_queries_file(tmp_path / "queries.txt",
+                                "good\n--injection\n")
+    sandbox = _build_sandbox(tmp_path)
+    shim_parent = tmp_path / "shim_parent"; shim_parent.mkdir()
+    shim = _argv_shim_dir(shim_parent)
+    r = _make("parity", env={"PATH": str(shim),
+                             **_env(sandbox, PARITY_QUERIES_FILE=str(qfile))},
+              cwd=sandbox, make_path=_system_make())
+    assert r.returncode != 0, r.stdout + r.stderr
+    log = _argv_shim_log(shim_parent)
+    assert "capture_parity_reports.py" not in log
+    assert "capture.mjs" not in log
+    assert "capture_a11y_report.py" not in log
+
+
+def test_make_parity_unset_queries_file_keeps_base_behavior(tmp_path):
+        """Backward compat: PARITY_QUERIES_FILE unset → no --queries flag,
+        producer invocation identical to base slice (no --queries argv)."""
+        sandbox = _build_sandbox(tmp_path)
+        shim_parent = tmp_path / "shim_parent"; shim_parent.mkdir()
+        shim = _argv_shim_dir(shim_parent)
+        r = _make("parity", env={"PATH": str(shim), **_env(sandbox)},
+                  cwd=sandbox, make_path=_system_make())
+        assert r.returncode == 0, r.stdout + r.stderr
+        nav_line = next(ln for ln in _argv_shim_log(shim_parent).splitlines()
+                        if "capture_parity_reports.py" in ln)
+        assert "<[--queries]>" not in nav_line, nav_line
+
+
+def test_make_parity_queries_file_filters_posix_whitespace_only_lines(tmp_path):
+        """POSIX-whitespace-only lines (spaces, tabs, vertical tab, form feed)
+        are filtered before producer invocation. Lines that contain at least
+        one non-whitespace character retain their literal internal/leading/
+        trailing whitespace intact (e.g. 'blue whale' arrives as one argv
+        element)."""
+        # Mix: real query, whitespace-only space, whitespace-only tab,
+        # whitespace-only space+tab, real query with internal space.
+        qfile = _write_queries_file(
+            tmp_path / "queries.txt",
+            "alpha\n   \n\t\n \t \nblue whale\n",
+        )
+        sandbox = _build_sandbox(tmp_path)
+        shim_parent = tmp_path / "shim_parent"; shim_parent.mkdir()
+        shim = _argv_shim_dir(shim_parent)
+        r = _make("parity", env={"PATH": str(shim),
+                                 **_env(sandbox, PARITY_QUERIES_FILE=str(qfile))},
+                  cwd=sandbox, make_path=_system_make())
+        assert r.returncode == 0, r.stdout + r.stderr
+        nav_line = next(ln for ln in _argv_shim_log(shim_parent).splitlines()
+                        if "capture_parity_reports.py" in ln)
+        # Real queries arrive as one argv each, with literal internal whitespace.
+        assert "<[alpha]>" in nav_line, nav_line
+        assert "<[blue whale]>" in nav_line, nav_line
+        # Whitespace-only lines MUST NOT leak into argv.
+        assert "<[   ]>" not in nav_line, nav_line
+        assert "<[\t]>" not in nav_line, nav_line
+        assert "<[ \t ]>" not in nav_line, nav_line
+        # Defense: only the two real queries were wired through --queries
+        # (3 total `<[` brackets in the tail: --queries + alpha + blue whale).
+        queries_idx = nav_line.index("<[--queries]>")
+        tail = nav_line[queries_idx:]
+        assert tail.count("<[") == 3, (
+            f"expected exactly 3 argv brackets in tail (--queries + 2 queries), "
+            f"got: {tail}\n"
+        )
+
+
+def test_make_parity_queries_file_fails_closed_on_directory_source(tmp_path):
+        """PARITY_QUERIES_FILE points to an existing directory → fail closed
+        BEFORE any producer runs, with a diagnostic naming the directory.
+        Defense against `read` over a directory (undefined behavior)."""
+        dir_path = tmp_path / "a_directory"
+        dir_path.mkdir()
+        sandbox = _build_sandbox(tmp_path)
+        shim_parent = tmp_path / "shim_parent"; shim_parent.mkdir()
+        shim = _argv_shim_dir(shim_parent)
+        r = _make("parity", env={"PATH": str(shim),
+                                 **_env(sandbox, PARITY_QUERIES_FILE=str(dir_path))},
+                  cwd=sandbox, make_path=_system_make())
+        assert r.returncode != 0, r.stdout + r.stderr
+        assert "directory" in (r.stdout + r.stderr).lower()
+        assert str(dir_path) in (r.stdout + r.stderr)
+        log = _argv_shim_log(shim_parent)
+        assert "capture_parity_reports.py" not in log
+        assert "capture.mjs" not in log
+        assert "capture_a11y_report.py" not in log
