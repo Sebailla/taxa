@@ -7,7 +7,7 @@
 # assignment. All three are false positives when shellcheck runs against
 # a Makefile that uses .ONESHELL: + $(VAR) expansion + URL variables.
 
-.PHONY: venv download etl coldp worms col load api clean test smoke css
+.PHONY: venv download etl coldp worms col load api clean test smoke parity css
 
 # Pass each recipe to a single shell invocation so multi-line shell
 # constructs (if/then/else/fi, for/done) parse cleanly without `\<newline>`
@@ -127,3 +127,40 @@ clean:
 	rm -f data/etl.log data/api.log data/load.log
 	rm -rf data/db data/raw
 	rm -rf .venv __pycache__ */__pycache__
+
+# G4 parity composition — external-URL composition (PR base slice).
+#
+# Contract:
+#   - Requires caller-supplied PARITY_URL, PARITY_OUT, PARITY_MANIFEST.
+#     All three are checked BEFORE any producer runs; the target aborts
+#     fail-closed with a stderr message naming the missing variable.
+#   - Composes merged producers in documented order:
+#     (1) scripts/capture_parity_reports.py — Python; navigation + /api/
+#         + browser-state (no --queries in this slice)
+#     (2) tools/g4-capture/scripts/capture.mjs — Node; Lighthouse evidence
+#     (3) scripts/capture_a11y_report.py — Python; a11y adapter that
+#         reads the Lighthouse evidence.json emitted by (2).
+#   - Base slice intentionally does NOT support search queries:
+#     PARITY_QUERIES is rejected BEFORE producers rather than ignored
+#     or shell-expanded. Search query support (including safe
+#     special-character propagation) is deferred to the next PR.
+#   - Preflight: python3, node, the two Python producer scripts, the
+#     Node producer script, and tools/g4-capture/node_modules. Each
+#     missing tool/script aborts fail-closed. NO install / lifecycle /
+#     server-start commands are issued (caller owns the server).
+#   - Component atomicity boundaries: producer failures halt the
+#     later producers via explicit `&&` chaining on the producer line
+#     so no partial-report success is ever claimed.
+parity:
+	@if [ -z "$(PARITY_URL)" ]; then echo "PARITY_URL is required"; exit 1; fi
+	@if [ -z "$(PARITY_OUT)" ]; then echo "PARITY_OUT is required"; exit 1; fi
+	@if [ -z "$(PARITY_MANIFEST)" ]; then echo "PARITY_MANIFEST is required"; exit 1; fi
+	@if [ -n "$(PARITY_QUERIES)" ]; then echo "PARITY_QUERIES is not supported in the base composition slice (deferred to the next PR)"; exit 1; fi
+	@command -v python3 >/dev/null || { echo "python3 missing from PATH"; exit 1; }
+	@command -v node >/dev/null || { echo "node missing from PATH"; exit 1; }
+	@test -f scripts/capture_parity_reports.py || { echo "scripts/capture_parity_reports.py missing"; exit 1; }
+	@test -f tools/g4-capture/scripts/capture.mjs || { echo "tools/g4-capture/scripts/capture.mjs missing"; exit 1; }
+	@test -f scripts/capture_a11y_report.py || { echo "scripts/capture_a11y_report.py missing"; exit 1; }
+	@test -d tools/g4-capture/node_modules || { echo "tools/g4-capture/node_modules missing — install the Lighthouse deps in tools/g4-capture (see README) before running make parity"; exit 1; }
+	@mkdir -p "$(PARITY_OUT)"
+	python3 scripts/capture_parity_reports.py --url "$(PARITY_URL)" --out-dir "$(PARITY_OUT)" && (cd tools/g4-capture && node scripts/capture.mjs --url "$(PARITY_URL)" --manifest "$(PARITY_MANIFEST)" --out "$(PARITY_OUT)") && python3 scripts/capture_a11y_report.py --evidence "$(PARITY_OUT)/evidence.json" --out-dir "$(PARITY_OUT)"
