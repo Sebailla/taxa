@@ -20,6 +20,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -63,6 +64,8 @@ _NEEDS_BROWSER = pytest.mark.skipif(
 class _Handler(http.server.BaseHTTPRequestHandler):
     index_html: bytes = b""
     api_body: bytes = b'{"ok":true}'
+    # Per-query result counts for /api/search — keys are the decoded `q` values.
+    search_counts: dict[str, int] = {}
 
     def log_message(self, *args, **kwargs):
         return
@@ -80,18 +83,48 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers(); self.wfile.write(body)
+        elif self.path.startswith("/api/search"):
+            q = parse_qs(urlparse(self.path).query, keep_blank_values=True).get("q", [""])[0]
+            count = self.search_counts.get(q, 0)
+            body = json.dumps({"count": count}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers(); self.wfile.write(body)
         else:
             self.send_response(404); self.end_headers()
 
 
+_SEARCH_QUERIES = ("cat", "dog", "cat species", "cat&dog")
+
+
+def _build_hermetic_page() -> bytes:
+    """Page that fires /api/health plus a /api/search?q=<enc> fetch for each
+    known query. encodeURIComponent URL-encodes the wire form so the server
+    sees q=cat%20species, q=cat%26dog, etc."""
+    fetches = b"fetch('/api/health').then(r=>r.json()).catch(()=>{});"
+    for q in _SEARCH_QUERIES:
+        # json.dumps produces a valid JS string literal (handles &, spaces, etc.).
+        fetches += (
+            b"fetch('/api/search?q=' + encodeURIComponent("
+            + json.dumps(q).encode()
+            + b")).then(r=>r.json()).catch(()=>{});"
+        )
+    return (
+        b"<!doctype html><html><head><title>g4 hermetic</title></head>"
+        b"<body><div id=t>ok</div><script>" + fetches + b"</script></body></html>"
+    )
+
+
 @pytest.fixture()
 def hermetic_server(tmp_path):
-    """One document + one /api/ endpoint, deterministic."""
-    page = (b"<!doctype html><html><head><title>g4 hermetic</title></head>"
-            b"<body><div id=t>ok</div>"
-            b"<script>fetch('/api/health').then(r=>r.json()).catch(()=>{});"
-            b"</script></body></html>")
-    _Handler.index_html = page
+    """One document + /api/health + /api/search?q=<query> endpoints, deterministic.
+    The default page fires fetches for the four known _SEARCH_QUERIES so any
+    subset can be requested via --queries."""
+    _Handler.index_html = _build_hermetic_page()
+    _Handler.search_counts = {
+        "cat": 5, "dog": 12, "cat species": 7, "cat&dog": 42,
+    }
     port = _free_port()
     server = http.server.HTTPServer(("127.0.0.1", port), _Handler)
     th = threading.Thread(target=server.serve_forever, daemon=True); th.start()
@@ -101,6 +134,31 @@ def hermetic_server(tmp_path):
             raise RuntimeError("hermetic server failed to start")
         yield base
     finally:
+        server.shutdown(); th.join(timeout=3)
+
+
+@pytest.fixture()
+def hermetic_factory(tmp_path):
+    """Factory for hermetic servers with custom page + search_counts. Yields
+    a callable that returns the base URL; teardown shuts the server down."""
+    started: list[tuple[http.server.HTTPServer, threading.Thread]] = []
+
+    def _start(*, page: bytes, search_counts: dict[str, int] | None = None) -> str:
+        _Handler.index_html = page
+        if search_counts is not None:
+            _Handler.search_counts = search_counts
+        port = _free_port()
+        server = http.server.HTTPServer(("127.0.0.1", port), _Handler)
+        th = threading.Thread(target=server.serve_forever, daemon=True)
+        th.start()
+        base = f"http://127.0.0.1:{port}"
+        started.append((server, th))
+        if not _wait_ready(f"{base}/index.html"):
+            raise RuntimeError("hermetic factory server failed to start")
+        return base
+
+    yield _start
+    for server, th in started:
         server.shutdown(); th.join(timeout=3)
 
 
@@ -235,4 +293,151 @@ def test_write_failure_emits_no_partial_output(tmp_path, hermetic_server):
     )
     assert not (out_dir / "api.json").exists(), (
         "must NOT leave api.json when navigation write fails"
+    )
+
+
+# ── search-only G4 extension (PR3e slice) ─────────────────────────────────
+# The producer adds an explicit --queries flag and emits search.json when
+# provided. When --queries is omitted, CLI flags and the precise two-report
+# set (navigation.json + api.json) are preserved exactly.
+
+
+@_NEEDS_BROWSER
+def test_emits_search_when_queries_provided(tmp_path, hermetic_server):
+    """Focused RED: --queries 'cat dog' must emit search.json with both
+    queries in user order and result_counts parsed from /api/search bodies.
+    navigation.json + api.json still emit, and search.json is appended
+    atomically."""
+    out_dir = tmp_path / "reports"
+    r = _run(["--url", f"{hermetic_server}/", "--out-dir", str(out_dir),
+              "--queries", "cat", "dog"])
+    assert r.returncode == 0, f"stderr={r.stderr}\nstdout={r.stdout}"
+    assert sorted(p.name for p in out_dir.iterdir()) == [
+        "api.json", "navigation.json", "search.json",
+    ], list(out_dir.iterdir())
+    search_doc = json.loads((out_dir / "search.json").read_text())
+    assert search_doc["schema_version"] == SCHEMA_VERSION
+    assert search_doc["captured_at"] == _parse_iso(
+        search_doc["captured_at"]).strftime(ISO_FMT)
+    assert search_doc["queries"] == [
+        {"query": "cat", "result_count": 5},
+        {"query": "dog", "result_count": 12},
+    ], search_doc["queries"]
+
+
+@_NEEDS_BROWSER
+def test_search_url_encoded_query_with_space(tmp_path, hermetic_server):
+    """A user query with a space must match an /api/search?q=cat%20species
+    response via URL-decoded exact comparison (not substring matching)."""
+    out_dir = tmp_path / "reports"
+    r = _run(["--url", f"{hermetic_server}/", "--out-dir", str(out_dir),
+              "--queries", "cat species"])
+    assert r.returncode == 0, f"stderr={r.stderr}\nstdout={r.stdout}"
+    search_doc = json.loads((out_dir / "search.json").read_text())
+    assert search_doc["queries"] == [
+        {"query": "cat species", "result_count": 7},
+    ], search_doc["queries"]
+
+
+@_NEEDS_BROWSER
+def test_search_special_char_query(tmp_path, hermetic_server):
+    """A query containing `&` must round-trip through URL encoding
+    (q=cat%26dog) and match the decoded value exactly."""
+    out_dir = tmp_path / "reports"
+    r = _run(["--url", f"{hermetic_server}/", "--out-dir", str(out_dir),
+              "--queries", "cat&dog"])
+    assert r.returncode == 0, f"stderr={r.stderr}\nstdout={r.stdout}"
+    search_doc = json.loads((out_dir / "search.json").read_text())
+    assert search_doc["queries"] == [
+        {"query": "cat&dog", "result_count": 42},
+    ], search_doc["queries"]
+
+
+@_NEEDS_BROWSER
+def test_search_exact_match_rejects_substring(tmp_path, hermetic_factory):
+    """When only ?q=caterpillar is captured, --queries 'cat' must NOT
+    substring-match it. Producer fails closed with no partial reports.
+    Proves exact parsed-q matching, not substring matching."""
+    page = (b"<!doctype html><html><body>"
+            b"<script>fetch('/api/search?q=caterpillar').catch(()=>{});"
+            b"</script></body></html>")
+    base = hermetic_factory(page=page, search_counts={"caterpillar": 99})
+    out_dir = tmp_path / "reports"
+    r = _run(["--url", f"{base}/", "--out-dir", str(out_dir),
+              "--queries", "cat"])
+    assert r.returncode != 0, (
+        f"expected failure when 'cat' has no exact /api/ match; "
+        f"got {r.returncode}.\nstderr={r.stderr}"
+    )
+    if out_dir.exists():
+        assert list(out_dir.iterdir()) == [], (
+            f"must NOT emit partial reports on search mismatch: "
+            f"{list(out_dir.iterdir())}"
+        )
+
+
+@_NEEDS_BROWSER
+def test_no_queries_omits_search_json(tmp_path, hermetic_server):
+    """PR #223 behavior is preserved exactly when --queries is omitted:
+    the CLI must emit navigation.json + api.json only — no search.json."""
+    out_dir = tmp_path / "reports"
+    r = _run(["--url", f"{hermetic_server}/", "--out-dir", str(out_dir)])
+    assert r.returncode == 0, f"stderr={r.stderr}\nstdout={r.stdout}"
+    assert sorted(p.name for p in out_dir.iterdir()) == [
+        "api.json", "navigation.json",
+    ], list(out_dir.iterdir())
+    assert not (out_dir / "search.json").exists(), (
+        "search.json must NOT be emitted when --queries is omitted"
+    )
+
+
+@_NEEDS_BROWSER
+def test_search_write_failure_rolls_back_all(tmp_path, hermetic_server):
+    """When --queries is provided and search.json write fails, neither
+    navigation.json nor api.json may remain on disk — full atomic rollback
+    across the three-report set."""
+    out_dir = tmp_path / "reports"
+    out_dir.mkdir()
+    # Block the search.json atomic-rename target so its write fails.
+    (out_dir / "search.json").mkdir()
+    r = _run(["--url", f"{hermetic_server}/", "--out-dir", str(out_dir),
+              "--queries", "cat"])
+    assert r.returncode == 4, (
+        f"expected exit 4 on search write failure; got {r.returncode}.\n"
+        f"stderr={r.stderr}"
+    )
+    assert not (out_dir / "navigation.json").exists(), (
+        "must NOT leave navigation.json when search write fails"
+    )
+    assert not (out_dir / "api.json").exists(), (
+        "must NOT leave api.json when search write fails"
+    )
+
+
+@_NEEDS_BROWSER
+def test_search_validates_against_verify_parity(tmp_path, hermetic_server):
+    """End-to-end round trip: emit all three reports with --queries, add
+    a11y + browser-state placeholders, run verify_parity with
+    legacy-dir == candidate-dir == out_dir, and assert exit 0. Proves the
+    search.json shape satisfies verify_parity exactly."""
+    out_dir = tmp_path / "reports"
+    r = _run(["--url", f"{hermetic_server}/", "--out-dir", str(out_dir),
+              "--queries", "cat", "dog"])
+    assert r.returncode == 0, f"stderr={r.stderr}\nstdout={r.stdout}"
+    for name, doc in (
+        ("a11y", {"score": 1.0}),
+        ("browser-state", {"keys": {"last-taxon-id": None, "tree-source": None,
+            "selected-realm": None, "version-banner-dismissed": None}}),
+    ):
+        full = {"schema_version": SCHEMA_VERSION, "captured_at": _now_iso(), **doc}
+        (out_dir / f"{name}.json").write_text(json.dumps(full))
+    vp = subprocess.run(
+        [sys.executable, str(VERIFY_PARITY),
+         "--legacy-dir", str(out_dir), "--candidate-dir", str(out_dir),
+         "--output", str(tmp_path / "agg"), "--max-staleness-days", "30"],
+        cwd=REPO_ROOT, capture_output=True, text=True, check=False,
+    )
+    assert vp.returncode == 0, (
+        f"verify_parity rejected the search producer output.\n"
+        f"stdout={vp.stdout}\nstderr={vp.stderr}"
     )
