@@ -211,7 +211,9 @@ def test_emits_navigation_and_api_atomically(tmp_path, hermetic_server):
     nav = out_dir / "navigation.json"
     api = out_dir / "api.json"
     assert nav.is_file() and api.is_file()
-    assert sorted(p.name for p in out_dir.iterdir()) == ["api.json", "navigation.json"]
+    assert sorted(p.name for p in out_dir.iterdir()) == [
+        "api.json", "browser-state.json", "navigation.json",
+    ]
     nav_doc = json.loads(nav.read_text())
     api_doc = json.loads(api.read_text())
     for doc, key in ((nav_doc, "paths"), (api_doc, "endpoints")):
@@ -305,7 +307,7 @@ def test_write_failure_emits_no_partial_output(tmp_path, hermetic_server):
 @_NEEDS_BROWSER
 def test_emits_search_when_queries_provided(tmp_path, hermetic_server):
     """Focused RED: --queries 'cat dog' must emit search.json with both
-    queries in user order and result_counts parsed from /api/search bodies.
+queries in user order and result_counts parsed from /api/search bodies.
     navigation.json + api.json still emit, and search.json is appended
     atomically."""
     out_dir = tmp_path / "reports"
@@ -313,7 +315,7 @@ def test_emits_search_when_queries_provided(tmp_path, hermetic_server):
               "--queries", "cat", "dog"])
     assert r.returncode == 0, f"stderr={r.stderr}\nstdout={r.stdout}"
     assert sorted(p.name for p in out_dir.iterdir()) == [
-        "api.json", "navigation.json", "search.json",
+        "api.json", "browser-state.json", "navigation.json", "search.json",
     ], list(out_dir.iterdir())
     search_doc = json.loads((out_dir / "search.json").read_text())
     assert search_doc["schema_version"] == SCHEMA_VERSION
@@ -384,7 +386,7 @@ def test_no_queries_omits_search_json(tmp_path, hermetic_server):
     r = _run(["--url", f"{hermetic_server}/", "--out-dir", str(out_dir)])
     assert r.returncode == 0, f"stderr={r.stderr}\nstdout={r.stdout}"
     assert sorted(p.name for p in out_dir.iterdir()) == [
-        "api.json", "navigation.json",
+        "api.json", "browser-state.json", "navigation.json",
     ], list(out_dir.iterdir())
     assert not (out_dir / "search.json").exists(), (
         "search.json must NOT be emitted when --queries is omitted"
@@ -412,6 +414,199 @@ def test_search_write_failure_rolls_back_all(tmp_path, hermetic_server):
     assert not (out_dir / "api.json").exists(), (
         "must NOT leave api.json when search write fails"
     )
+
+
+# ── browser-state-only G4 extension (PR3f slice) ──────────────────────────
+# The producer adds unconditional browser-state.json emission with the
+# four REQUIRED keys from scripts/verify_parity.py::REQUIRED_BROWSER_STATE_KEYS.
+# localStorage wins over sessionStorage; both fall back to None; the
+# keyset is never silently omitted. Atomic publication extends so any
+# browser-state/write failure rolls back the full report set.
+
+
+@_NEEDS_BROWSER
+def test_emits_browser_state_with_all_four_keys(tmp_path, hermetic_server):
+    """The new browser-state.json MUST carry all four REQUIRED keys even
+    when the page writes nothing to localStorage/sessionStorage. All
+    values default to null; the keyset is exhaustive."""
+    out_dir = tmp_path / "reports"
+    r = _run(["--url", f"{hermetic_server}/", "--out-dir", str(out_dir)])
+    assert r.returncode == 0, f"stderr={r.stderr}\nstdout={r.stdout}"
+    assert sorted(p.name for p in out_dir.iterdir()) == [
+        "api.json", "browser-state.json", "navigation.json",
+    ], list(out_dir.iterdir())
+    bs_doc = json.loads((out_dir / "browser-state.json").read_text())
+    assert bs_doc["schema_version"] == SCHEMA_VERSION
+    assert bs_doc["captured_at"] == _parse_iso(
+        bs_doc["captured_at"]).strftime(ISO_FMT)
+    keys = bs_doc["keys"]
+    assert set(keys.keys()) == {
+        "last-taxon-id", "tree-source", "selected-realm", "version-banner-dismissed",
+    }, f"unexpected key set: {set(keys.keys())}"
+    assert all(v is None for v in keys.values()), keys
+
+
+@_NEEDS_BROWSER
+def test_browser_state_localstorage_precedes_sessionstorage(tmp_path, hermetic_factory):
+    """When BOTH localStorage and sessionStorage carry the same key, the
+    localStorage value MUST win. Storage precedence is local > session."""
+    page = (b"<!doctype html><html><body><script>"
+            b"localStorage.setItem('tree-source', 'col');"
+            b"sessionStorage.setItem('tree-source', 'worms');"
+            b"</script></body></html>")
+    base = hermetic_factory(page=page)
+    out_dir = tmp_path / "reports"
+    r = _run(["--url", f"{base}/", "--out-dir", str(out_dir)])
+    assert r.returncode == 0, f"stderr={r.stderr}\nstdout={r.stdout}"
+    bs_doc = json.loads((out_dir / "browser-state.json").read_text())
+    assert bs_doc["keys"]["tree-source"] == "col", bs_doc["keys"]
+
+
+@_NEEDS_BROWSER
+def test_browser_state_sessionstorage_fallback(tmp_path, hermetic_factory):
+    """When localStorage is empty but sessionStorage has a value, the
+    producer MUST surface the sessionStorage value."""
+    page = (b"<!doctype html><html><body><script>"
+            b"sessionStorage.setItem('last-taxon-id', 'tx-001');"
+            b"</script></body></html>")
+    base = hermetic_factory(page=page)
+    out_dir = tmp_path / "reports"
+    r = _run(["--url", f"{base}/", "--out-dir", str(out_dir)])
+    assert r.returncode == 0, f"stderr={r.stderr}\nstdout={r.stdout}"
+    bs_doc = json.loads((out_dir / "browser-state.json").read_text())
+    assert bs_doc["keys"]["last-taxon-id"] == "tx-001", bs_doc["keys"]
+    # The other three required keys still appear with null defaults.
+    assert bs_doc["keys"]["tree-source"] is None
+    assert bs_doc["keys"]["selected-realm"] is None
+    assert bs_doc["keys"]["version-banner-dismissed"] is None
+
+
+@_NEEDS_BROWSER
+def test_browser_state_storage_value_passthrough(tmp_path, hermetic_factory):
+    """Storage values are emitted verbatim — strings, booleans (as their
+    literal ``"true"`` / ``"false"`` string forms), numbers all round-trip
+    through the producer. The producer is a passthrough, not a parser:
+    it does NOT JSON-decode storage values or coerce types."""
+    page = (b"<!doctype html><html><body><script>"
+            b"localStorage.setItem('last-taxon-id', 'tx-001');"
+            b"localStorage.setItem('tree-source', 'freshwater');"
+            b"localStorage.setItem('selected-realm', 'marine');"
+            b"localStorage.setItem('version-banner-dismissed', 'true');"
+            b"</script></body></html>")
+    base = hermetic_factory(page=page)
+    out_dir = tmp_path / "reports"
+    r = _run(["--url", f"{base}/", "--out-dir", str(out_dir)])
+    assert r.returncode == 0, f"stderr={r.stderr}\nstdout={r.stdout}"
+    keys = json.loads((out_dir / "browser-state.json").read_text())["keys"]
+    assert keys == {
+        "last-taxon-id": "tx-001",
+        "tree-source": "freshwater",
+        "selected-realm": "marine",
+        "version-banner-dismissed": "true",
+    }, keys
+
+
+@_NEEDS_BROWSER
+def test_no_queries_still_emits_browser_state(tmp_path, hermetic_server):
+    """--queries omitted MUST still emit browser-state.json. Search.json
+    is suppressed (PR #223 contract), but browser-state.json is
+    unconditional in the same session."""
+    out_dir = tmp_path / "reports"
+    r = _run(["--url", f"{hermetic_server}/", "--out-dir", str(out_dir)])
+    assert r.returncode == 0, f"stderr={r.stderr}\nstdout={r.stdout}"
+    names = sorted(p.name for p in out_dir.iterdir())
+    assert names == [
+        "api.json", "browser-state.json", "navigation.json",
+    ], names
+    assert not (out_dir / "search.json").exists(), (
+        "search.json must NOT be emitted when --queries is omitted"
+    )
+
+
+@_NEEDS_BROWSER
+def test_with_queries_emits_browser_state_with_search(tmp_path, hermetic_server):
+    """--queries provided MUST emit all four reports (nav + api + search +
+    browser-state). The new report coexists with PR #224 search emission."""
+    out_dir = tmp_path / "reports"
+    r = _run(["--url", f"{hermetic_server}/", "--out-dir", str(out_dir),
+              "--queries", "cat"])
+    assert r.returncode == 0, f"stderr={r.stderr}\nstdout={r.stdout}"
+    names = sorted(p.name for p in out_dir.iterdir())
+    assert names == [
+        "api.json", "browser-state.json", "navigation.json", "search.json",
+    ], names
+
+
+@_NEEDS_BROWSER
+def test_browser_state_validates_against_verify_parity(tmp_path, hermetic_server):
+    """End-to-end round trip: emit nav + api + browser-state (no --queries),
+    add search + a11y placeholders, run verify_parity with
+    legacy-dir == candidate-dir == out_dir, and assert exit 0. Proves the
+    browser-state.json shape satisfies verify_parity exactly."""
+    out_dir = tmp_path / "reports"
+    r = _run(["--url", f"{hermetic_server}/", "--out-dir", str(out_dir)])
+    assert r.returncode == 0, f"stderr={r.stderr}\nstdout={r.stdout}"
+    for name, doc in (
+        ("search", {"queries": [{"query": "q", "result_count": 1}]}),
+        ("a11y", {"score": 1.0}),
+    ):
+        full = {"schema_version": SCHEMA_VERSION, "captured_at": _now_iso(), **doc}
+        (out_dir / f"{name}.json").write_text(json.dumps(full))
+    vp = subprocess.run(
+        [sys.executable, str(VERIFY_PARITY),
+         "--legacy-dir", str(out_dir), "--candidate-dir", str(out_dir),
+         "--output", str(tmp_path / "agg"), "--max-staleness-days", "30"],
+        cwd=REPO_ROOT, capture_output=True, text=True, check=False,
+    )
+    assert vp.returncode == 0, (
+        f"verify_parity rejected the browser-state producer output.\n"
+        f"stdout={vp.stdout}\nstderr={vp.stderr}"
+    )
+
+
+@_NEEDS_BROWSER
+def test_browser_state_write_failure_rolls_back_all(tmp_path, hermetic_server):
+    """When browser-state.json write fails, navigation.json + api.json (and
+    search.json when --queries is provided) MUST also be rolled back — full
+    atomic rollback across the four-report set."""
+    out_dir = tmp_path / "reports"
+    out_dir.mkdir()
+    # Block the browser-state.json atomic-rename target so its write fails.
+    (out_dir / "browser-state.json").mkdir()
+    r = _run(["--url", f"{hermetic_server}/", "--out-dir", str(out_dir)])
+    assert r.returncode == 4, (
+        f"expected exit 4 on browser-state write failure; got {r.returncode}.\n"
+        f"stderr={r.stderr}"
+    )
+    assert not (out_dir / "navigation.json").exists(), (
+        "must NOT leave navigation.json when browser-state write fails"
+    )
+    assert not (out_dir / "api.json").exists(), (
+        "must NOT leave api.json when browser-state write fails"
+    )
+
+
+@_NEEDS_BROWSER
+def test_search_write_failure_rolls_back_browser_state_too(tmp_path, hermetic_server):
+    """TRIANGULATE: when --queries is provided and search.json write fails,
+    browser-state.json (which would be written AFTER search) MUST NOT land
+    on disk. Proves the rollback covers the entire four-report set, not
+    just the first three."""
+    out_dir = tmp_path / "reports"
+    out_dir.mkdir()
+    # Block the search.json atomic-rename target so its write fails.
+    (out_dir / "search.json").mkdir()
+    r = _run(["--url", f"{hermetic_server}/", "--out-dir", str(out_dir),
+              "--queries", "cat"])
+    assert r.returncode == 4, (
+        f"expected exit 4 on search write failure; got {r.returncode}.\n"
+        f"stderr={r.stderr}"
+    )
+    assert not (out_dir / "browser-state.json").exists(), (
+        "must NOT leave browser-state.json when an earlier write fails"
+    )
+    assert not (out_dir / "navigation.json").exists()
+    assert not (out_dir / "api.json").exists()
 
 
 @_NEEDS_BROWSER
