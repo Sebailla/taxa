@@ -37,6 +37,9 @@ jobs:
       - name: Install dev dependencies
         run: pip install -r requirements-dev.txt
 
+      - name: Install Playwright Chromium
+        run: python -m playwright install chromium
+
       - name: Run pytest
         # The smoke suite (tests/test_smoke.py) exercises the FastAPI app
         # in-process via TestClient - no live server or taxa.db needed,
