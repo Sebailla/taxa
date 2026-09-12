@@ -137,7 +137,6 @@ clean:
 	rm -rf data/db data/raw
 	rm -rf .venv __pycache__ */__pycache__
 
-<<<<<<< HEAD
 # G4 navigation-parity producer (first G4 parity slice).
 #
 # Drives both a legacy and a candidate HTTP origin through the navigation
@@ -200,22 +199,29 @@ capture-react-e2e:
 	node tools/react-e2e-harness/scripts/composed-capture.mjs \
 		--output-root "$(OUTPUT_ROOT)" \
 		$(if $(HARNESS_DIR),--harness-dir "$(HARNESS_DIR)",)
-# G4 parity composition — external-URL composition (PR base slice).
+# G4 parity composition — external-URL composition with optional
+# file-backed search-query propagation via PARITY_QUERIES_FILE.
 #
 # Contract:
 #   - Requires caller-supplied PARITY_URL, PARITY_OUT, PARITY_MANIFEST.
 #     All three are checked BEFORE any producer runs; the target aborts
 #     fail-closed with a stderr message naming the missing variable.
+#   - PARITY_QUERIES (legacy variable) is rejected before any producer
+#     runs; it is not honored in any slice. Use PARITY_QUERIES_FILE.
+#   - PARITY_QUERIES_FILE is an OPTIONAL path to a UTF-8 newline-delimited
+#     query file. One literal query per nonblank/non-comment line. Terminal
+#     CR is stripped from CRLF inputs. Blank lines and lines whose first
+#     character is `#` are filtered. Lines beginning with `-` are rejected
+#     (defense against argv injection). The file is read inside a single
+#     bash subshell so each query flows through bash array expansion into
+#     the producer invocation as a distinct argv element — no eval, no
+#     printf %q command construction, no word-splitting or globbing.
 #   - Composes merged producers in documented order:
 #     (1) scripts/capture_parity_reports.py — Python; navigation + /api/
-#         + browser-state (no --queries in this slice)
+#         + browser-state + (optional) search via --queries
 #     (2) tools/g4-capture/scripts/capture.mjs — Node; Lighthouse evidence
 #     (3) scripts/capture_a11y_report.py — Python; a11y adapter that
 #         reads the Lighthouse evidence.json emitted by (2).
-#   - Base slice intentionally does NOT support search queries:
-#     PARITY_QUERIES is rejected BEFORE producers rather than ignored
-#     or shell-expanded. Search query support (including safe
-#     special-character propagation) is deferred to the next PR.
 #   - Preflight: python3, node, the two Python producer scripts, the
 #     Node producer script, and tools/g4-capture/node_modules. Each
 #     missing tool/script aborts fail-closed. NO install / lifecycle /
@@ -227,7 +233,7 @@ parity:
 	@if [ -z "$(PARITY_URL)" ]; then echo "PARITY_URL is required"; exit 1; fi
 	@if [ -z "$(PARITY_OUT)" ]; then echo "PARITY_OUT is required"; exit 1; fi
 	@if [ -z "$(PARITY_MANIFEST)" ]; then echo "PARITY_MANIFEST is required"; exit 1; fi
-	@if [ -n "$(PARITY_QUERIES)" ]; then echo "PARITY_QUERIES is not supported in the base composition slice (deferred to the next PR)"; exit 1; fi
+	@if [ -n "$(PARITY_QUERIES)" ]; then echo "PARITY_QUERIES is not supported; use PARITY_QUERIES_FILE"; exit 1; fi
 	@command -v python3 >/dev/null || { echo "python3 missing from PATH"; exit 1; }
 	@command -v node >/dev/null || { echo "node missing from PATH"; exit 1; }
 	@test -f scripts/capture_parity_reports.py || { echo "scripts/capture_parity_reports.py missing"; exit 1; }
@@ -235,4 +241,7 @@ parity:
 	@test -f scripts/capture_a11y_report.py || { echo "scripts/capture_a11y_report.py missing"; exit 1; }
 	@test -d tools/g4-capture/node_modules || { echo "tools/g4-capture/node_modules missing — install the Lighthouse deps in tools/g4-capture (see README) before running make parity"; exit 1; }
 	@mkdir -p "$(PARITY_OUT)"
-	python3 scripts/capture_parity_reports.py --url "$(PARITY_URL)" --out-dir "$(PARITY_OUT)" && (cd tools/g4-capture && node scripts/capture.mjs --url "$(PARITY_URL)" --manifest "$(PARITY_MANIFEST)" --out "$(PARITY_OUT)") && python3 scripts/capture_a11y_report.py --evidence "$(PARITY_OUT)/evidence.json" --out-dir "$(PARITY_OUT)"
+	/bin/bash -c 'set -e; CR=$$(printf "\r"); WS=$$(printf " \t\v\f"); QUERIES=(); if [ -n "$$3" ]; then [ -d "$$3" ] && { echo "PARITY_QUERIES_FILE is a directory: $$3" >&2; exit 1; }; [ -r "$$3" ] || { echo "PARITY_QUERIES_FILE unreadable: $$3" >&2; exit 1; }; while IFS= read -r line || [ -n "$$line" ]; do line="$${line%"$$CR"}"; case "$$line" in "" | \#*) continue ;; esac; nw="$${line//["$$WS"]/}"; [ -z "$$nw" ] && continue; case "$$line" in -*) echo "PARITY_QUERIES_FILE line begins with -: $$line" >&2; exit 1 ;; *) QUERIES+=( "$$line" ) ;; esac; done < "$$3"; if [ $${#QUERIES[@]} -eq 0 ]; then echo "PARITY_QUERIES_FILE produced no queries: $$3" >&2; exit 1; fi; fi; if [ $${#QUERIES[@]} -gt 0 ]; then exec python3 scripts/capture_parity_reports.py --url "$$1" --out-dir "$$2" --queries "$${QUERIES[@]}"; else exec python3 scripts/capture_parity_reports.py --url "$$1" --out-dir "$$2"; fi' \
+	bash "$(PARITY_URL)" "$(PARITY_OUT)" "$(PARITY_QUERIES_FILE)" \
+	&& (cd tools/g4-capture && node scripts/capture.mjs --url "$(PARITY_URL)" --manifest "$(PARITY_MANIFEST)" --out "$(PARITY_OUT)") \
+	&& python3 scripts/capture_a11y_report.py --evidence "$(PARITY_OUT)/evidence.json" --out-dir "$(PARITY_OUT)"
