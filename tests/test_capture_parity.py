@@ -27,10 +27,12 @@ import hashlib
 import importlib
 import json
 import os
+import shutil
 import socket
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from datetime import datetime, timezone
@@ -1227,6 +1229,235 @@ def test_validate_manifest_rejects_empty_expected_dom_marker(tmp_path):
     assert r2.returncode != 0, (
         "validateManifest must reject an entry missing expectedDOMMarker"
     )
+
+# ── G4 ASGI: G4_STATIC_ROOT (slice A) ────────────────────────────────
+# Slice A adds an environment-selected static root that, when set to an
+# absolute existing directory under the repo root, rewires server.WEB_DIR
+# and repurposes the existing StaticFiles mount at "/" to serve that
+# directory (no corpus /index.html in configured mode). Default (env
+# unset) preserves the pre-slice-A behavior. DB_PATH + RESEARCH_DIR
+# rewiring is mandatory in BOTH modes. Validation fails closed at import
+# for relative / missing / file / outside-repo / symlink-escape paths.
+def _g4sr_probe_script():
+    return (
+        "import json,sys,os\n"
+        f"sys.path.insert(0,{json.dumps(str(REPO_ROOT))})\n"
+        "o={'error':None}\n"
+        "try:\n"
+        "  import api.server as s,importlib\n"
+        "  m=importlib.import_module('tools.g4-capture.scripts.g4_asgi')\n"
+        "  from starlette.routing import Mount,Route\n"
+        "  ci=sm=None;sd=None\n"
+        "  for i,r in enumerate(m.app.router.routes):\n"
+        "    if isinstance(r,Route) and r.path=='/index.html': ci=i\n"
+        "    if isinstance(r,Mount) and getattr(r,'name',None)=='web':\n"
+        "      sm=i;sd=str(r.app.directory)\n"
+        "  o.update(db_path=str(s.DB_PATH),research_dir=str(s.RESEARCH_DIR),\n"
+        "           web_dir=str(s.WEB_DIR),corpus_route_index=ci,\n"
+        "           static_mount_index=sm,static_mount_dir=sd)\n"
+        "except BaseException as e: o['error']=repr(e)\n"
+        "sys.stdout.write(json.dumps(o))\n"
+    )
+
+def _probe_g4_asgi(env_overrides=None):
+    env = {**os.environ, **(env_overrides or {})}
+    proc = subprocess.run(
+        [sys.executable, "-c", _g4sr_probe_script()],
+        capture_output=True, text=True, env=env,
+    )
+    assert proc.returncode == 0, f"probe crashed: stderr={proc.stderr!r}"
+    return json.loads(proc.stdout.strip().splitlines()[-1])
+
+def _isolated_static_root():
+    parent = REPO_ROOT / "tests" / "fixtures" / "g4" / "_isolated_root_ephemeral"
+    parent.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix="r_", dir=str(parent)))
+
+def test_g4_asgi_default_corpus_route_unchanged():
+    """Default mode (env unset): /index.html corpus route inserted,
+    server.WEB_DIR NOT mutated, DB_PATH / RESEARCH_DIR rewired to G4
+    fixtures. This preserves the pre-slice-A capture-3 contract."""
+    out = _probe_g4_asgi()
+    assert out.get("error") is None
+    assert out["corpus_route_index"] is not None, "corpus route missing"
+    assert out["web_dir"] == str((REPO_ROOT / "out").resolve()), (
+        f"WEB_DIR must NOT be mutated in default mode; got {out['web_dir']!r}"
+    )
+    assert out["db_path"] == str(SQLITE_DB)
+    assert "tests/fixtures/g4" in out["research_dir"]
+
+def test_g4_asgi_configured_root_serves_its_index_via_test_client():
+    """Configured mode: TestClient serves the configured dir's index.html
+    (NOT the pinned corpus, NOT production web/) when /index.html is
+    requested. Validates the full chain: G4_STATIC_ROOT → WEB_DIR →
+    StaticFiles.directory → response."""
+    isolated = _isolated_static_root()
+    try:
+        body = "<!doctype html><title>isolated A</title><h1>isolated</h1>"
+        (isolated / "index.html").write_text(body)
+        probe = (
+            "import json,sys,os\n"
+            f"sys.path.insert(0,{json.dumps(str(REPO_ROOT))})\n"
+            "o={'error':None}\n"
+            "try:\n"
+            "  import importlib\n"
+            "  m=importlib.import_module('tools.g4-capture.scripts.g4_asgi')\n"
+            "  from fastapi.testclient import TestClient\n"
+            "  r=TestClient(m.app).get('/index.html')\n"
+            "  o.update(status=r.status_code,text=r.text,\n"
+            "           content_type=r.headers.get('content-type',''))\n"
+            "except BaseException as e: o['error']=repr(e)\n"
+            "sys.stdout.write(json.dumps(o))\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", probe],
+            capture_output=True, text=True,
+            env={**os.environ, "G4_STATIC_ROOT": str(isolated)},
+        )
+        assert proc.returncode == 0, proc.stderr
+        o = json.loads(proc.stdout.strip().splitlines()[-1])
+        assert o.get("error") is None, f"TestClient probe raised: {o.get('error')!r}"
+        assert o["status"] == 200, f"status={o['status']!r}"
+        assert o["text"] == body, (
+            f"configured root must serve its OWN index.html; "
+            f"got text={o['text']!r}, want {body!r}"
+        )
+        assert o["content_type"].startswith("text/html")
+        assert "G4 capture corpus" not in o["text"]
+    finally:
+        shutil.rmtree(isolated, ignore_errors=True)
+
+def test_g4_asgi_configured_root_rewires_web_dir_and_skips_corpus():
+    """Configured mode (probe-level): server.WEB_DIR rewired to the
+    configured dir; the static mount at "/" points at the configured dir;
+    the pinned corpus /index.html route is NOT inserted."""
+    isolated = _isolated_static_root()
+    try:
+        out = _probe_g4_asgi({"G4_STATIC_ROOT": str(isolated)})
+        assert out.get("error") is None, f"import failed: {out.get('error')!r}"
+        assert out["web_dir"] == str(isolated.resolve()), (
+            f"WEB_DIR must equal configured root; got {out['web_dir']!r}"
+        )
+        assert out["corpus_route_index"] is None, (
+            "configured mode must NOT insert the corpus route"
+        )
+        assert out["static_mount_dir"] == str(isolated.resolve()), (
+            f"static mount must serve configured dir; got {out['static_mount_dir']!r}"
+        )
+    finally:
+        shutil.rmtree(isolated, ignore_errors=True)
+
+def _g4_asgi_make_symlink_outside(tmp_path):
+    """Create a tmp_path dir outside the repo + a symlink inside the
+    repo that points at it. Returns (symlink_path, outside_target)."""
+    outside = tmp_path / "actual_target_outside"
+    outside.mkdir()
+    isolated = _isolated_static_root()
+    symlink = isolated / "escape_link"
+    symlink.symlink_to(outside)
+    return symlink, isolated
+
+@pytest.mark.parametrize("reason,override,needle", [
+    ("relative", {"G4_STATIC_ROOT": "relative/path"}, "absolute"),
+    ("missing", {"G4_STATIC_ROOT": "/no/such/path/g4_slice_a_xyz"}, "not exist"),
+])
+def test_g4_asgi_rejects_relative_or_missing_root(reason, override, needle):
+    """Validation failures (relative, missing) fail closed at import
+    with a clear, env-var-named error."""
+    out = _probe_g4_asgi(override)
+    err = out.get("error") or ""
+    assert err, f"{reason} root must raise on import; got {out!r}"
+    assert needle.lower() in err.lower(), (
+        f"{reason} root error must mention {needle!r}; got {err!r}"
+    )
+    assert "G4_STATIC_ROOT" in err, (
+        f"error must name the env var; got {err!r}"
+    )
+
+def test_g4_asgi_rejects_file_root(tmp_path):
+    """A file (not a directory) as G4_STATIC_ROOT fails closed."""
+    f = tmp_path / "iamafile"
+    f.write_text("not a directory")
+    out = _probe_g4_asgi({"G4_STATIC_ROOT": str(f)})
+    err = out.get("error") or ""
+    assert err
+    assert "directory" in err.lower() and "G4_STATIC_ROOT" in err
+
+def test_g4_asgi_rejects_outside_repo_root(tmp_path):
+    """A real directory outside the repo root fails closed (containment
+    check uses the resolved path)."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    repo_resolved = str(REPO_ROOT.resolve())
+    assert not str(outside.resolve()).startswith(repo_resolved), (
+        "tmp_path must live outside the repo for this test to be valid"
+    )
+    out = _probe_g4_asgi({"G4_STATIC_ROOT": str(outside)})
+    err = out.get("error") or ""
+    assert err
+    assert ("outside" in err.lower() or "repo" in err.lower()) and "G4_STATIC_ROOT" in err
+
+def test_g4_asgi_rejects_symlink_escape(tmp_path):
+    """A symlink INSIDE the repo that resolves OUTSIDE fails closed.
+    Path.resolve() follows the symlink, so the containment check catches
+    the resolved target — the literal link path being inside is not
+    sufficient."""
+    symlink, isolated = _g4_asgi_make_symlink_outside(tmp_path)
+    try:
+        assert str(symlink).startswith(str(REPO_ROOT.resolve())), (
+            "symlink itself must be inside repo so resolve() surfaces the escape"
+        )
+        out = _probe_g4_asgi({"G4_STATIC_ROOT": str(symlink)})
+        err = out.get("error") or ""
+        assert err, f"symlink escape must raise; got {out!r}"
+        assert ("outside" in err.lower() or "repo" in err.lower()) and "G4_STATIC_ROOT" in err
+    finally:
+        shutil.rmtree(isolated, ignore_errors=True)
+
+def test_g4_asgi_fixture_db_research_used_in_both_modes():
+    """Cross-mode invariant: DB_PATH / RESEARCH_DIR are rewired to G4
+    fixtures in BOTH default and configured modes — the env var affects
+    only the static root, never the DB or Research paths."""
+    out_default = _probe_g4_asgi()
+    assert out_default.get("error") is None
+    assert out_default["db_path"] == str(SQLITE_DB)
+    assert "tests/fixtures/g4" in out_default["research_dir"]
+    isolated = _isolated_static_root()
+    try:
+        out_cfg = _probe_g4_asgi({"G4_STATIC_ROOT": str(isolated)})
+        assert out_cfg.get("error") is None
+        assert out_cfg["db_path"] == str(SQLITE_DB)
+        assert "tests/fixtures/g4" in out_cfg["research_dir"]
+    finally:
+        shutil.rmtree(isolated, ignore_errors=True)
+
+def test_g4_asgi_no_production_path_mutation():
+    """Cross-mode invariant: no production path is touched. DB_PATH and
+    RESEARCH_DIR are rewired to G4 fixtures (not production data/db/
+    taxa.db or Research/). WEB_DIR stays at production out/ in default
+    mode and is rewired ONLY to the configured root in configured mode."""
+    prod_db = str((REPO_ROOT / "data" / "db" / "taxa.db").resolve())
+    prod_research = str((REPO_ROOT / "Research").resolve())
+    prod_web = str((REPO_ROOT / "out").resolve())
+    out_default = _probe_g4_asgi()
+    assert out_default.get("error") is None
+    assert out_default["db_path"] != prod_db
+    assert out_default["research_dir"] != prod_research
+    assert out_default["web_dir"] == prod_web, (
+        f"default WEB_DIR must equal production out/; got {out_default['web_dir']!r}"
+    )
+    isolated = _isolated_static_root()
+    try:
+        out_cfg = _probe_g4_asgi({"G4_STATIC_ROOT": str(isolated)})
+        assert out_cfg.get("error") is None
+        assert out_cfg["db_path"] != prod_db
+        assert out_cfg["research_dir"] != prod_research
+        assert out_cfg["web_dir"] != prod_web, (
+            f"configured WEB_DIR must NOT be production out/; got {out_cfg['web_dir']!r}"
+        )
+        assert out_cfg["web_dir"] == str(isolated.resolve())
+    finally:
+        shutil.rmtree(isolated, ignore_errors=True)
 
 
 # ── G4 parity-navigation slice (first G4 parity slice) ───────────────
