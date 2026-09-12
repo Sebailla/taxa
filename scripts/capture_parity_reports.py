@@ -1,12 +1,18 @@
 #!/usr/bin/env python
-"""G4 producer — combined navigation + /api/ capture (PR3d slice).
+"""G4 producer — combined navigation + /api/ + browser-state capture (PR3f slice).
 
 Opens one Playwright session against --url, records every main-frame
 document response into navigation.json and every /api/ response into
 api.json, atomically emitting both so the output exactly satisfies the
 verify_parity.py schema (schema_version="1.0.0", captured_at=ISO-8601 UTC).
+Also reads the four REQUIRED browser-state keys from localStorage
+(falling back to sessionStorage, then null) inside the same session and
+emits browser-state.json atomically. When --queries is provided, search.json
+is added to the atomic publication set.
+
 CLI: --url <url> --out-dir <dir>. Exit codes: 0 ok, 1 usage, 2 browser,
-3 zero navigation, 4 write. Reference: design.md §3.3.4 (G4).
+3 zero navigation, 4 write, 5 query mismatch.
+Reference: design.md §3.3.4 (G4).
 """
 from __future__ import annotations
 
@@ -27,6 +33,14 @@ ISO_FMT = "%Y-%m-%dT%H:%M:%SZ"
 # list fields. None of these match => fail-closed search capture.
 _SEARCH_COUNT_KEYS = ("count", "total", "result_count")
 _SEARCH_LIST_KEYS = ("results", "data", "items", "hits")
+# Required browser-state keys (matches scripts/verify_parity.py::
+# REQUIRED_BROWSER_STATE_KEYS). Read from localStorage first, then
+# sessionStorage, then null. The full keyset is always emitted — missing
+# values default to null so verify_parity never rejects the report for a
+# silently omitted required key.
+_BROWSER_STATE_KEYS = (
+    "last-taxon-id", "tree-source", "selected-realm", "version-banner-dismissed",
+)
 
 
 def _now_iso() -> str:
@@ -87,14 +101,55 @@ def _search_count_from_body(body: bytes) -> int | None:
             return len(v)
     return None
 
-def _capture(url: str, queries: list[str]) -> tuple[list[dict], list[dict], list[dict]]:
+
+def _collect_browser_state(page) -> dict[str, object]:
+    """Read the four REQUIRED browser-state keys from the same Playwright
+    session. Storage precedence: localStorage > sessionStorage > null.
+    Reads happen in a single ``page.evaluate`` round-trip so the page
+    context is bridged exactly once and the result is a consistent
+    snapshot. The returned dict's keyset is pinned to
+    ``_BROWSER_STATE_KEYS`` — never silently omits a required key.
+    Storage values are emitted verbatim: localStorage only stores strings,
+    so the producer is a passthrough, not a parser.
+
+    Fail-closed semantics: any evaluate error, non-dict return, or
+    page-context failure defaults the full keyset to None."""
+    js = (
+        "([keys]) => {"
+        "  const get = (store, k) => {"
+        "    try { const v = store.getItem(k); return v === null ? null : v; }"
+        "    catch (_) { return null; }"
+        "  };"
+        "  const out = {};"
+        "  for (const k of keys) {"
+        "    const lv = get(localStorage, k);"
+        "    const sv = (lv !== null) ? null : get(sessionStorage, k);"
+        "    out[k] = (lv !== null) ? lv : (sv !== null ? sv : null);"
+        "  }"
+        "  return out;"
+        "}"
+    )
+    defaults: dict[str, object] = {k: None for k in _BROWSER_STATE_KEYS}
+    try:
+        raw = page.evaluate(js, [_BROWSER_STATE_KEYS])
+    except Exception:
+        return defaults
+    if not isinstance(raw, dict):
+        return defaults
+    return {k: raw.get(k) for k in _BROWSER_STATE_KEYS}
+
+
+def _capture(url: str, queries: list[str]) -> tuple[list[dict], list[dict], list[dict], dict[str, object]]:
     """Single browser session: walk the page; accumulate (path, status)
     pairs for main-frame documents (navigation) and /api/ (api).
     Cross-origin /api/ calls keep netloc so the comparator can
     disambiguate them from same-origin ones. When ``queries`` is non-empty,
     additionally read each /api/ response body, match the parsed ``q``
     parameter against the user queries, and return ``[{query, result_count}]``
-    in user order; missing matches raise RuntimeError (fail-closed)."""
+    in user order; missing matches raise RuntimeError (fail-closed).
+    Finally reads the four REQUIRED browser-state keys from localStorage
+    (falling back to sessionStorage, then null) inside the same page
+    context — no second browser launch is required."""
     from playwright.sync_api import sync_playwright
 
     nav_pairs: dict[tuple[str, int], None] = {}
@@ -145,12 +200,16 @@ def _capture(url: str, queries: list[str]) -> tuple[list[dict], list[dict], list
             # On search-mismatch RuntimeError the finally below still closes
             # the browser cleanly.
             search = _collect_search(api_responses, queries)
+            # Browser-state read happens LAST so it sees the final storage
+            # state after every page script has run. Same page context,
+            # no second browser launch.
+            browser_state = _collect_browser_state(page)
         finally:
             browser.close()
 
     nav = [{"path": p, "status": s} for (p, s) in sorted(nav_pairs)]
     api = [{"path": p, "status": s} for (p, s) in sorted(api_pairs)]
-    return nav, api, search
+    return nav, api, search, browser_state
 
 
 def _collect_search(api_responses: list[tuple[str, object]],
@@ -189,18 +248,23 @@ def _collect_search(api_responses: list[tuple[str, object]],
             f"search queries without /api/ match: {missing!r}")
     return [{"query": q, "result_count": counts[q]} for q in queries]
 
+
 def _write_all(out_dir: Path, nav: list[dict], api: list[dict],
-               search: list[dict]) -> None:
-    """Atomic multi-report write. Emits navigation.json + api.json always;
-    additionally emits search.json when ``search`` is non-empty (i.e.,
-    --queries was provided). If any write fails, every previously-written
-    report is removed so no partial report set is left on disk."""
+               search: list[dict], browser_state: dict[str, object]) -> None:
+    """Atomic multi-report write. Emits navigation.json + api.json +
+    browser-state.json always; additionally emits search.json when
+    ``search`` is non-empty (i.e., --queries was provided). If any
+    write fails, every previously-written report is removed so no
+    partial report set is left on disk. ``browser-state.json`` is
+    written LAST so a search write failure never leaks a partial
+    browser-state snapshot."""
     ts = _now_iso()
     nav_doc = {"schema_version": SCHEMA_VERSION, "captured_at": ts, "paths": nav}
     api_doc = {"schema_version": SCHEMA_VERSION, "captured_at": ts, "endpoints": api}
     nav_path = out_dir / "navigation.json"
     api_path = out_dir / "api.json"
     search_path = out_dir / "search.json" if search else None
+    bs_path = out_dir / "browser-state.json"
     written: list[Path] = []
     try:
         _atomic_write(nav_path,
@@ -215,19 +279,28 @@ def _write_all(out_dir: Path, nav: list[dict], api: list[dict],
             _atomic_write(search_path,
                           json.dumps(search_doc, indent=2, sort_keys=True).encode())
             written.append(search_path)
+        # browser-state.json is always emitted — the four REQUIRED keys
+        # are never silently omitted (null defaults fill any gap).
+        bs_doc = {"schema_version": SCHEMA_VERSION,
+                  "captured_at": ts, "keys": browser_state}
+        _atomic_write(bs_path,
+                      json.dumps(bs_doc, indent=2, sort_keys=True).encode())
+        written.append(bs_path)
     except Exception:
         for p in written:
             try: p.unlink()
             except OSError: pass
         raise
 
+
 def _build_parser() -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(
             prog="capture_parity_reports",
             description="Capture navigation + /api/ responses (one session) "
-                        "and emit navigation.json + api.json for verify_parity.py. "
-                        "When --queries is provided, additionally emit search.json "
-                        "with each query's parsed /api/ result_count.",
+                        "and emit navigation.json + api.json + browser-state.json "
+                        "for verify_parity.py. When --queries is provided, "
+                        "additionally emit search.json with each query's parsed "
+                        "/api/ result_count.",
         )
         parser.add_argument("--url", required=True)
         parser.add_argument("--out-dir", required=True, type=Path)
@@ -238,6 +311,7 @@ def _build_parser() -> argparse.ArgumentParser:
                                  "When provided, search.json is emitted; when "
                                  "omitted, PR #223 behavior is preserved exactly.")
         return parser
+
 
 def main(argv: list[str]) -> int:
     parser = _build_parser()
@@ -252,7 +326,7 @@ def main(argv: list[str]) -> int:
 
     prog = "capture_parity_reports"
     try:
-        nav, api, search = _capture(args.url, args.queries)
+        nav, api, search, browser_state = _capture(args.url, args.queries)
     except Exception as exc:
         sys.stderr.write(f"[{prog}] capture failed: {exc}\n")
         # Search mismatch is a distinct failure mode from generic capture
@@ -273,7 +347,7 @@ def main(argv: list[str]) -> int:
         return EXIT_WRITE
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
-        _write_all(out_dir, nav, api, search)
+        _write_all(out_dir, nav, api, search, browser_state)
     except OSError as exc:
         sys.stderr.write(f"[{prog}] write failed: {exc}\n")
         return EXIT_WRITE
@@ -281,6 +355,7 @@ def main(argv: list[str]) -> int:
     sys.stdout.write(
         f"[{prog}] emitted {len(nav)} navigation + {len(api)} api records"
         + (f" + {len(search)} search queries" if search else "")
+        + f" + {sum(1 for v in browser_state.values() if v is not None)}/{len(browser_state)} browser-state keys"
         + f" under {out_dir}\n"
     )
     return EXIT_OK
