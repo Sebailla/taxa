@@ -220,6 +220,119 @@ def test_corpus_manifest_validates_and_index_hash_matches():
     )
 
 
+# ── Fixture corpus (G4 legacy-control alignment) ───────────────────
+# The strict comparator treats every /api/* response captured on the
+# candidate side as a regression unless the same /api/* path is also
+# observed on the legacy side. The preserved legacy browser actively
+# requests /api/health and /api/domains on load; the static legacy
+# corpus must mirror that behavior so candidate-vs-legacy parity
+# stays free of "extras in candidate" regressions. The tests below
+# pin that contract against the on-disk fixture bytes — they read
+# the corpus HTML directly so the assertion is hermetic (no live
+# HTTP server, no browser, no network).
+
+    # Module-level helpers for the legacy-control alignment tests.
+_LEGACY_CONTROL_API_PATHS = ("/api/health", "/api/domains")
+
+def _legacy_control_corpus_html() -> str:
+    return CORPUS_INDEX.read_text(encoding="utf-8")
+
+def _legacy_control_corpus_scripts() -> list[str]:
+    """Return the inner text of every <script>...</script> block in the
+    corpus HTML, in document order. Lightweight regex-based extractor:
+    the corpus is hand-authored and deterministic, so we do not pull in
+    an HTML parser for a handful of literal script tags."""
+    import re
+    return re.findall(
+        r"<script\b[^>]*>(.*?)</script>", _legacy_control_corpus_html(),
+        flags=re.DOTALL,
+    )
+
+def _legacy_control_has_fetch_call(text: str, api_path: str) -> bool:
+    """True if ``text`` contains ``fetch('<api_path>')`` or
+    ``fetch("<api_path>")``. The legacy-control fetches use whichever
+    quote style the corpus author prefers; both must keep the test
+    green."""
+    return f'fetch("{api_path}")' in text or f"fetch('{api_path}')" in text
+
+def test_corpus_active_legacy_control_fetches_api_health_and_domains():
+    """RED: the corpus must actively issue /api/health and /api/domains
+    fetches on load so the strict comparator sees the same /api/* paths
+    on legacy and candidate. Without these fetches, the candidate side
+    (which preserves the legacy browser behavior) reports /api/health
+    and /api/domains as extras and the parity run fails closed."""
+    scripts = _legacy_control_corpus_scripts()
+    joined = "\n".join(scripts)
+    assert scripts, (
+        "corpus index.html must contain at least one <script> block "
+        "to issue the active legacy-control fetches; found none"
+    )
+    for api_path in _LEGACY_CONTROL_API_PATHS:
+        assert _legacy_control_has_fetch_call(joined, api_path), (
+            f"corpus script must actively fetch {api_path!r} on load so "
+            "the strict comparator sees the same /api/* paths on legacy "
+            f"and candidate; on-disk corpus scripts: {joined!r}"
+        )
+
+def test_corpus_active_fetches_use_relative_paths():
+    """RED triangulation: the active fetches must use RELATIVE paths so
+    they resolve to whatever origin the G4 ASGI launcher binds. An
+    absolute URL like fetch('http://127.0.0.1:8765/api/health') would
+    break parity on every other port and on a candidate that listens
+    elsewhere - the comparator would observe the legacy side visiting
+    a port the candidate never served, producing a phantom drift."""
+    scripts = _legacy_control_corpus_scripts()
+    joined = "\n".join(scripts)
+    for api_path in _LEGACY_CONTROL_API_PATHS:
+        absolute = f"fetch('http://127.0.0.1{api_path}')"
+        assert absolute not in joined, (
+            f"corpus must not pin a loopback absolute URL for {api_path!r}; "
+            "relative paths are required so the legacy fetches resolve to "
+            "the same origin the G4 ASGI launcher binds in each test."
+        )
+
+def test_corpus_still_pins_dom_marker_after_active_fetches():
+    """Triangulate: capture-3's pre-runner verification requires the
+    DOM marker substring to remain in the served bytes. Adding the
+    active fetches must NOT remove the marker - both contracts have
+    to hold at once."""
+    html = _legacy_control_corpus_html()
+    assert 'data-testid="g4-probe-marker"' in html, (
+        "corpus must still declare the g4-probe-marker DOM marker; "
+        "capture-3's pre-runner verification depends on this substring"
+    )
+
+def test_corpus_served_by_g4_launcher_carries_active_legacy_control_fetches():
+    """Triangulate: the G4 ASGI launcher MUST serve the corpus bytes
+    verbatim, including the active /api/health and /api/domains fetch
+    calls. A regression that reverts the served HTML to the pre-active
+    corpus (or that caches an older version inside the launcher) would
+    re-open the extras-in-candidate regression and silently break
+    parity. This test fetches /index.html through the TestClient and
+    asserts both fetch calls appear in the served body, so the
+    launcher side of the contract is pinned too."""
+    from fastapi.testclient import TestClient
+    mod = importlib.import_module("tools.g4-capture.scripts.g4_asgi")
+    r = TestClient(mod.app).get("/index.html")
+    assert r.status_code == 200, (
+        f"G4 launcher must serve /index.html with 200; got {r.status_code}"
+    )
+    body = r.text
+    for api_path in _LEGACY_CONTROL_API_PATHS:
+        assert _legacy_control_has_fetch_call(body, api_path), (
+            f"G4 launcher is serving a stale corpus: the served /index.html "
+            f"body does not contain an active fetch for {api_path!r}; the "
+            "comparator would observe this legacy capture as missing the "
+            "/api/* path and the candidate would surface it as an extra."
+        )
+    # And the body must still byte-equal the on-disk corpus - the launcher
+    # has no business serving a different file than what is pinned in
+    # tests/fixtures/g4/corpus/.
+    assert r.content == CORPUS_INDEX.read_bytes(), (
+        "G4 launcher must serve tests/fixtures/g4/corpus/index.html "
+        "verbatim; served bytes diverged from the on-disk corpus."
+    )
+
 # ── Fixture SQLite (versioned with hash) ──────────────────────────
 def test_sqlite_manifest_db_and_hash_match():
     m = json.loads(SQLITE_MANIFEST.read_text())
