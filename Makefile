@@ -154,3 +154,20 @@ endif
 ifeq ($(PARITY_MANIFEST),)
 $(error [parity] PARITY_MANIFEST is required (corpus manifest for Node capture; do not invent a fixture-only assumption))
 endif
+
+# ── G4 parity composition (design.md §3.3.4) — Slice B ─────────────
+# Slice B adds the recipe preflight: python3 + node must be on PATH and the
+# three Slice C producer scripts must be present. On pass, the output
+# directory is created (idempotent `mkdir -p`). Slice A still owns the
+# parse-time variable gates above; Slice C will add the composition
+# (Python capture → Node Lighthouse capture → Python a11y adapter) and the
+# PARITY_QUERIES propagation. Each preflight line is fail-closed
+# individually (no `set -e` dependency) so the first missing tool aborts
+# before any subsequent check or directory creation runs.
+parity:
+	@command -v python3 >/dev/null 2>&1 || { echo "[parity] python3 not found in PATH" >&2; exit 1; }
+	@command -v node    >/dev/null 2>&1 || { echo "[parity] node not found in PATH" >&2; exit 1; }
+	@test -f scripts/capture_parity_reports.py    || { echo "[parity] missing scripts/capture_parity_reports.py" >&2; exit 1; }
+	@test -f scripts/capture_a11y_report.py       || { echo "[parity] missing scripts/capture_a11y_report.py" >&2; exit 1; }
+	@test -f tools/g4-capture/scripts/capture.mjs || { echo "[parity] missing tools/g4-capture/scripts/capture.mjs" >&2; exit 1; }
+	@mkdir -p $(PARITY_OUT)
