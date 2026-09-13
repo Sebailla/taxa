@@ -796,6 +796,49 @@ def test_g4_asgi_launcher_serves_domains_from_fixture_root():
     )
 
 
+def test_g4_asgi_launcher_serves_legacy_search_endpoint():
+    """Bounded G4 blocker: the controlled G4 fixture MUST support the
+    existing legacy /api/search?q=... endpoint so real G4 capture gets
+    valid search responses rather than a SQLite FTS-missing 500.
+
+    Concretely: a declared query ("tiger") backed by the fixture's
+    vernacular row for Panthera tigris must return a 200 with a parseable
+    non-empty list of SearchHit entries — at least one with
+    match_type == "vernacular" pointing at the seeded taxon. A 5xx
+    (specifically `sqlite3.OperationalError: no such table:
+    vernacular_fts`) is the regression this test exists to catch.
+    """
+    from fastapi.testclient import TestClient
+    import importlib
+    mod = importlib.import_module("tools.g4-capture.scripts.g4_asgi")
+    client = TestClient(mod.app)
+    r = client.get("/api/search", params={"q": "tiger"})
+    assert r.status_code == 200, (
+        f"G4 fixture must serve /api/search without a 5xx; "
+        f"got status={r.status_code} body={r.text[:500]!r}. "
+        "Most likely cause: the fixture is missing the taxon_fts / "
+        "vernacular_fts virtual tables that /api/search relies on — "
+        "rebuild via tools/g4-capture/scripts/seed_fixture.py."
+    )
+    body = r.json()
+    assert isinstance(body, list), (
+        f"/api/search must return a JSON list of SearchHit; got {type(body).__name__}"
+    )
+    assert len(body) > 0, (
+        f"/api/search?q=tiger must return at least one hit from the fixture "
+        f"vernacular rows; got empty list. body={body!r}"
+    )
+    vern_hits = [h for h in body if h.get("match_type") == "vernacular"]
+    assert vern_hits, (
+        f"at least one hit must come from the fixture vernacular 'Tiger' / "
+        f"'Bengal Tiger'; got match_types={[h.get('match_type') for h in body]!r}"
+    )
+    sci_names = {h["taxon"]["scientific_name"] for h in vern_hits}
+    assert "Panthera tigris" in sci_names, (
+        f"vernacular hits must resolve to the seeded Panthera tigris row; "
+        f"got taxa={sci_names!r}"
+    )
+
 # ── G4 capture-3: target verification + rollback-safe atomicWrite +
 #    ASGI corpus isolation ──────────────────────────────────────
 # PR #124 follow-ups:
