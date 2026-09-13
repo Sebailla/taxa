@@ -81,14 +81,17 @@ def _search_match_idx(rurl: str, queries: list[str]) -> int | None:
 
 def _search_count_from_body(body: bytes) -> int | None:
     """Best-effort extraction of an integer result_count from an /api/search
-    JSON body. Looks for an integer field (``count``, ``total``,
-    ``result_count``) then for the length of a common list field
-    (``results``, ``data``, ``items``, ``hits``). Returns None when nothing
-    matches — callers must fail closed."""
+    JSON body. A top-level JSON array is accepted and its length returned.
+    Otherwise the body must be an object: looks for an integer field
+    (``count``, ``total``, ``result_count``) then for the length of a common
+    list field (``results``, ``data``, ``items``, ``hits``). Returns None
+    when nothing matches — callers must fail closed."""
     try:
         obj = json.loads(body)
     except (json.JSONDecodeError, UnicodeDecodeError):
         return None
+    if isinstance(obj, list):
+        return len(obj)
     if not isinstance(obj, dict):
         return None
     for key in _SEARCH_COUNT_KEYS:
@@ -195,6 +198,12 @@ def _capture(url: str, queries: list[str]) -> tuple[list[dict], list[dict], list
                 page.wait_for_timeout(500)  # late XHR
             except Exception:
                 pass
+            # Active issuance: fire one /api/search?q=<encoded> GET
+            # per declared query from the page's same-origin context;
+            # the existing on_response handler captures each fetch into
+            # api_responses so _collect_search reuses the exact-q path.
+            # No-op when --queries is empty (PR #223 passive-only preserved).
+            _issue_search_requests(page, url, queries)
             # Read /api/ response bodies for search matching WHILE the browser
             # is still open — response.body() requires a live browser context.
             # On search-mismatch RuntimeError the finally below still closes
@@ -211,7 +220,33 @@ def _capture(url: str, queries: list[str]) -> tuple[list[dict], list[dict], list
     api = [{"path": p, "status": s} for (p, s) in sorted(api_pairs)]
     return nav, api, search, browser_state
 
-
+def _issue_search_requests(page, base_url: str, queries: list[str]) -> None:
+    """Actively issue one same-origin GET to /api/search?q=<URL-encoded
+    query> for each declared query using the page's JS fetch context.
+    The on_response handler captures these into api_responses, so
+    _collect_search reuses the existing exact-q matching path. No-op
+    when ``queries`` is empty (PR #223 passive-only behavior preserved).
+    Active issuance failure is non-fatal — passive observation may
+    still match, and _collect_search fails closed only when no /api/
+    response matches the parsed q."""
+    if not queries:
+        return
+    # page.url (post-navigation) keeps the search URL same-origin
+    # with the loaded document; user-provided URL is the fallback.
+    src_url = page.url or base_url
+    parsed = urlparse(src_url)
+    scheme = parsed.scheme or "http"
+    netloc = parsed.netloc
+    js = "async (u) => { try { await fetch(u, {credentials: 'same-origin'});"
+    js += " } catch (_) {} }"
+    for q in queries:
+        url = f"{scheme}://{netloc}/api/search?q={quote(q, safe='')}"
+        try:
+            page.evaluate(js, url)
+        except Exception:
+            # Non-fatal: passive observation may still match; the
+            # fail-closed contract lives in _collect_search.
+            pass
 def _collect_search(api_responses: list[tuple[str, object]],
                     queries: list[str]) -> list[dict]:
     """Match each user query against the parsed ``q`` parameter of every
