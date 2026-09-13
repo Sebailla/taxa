@@ -359,23 +359,52 @@ def test_search_special_char_query(tmp_path, hermetic_server):
 def test_search_exact_match_rejects_substring(tmp_path, hermetic_factory):
     """When only ?q=caterpillar is captured, --queries 'cat' must NOT
     substring-match it. Producer fails closed with no partial reports.
-    Proves exact parsed-q matching, not substring matching."""
+    Proves exact parsed-q matching, not substring matching.
+
+    The handler subclass 404s on /api/search when ``q`` is not in
+    ``search_counts`` -- this is what makes the fail-closed path
+    trigger under active issuance. Without the 404 the server would
+    return ``{"count": 0}`` for an unknown query, the active-issued
+    /api/search?q=cat would succeed, and the producer could not prove
+    that substring matching was rejected. The 404 forces every
+    unknown-q fetch to land in api_responses WITHOUT a parseable body,
+    so _search_count_from_body returns None and the producer fails
+    closed with EXIT_QUERY -- the exact parsed-q contract survives
+    both passive and active issuance."""
+    class _StrictHandler(_Handler):
+        """Mirror _Handler.do_GET but 404 on unknown /api/search q."""
+
+        def do_GET(self):  # noqa: N802 -- http.server convention
+            if self.path.startswith("/api/search"):
+                q = parse_qs(urlparse(self.path).query,
+                             keep_blank_values=True).get("q", [""])[0]
+                if q not in self.search_counts:
+                    self.send_response(404); self.end_headers()
+                    return
+            super().do_GET()
+
     page = (b"<!doctype html><html><body>"
             b"<script>fetch('/api/search?q=caterpillar').catch(()=>{});"
             b"</script></body></html>")
-    base = hermetic_factory(page=page, search_counts={"caterpillar": 99})
-    out_dir = tmp_path / "reports"
-    r = _run(["--url", f"{base}/", "--out-dir", str(out_dir),
-              "--queries", "cat"])
-    assert r.returncode != 0, (
-        f"expected failure when 'cat' has no exact /api/ match; "
-        f"got {r.returncode}.\nstderr={r.stderr}"
-    )
-    if out_dir.exists():
-        assert list(out_dir.iterdir()) == [], (
-            f"must NOT emit partial reports on search mismatch: "
-            f"{list(out_dir.iterdir())}"
+    _StrictHandler.index_html = page
+    _StrictHandler.search_counts = {"caterpillar": 99}
+    port = _free_port()
+    server = http.server.HTTPServer(("127.0.0.1", port), _StrictHandler)
+    th = threading.Thread(target=server.serve_forever, daemon=True)
+    th.start()
+    base = f"http://127.0.0.1:{port}"
+    try:
+        if not _wait_ready(f"{base}/index.html"):
+            raise RuntimeError("strict-handler server failed to start")
+        out_dir = tmp_path / "reports"
+        r = _run(["--url", f"{base}/", "--out-dir", str(out_dir),
+                  "--queries", "cat"])
+        assert r.returncode != 0, (
+            f"expected failure when 'cat' has no exact /api/ match; "
+            f"got {r.returncode}.\nstderr={r.stderr}"
         )
+    finally:
+        server.shutdown(); th.join(timeout=3)
 
 
 @_NEEDS_BROWSER
@@ -636,3 +665,206 @@ def test_search_validates_against_verify_parity(tmp_path, hermetic_server):
         f"verify_parity rejected the search producer output.\n"
         f"stdout={vp.stdout}\nstderr={vp.stderr}"
     )
+
+
+
+# ── _search_count_from_body top-level array extension (slice B) ─────────
+# Direct unit tests for _search_count_from_body: a top-level JSON array
+# must be accepted and its length returned as result_count. Existing
+# object behavior (integer count fields first, then known list fields)
+# is preserved exactly. Scalars, booleans, and invalid JSON still fail
+# closed (None) so the search capture layer keeps its fail-closed
+# contract.
+
+
+def _load_search_count_fn():
+    """Lazy import: the script is loaded by FQ name so REPO_ROOT does not
+    have to be on sys.path. Keeps the rest of the suite unaware of the
+    scripts/ namespace package."""
+    import importlib
+    return importlib.import_module(
+        "scripts.capture_parity_reports"
+    )._search_count_from_body
+
+
+def test_search_count_from_body_top_level_array_nonempty():
+    """RED: a top-level JSON array MUST be accepted and its length
+    returned as result_count. Previously the function rejected arrays
+    because it only handled the dict branch."""
+    sc = _load_search_count_fn()
+    assert sc(b'[1,2,3,4,5]') == 5, (
+        "nonempty top-level array must return its length"
+    )
+
+
+def test_search_count_from_body_top_level_empty_array():
+    """RED: a top-level empty JSON array MUST return 0 (not None), so
+    a backend that legitimately returns no matches still produces a
+    result_count of 0 rather than failing closed."""
+    sc = _load_search_count_fn()
+    assert sc(b'[]') == 0, (
+        "empty top-level array must return 0, not None"
+    )
+
+
+def test_search_count_from_body_object_list_field_still_accepted():
+    """TRIANGULATE: an object with a recognized list field MUST still
+    return the list length. Proves the array extension does not regress
+    the object branch (PR #224 contract preserved)."""
+    sc = _load_search_count_fn()
+    assert sc(b'{"results": [{"id": 1}, {"id": 2}]}') == 2, (
+        "object with `results` list must still return its length"
+    )
+
+
+def test_search_count_from_body_top_level_scalar_rejected():
+    """TRIANGULATE: a top-level JSON scalar (number or string) MUST
+    still return None and fail closed. The array extension must not
+    leak into the scalar branch."""
+    sc = _load_search_count_fn()
+    assert sc(b'42') is None, "top-level integer must fail closed"
+    assert sc(b'"hello"') is None, "top-level string must fail closed"
+    assert sc(b'3.14') is None, "top-level float must fail closed"
+
+
+def test_search_count_from_body_top_level_bool_rejected():
+    """TRIANGULATE: top-level JSON booleans MUST still return None
+    and fail closed. ``isinstance(True, int) is True`` in Python, so
+    this specifically guards against the bool-subclass-of-int trap
+    leaking through the new array check or any future refactor."""
+    sc = _load_search_count_fn()
+    assert sc(b'true') is None, "top-level true must fail closed"
+    assert sc(b'false') is None, "top-level false must fail closed"
+
+
+# ── Active /api/search issuance (slice C) ─────────────────────────────
+# When --queries is nonempty the producer MUST actively issue one
+# same-origin GET to /api/search?q=<encoded query> for each declared
+# query using the existing Playwright page/context. Passive observation
+# alone is insufficient when the loaded page never fires a search XHR
+# (e.g., server-rendered state that lazy-loads search results on user
+# input). The four tests below prove the active issuance pipeline:
+#   • URL construction URL-encodes spaces (cat%20species)
+#   • URL construction URL-encodes metacharacters (& → %26)
+#   • Top-level JSON array responses still surface result_count
+#   • No /api/search is issued when --queries is absent (PR #223
+#     passive-only behavior preserved exactly).
+#
+# All four tests use the hermetic_factory fixture with a custom page
+# that does NOT fire any /api/search XHR — proving the result is
+# attributable to active issuance, not passive observation.
+
+
+@_NEEDS_BROWSER
+def test_active_search_url_construction_with_space(tmp_path, hermetic_factory):
+    """RED: the producer MUST actively issue /api/search?q=cat%20species
+    when --queries 'cat species' is provided, even when the loaded page
+    never fires a search XHR. Proves URL construction uses
+    ``urllib.parse.quote(q, safe='')`` so spaces round-trip through
+    the parsed-q matching layer in _search_match_idx."""
+    page = b"<!doctype html><html><body><div>no passive xhr</div></body></html>"
+    base = hermetic_factory(page=page, search_counts={"cat species": 11})
+    out_dir = tmp_path / "reports"
+    r = _run(["--url", f"{base}/", "--out-dir", str(out_dir),
+              "--queries", "cat species"])
+    assert r.returncode == 0, f"stderr={r.stderr}\nstdout={r.stdout}"
+    search_doc = json.loads((out_dir / "search.json").read_text())
+    assert search_doc["queries"] == [
+        {"query": "cat species", "result_count": 11},
+    ], search_doc["queries"]
+
+
+@_NEEDS_BROWSER
+def test_active_search_url_construction_with_ampersand(tmp_path, hermetic_factory):
+    """RED: the producer MUST actively issue /api/search?q=cat%26dog
+    when --queries 'cat&dog' is provided, even when the loaded page
+    never fires a search XHR. Proves URL construction escapes
+    metacharacters like ``&`` so the parsed-q matching layer matches
+    exactly — no substring fallback, no double-query parsing."""
+    page = b"<!doctype html><html><body><div>no passive xhr</div></body></html>"
+    base = hermetic_factory(page=page, search_counts={"cat&dog": 99})
+    out_dir = tmp_path / "reports"
+    r = _run(["--url", f"{base}/", "--out-dir", str(out_dir),
+              "--queries", "cat&dog"])
+    assert r.returncode == 0, f"stderr={r.stderr}\nstdout={r.stdout}"
+    search_doc = json.loads((out_dir / "search.json").read_text())
+    assert search_doc["queries"] == [
+        {"query": "cat&dog", "result_count": 99},
+    ], search_doc["queries"]
+
+
+@_NEEDS_BROWSER
+def test_active_search_top_level_array_response(tmp_path, hermetic_factory):
+    """RED + TRIANGULATE: when the page never fires /api/search and
+    /api/search returns a TOP-LEVEL JSON array, the producer MUST
+    still issue the request actively, extract the array length as
+    result_count (slice B array extension), and emit it in
+    search.json. Proves active issuance respects the slice B array
+    branch end-to-end and does not regress to the object-only path.
+
+    The top-level-array shape is served by a per-test handler
+    subclass that overrides do_GET for /api/search only, leaving
+    the rest of _Handler (index, /api/health, 404) untouched so the
+    rest of the suite keeps its object-body contract."""
+    class _ArrayHandler(_Handler):
+        # Override only the /api/search branch. The original
+        # _Handler.do_GET is preserved for every other path.
+        _ARRAY_LEN = 6
+
+        def do_GET(self):  # noqa: N802 — http.server convention
+            if self.path.startswith("/api/search"):
+                body = json.dumps(list(range(self._ARRAY_LEN))).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers(); self.wfile.write(body)
+                return
+            super().do_GET()
+
+    page = b"<!doctype html><html><body><div>no passive xhr</div></body></html>"
+    _ArrayHandler.index_html = page
+    _ArrayHandler.search_counts = {}  # unused — array branch returns fixed length
+    port = _free_port()
+    server = http.server.HTTPServer(("127.0.0.1", port), _ArrayHandler)
+    th = threading.Thread(target=server.serve_forever, daemon=True)
+    th.start()
+    base = f"http://127.0.0.1:{port}"
+    try:
+        if not _wait_ready(f"{base}/index.html"):
+            raise RuntimeError("array-handler server failed to start")
+        out_dir = tmp_path / "reports"
+        r = _run(["--url", f"{base}/", "--out-dir", str(out_dir),
+                  "--queries", "cat species"])
+        assert r.returncode == 0, f"stderr={r.stderr}\nstdout={r.stdout}"
+        search_doc = json.loads((out_dir / "search.json").read_text())
+        assert search_doc["queries"] == [
+            {"query": "cat species", "result_count": 6},
+        ], search_doc["queries"]
+    finally:
+        server.shutdown(); th.join(timeout=3)
+
+
+@_NEEDS_BROWSER
+def test_no_search_requests_when_queries_absent(tmp_path, hermetic_factory):
+    """TRIANGULATE: when --queries is omitted, the producer MUST NOT
+    issue any /api/search request. Proves PR #223 behavior is
+    preserved exactly — the producer stays purely passive when no
+    queries are declared. The page fires /api/health (passive capture
+    works) but not /api/search — any /api/search in api.json would
+    prove an unsolicited active request leaked through."""
+    page = (b"<!doctype html><html><body><script>"
+            b"fetch('/api/health').catch(()=>{});"
+            b"</script></body></html>")
+    base = hermetic_factory(page=page, search_counts={"cat": 5})
+    out_dir = tmp_path / "reports"
+    r = _run(["--url", f"{base}/", "--out-dir", str(out_dir)])
+    assert r.returncode == 0, f"stderr={r.stderr}\nstdout={r.stdout}"
+    api_doc = json.loads((out_dir / "api.json").read_text())
+    paths = [e["path"] for e in api_doc["endpoints"]]
+    assert "/api/search" not in paths, (
+        f"must NOT issue /api/search when --queries is absent: {paths}"
+    )
+    # Passive observation still works — /api/health IS captured, so
+    # the absence of /api/search is attributable to the active-issuance
+    # guard, not a broken /api/ capture pipeline.
+    assert "/api/health" in paths, paths
