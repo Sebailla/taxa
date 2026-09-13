@@ -316,39 +316,91 @@ function _resolveUnderStaging(stagingRoot, name) {
 
 
 export async function atomicWrite(outDir, files, { rename = renameSync } = {}) {
-  // Rollback-safe staged-rename: relocate any existing `outDir` aside into a
-  // sibling backup, stage the new payload into a sibling tmp dir, then rename
-  // tmp → outDir. If the final rename fails, restore from the backup so the
-  // prior output stays readable. The earlier in-place `rmSync(outDir)` lost
-  // the prior output the moment a rename failed; this strategy keeps the
-  // evidence recoverable either in-place (success) or as a sibling (failure).
-  // `rename` is injectable so tests can simulate a failed final rename.
-  const tmp = `${outDir}.tmp-${process.pid}-${Date.now()}`;
-  const backup = `${outDir}.bak-${process.pid}-${Date.now()}`;
-  let hadExisting = false;
-  if (existsSync(outDir)) {
-    rename(outDir, backup); // relocate prior output aside; fail-fast on error
-    hadExisting = true;
+  // Selective atomicWrite: replace only the payload-named files in
+  // `outDir`, leaving any unrelated files (e.g. reports emitted by an
+  // earlier producer under `make parity`) byte-for-byte untouched.
+  // Strategy:
+  //   1. Validate every payload name (path-traversal rejection) up
+  //      front so a bad name throws before any filesystem mutation.
+  //   2. For each payload name, relocate any pre-existing outDir/<name>
+  //      to a per-file .bak- sibling so it can be restored on failure.
+  //      Unrelated files in outDir are NOT moved.
+  //   3. Stage the new payload in a sibling tmp dir under its final
+  //      names, then rename each staged file into outDir (creating
+  //      outDir if it does not exist yet). renameSync is atomic on the
+  //      same filesystem, so each file is either fully-prior or
+  //      fully-new — a partial write is impossible to observe.
+  //   4. On failure: remove any staged-renames that already succeeded,
+  //      then restore every per-file backup. Unrelated files are never
+  //      touched.
+  //   5. On success: drop the per-file backups and the tmp staging dir.
+  // `rename` is injectable so tests can simulate a failed staged-rename.
+  const names = Object.keys(files);
+  // Up-front name validation — throws before touching the filesystem.
+  for (const name of names) {
+    _resolveUnderStaging(outDir, name);
   }
-  let staged = false;
+  const tmp = `${outDir}.tmp-${process.pid}-${Date.now()}`;
+  // Per-file backups: outDir/<name> → outDir/<name>.bak-<pid>-<ts>
+  // for each payload name that already exists. Unrelated files are
+  // never touched.
+  const backups = []; // [{originalPath, backupPath}]
+  if (existsSync(outDir)) {
+    try {
+      for (const name of names) {
+        const targetPath = resolve(outDir, name);
+        if (existsSync(targetPath)) {
+          const backupPath = `${targetPath}.bak-${process.pid}-${Date.now()}`;
+          rename(targetPath, backupPath);
+          backups.push({ originalPath: targetPath, backupPath });
+        }
+      }
+    } catch (err) {
+      // Mid-loop backup failure: restore every backup already taken,
+      // then propagate the original error.
+      for (const { originalPath, backupPath } of backups) {
+        try {
+          rename(backupPath, originalPath);
+        } catch {}
+      }
+      throw err;
+    }
+  }
+  // `stagedRenames` tracks names whose staged file has already been
+  // moved into outDir — on failure, these new files must be removed
+  // so the backup-restore path can leave outDir in its prior state.
+  const stagedRenames = [];
   try {
+    // Stage every payload file in a sibling tmp dir under its final name.
     mkdirSync(tmp, { recursive: true });
     for (const [name, content] of Object.entries(files)) {
       const p = _resolveUnderStaging(tmp, name);
       mkdirSync(dirname(p), { recursive: true });
       await writeFile(p, content, "utf8");
     }
-    rename(tmp, outDir);
-    staged = true;
+    // Atomically move each staged file into outDir (creating outDir
+    // if it does not exist yet).
+    mkdirSync(outDir, { recursive: true });
+    for (const name of names) {
+      const stagedPath = _resolveUnderStaging(tmp, name);
+      const finalPath = resolve(outDir, name);
+      rename(stagedPath, finalPath);
+      stagedRenames.push(name);
+    }
   } catch (err) {
-    // Failure path: restore the prior outDir from the backup so the
-    // original output remains readable. The backup sibling is the
-    // recovery artifact if the restore itself fails (we still throw the
-    // original error).
-    if (hadExisting) {
+    // Failure path: undo staged renames (remove new files written
+    // under payload names), then restore every per-file backup.
+    for (const name of stagedRenames) {
       try {
-        if (existsSync(outDir)) rmSync(outDir, { recursive: true, force: true });
-        rename(backup, outDir);
+        rmSync(resolve(outDir, name), { recursive: true, force: true });
+      } catch {}
+    }
+    for (const { originalPath, backupPath } of backups) {
+      try {
+        if (existsSync(originalPath)) {
+          rmSync(originalPath, { recursive: true, force: true });
+        }
+        rename(backupPath, originalPath);
       } catch {}
     }
     try {
@@ -356,11 +408,15 @@ export async function atomicWrite(outDir, files, { rename = renameSync } = {}) {
     } catch {}
     throw err;
   }
-  if (hadExisting && staged) {
+  // Success path: drop per-file backups and the tmp staging dir.
+  for (const { backupPath } of backups) {
     try {
-      rmSync(backup, { recursive: true, force: true });
+      rmSync(backupPath, { recursive: true, force: true });
     } catch {}
   }
+  try {
+    if (existsSync(tmp)) rmSync(tmp, { recursive: true, force: true });
+  } catch {}
 }
 
 export async function capture({
