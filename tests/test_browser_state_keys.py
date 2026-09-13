@@ -1015,3 +1015,142 @@ def test_globals_css_minimal_version_banner_style_uses_tokens_only():
         f"all colors must route through var(--…) tokens. Found: "
         f"{raw_hex!r}"
     )
+
+
+def test_globals_css_min_target_size_on_chrome_buttons():
+    """G4 (Lighthouse ``target-size`` WCAG 2.5.8): ``globals.css`` MUST
+    declare a ``min-height`` rule that raises the three chrome button
+    groups — header nav tabs, header theme toggle, and tree-source
+    toggle buttons — to the 24px CSS-pixel minimum.
+
+    Why these three groups only:
+        - ``<header><nav><button data-action="nav-tab">`` — primary
+          nav tabs rendered by ``page-chrome.tsx``.
+        - ``<header><button data-action="theme-toggle">`` — light /
+          dark theme toggle rendered by ``page-chrome.tsx``.
+        - ``<div id="tree-source-toggle"><button>`` — CoL / WoRMS /
+          Freshwater tree-source toggle rendered by ``page-chrome.tsx``.
+
+    All three currently inherit the browser's ~21px default button
+    height (UA stylesheet default font-size + native padding) and
+    Lighthouse flags them under the ``target-size`` audit. WCAG 2.5.8
+    requires a 24×24 CSS-pixel minimum target size for pointer
+    inputs; the smallest compliant fix is a single rule pinning
+    ``min-height: 24px`` on exactly these three groups.
+
+    Negative witness (no global ``button`` rule): a top-level
+    ``button { min-height: 24px }`` would ALSO widen every other
+    button on the page (``.kebab``, ``.materialize-indicator``,
+    ``.tree-search-icon``, ``.tab-strip > .tab-button``,
+    ``.detail-close``, ``#version-banner > [data-action="dismiss…"]``,
+    ``.search-link``) and break unrelated design-system styling —
+    kebab / materialize / search-icon have ``padding: 2px`` for
+    their inline-icon affordance, tab-strip / detail-close are
+    already larger than 24px via their own rules. The fix MUST
+    stay scoped to the three chrome button groups.
+    """
+    text = _read(GLOBALS_CSS_FILE)
+
+    # 1. Each of the three target button groups MUST carry the
+    #    24px minimum (literal ``24px`` OR equivalent ``1.5rem`` /
+    #    ``1.5em`` — WCAG 2.5.8 defines the threshold in CSS pixels
+    #    so any equivalent length is acceptable, but a literal
+    #    ``24px`` keeps the rule self-documenting).
+    expected_min_height = (
+        r"min-height\s*:\s*(?:24px|1\.5rem|1\.5em)\s*;"
+    )
+    for selector, label in (
+        ("header nav button",                          "header nav tabs"),
+        ('header > button[data-action="theme-toggle"]', "header theme toggle"),
+        ("#tree-source-toggle button",                 "tree-source toggle buttons"),
+    ):
+        # Allow the selector to appear either as the ONLY selector in
+        # its rule body, or as ONE ENTRY in a comma-separated selector
+        # list — the WCAG 2.5.8 fix ships as a single rule with three
+        # selectors, so each individual selector is followed by `,`
+        # + more selectors + `{ ... }` rather than directly by `{`.
+        rule = re.search(
+            re.escape(selector) + r"\s*(?:,\s*[^{}]+)?\s*\{([^{}]+)\}",
+            text,
+        )
+        assert rule, (
+            f"globals.css must declare a rule for {selector!r} "
+            f"({label}) to satisfy the G4 Lighthouse `target-size` "
+            f"finding — buttons currently inherit the browser's "
+            f"~21px default height and fail WCAG 2.5.8"
+        )
+        body = rule.group(1)
+        assert re.search(expected_min_height, body), (
+            f"{selector!r} rule MUST set `min-height: 24px` (or "
+            f"`1.5rem` / `1.5em`) to satisfy WCAG 2.5.8. "
+            f"Current rule body: {body!r}"
+        )
+
+    # 2. Negative witness: globals.css MUST NOT declare a top-level
+    #    `button { ... min-height ... }` rule. A global button rule
+    #    would widen every button on the page (kebab / materialize /
+    #    search-icon / tab-strip / detail-close / version-banner /
+    #    search-link) and break the unrelated design-system styling
+    #    those rules already pin. The fix is intentionally scoped to
+    #    the three chrome button groups only.
+    global_button_rule = re.search(
+        r"(?:^|\n)\s*button\s*\{([^{}]*)\}",
+        text,
+    )
+    if global_button_rule:
+        assert "min-height" not in global_button_rule.group(1), (
+            "globals.css MUST NOT carry a top-level `button { "
+            "min-height: ... }` rule — the WCAG 2.5.8 fix is "
+            "intentionally scoped to the three chrome button "
+            "groups (header nav / theme toggle / tree-source "
+            "toggle); a global rule would widen every other "
+            "button and break unrelated design-system styling"
+        )
+
+def test_globals_css_min_target_size_uses_literal_24px_pixel_value():
+    """G4 triangulator: the WCAG 2.5.8 ``min-height`` fix MUST use the
+    literal ``24px`` value (NOT ``1.5rem`` or ``1.5em``) so the rule is
+    self-documenting against the standard's 24×24 CSS-pixel threshold.
+
+    Functional equivalence: ``1.5rem`` / ``1.5em`` resolve to the same
+    pixel height at the project's root font-size (16px → 24px), but the
+    Lighthouse ``target-size`` audit checks pixel sizes and the WCAG
+    standard itself is expressed in CSS pixels. A regression that
+    quietly swaps ``24px`` for ``1.5rem`` would still pass the
+    CSS-spec contract but loses the explicit ``24px`` ↔ WCAG 2.5.8
+    traceability the literal form provides.
+
+    Scope: every rule body containing one of the three target
+    selectors (``header nav button`` /
+    ``header > button[data-action="theme-toggle"]`` /
+    ``#tree-source-toggle button``) MUST contain the literal
+    ``min-height: 24px;``. The check is selector-aware (not a
+    global ``min-height: 24px`` regex) so an unrelated future rule
+    using a 24px height doesn't accidentally satisfy it.
+    """
+    text = _read(GLOBALS_CSS_FILE)
+    for selector, label in (
+        ("header nav button",                          "header nav tabs"),
+        ('header > button[data-action="theme-toggle"]', "header theme toggle"),
+        ("#tree-source-toggle button",                 "tree-source toggle buttons"),
+    ):
+        rule = re.search(
+            re.escape(selector) + r"\s*(?:,\s*[^{}]+)?\s*\{([^{}]+)\}",
+            text,
+        )
+        assert rule, (
+            f"globals.css must declare a rule for {selector!r} ({label})"
+        )
+        body = rule.group(1)
+        # Strict 24px literal — NOT 1.5rem / 1.5em equivalents. The
+        # parenthetical-equivalent branch in the primary test covers
+        # the WCAG contract; this triangulator pins the literal form.
+        assert re.search(
+            r"min-height\s*:\s*24px\s*;",
+            body,
+        ), (
+            f"{selector!r} ({label}) MUST use the literal `24px` CSS "
+            f"pixel value (not `1.5rem` / `1.5em`) so the rule is "
+            f"self-documenting against WCAG 2.5.8's 24x24 CSS-pixel "
+            f"threshold. Current rule body: {body!r}"
+        )
