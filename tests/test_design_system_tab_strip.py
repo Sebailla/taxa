@@ -111,13 +111,20 @@ def test_design_system_tab_strip_uses_data_tab_attribute() -> None:
 
 def test_design_system_tab_strip_keeps_tablist_aria() -> None:
     """WCAG 2.2 AA — the promoted TabStrip MUST keep its `role="tablist"`
-    landmark + `aria-pressed` / `aria-selected` per-button contract."""
+    landmark + `aria-selected` per-button contract. The G4 a11y
+    regression fix FORBIDS `aria-pressed` on `role="tab"` (it is
+    invalid for that role — only `aria-selected` is the correct
+    attribute per the WAI-ARIA Authoring Practices for tabs)."""
     src = DS_TAB_STRIP.read_text(encoding="utf-8")
     assert "role=\"tablist\"" in src or "tablist" in src, (
         "design-system TabStrip must declare a tablist landmark"
     )
     assert "aria-selected" in src, (
         "design-system TabStrip must stamp `aria-selected`"
+    )
+    assert "aria-pressed" not in src, (
+        "design-system TabStrip must NOT stamp `aria-pressed` "
+        "(invalid on role=\"tab\"; use `aria-selected` instead)"
     )
 
 

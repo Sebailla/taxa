@@ -87,13 +87,20 @@ def test_tabstrip_emits_data_tab_attribute() -> None:
     # `src/modules/taxonomy/presentation/TabStrip.tsx` to
     # `src/modules/design-system/presentation/TabStrip.tsx`. The
     # attribute contract is unchanged (3c-c CSS selectors still match).
+        #
+        # G4 accessibility regression fix: `role="tab"` MUST expose
+        # `aria-selected` and MUST NOT expose `aria-pressed`
+        # (aria-pressed is only valid for role="button" toggle
+        # buttons; for tabs the correct attribute is aria-selected).
         text = DS_TABSTRIP.read_text()
         assert re.search(r"data-tab\s*=\s*\{tab\.label\}", text), \
             "design-system TabStrip must stamp data-tab={tab.label} (CSS contract)"
         assert re.search(r'role\s*=\s*["\']tab["\']', text), \
             "design-system TabStrip must set role=\"tab\" for the a11y harness"
-        assert "active" in text and "aria-pressed" in text, \
-            "design-system TabStrip must apply .active + aria-pressed to the selected button"
+        assert "active" in text and "aria-selected" in text, \
+            "design-system TabStrip must apply .active + aria-selected to the selected button"
+        assert "aria-pressed" not in text, \
+            "design-system TabStrip must NOT stamp aria-pressed on role=\"tab\" (invalid ARIA — use aria-selected instead)"
 
 
 def test_detailpanel_keeps_local_active_tab_state() -> None:
