@@ -257,7 +257,16 @@ def test_capture_dry_run_rejects_url_not_in_manifest(tmp_path):
 
 
 # ── Triangulate: atomic-write + schema enforcement ─────────────────
-def test_atomic_write_replaces_existing_outdir(tmp_path, g4_server):
+def test_atomic_write_selective_replacement_preserves_unrelated_files(
+    tmp_path, g4_server,
+):
+    """Capture producer contract (parity composition): atomicWrite MUST
+    replace only its own payload files (`evidence.json`,
+    `manifest.snapshot.json`). Any unrelated file already in `outDir`
+    MUST survive the capture — the earlier "replace whole outDir"
+    semantics wiped the Python producer's navigation/api/browser-state/
+    search reports when the Node producer ran after it, breaking
+    `make parity`."""
     url, manifest_path = g4_server
     out = tmp_path / "out"
     out.mkdir()
@@ -265,8 +274,14 @@ def test_atomic_write_replaces_existing_outdir(tmp_path, g4_server):
     r = _run(["--url", url,
               "--manifest", str(manifest_path), "--out", str(out), "--dry-run"])
     assert r.returncode == 0, r.stderr
-    assert not (out / "stale.txt").exists(), "stale file must be replaced"
+    # The Node producer wrote only its own files.
     assert (out / "evidence.json").is_file()
+    assert (out / "manifest.snapshot.json").is_file()
+    # The unrelated stale file MUST survive.
+    assert (out / "stale.txt").read_text() == "stale", (
+        "atomicWrite must preserve unrelated files in outDir; the old "
+        "'replace whole outDir' semantics is gone"
+    )
 
 
 def test_validate_manifest_rejects_wrong_schema(tmp_path):
@@ -1112,6 +1127,197 @@ def test_atomic_write_rollback_safe_scenarios(tmp_path, pre_create, fail_stage):
         f"atomicWrite must leave no staging/backup siblings; "
         f"found: {[str(s) for s in leftovers]}"
     )
+
+
+# ── Parity-producer composition (G4 follow-up) ─────────────────────
+# PR #232 wired `make parity` as two composed producers:
+#   (1) scripts/capture_parity_reports.py — Python — navigation/api/
+#       browser-state/search (PILOT navigation/api browser-state/search)
+#   (2) tools/g4-capture/scripts/capture.mjs — Node — Lighthouse
+#       evidence (evidence.json + manifest.snapshot.json)
+# The earlier `atomicWrite` renamed the whole `outDir` aside before
+# publishing its two files, which DELETED the Python producer's
+# reports and broke `make parity`. The fix: atomicWrite replaces only
+# the payload-named files, preserving any unrelated files already in
+# `outDir`. The tests below pin that contract at both the atomicWrite
+# surface and the capture surface (dry-run + real-run), with a
+# triangulation test that fails mid-rename to prove the rollback-safe
+# path keeps every unrelated file intact.
+
+# The exact file names the Python producer writes (mirror the constants
+# in scripts/capture_parity_reports.py::_write_all). They MUST survive
+# the Node producer's atomicWrite untouched.
+PYTHON_PRODUCER_FILES = (
+    "navigation.json",
+    "api.json",
+    "browser-state.json",
+    "search.json",
+)
+
+def _seed_python_producer_outputs(out_dir, *, also_stale_evidence=False):
+    """Pre-create `out_dir` with the Python producer's reports and
+    optionally a stale `evidence.json` (simulating a prior partial
+    Lighthouse run). Returns the dict of seed contents so each test can
+    later assert byte-equality."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    seed = {
+        "navigation.json": json.dumps({"nav": "python-producer"}),
+        "api.json": json.dumps({"api": "python-producer"}),
+        "browser-state.json": json.dumps({"browser-state": "python-producer"}),
+        "search.json": json.dumps({"search": "python-producer"}),
+    }
+    for name, content in seed.items():
+        (out_dir / name).write_text(content)
+    if also_stale_evidence:
+        seed["evidence.json"] = json.dumps({"prior": "node-stale"})
+        (out_dir / "evidence.json").write_text(seed["evidence.json"])
+    return seed
+
+def _assert_python_producer_files_preserved(out_dir, seed):
+    """Triangulation helper: assert every seeded Python producer file
+    is present byte-for-byte after a capture. Used by every regression
+    test below so the contract is asserted consistently."""
+    for name in PYTHON_PRODUCER_FILES:
+        assert name in seed, f"seed must include {name!r}; got keys {list(seed)!r}"
+        assert (out_dir / name).read_text() == seed[name], (
+            f"Python producer file {name!r} must be preserved verbatim; "
+            f"got {(out_dir / name).read_text()!r}"
+        )
+    # No staging/backup siblings left behind in tmp_path.
+    leftovers = [
+        p.name for p in out_dir.parent.iterdir()
+        if p.name.startswith((f"{out_dir.name}.tmp-", f"{out_dir.name}.bak-"))
+    ]
+    assert leftovers == [], (
+        f"capture must leave no staging/backup siblings; found {leftovers!r}"
+    )
+
+def test_atomic_write_preserves_unrelated_files_in_existing_outdir(tmp_path):
+    """atomicWrite (Node-level): with the Python producer's reports
+    already in `outDir`, a Node-side atomicWrite that publishes only
+    `evidence.json` + `manifest.snapshot.json` MUST leave every
+    Python producer report byte-for-byte untouched. This is the core
+    contract that lets `make parity` compose two producers."""
+    out_dir = tmp_path / "out"
+    seed = _seed_python_producer_outputs(out_dir)
+    wrapper = tmp_path / "_atomic_preserve.mjs"
+    wrapper.write_text(
+        "import { atomicWrite } from "
+        + json.dumps("file://" + str(SCRIPT))
+        + ";\n"
+        f"const outDir = {json.dumps(str(out_dir))};\n"
+        "await atomicWrite(outDir, {\n"
+        "  'evidence.json': 'NEW-LIGHTHOUSE-EVIDENCE',\n"
+        "  'manifest.snapshot.json': 'NEW-MANIFEST-SNAPSHOT',\n"
+        "});\n"
+    )
+    proc = subprocess.run(
+        ["node", str(wrapper)], capture_output=True, text=True,
+        env={**os.environ, "NODE_NO_WARNINGS": "1"},
+    )
+    assert proc.returncode == 0, proc.stderr
+    # Payload written with the new content.
+    assert (out_dir / "evidence.json").read_text() == "NEW-LIGHTHOUSE-EVIDENCE"
+    assert (out_dir / "manifest.snapshot.json").read_text() == "NEW-MANIFEST-SNAPSHOT"
+    # Python producer reports preserved verbatim.
+    _assert_python_producer_files_preserved(out_dir, seed)
+
+def test_capture_dry_run_preserves_python_producer_files(
+    tmp_path, g4_server,
+):
+    """capture dry-run (end-to-end): with the Python producer's reports
+    already in `outDir`, a dry-run MUST publish `evidence.json` +
+    `manifest.snapshot.json` AND leave every Python producer file
+    untouched. The fixture-server provides a live corpus so the
+    pre-runner verification step succeeds."""
+    url, manifest_path = g4_server
+    out_dir = tmp_path / "out"
+    seed = _seed_python_producer_outputs(out_dir)
+    proc, out_dir, _invocations = _run_capture_with_runner(
+        tmp_path, dry_run=True, manifest_path=manifest_path,
+    )
+    assert proc.returncode == 0, proc.stderr
+    # Payload written.
+    evidence = json.loads((out_dir / "evidence.json").read_text())
+    assert evidence["schema"] == "taxa.g4-capture.evidence/1"
+    assert (out_dir / "manifest.snapshot.json").is_file()
+    # Python producer reports preserved verbatim.
+    _assert_python_producer_files_preserved(out_dir, seed)
+
+def test_capture_real_run_preserves_python_producer_files(
+    tmp_path, g4_server,
+):
+    """capture real-run (end-to-end, hermetic via injected synthetic
+    LHR): with the Python producer's reports already in `outDir`, a
+    real-run capture MUST publish `evidence.json` +
+    `manifest.snapshot.json` AND leave every Python producer file
+    untouched. Mirrors the production `make parity` flow where the
+    Python producer finishes, then the Node producer runs."""
+    url, manifest_path = g4_server
+    out_dir = tmp_path / "out"
+    seed = _seed_python_producer_outputs(out_dir)
+    proc, out_dir, invocations = _run_capture_with_runner(
+        tmp_path, synthetic_lhr=SYNTHETIC_LHR, dry_run=False,
+        manifest_path=manifest_path,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert len(invocations) == 1, (
+        f"runner must be invoked exactly once on success; got {len(invocations)}"
+    )
+    evidence = json.loads((out_dir / "evidence.json").read_text())
+    assert evidence["schema"] == "taxa.g4-capture.evidence/1"
+    assert (out_dir / "manifest.snapshot.json").is_file()
+    _assert_python_producer_files_preserved(out_dir, seed)
+
+def test_atomic_write_preserves_unrelated_files_on_failure(tmp_path):
+    """Triangulation: when the staged rename fails mid-batch,
+    atomicWrite MUST restore the prior overlapping file AND preserve
+    every unrelated file in `outDir`. This is the rollback-safe
+    contract under the new selective-replace semantics — a partial
+    overwrite (e.g. only `evidence.json` restored but unrelated files
+    gone) is not acceptable."""
+    out_dir = tmp_path / "out"
+    seed = _seed_python_producer_outputs(out_dir, also_stale_evidence=True)
+    prior_evidence = seed["evidence.json"]
+    wrapper = tmp_path / "_atomic_fail.mjs"
+    wrapper.write_text(
+        "import { atomicWrite } from "
+        + json.dumps("file://" + str(SCRIPT))
+        + ";\n"
+        "import * as fs from 'node:fs';\n"
+        f"const outDir = {json.dumps(str(out_dir))};\n"
+        "let renameCalls = 0;\n"
+        "try {\n"
+        "  await atomicWrite(outDir, {'evidence.json': 'NEW-EVIDENCE'}, {\n"
+        "    rename: (src, dst) => {\n"
+        "      renameCalls++;\n"
+        "      if (src.startsWith(outDir + '.tmp-')) {\n"
+        "        throw new Error('simulated rename failure');\n"
+        "      }\n"
+        "      fs.renameSync(src, dst);\n"
+        "    },\n"
+        "  });\n"
+        "  process.stdout.write(JSON.stringify({err: null, renameCalls}));\n"
+        "} catch (e) {\n"
+        "  process.stdout.write(JSON.stringify({err: e.message, renameCalls}));\n"
+        "}\n"
+    )
+    proc = subprocess.run(
+        ["node", str(wrapper)], capture_output=True, text=True,
+        env={**os.environ, "NODE_NO_WARNINGS": "1"},
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert "simulated rename failure" in out["err"], (
+        f"failure must surface; got {out!r}"
+    )
+    # Prior overlapping evidence.json restored byte-for-byte.
+    assert (out_dir / "evidence.json").read_text() == prior_evidence, (
+        "atomicWrite must restore the prior overlapping file on failure"
+    )
+    # Unrelated Python producer files preserved byte-for-byte.
+    _assert_python_producer_files_preserved(out_dir, seed)
+
 
 
 def test_capture_verification_failure_when_fetch_throws(tmp_path):
