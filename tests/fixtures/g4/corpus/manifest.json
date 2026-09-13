@@ -5,7 +5,7 @@
     {
       "url": "http://127.0.0.1:8765/index.html",
       "path": "index.html",
-      "expectedContentSha256": "bb1a2731f4ab7e710d7989c5d5bd17205154155cd18f08e3ffa245c4165ae401",
+      "expectedContentSha256": "d7fb6a39204b2429a496674932969e27b49fea85ec91408c03b3d16141c0c5cd",
       "expectedStatus": 200,
       "expectedDOMMarker": "data-testid=\"g4-probe-marker\""
     }

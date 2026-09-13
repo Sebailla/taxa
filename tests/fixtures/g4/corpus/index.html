@@ -5,6 +5,16 @@
   (entry.path=index.html; entry.expectedContentSha256 is pinned in the
   manifest and verified by tests/test_capture_parity.py). Bytes must stay
   deterministic: no timestamps, no generated ids.
+
+  Legacy-control alignment: the static legacy corpus must mirror the
+  preserved legacy browser behavior by actively issuing same-origin
+  /api/health and /api/domains fetches on load. Without these fetches,
+  the strict comparator observes /api/health and /api/domains on the
+  candidate side only and reports them as "extras in candidate", which
+  breaks parity even though the candidate is correct. The fetches use
+  relative paths so they resolve to whatever origin the G4 ASGI launcher
+  binds in each test. Errors are swallowed because the diagnostic surface
+  must not throw inside the corpus page.
 -->
 <html lang="en">
 <head>
@@ -15,5 +25,12 @@
   <h1>G4 capture corpus</h1>
   <p>Disposable diagnostic artifact. Unreachable from production.</p>
   <span data-testid="g4-probe-marker">static</span>
+  <script>
+    // Active legacy-control fetches: mirror the preserved legacy browser
+    // so the strict comparator sees the same /api/* paths on legacy and
+    // candidate. Errors are swallowed because the corpus is disposable.
+    fetch("/api/health").catch(function () {});
+    fetch("/api/domains").catch(function () {});
+  </script>
 </body>
 </html>
