@@ -24,6 +24,51 @@ CREATE TABLE vernacular (
     name TEXT NOT NULL, transliteration TEXT, language TEXT, country TEXT,
     life_stage TEXT, sex TEXT, reference_id TEXT
 );
+-- FTS5 + sync triggers, mirrored verbatim from etl/schema.sql (taxon_fts)
+-- and etl/schema_v2.sql (vernacular_fts). The controlled G4 fixture must
+-- serve the legacy /api/search?q=... endpoint without a 500; that endpoint
+-- queries both virtual tables via BM25. Adding the FTS tables here is the
+-- smallest change that makes the G4 fixture schema-equivalent to a
+-- freshly-migrated production DB.
+CREATE VIRTUAL TABLE taxon_fts USING fts5(
+    scientific_name,
+    authorship,
+    content='taxon',
+    content_rowid='id',
+    tokenize="unicode61 remove_diacritics 1"
+);
+CREATE TRIGGER taxon_ai AFTER INSERT ON taxon BEGIN
+    INSERT INTO taxon_fts(rowid, scientific_name, authorship)
+    VALUES (new.id, new.scientific_name, COALESCE(new.authorship, ''));
+END;
+CREATE TRIGGER taxon_ad AFTER DELETE ON taxon BEGIN
+    INSERT INTO taxon_fts(taxon_fts, rowid, scientific_name, authorship)
+    VALUES ('delete', old.id, old.scientific_name, COALESCE(old.authorship, ''));
+END;
+CREATE TRIGGER taxon_au AFTER UPDATE ON taxon BEGIN
+    INSERT INTO taxon_fts(taxon_fts, rowid, scientific_name, authorship)
+    VALUES ('delete', old.id, old.scientific_name, COALESCE(old.authorship, ''));
+    INSERT INTO taxon_fts(rowid, scientific_name, authorship)
+    VALUES (new.id, new.scientific_name, COALESCE(new.authorship, ''));
+END;
+CREATE VIRTUAL TABLE vernacular_fts USING fts5(
+    name,
+    content='vernacular',
+    content_rowid='id',
+    tokenize="unicode61 remove_diacritics 1"
+);
+CREATE TRIGGER vernacular_ai AFTER INSERT ON vernacular BEGIN
+    INSERT INTO vernacular_fts(rowid, name) VALUES (new.id, new.name);
+END;
+CREATE TRIGGER vernacular_ad AFTER DELETE ON vernacular BEGIN
+    INSERT INTO vernacular_fts(vernacular_fts, rowid, name)
+    VALUES ('delete', old.id, old.name);
+END;
+CREATE TRIGGER vernacular_au AFTER UPDATE ON vernacular BEGIN
+    INSERT INTO vernacular_fts(vernacular_fts, rowid, name)
+    VALUES ('delete', old.id, old.name);
+    INSERT INTO vernacular_fts(rowid, name) VALUES (new.id, new.name);
+END;
 """
 
 TAXON_ROWS = [
