@@ -127,3 +127,30 @@ clean:
 	rm -f data/etl.log data/api.log data/load.log
 	rm -rf data/db data/raw
 	rm -rf .venv __pycache__ */__pycache__
+
+# ── G4 parity composition (design.md §3.3.4) — Slice A ─────────────
+# External-URL orchestration target. Caller supplies PARITY_URL,
+# PARITY_OUT, PARITY_MANIFEST; optional PARITY_QUERIES. Slice A pins the
+# parse-time contract only: ``.PHONY`` declaration, defaults, and
+# required-variable fail-closed gates. Recipes, preflight (tool / script
+# presence checks), and composition (Python capture → Node Lighthouse
+# capture → Python a11y adapter) land in Slice B / Slice C.
+.PHONY: parity
+
+PARITY_URL       ?=
+PARITY_OUT       ?=
+PARITY_MANIFEST  ?=
+PARITY_QUERIES   ?=
+
+# Required-variable gates (Make parse-time). ``$(error ...)`` aborts
+# before any recipe line prints, so ``make -n parity`` exits non-zero
+# and names the missing variable WITHOUT evaluating the recipe.
+ifeq ($(PARITY_URL),)
+$(error [parity] PARITY_URL is required (caller-supplied external URL))
+endif
+ifeq ($(PARITY_OUT),)
+$(error [parity] PARITY_OUT is required (caller-supplied output directory))
+endif
+ifeq ($(PARITY_MANIFEST),)
+$(error [parity] PARITY_MANIFEST is required (corpus manifest for Node capture; do not invent a fixture-only assumption))
+endif
