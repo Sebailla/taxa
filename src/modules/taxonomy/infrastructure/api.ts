@@ -105,7 +105,7 @@ export async function fetchDomains(
   baseUrl: string,
   fetchFn: FetchLike = defaultFetch(),
 ): Promise<readonly { readonly id: number; readonly name: string }[]> {
-  const body = await requestJson(fetchFn, `${baseUrl}/api/taxonomy/domains`);
+  const body = await requestJson(fetchFn, `${baseUrl}/api/domains`);
   if (!Array.isArray(body)) {
     throw new NetworkError("malformed domains body");
   }
