@@ -40,7 +40,6 @@ export function TabStrip({ tabs, activeKey, onChange }: TabStripProps): ReactEle
           <button key={tab.key} type="button"
                   className={`tab-button${isActive ? " active" : ""}`.trim()}
                   data-tab={tab.label} role="tab"
-                  aria-pressed={isActive ? "true" : "false"}
                   aria-selected={isActive ? "true" : "false"}
                   onClick={() => onChange(tab.key)}>
             {tab.label}
