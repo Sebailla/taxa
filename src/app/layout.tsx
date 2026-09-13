@@ -58,6 +58,13 @@ export default function RootLayout({
   return (
     <html lang="en" className={raleway.variable}>
       <body>
+        {/* G4 strict candidate-manifest capture probe.
+         * Hidden (HTML5 `hidden` -> display:none) AND aria-hidden so the
+         * marker is invisible to every consumer (user, screen reader, RTL
+         * test, axe). No children, no text — exists ONLY so the capture
+         * producer's verifyTarget() can locate the exact substring
+         * `data-testid="g4-probe-marker"` in the served body. */}
+        <span data-testid="g4-probe-marker" aria-hidden="true" hidden />
         <AppShell>{children}</AppShell>
       </body>
     </html>
