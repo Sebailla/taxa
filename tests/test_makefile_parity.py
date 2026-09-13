@@ -1,16 +1,15 @@
-"""G4 parity Makefile Slice A + Slice B — strict-TDD hermetic tests.
+"""G4 parity Makefile Slice A + Slice B + Slice C — strict-TDD hermetic tests.
 
-Slice A — parse-time contract: ``.PHONY`` declaration, defaults, and
-parse-time fail-closed gates for PARITY_URL, PARITY_OUT, PARITY_MANIFEST.
+Slice A: parse-time contract (.PHONY, defaults, required-variable gates).
+Slice B: recipe preflight (python3 + node + 3 producer scripts; mkdir).
+Slice C: producer composition (Python capture → Node Lighthouse capture →
+Python a11y adapter), safe optional PARITY_QUERIES via $(if ...), and
+producer-failure atomicity (every producer invocation guarded by
+``|| { ...; exit 1; }`` so a non-zero exit aborts before the next producer).
 
-Slice B — recipe preflight (python3 + node on PATH; the three Slice C
-producer scripts present) and output-directory creation. Slice B does
-NOT invoke any producer and does NOT consume PARITY_QUERIES (those land
-in Slice C).
-
-Hermetic: tests use ``make -n`` for static inspection and execute the
-recipe only with isolated PATH / tmp_path to keep failure-path assertions
-free of network calls, real captures, or repo mutation.
+Hermetic: ``make -n`` for static inspection; runtime tests use isolated
+PATH / tmp_path or a fake-repo shim with deterministic exit codes so no
+network, Playwright, or Lighthouse launches happen.
 """
 from __future__ import annotations
 
@@ -95,8 +94,8 @@ def test_parity_target_fails_closed_when_required_var_missing(omit, expect_named
 # preflight contract stays purely textual: presence of ``command -v`` for
 # python3 + node, ``test -f`` presence checks for each producer script, and
 # ``mkdir -p $(PARITY_OUT)``. They do NOT execute the recipe, so the
-# preflight ordering and the Slice C guard are observable without touching
-# the host toolchain.
+# preflight ordering and the Slice C composition are observable without
+# touching the host toolchain.
 
 
 def _recipe_lines(*, extra_vars=()):
@@ -145,8 +144,10 @@ def test_parity_recipe_preflight_checks_node():
 ])
 def test_parity_recipe_preflight_checks_producer_script(script_path):
     """Each Slice C producer script must be gated by a ``test -f`` presence
-    check. This is a presence check, NOT an invocation — Slice B does not
-    run the producers.
+    check. The script path may ALSO appear in a Slice C invocation line,
+    but AT LEAST ONE mention of each path must be a ``test -f`` line so
+    the Slice B preflight contract (no invocation before presence-checked)
+    is preserved.
     """
     lines = _recipe_lines()
     matches = [ln for ln in lines if script_path in ln]
@@ -154,11 +155,13 @@ def test_parity_recipe_preflight_checks_producer_script(script_path):
         f"recipe must contain a presence check for {script_path!r}; "
         f"got lines={lines!r}"
     )
-    for ln in matches:
-        assert ln.lstrip().startswith("test -f "), (
-            f"each mention of {script_path!r} must be a `test -f` presence "
-            f"check, not an invocation; got non-presence-check line {ln!r}"
-        )
+    presence_checks = [
+        ln for ln in matches if ln.lstrip().startswith("test -f ")
+    ]
+    assert presence_checks, (
+        f"recipe must contain a `test -f` presence check for {script_path!r}; "
+        f"got matches={matches!r}"
+    )
 
 
 def test_parity_recipe_creates_output_dir():
@@ -179,63 +182,156 @@ def test_parity_recipe_creates_output_dir():
     )
 
 
-# ── Slice C guard: producer invocations + PARITY_QUERIES stay out of Slice B ──
+# ── Slice C: producer composition (Python capture → Node Lighthouse → a11y adapter) ──
+#
+# The recipe must invoke the three producer scripts in the documented
+# composition order, each with the right interpreter + flag surface.
+# Inspect the recipe printed by ``make -n parity`` so the contract stays
+# purely textual and observable without running the producers.
+
+
+def test_parity_recipe_invokes_python_capture_first():
+    """Python capture runs first with --url/--out-dir pointing at BASE_VARS values."""
+    lines = _recipe_lines()
+    invocations = [
+        ln for ln in lines
+        if "python3" in ln and "scripts/capture_parity_reports.py" in ln
+        and not ln.lstrip().startswith("test -f ")
+    ]
+    assert invocations, f"recipe must invoke capture_parity_reports.py; got lines={lines!r}"
+    line = invocations[0]
+    for expected in ("http://127.0.0.1:8765/index.html", "parity-reports/2026-09-12"):
+        assert expected in line, f"Python capture must reference {expected!r}; got {line!r}"
+    assert "--url" in line and "--out-dir" in line, (
+        f"Python capture must pass --url and --out-dir; got {line!r}"
+    )
+
+
+def test_parity_recipe_invokes_node_capture_second():
+    """Node Lighthouse capture runs second with --url/--manifest/--out."""
+    lines = _recipe_lines()
+    invocations = [
+        ln for ln in lines
+        if "node" in ln and "tools/g4-capture/scripts/capture.mjs" in ln
+        and not ln.lstrip().startswith("test -f ")
+    ]
+    assert invocations, f"recipe must invoke capture.mjs; got lines={lines!r}"
+    line = invocations[0]
+    for expected in (
+        "http://127.0.0.1:8765/index.html",
+        "parity-reports/2026-09-12",
+        "tests/fixtures/g4/corpus/manifest.json",
+    ):
+        assert expected in line, f"Node capture must reference {expected!r}; got {line!r}"
+    for flag in ("--url", "--manifest", "--out"):
+        assert flag in line, f"Node capture must pass {flag}; got {line!r}"
+
+
+def test_parity_recipe_invokes_a11y_adapter_third():
+    """a11y adapter runs third, reading $(PARITY_OUT)/evidence.json."""
+    lines = _recipe_lines()
+    invocations = [
+        ln for ln in lines
+        if "python3" in ln and "scripts/capture_a11y_report.py" in ln
+        and not ln.lstrip().startswith("test -f ")
+    ]
+    assert invocations, f"recipe must invoke capture_a11y_report.py; got lines={lines!r}"
+    line = invocations[0]
+    assert "parity-reports/2026-09-12/evidence.json" in line, (
+        f"a11y must read evidence.json from $(PARITY_OUT); got {line!r}"
+    )
+    assert "--evidence" in line and "--out-dir" in line, (
+        f"a11y must pass --evidence and --out-dir; got {line!r}"
+    )
+
+
+def test_parity_recipe_composition_order():
+    """Invocations must be ordered Python capture → Node capture → a11y adapter."""
+    lines = _recipe_lines()
+    def first_idx(predicate):
+        for i, ln in enumerate(lines):
+            if predicate(ln):
+                return i
+        return -1
+    py_idx = first_idx(lambda ln: "scripts/capture_parity_reports.py" in ln
+                       and not ln.lstrip().startswith("test -f "))
+    node_idx = first_idx(lambda ln: "tools/g4-capture/scripts/capture.mjs" in ln
+                         and not ln.lstrip().startswith("test -f "))
+    a11y_idx = first_idx(lambda ln: "scripts/capture_a11y_report.py" in ln
+                         and not ln.lstrip().startswith("test -f "))
+    assert py_idx >= 0 and node_idx >= 0 and a11y_idx >= 0, (
+        f"all three producer invocations must exist; lines={lines!r}"
+    )
+    assert py_idx < node_idx < a11y_idx, (
+        f"invocations must be in order Python → Node → a11y; "
+        f"got py={py_idx}, node={node_idx}, a11y={a11y_idx}; lines={lines!r}"
+    )
+
+
+# ── Slice C: producer-failure atomicity (textual fail-closed guards) ─────
 
 
 @pytest.mark.parametrize("script_path,interpreter", [
     ("scripts/capture_parity_reports.py", "python3"),
-    ("scripts/capture_a11y_report.py", "python3"),
     ("tools/g4-capture/scripts/capture.mjs", "node"),
+    ("scripts/capture_a11y_report.py", "python3"),
 ])
-def test_parity_recipe_does_not_invoke_producer(script_path, interpreter):
-    """Slice B must NOT invoke any producer script — each producer path may
-    appear ONLY in a ``test -f <path>`` presence check line. Any line that
-    names both the interpreter AND the producer script as arguments is a
-    Slice C invocation and must not exist yet.
-    """
+def test_parity_recipe_invocation_is_fail_closed(script_path, interpreter):
+    """Each producer invocation must be guarded by ``|| { ... >&2; exit 1; }``
+    so a non-zero exit aborts before the next producer runs (atomicity)."""
     lines = _recipe_lines()
     invocations = [
         ln for ln in lines
         if interpreter in ln and script_path in ln
         and not ln.lstrip().startswith("test -f ")
     ]
+    assert invocations, f"recipe must invoke {interpreter} {script_path}; got lines={lines!r}"
+    for ln in invocations:
+        assert "||" in ln and "exit 1" in ln, (
+            f"producer invocation must be guarded by `|| {{ ...; exit 1; }}`; got {ln!r}"
+        )
+        assert "echo" in ln and ">&2" in ln, (
+            f"producer failure path must echo a diagnostic to stderr; got {ln!r}"
+        )
+
+
+# ── Slice C: safe optional PARITY_QUERIES propagation ─────────────────────
+
+
+def test_parity_recipe_propagates_queries_when_set():
+    """When PARITY_QUERIES is set, the Python capture must pass --queries <value>."""
+    qpath = "tests/fixtures/g4/corpus/queries.json"
+    lines = _recipe_lines(extra_vars=(f"PARITY_QUERIES={qpath}",))
+    invocations = [
+        ln for ln in lines
+        if "scripts/capture_parity_reports.py" in ln
+        and qpath in ln and "--queries" in ln
+        and not ln.lstrip().startswith("test -f ")
+    ]
+    assert invocations, (
+        f"recipe must pass --queries $(PARITY_QUERIES)={qpath!r}; got lines={lines!r}"
+    )
+
+
+def test_parity_recipe_omits_queries_flag_when_unset():
+    """When PARITY_QUERIES is empty, the Python capture must NOT pass --queries."""
+    lines = _recipe_lines()  # BASE_VARS leaves PARITY_QUERIES empty.
+    invocations = [
+        ln for ln in lines
+        if "scripts/capture_parity_reports.py" in ln and "--queries" in ln
+        and not ln.lstrip().startswith("test -f ")
+    ]
     assert not invocations, (
-        f"Slice C guard: recipe must NOT invoke `{interpreter} {script_path}`; "
-        f"got invocations={invocations!r}, full lines={lines!r}"
+        f"recipe must NOT pass --queries when PARITY_QUERIES is empty; got {lines!r}"
     )
 
 
-def test_parity_recipe_does_not_propagate_queries():
-    """PARITY_QUERIES is Slice C territory. Slice B must not reference it in
-    any recipe line — neither the ``$(PARITY_QUERIES)`` form nor the
-    ``--queries`` flag may appear.
-    """
-    r = _make([
-        "-n", "parity",
-        *BASE_VARS,
-        "PARITY_QUERIES=tests/fixtures/g4/corpus/queries.json",
-    ])
-    assert r.returncode == 0, (
-        f"setup: make -n parity with PARITY_QUERIES must succeed (Slice B does "
-        f"not require it); rc={r.returncode}, stderr={r.stderr!r}"
-    )
-    combined = r.stdout + r.stderr
-    assert "PARITY_QUERIES" not in combined, (
-        f"Slice C guard: recipe must NOT reference PARITY_QUERIES in Slice B; "
-        f"got combined={combined!r}"
-    )
-    assert "--queries" not in combined, (
-        f"Slice C guard: recipe must NOT pass --queries in Slice B; "
-        f"got combined={combined!r}"
-    )
-
-
-# ── Hermetic runtime: preflight fail-closed + happy-path mkdir ────────────
+# ── Hermetic runtime: preflight fail-closed + Slice B mkdir invariant ─────
 #
 # These tests actually invoke ``make parity`` (no ``-n``). The preflight is
 # expected to either abort on a missing tool or, on the happy path, create
-# the output directory and exit 0. They use isolated PATH / tmp_path so the
-# host repo and the host toolchain stay untouched.
+# the output directory. They use isolated PATH / tmp_path so the host repo
+# and the host toolchain stay untouched.
 
 
 def test_parity_preflight_fails_closed_when_python3_missing(tmp_path):
@@ -299,23 +395,109 @@ def test_parity_preflight_fails_closed_when_node_missing(tmp_path):
     )
 
 
-def test_parity_preflight_succeeds_and_creates_output_dir(tmp_path):
-    """Happy path: full preflight passes, mkdir runs, exit 0, PARITY_OUT
-    exists. Slice B does not invoke producers, so no producer output files
-    are required (and none should appear).
+def test_parity_preflight_succeeds_and_mkdir_runs(tmp_path):
+    """Slice B invariant: when preflight passes, ``mkdir -p $(PARITY_OUT)``
+    runs and PARITY_OUT exists. Slice C adds producer invocations AFTER
+    mkdir; this test asserts only the Slice B invariant (the recipe exit
+    code may legitimately be non-zero in a hermetic no-server environment
+    because the Python capture would try to navigate the URL — that path
+    is covered by the Slice C atomicity tests, not here).
     """
     if not shutil.which("python3"):
         pytest.skip("python3 not available on PATH")
     if not shutil.which("node"):
         pytest.skip("node not available on PATH")
     out = tmp_path / "parity-out"
-    r = _make(["parity", *BASE_VARS, f"PARITY_OUT={out}"])
-    assert r.returncode == 0, (
-        f"make parity should succeed when preflight passes and PARITY_OUT is "
-        f"a fresh directory; got rc={r.returncode}, "
-        f"stdout={r.stdout!r}, stderr={r.stderr!r}"
-    )
+    # We don't assert rc == 0: the recipe's preflight + mkdir runs before
+    # any producer, and a subsequent producer may abort the shell. The
+    # invariant under test is that mkdir has already executed.
+    _make(["parity", *BASE_VARS, f"PARITY_OUT={out}"])
     assert out.is_dir(), (
-        f"Slice B must `mkdir -p $(PARITY_OUT)`; expected {out} to exist as "
-        f"a directory after `make parity`"
+        f"Slice B must `mkdir -p $(PARITY_OUT)` after preflight passes; "
+        f"expected {out} to exist as a directory after `make parity`"
     )
+
+
+# ── Slice C: producer-failure atomicity (real runtime, fake-repo shim) ────
+#
+# These tests actually invoke ``make parity`` (no ``-n``) against a fake-repo
+# shim: a tmp directory that mirrors the real script layout but replaces ONE
+# producer with a deterministic exit-code stub. The preflight ``test -f``
+# checks see the stub (passes), but the producer invocation runs the stub.
+# Each test forces ONE producer to fail and asserts the recipe aborts before
+# the NEXT producer can run. Hermetic: no Playwright, no Lighthouse, no
+# network. The real Makefile is exercised against its actual contracts.
+
+
+def _build_fake_repo(tmp_path, *, fail_python=False, fail_node=False, fail_a11y=False):
+    """Mirror the real script layout in tmp_path with deterministic exit-code
+    stubs. Returns ``(fake_repo, out_dir)``. The Makefile is copied verbatim
+    from REPO_ROOT (not modified); preflight ``test -f`` checks see the
+    stubs and pass; the invocation runs the stub with the chosen exit code."""
+    for tool in ("python3", "node", "make"):
+        if not shutil.which(tool):
+            pytest.skip(f"{tool} not available on PATH")
+    fake_repo = tmp_path / "fake-repo"
+    fake_repo.mkdir()
+    shutil.copy(MAKEFILE, fake_repo / "Makefile")
+    (fake_repo / "scripts").mkdir()
+    (fake_repo / "tools" / "g4-capture" / "scripts").mkdir(parents=True)
+    py_rc = 2 if fail_python else 0
+    (fake_repo / "scripts" / "capture_parity_reports.py").write_text(
+        "#!/usr/bin/env python3\nimport sys\n" f"sys.exit({py_rc})\n"
+    )
+    a11y_rc = 2 if fail_a11y else 0
+    (fake_repo / "scripts" / "capture_a11y_report.py").write_text(
+        "#!/usr/bin/env python3\nimport sys, os\n"
+        f"open(os.path.join(os.environ.get('PARITY_OUT', '.'), 'a11y.json'), 'w').close()\n"
+        f"sys.exit({a11y_rc})\n"
+    )
+    node_rc = 2 if fail_node else 0
+    (fake_repo / "tools" / "g4-capture" / "scripts" / "capture.mjs").write_text(
+        "import { writeFileSync } from 'node:fs';\n"
+        "import { join } from 'node:path';\n"
+        f"writeFileSync(join(process.env.PARITY_OUT || '.', 'evidence.json'), '{{}}');\n"
+        f"process.exit({node_rc});\n"
+    )
+    return fake_repo, tmp_path / "parity-out"
+
+
+def test_parity_recipe_aborts_when_python_capture_fails(tmp_path):
+    """Python capture failure must abort BEFORE Node capture + a11y run."""
+    fake_repo, out = _build_fake_repo(tmp_path, fail_python=True)
+    r = _make(
+        ["-f", str(fake_repo / "Makefile"), "parity",
+         *BASE_VARS, f"PARITY_OUT={out}"],
+        cwd=fake_repo, env={**os.environ, "PARITY_OUT": str(out)},
+    )
+    assert r.returncode != 0, f"recipe must abort; got rc={r.returncode}, stderr={r.stderr!r}"
+    assert "capture_parity_reports.py" in r.stderr, f"stderr must name producer; got {r.stderr!r}"
+    assert not (out / "evidence.json").exists(), "Node capture must NOT run after Python capture failure"
+    assert not (out / "a11y.json").exists(), "a11y must NOT run after Python capture failure"
+
+
+def test_parity_recipe_aborts_when_node_capture_fails(tmp_path):
+    """Node capture (MIDDLE) failure must abort BEFORE a11y runs."""
+    fake_repo, out = _build_fake_repo(tmp_path, fail_node=True)
+    r = _make(
+        ["-f", str(fake_repo / "Makefile"), "parity",
+         *BASE_VARS, f"PARITY_OUT={out}"],
+        cwd=fake_repo, env={**os.environ, "PARITY_OUT": str(out)},
+    )
+    assert r.returncode != 0, f"recipe must abort; got rc={r.returncode}, stderr={r.stderr!r}"
+    assert "capture.mjs" in r.stderr, f"stderr must name Node producer; got {r.stderr!r}"
+    assert not (out / "a11y.json").exists(), "a11y must NOT run after Node capture failure"
+
+
+def test_parity_recipe_aborts_when_a11y_adapter_fails(tmp_path):
+    """a11y (LAST) failure must surface as non-zero exit with stderr naming a11y."""
+    fake_repo, out = _build_fake_repo(tmp_path, fail_a11y=True)
+    r = _make(
+        ["-f", str(fake_repo / "Makefile"), "parity",
+         *BASE_VARS, f"PARITY_OUT={out}"],
+        cwd=fake_repo, env={**os.environ, "PARITY_OUT": str(out)},
+    )
+    assert r.returncode != 0, f"recipe must abort; got rc={r.returncode}, stderr={r.stderr!r}"
+    assert "capture_a11y_report.py" in r.stderr, f"stderr must name a11y; got {r.stderr!r}"
+
+

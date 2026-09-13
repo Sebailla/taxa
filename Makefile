@@ -132,9 +132,11 @@ clean:
 # External-URL orchestration target. Caller supplies PARITY_URL,
 # PARITY_OUT, PARITY_MANIFEST; optional PARITY_QUERIES. Slice A pins the
 # parse-time contract only: ``.PHONY`` declaration, defaults, and
-# required-variable fail-closed gates. Recipes, preflight (tool / script
-# presence checks), and composition (Python capture → Node Lighthouse
-# capture → Python a11y adapter) land in Slice B / Slice C.
+# required-variable fail-closed gates. Recipe preflight (tool / script
+# presence checks + mkdir) lands in Slice B; producer composition (Python
+# capture → Node Lighthouse capture → Python a11y adapter) with safe
+# optional PARITY_QUERIES propagation and producer-failure atomicity
+# lands in Slice C.
 .PHONY: parity
 
 PARITY_URL       ?=
@@ -155,15 +157,28 @@ ifeq ($(PARITY_MANIFEST),)
 $(error [parity] PARITY_MANIFEST is required (corpus manifest for Node capture; do not invent a fixture-only assumption))
 endif
 
-# ── G4 parity composition (design.md §3.3.4) — Slice B ─────────────
-# Slice B adds the recipe preflight: python3 + node must be on PATH and the
-# three Slice C producer scripts must be present. On pass, the output
-# directory is created (idempotent `mkdir -p`). Slice A still owns the
-# parse-time variable gates above; Slice C will add the composition
-# (Python capture → Node Lighthouse capture → Python a11y adapter) and the
-# PARITY_QUERIES propagation. Each preflight line is fail-closed
-# individually (no `set -e` dependency) so the first missing tool aborts
-# before any subsequent check or directory creation runs.
+# ── G4 parity composition (design.md §3.3.4) — Slice B + Slice C ─────────────
+# Slice B: recipe preflight (python3 + node must be on PATH; the three Slice C
+# producer scripts must be present). On pass, the output directory is created
+# (idempotent `mkdir -p`). Each preflight line is fail-closed individually (no
+# `set -e` dependency) so the first missing tool aborts before any subsequent
+# check or directory creation runs.
+#
+# Slice C: producer composition (Python capture → Node Lighthouse capture →
+# Python a11y adapter), safe optional PARITY_QUERIES propagation, and
+# producer-failure atomicity.
+#   - Composition order: capture_parity_reports.py runs first and emits
+#     navigation.json + api.json + browser-state.json (+ search.json when
+#     --queries is provided); capture.mjs runs second and emits
+#     evidence.json; capture_a11y_report.py runs third and consumes
+#     evidence.json to emit a11y.json.
+#   - Safe optional PARITY_QUERIES: ``$(if $(PARITY_QUERIES),--queries
+#     $(PARITY_QUERIES),)`` expands to nothing when PARITY_QUERIES is empty
+#     and to ``--queries <value>`` otherwise, so argparse never sees an
+#     empty --queries value.
+#   - Atomicity: every producer invocation is guarded by
+#     ``|| { echo ... >&2; exit 1; }`` so a non-zero exit aborts the shell
+#     before any subsequent producer runs. No `set -e` dependency.
 parity:
 	@command -v python3 >/dev/null 2>&1 || { echo "[parity] python3 not found in PATH" >&2; exit 1; }
 	@command -v node    >/dev/null 2>&1 || { echo "[parity] node not found in PATH" >&2; exit 1; }
@@ -171,3 +186,6 @@ parity:
 	@test -f scripts/capture_a11y_report.py       || { echo "[parity] missing scripts/capture_a11y_report.py" >&2; exit 1; }
 	@test -f tools/g4-capture/scripts/capture.mjs || { echo "[parity] missing tools/g4-capture/scripts/capture.mjs" >&2; exit 1; }
 	@mkdir -p $(PARITY_OUT)
+	@python3 scripts/capture_parity_reports.py --url $(PARITY_URL) --out-dir $(PARITY_OUT) $(if $(PARITY_QUERIES),--queries $(PARITY_QUERIES),) || { echo "[parity] capture_parity_reports.py failed" >&2; exit 1; }
+	@node tools/g4-capture/scripts/capture.mjs --url $(PARITY_URL) --manifest $(PARITY_MANIFEST) --out $(PARITY_OUT) || { echo "[parity] capture.mjs failed" >&2; exit 1; }
+	@python3 scripts/capture_a11y_report.py --evidence $(PARITY_OUT)/evidence.json --out-dir $(PARITY_OUT) || { echo "[parity] capture_a11y_report.py failed" >&2; exit 1; }
