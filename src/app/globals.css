@@ -662,4 +662,22 @@
     font-size: 12px;
     font-weight: 600;
   }
+
+      /* G4 (Lighthouse `target-size` WCAG 2.5.8): the three chrome
+         button groups — header nav tabs, the header theme toggle,
+         and the tree-source toggle buttons — inherit the browser's
+         ~21px UA-stylesheet default button height and fail the 24x24
+         CSS-pixel minimum target-size requirement. Single rule,
+         scoped to these three groups only, pins `min-height: 24px`
+         so unrelated buttons (kebab, materialize-indicator, search
+         glyph, tab-strip, detail-close, dismiss-version-banner,
+         search-link) keep their existing design-system sizing. The
+         selector list deliberately avoids a top-level `button { }`
+         rule — that would widen every button on the page and break
+         unrelated styling. */
+      header nav button,
+      header > button[data-action="theme-toggle"],
+      #tree-source-toggle button {
+        min-height: 24px;
+      }
 }
