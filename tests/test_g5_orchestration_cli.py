@@ -150,24 +150,14 @@ def test_dry_run_exits_zero_and_emits_summary(capsys, tmp_path):
     assert not (tmp_path / "out").exists(), "dry-run must not create the output dir"
 
 
-def test_slice_total_under_1700_lines():
-    """Cumulative ergonomics guard: CLI + tests ≤ 1700 (Slices 1+1A+2+3).
-    Slice 1 was 800; the +300 relaxation is for real Slice 2 behavior
-    contracts (success dispatch + error taxonomy + bridge-script override),
-    not synthetic. The +200 further relaxation is for real Slice 3
-    bridge-timeout advisory contracts (sentinel envelope, stderr advisory,
-    orchestrator accumulation, CLI flag validation). The +400 further
-    relaxation is for the bridge-advisory publication contracts (CLI
-    docstring update, orchestrator threading, planner backward-compat
-    probe, hermetic plan-entry tests, success-summary counter,
-    byte-identical backward-compat test). This is CUMULATIVE ergonomics
-    only; the per-PR delta budget remains ≤ 400 raw changed lines."""
+def test_slice_total_under_2000_lines():
+    """Cumulative ergonomics guard: CLI + tests ≤ 2000 (Slices 1+1A+2+3+4). Slice 1 was 800; +300 for Slice 2 behavior contracts; +200 for Slice 3 bridge-timeout advisory; +400 for bridge-advisory publication; ~+300 for Slice 4 bridge proof logs (CLI flag + atomic log writer + rotation + non-blocking advisory + hermetic tests). CUMULATIVE ergonomics only; per-PR delta budget ≤ 400 raw changed lines."""
     cli_text = SCRIPT.read_text(encoding="utf-8")
     assert cli_text.startswith("#!/usr/bin/env python")
     cli_lines = sum(1 for _ in cli_text.splitlines())
     this_lines = sum(1 for _ in Path(__file__).read_text(encoding="utf-8").splitlines())
     total = cli_lines + this_lines
-    assert total <= 1700, f"CLI + tests total is {total} lines; budget is 1700"
+    assert total <= 2000, f"CLI + tests total is {total} lines; budget is 2000"
 
 
 def test_script_does_not_modify_child_b():
@@ -1162,3 +1152,265 @@ def test_cli_orchestrator_legacy_planner_ignores_kwarg_on_timeout(
     rc = cli.main(_common_args(tmp_path) + ["--bridge-timeout-s", "1.0"])
     assert rc == cli.EXIT_OK
     assert captured.get("legacy_called") is True
+
+
+
+# ── Slice 4: bridge proof logs ─────────────────────────────────────
+# The Python orchestrator (CLI's make_bridge closure) owns bridge proof
+# logs; the Node bridge stays side-effect free. For every bridge
+# invocation we atomically persist a JSON proof log carrying argv / cwd /
+# timestamp / timeout / stdout / stderr / exit_code / iteration.
+# Previous-run logs are rotated. Log-write failure is NON-BLOCKING: a
+# distinct stderr advisory is emitted, but the bridge success / sentinel
+# / BridgeError contract is preserved. All tests are hermetic — no Node,
+# no network, no real subprocess.
+
+BRIDGE_LOG_SCHEMA = "taxa.g5-bridge.proof-log/1"
+
+
+def _bridge_log_dir(tmp_path: Path, name: str = "logs") -> Path:
+    return tmp_path / name
+
+
+def _invoke_n(bridge, n: int):
+    for _ in range(n):
+        bridge("http://example.test/foo")
+
+
+def _ok_envelope_stderr():
+    return type("R", (), {
+        "returncode": 0,
+        "stdout": '{"schema":"taxa.g5-raw-lhr.envelope/1",'
+                   '"url":"x","lhr":{},"provenance":{}}\n',
+        "stderr": "",
+    })()
+
+
+def test_bridge_log_dir_default_constant():
+    assert cli.DEFAULT_BRIDGE_LOG_DIR_NAME == "raw/bridge-logs"
+
+
+def test_bridge_log_schema_constant():
+    assert cli.BRIDGE_LOG_SCHEMA == "taxa.g5-bridge.proof-log/1"
+
+
+def test_help_text_mentions_bridge_log_dir(capsys):
+    rc = cli.main(["--help"])
+    assert rc == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert "--bridge-log-dir" in out and "raw/bridge-logs" in out
+
+
+def test_make_bridge_persists_proof_log_per_invocation(monkeypatch, tmp_path):
+    """10 invocations → 10 bridge-XX.json files with stable iteration
+    filenames and the bounded schema."""
+    import json as _jl
+    log_dir = _bridge_log_dir(tmp_path, "bridge-logs")
+    monkeypatch.setattr(cli.shutil, "which", lambda n: "/usr/bin/node")
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **kw: _ok_envelope_stderr())
+    bridge = cli.make_bridge(bridge_log_dir=log_dir, bridge_timeout_s=10.0)
+    _invoke_n(bridge, 10)
+    files = sorted(p.name for p in log_dir.glob("bridge-*.json"))
+    assert files == [f"bridge-{i:02d}.json" for i in range(1, 11)]
+    for p in log_dir.glob("bridge-*.json"):
+        rec = _jl.loads(p.read_text(encoding="utf-8"))
+        assert rec["schema"] == BRIDGE_LOG_SCHEMA
+
+
+def test_make_bridge_log_contains_required_metadata_fields(monkeypatch, tmp_path):
+    """Each bridge-XX.json carries argv / cwd / timestamp / timeout_s /
+    stdout / stderr / exit_code / iteration / schema / duration_ms."""
+    import json as _jl
+    log_dir = _bridge_log_dir(tmp_path, "bridge-logs")
+    monkeypatch.setattr(cli.shutil, "which", lambda n: "/usr/bin/node")
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **kw: _ok_envelope_stderr())
+    monkeypatch.setattr(cli.time, "time", lambda: 1700000000.0 + 1.234)
+    bridge = cli.make_bridge(bridge_log_dir=log_dir, bridge_timeout_s=12.5)
+    env = bridge("http://x.test/")
+    rec = _jl.loads((log_dir / "bridge-01.json").read_text(encoding="utf-8"))
+    assert rec["schema"] == BRIDGE_LOG_SCHEMA and rec["iteration"] == 1
+    assert rec["argv"][0] == "/usr/bin/node"
+    assert rec["argv"][-2:] == ["--url", "http://x.test/"]
+    assert isinstance(rec["cwd"], str) and rec["cwd"]
+    assert rec["timestamp"].endswith("Z")
+    assert rec["timeout_s"] == 12.5
+    assert "taxa.g5-raw-lhr.envelope/1" in rec["stdout"]
+    assert rec["exit_code"] == 0 and rec.get("timed_out") is False
+    assert isinstance(rec["duration_ms"], int) and rec["duration_ms"] >= 0
+    assert env["schema"] == "taxa.g5-raw-lhr.envelope/1"
+
+
+def test_make_bridge_rotates_previous_logs_atomically(monkeypatch, tmp_path):
+    """Pre-existing bridge-*.json from a prior run are removed before the
+    new run writes its first log; unrelated files are preserved; 10
+    fresh logs land with the bridge-log schema."""
+    import json as _jl
+    log_dir = _bridge_log_dir(tmp_path, "bridge-logs")
+    log_dir.mkdir()
+    (log_dir / "bridge-01.json").write_text('{"stale": true, "x": 1}\n')
+    (log_dir / "bridge-09.json").write_text('{"stale": true, "x": 9}\n')
+    keep = log_dir / "README.txt"
+    keep.write_text("do not delete\n")
+    monkeypatch.setattr(cli.shutil, "which", lambda n: "/usr/bin/node")
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **kw: _ok_envelope_stderr())
+    bridge = cli.make_bridge(bridge_log_dir=log_dir, bridge_timeout_s=10.0)
+    _invoke_n(bridge, 10)
+    for stale in ("bridge-01.json", "bridge-09.json"):
+        assert not (log_dir / stale).read_text().startswith('{"stale"')
+    assert keep.read_text() == "do not delete\n"
+    assert len(list(log_dir.glob("bridge-*.json"))) == 10
+    for p in log_dir.glob("bridge-*.json"):
+        assert _jl.loads(p.read_text(encoding="utf-8"))["schema"] == BRIDGE_LOG_SCHEMA
+
+
+@pytest.mark.parametrize("scenario", ["success", "timeout", "non_zero_exit"])
+def test_make_bridge_log_write_failure_is_non_blocking(
+    monkeypatch, tmp_path, capsys, scenario,
+):
+    """Log-write failure NEVER raises; the bridge returns / raises per
+    its existing contract and emits a distinct stderr advisory."""
+    log_dir = _bridge_log_dir(tmp_path, "bridge-logs")
+    if scenario == "success":
+        result_factory = lambda: _ok_envelope_stderr()
+        expected_exc = None
+    elif scenario == "timeout":
+        result_factory = lambda: (_ for _ in ()).throw(
+            subprocess.TimeoutExpired(cmd=["node"], timeout=2.0))
+        expected_exc = None
+    else:
+        result_factory = lambda: type("R", (), {
+            "returncode": 1, "stdout": "", "stderr": "boom"})()
+        expected_exc = og.BridgeError
+
+    def fake_run(*a, **kw):
+        return result_factory()
+    # Touch the closure-binding variable to keep the pyright type checker
+    # from flagging `result_factory` as unused across scenario branches.
+    _ = fake_run
+    monkeypatch.setattr(cli.shutil, "which", lambda n: "/usr/bin/node")
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+    monkeypatch.setattr(cli, "_write_bridge_log_atomic",
+                        lambda *a, **kw: (_ for _ in ()).throw(
+                            OSError("synthetic write failure (read-only fs?)")))
+    bridge = cli.make_bridge(bridge_log_dir=log_dir, bridge_timeout_s=2.0)
+    if expected_exc is None:
+        env = bridge("http://x/")
+        assert env["schema"] == "taxa.g5-raw-lhr.envelope/1"
+    else:
+        with pytest.raises(expected_exc):
+            bridge("http://x/")
+    err = capsys.readouterr().err
+    assert "bridge-log" in err.lower()
+    assert "write" in err.lower() or "fail" in err.lower()
+
+
+def test_make_bridge_non_zero_exit_writes_log_and_raises(monkeypatch, tmp_path):
+    """Non-zero exit: log carries exit_code=1 + stderr; BridgeError
+    raised — log-write does NOT swallow the bridge failure."""
+    import json as _jl
+    log_dir = _bridge_log_dir(tmp_path, "bridge-logs")
+    fake_run = lambda *a, **kw: type("R", (), {
+        "returncode": 1, "stdout": "partial stdout\n",
+        "stderr": "boom — node crashed\n"})()
+    monkeypatch.setattr(cli.shutil, "which", lambda n: "/usr/bin/node")
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+    bridge = cli.make_bridge(bridge_log_dir=log_dir, bridge_timeout_s=10.0)
+    with pytest.raises(og.BridgeError, match="exited 1"):
+        bridge("http://x/")
+    rec = _jl.loads((log_dir / "bridge-01.json").read_text(encoding="utf-8"))
+    assert rec["exit_code"] == 1
+    assert rec["stderr"] == "boom — node crashed\n"
+    assert rec["stdout"] == "partial stdout\n"
+    assert rec.get("timed_out") is False
+
+
+def test_make_bridge_timeout_writes_log_and_returns_sentinel(monkeypatch, tmp_path):
+    """TimeoutExpired: log records exit_code=None + timed_out=True;
+    closure still returns a schema-conformant sentinel envelope."""
+    import json as _jl
+    log_dir = _bridge_log_dir(tmp_path, "bridge-logs")
+    def fake_run(*a, **kw):
+        raise subprocess.TimeoutExpired(cmd=list(a[0]),
+                                            timeout=kw.get("timeout") or 0.0)
+    monkeypatch.setattr(cli.shutil, "which", lambda n: "/usr/bin/node")
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+    bridge = cli.make_bridge(bridge_log_dir=log_dir, bridge_timeout_s=2.0)
+    env = bridge("http://x.example/")
+    assert env["schema"] == "taxa.g5-raw-lhr.envelope/1"
+    assert env["advisory"]["kind"] == "bridge_timeout"
+    rec = _jl.loads((log_dir / "bridge-01.json").read_text(encoding="utf-8"))
+    assert rec["exit_code"] is None and rec["timed_out"] is True
+    assert rec["timeout_s"] == 2.0
+    assert "bridge timeout" in rec["stderr"].lower()
+
+
+def test_make_bridge_log_path_not_given_writes_nothing(monkeypatch, tmp_path):
+    """Backward compat: bridge_log_dir=None → no logs, no log dir."""
+    monkeypatch.setattr(cli.shutil, "which", lambda n: "/usr/bin/node")
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **kw: _ok_envelope_stderr())
+    bridge = cli.make_bridge(bridge_timeout_s=10.0)
+    _invoke_n(bridge, 3)
+    assert list(tmp_path.glob("**/bridge-*.json")) == []
+    assert list(tmp_path.glob("**/bridge-logs")) == []
+
+
+@pytest.mark.parametrize("flag,expected", [
+    ("--bridge-log-dir", str(__import__("pathlib").Path("/tmp") / "x")),
+    (None, None),
+])
+def test_non_dry_run_threads_bridge_log_dir_into_factory(
+    monkeypatch, tmp_path, flag, expected,
+):
+    """``--bridge-log-dir <path>`` is threaded into ``make_bridge`` as
+    ``bridge_log_dir``; absent → default ``<out>/raw/bridge-logs``."""
+    cap = _patch_all_factories(monkeypatch)
+    monkeypatch.setattr(cli.og, "run_orchestration",
+                        lambda **kw: {"schema": "taxa.g5-orchestrator.legacy/1",
+                                          "published_at": "2025-01-01T00:00:00Z",
+                                          "target_url": kw["target_url"],
+                                          "iterations": kw["iterations"],
+                                          "out_dir": str(kw["out_dir"]),
+                                          "plan_schema": "x",
+                                          "plan_files": 0})
+    argv = _common_args(tmp_path)
+    if flag is not None:
+        argv += [flag, expected]
+    rc = cli.main(argv)
+    assert rc == cli.EXIT_OK
+    threaded = cap["bridge_kwargs"].get("bridge_log_dir")
+    if expected is None:
+        assert threaded == (tmp_path / "out").resolve() / "raw" / "bridge-logs"
+    else:
+        assert Path(threaded) == Path(expected)
+
+
+def test_dry_run_with_bridge_log_dir_does_not_invoke_substrates(
+    monkeypatch, tmp_path,
+):
+    """``--dry-run --bridge-log-dir <path>`` validates but never invokes
+    subprocess / which / make_bridge and never creates the log dir."""
+    log_dir = tmp_path / "should-never-exist"
+    exec_calls: list[str] = []
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **kw: exec_calls.append("run"))
+    monkeypatch.setattr(cli.shutil, "which",
+                        lambda n: exec_calls.append("which") or "/usr/bin/node")
+    monkeypatch.setattr(cli, "make_bridge",
+                        lambda **kw: (exec_calls.append("bridge") or (lambda u: {})))
+    rc = cli.main(_common_args(tmp_path) +
+                  ["--bridge-log-dir", str(log_dir), "--dry-run"])
+    assert rc == cli.EXIT_OK
+    assert exec_calls == []
+    assert not log_dir.exists()
+
+
+def test_bad_bridge_log_dir_exits_validation(capsys, tmp_path):
+    """--bridge-log-dir pointing at an existing file exits validation 2."""
+    existing_file = tmp_path / "not-a-dir.txt"
+    existing_file.write_text("x\n")
+    rc = cli.main(["--target-url", f"{BASE}/",
+                   "--out", str(tmp_path / "out"),
+                   "--bridge-log-dir", str(existing_file),
+                   "--iterations", "10"])
+    assert rc == cli.EXIT_VALIDATION
+    err = capsys.readouterr().err
+    assert "bridge-log-dir" in err
