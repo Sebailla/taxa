@@ -1,12 +1,19 @@
 #!/usr/bin/env python
-"""G5 legacy-orchestration CLI — Slices 1 + 1A + 2.
+"""G5 legacy-orchestration CLI — Slices 1 + 1A + 2 + 3.
 
 Sibling to ``scripts/orchestrate_g5_legacy.py`` (Child B). Slice 1 owns
 argparse + validation + dry-run-only. Slice 1A adds 5 hermetic seam
 factories binding real public contracts but never executing substrates
 at construction. Slice 2 wires non-dry-run through every factory into
 ``scripts.orchestrate_g5_legacy.run_orchestration`` + adds orchestration
-error-taxonomy exit-code mapping. Slice 2 closes the deferred surface.
+error-taxonomy exit-code mapping. Slice 3 binds a bounded
+``--bridge-timeout-s`` (default 30s) into the bridge subprocess and
+surfaces sentinel envelopes (stderr advisory, non-blocking) so the
+orchestrator can accumulate optional ``bridge_advisories`` while
+publication still proceeds. Slice 3 also persists non-empty
+``bridge_advisories`` atomically as ``raw/bridge-advisories.json``
+through the existing evidence publication plan (None/empty produces
+a byte-identical plan and no file).
 
 Exit codes (CLI-wide contract):
   0   success (dry-run resolved OR orchestration succeeded)
