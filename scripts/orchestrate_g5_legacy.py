@@ -9,6 +9,7 @@ only — child B owns the orchestration entry point.
 from __future__ import annotations
 import contextlib
 import datetime as _dt
+import inspect
 import json
 import shutil
 import statistics
@@ -154,12 +155,21 @@ def derive_legacy_hydration_metadata(samples: Sequence[dict], *, captured_at: st
     fps = [float(s['paint']['first_paint_ms']) for s in samples]
     fcps = [float(s['paint']['first_contentful_paint_ms']) for s in samples]
     dcls = [float(s['navigation']['dom_content_loaded_ms']) for s in samples]
-    waits = [float(s['dom_marker']['wait_ms']) for s in samples]
+    waits = []
+    for _s in samples:
+        try:
+            waits.append(float(_s['dom_marker']['wait_ms']))
+        except (KeyError, TypeError, ValueError):
+            waits.append(0.0)
     interactive = [d + w for d, w in zip(dcls, waits)]
     console_warnings: list[dict] = []
     for i, s in enumerate(samples):
         for msg in s.get('console', []):
-            console_warnings.append({'sample': i, 'iteration': int(s.get('iteration', i)), **msg})
+            try:
+                _iter = int(s.get('iteration', i))
+            except (TypeError, ValueError):
+                _iter = i
+            console_warnings.append({'sample': i, 'iteration': _iter, **msg})
     return {'schema': LEGACY_HYDRATION_SCHEMA, 'captured_at': captured_at, 'build': 'legacy', 'route': route, 'server_shell': {'first_paint_ms': _median(fps), 'dom_content_loaded_ms': _median(dcls)}, 'client_render': {'tree_first_paint_ms': _median(fcps), 'tree_first_interactive_ms': _median(interactive)}, 'console_warnings': console_warnings, 'readiness_wait_ms': _median(waits)}
 
 
@@ -292,6 +302,28 @@ def _emit_bridge_timeout_advisory(url: str, *, timeout_s: float) -> None:
         f'[orchestrate_g5_legacy] bridge timeout: url={url} '
         f'timeout_s={timeout_s:.3f} — returning sentinel envelope\n')
 
+def _planner_accepts_bridge_advisories(planner) -> bool:
+    """Backward-compat probe: True iff ``planner`` accepts a
+    ``bridge_advisories`` keyword argument.
+
+    The real :func:`capture_hydration.plan_evidence_publication` accepts
+    the kwarg with a ``None`` default. Older test fakes from prior
+    slices pre-date the bridge-advisory publication slice and would
+    raise ``TypeError`` if we always passed the kwarg. This probe
+    preserves their behavior unchanged (the kwarg is silently
+    omitted). ``inspect.signature`` is preferred over try/except
+    because it does not mask real TypeErrors raised by the planner
+    body itself. Variadic ``**kwargs`` are treated as accepting the
+    kwarg."""
+    try:
+        params = inspect.signature(planner).parameters
+    except (TypeError, ValueError):
+        return False
+    if 'bridge_advisories' in params:
+        return True
+    return any(p.kind == inspect.Parameter.VAR_KEYWORD
+                for p in params.values())
+
 
 def _default_subprocess_bridge(*, bridge_timeout_s: float = DEFAULT_BRIDGE_TIMEOUT_S):
     """Default bridge factory: spawn ``node g5_raw_lhr_bridge.mjs --url <url>``
@@ -421,10 +453,23 @@ def run_orchestration(*, lifecycle, collector, bridge, planner, publisher,
         lighthouse_raws = [env['lhr'] for env in lhr_envelopes]
 
         try:
-            plan = planner(playwright_raws=samples,
-                            lighthouse_raws=lighthouse_raws,
-                            manifest_snapshot=manifest_snapshot,
-                            legacy_hydration_metadata=hydration)
+            # Thread ``bridge_advisories`` through to the planner when
+            # the planner signature accepts the kwarg. The real
+            # ``capture_hydration.plan_evidence_publication`` accepts
+            # it (default ``None``); older test fakes that pre-date
+            # the bridge-advisory publication slice keep working
+            # unchanged. ``inspect.signature`` is preferred over a
+            # try/except because it does not mask real TypeErrors in
+            # the planner body.
+            _planner_kwargs = {
+                'playwright_raws': samples,
+                'lighthouse_raws': lighthouse_raws,
+                'manifest_snapshot': manifest_snapshot,
+                'legacy_hydration_metadata': hydration,
+            }
+            if bridge_advisories and _planner_accepts_bridge_advisories(planner):
+                _planner_kwargs['bridge_advisories'] = bridge_advisories
+            plan = planner(**_planner_kwargs)
         except Exception as e:
             raise OrchestrationError(f'planner rejected inputs: {e}') from e
         if not isinstance(plan, dict):

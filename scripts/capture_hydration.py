@@ -18,6 +18,7 @@ from typing import Any, Protocol
 SCHEMA = "taxa.g5-capture.legacy/1"
 PROVENANCE_SCHEMA = "taxa.g5-capture.legacy-provenance/1"
 PUBLICATION_SCHEMA = "taxa.g5-publication.evidence-manifest/1"
+BRIDGE_ADVISORIES_SCHEMA = "taxa.g5-publication.bridge-advisories/1"
 ITERATIONS = 10
 # G5 readiness contract: target the controlled G3 fixture's dynamic
 # readiness marker (`#tree-view[data-state="ready"]`) flipped by
@@ -135,20 +136,46 @@ def _validate_legacy_hydration(h):
                  f"legacy_hydration_metadata.{key} must be a {typ.__name__}")
 
 
+def _validate_bridge_advisories(advisories):
+    """Validate optional ``bridge_advisories`` argument.
+
+    Accepted: ``None`` (omitted), or a non-empty ``list`` of ``dict``.
+    Empty list → treated as absent (no file appended).
+    Any other shape (dict, tuple, set, scalar, or list with non-dict
+    entries) raises ``ValueError`` BEFORE any partial plan is built
+    (fail-closed contract)."""
+    if advisories is None:
+        return
+    _require(isinstance(advisories, list),
+             f"bridge_advisories must be a list or None; got {type(advisories).__name__}")
+    for i, adv in enumerate(advisories):
+        _require(isinstance(adv, dict),
+                 f"bridge_advisories[{i}] must be a dict; got {type(adv).__name__}")
+
+
 def plan_evidence_publication(
     *, playwright_raws, lighthouse_raws,
     manifest_snapshot, legacy_hydration_metadata,
+    bridge_advisories=None,
 ):
     """Deterministic, pure, no-I/O plan for G5 evidence publication.
 
-    Accepts exactly 10 PW + 10 LH raws, a G4 manifest snapshot, and valid
-    legacy hydration metadata. Returns the canonical relative-path plan.
+    Accepts exactly 10 PW + 10 LH raws, a G4 manifest snapshot, valid
+    legacy hydration metadata, and an optional ``bridge_advisories``
+    list (accumulated by the orchestrator when bounded bridge
+    subprocesses time out). When the list is non-empty, the plan
+    appends a single ``raw/bridge-advisories.json`` entry wrapping
+    ``{"schema": BRIDGE_ADVISORIES_SCHEMA, "advisories": [...]}``;
+    when None or empty, the plan is byte-identical to the pre-Slice
+    version (backward compatibility contract for prior slices).
+
     Does NOT touch the filesystem (child B executes the plan).
     """
     _validate_raws(playwright_raws, kind="playwright")
     _validate_raws(lighthouse_raws, kind="lighthouse")
     _validate_manifest_snapshot(manifest_snapshot)
     _validate_legacy_hydration(legacy_hydration_metadata)
+    _validate_bridge_advisories(bridge_advisories)
     files = [_plan_entry("playwright", f"raw/playwright/iter-{i:02d}.json", s, i)
              for i, s in enumerate(playwright_raws)]
     files += [_plan_entry("lighthouse", f"raw/lighthouse/iter-{i:02d}.json", lhr, i)
@@ -157,6 +184,14 @@ def plan_evidence_publication(
                              manifest_snapshot))
     files.append(_plan_entry("legacy_hydration", "raw/legacy-hydration.json",
                              legacy_hydration_metadata))
+    # Optional bridge-advisories file: only appended when at least one
+    # timeout was captured. None / empty → byte-identical backward compat.
+    if bridge_advisories:
+        files.append(_plan_entry(
+"bridge_advisories",
+"raw/bridge-advisories.json",
+{"schema": BRIDGE_ADVISORIES_SCHEMA,
+             "advisories": bridge_advisories}))
     return {"schema": PUBLICATION_SCHEMA, "files": files}
 
 
