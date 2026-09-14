@@ -13,20 +13,24 @@ import json
 import shutil
 import statistics
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Optional, Protocol, Sequence
+from typing import Any, Iterator, Optional, Protocol, Sequence
 LEGACY_ASGI_APP_TARGET = 'tools.g3-legacy-fixture.scripts.g5_legacy_asgi:app'
 DEFAULT_HEALTH_PATH = '/api/health'
 DEFAULT_HOST = '127.0.0.1'
 DEFAULT_HEALTH_INTERVAL_S = 0.05
 DEFAULT_HEALTH_TIMEOUT_S = 10.0
 DEFAULT_TERMINATE_GRACE_S = 5.0
+DEFAULT_BRIDGE_TIMEOUT_S = 30.0
 LEGACY_HYDRATION_SCHEMA = 'taxa.g5-orchestrator.legacy-hydration/1'
+BRIDGE_TIMEOUT_ADVISORY_KIND = 'bridge_timeout'
+BRIDGE_ENVELOPE_SCHEMA = 'taxa.g5-raw-lhr.envelope/1'
 
 class SubprocessHandle(Protocol):
     pid: int
@@ -238,13 +242,15 @@ class LegacyLifecycleAdapter:
                   terminate_grace_s: float = DEFAULT_TERMINATE_GRACE_S):
         self.base_url = f'http://{host}:{port}'
         self._ctx: Optional[contextlib.AbstractContextManager] = None
-        self._kwargs = dict(host=host, port=port, cwd=cwd,
-                              spawn=spawn or _default_subprocess_spawn,
-                              probe=probe or _default_http_health_probe,
-                              health_path=health_path,
-                              health_timeout_s=health_timeout_s,
-                              health_interval_s=health_interval_s,
-                              terminate_grace_s=terminate_grace_s)
+        self._spawn: LifecycleSpawn = spawn or _default_subprocess_spawn
+        self._probe: HealthProbe = probe or _default_http_health_probe
+        self._kwargs: dict[str, Any] = dict(
+            host=host, port=port, cwd=cwd,
+            spawn=self._spawn, probe=self._probe,
+            health_path=health_path,
+            health_timeout_s=health_timeout_s,
+            health_interval_s=health_interval_s,
+            terminate_grace_s=terminate_grace_s)
 
     def start(self) -> None:
         self._ctx = run_legacy_lifecycle(**self._kwargs)
@@ -259,10 +265,49 @@ class LegacyLifecycleAdapter:
             self._ctx = None
 
 
-def _default_subprocess_bridge():
+def _bridge_timeout_envelope(url: str, *, timeout_s: float) -> dict:
+    """Build a schema-conformant sentinel envelope marking a bridge timeout.
+
+    Non-blocking: the orchestrator returns this instead of raising so the
+    publication step still runs with the rest of the captured evidence.
+    The ``advisory`` field is what ``run_orchestration`` accumulates into
+    ``bridge_advisories``; ``provenance.advisory`` carries the same info for
+    the manifest-snapshot traceability path. The ``lhr`` field is a minimal
+    non-empty dict so the existing envelope-validation check in
+    ``run_orchestration`` and the planner's ``_validate_raws`` pass.
+    """
+    advisory = {'kind': BRIDGE_TIMEOUT_ADVISORY_KIND,
+'reason': 'bridge subprocess exceeded timeout',
+'timeout_s': timeout_s}
+    return {'schema': BRIDGE_ENVELOPE_SCHEMA, 'url': url,
+            'lhr': {'finalUrl': url, 'advisory': True},
+            'provenance': {'lighthouseVersion': None, 'chromeVersion': None,
+'nodeVersion': None, 'advisory': dict(advisory)},
+            'advisory': advisory}
+
+
+def _emit_bridge_timeout_advisory(url: str, *, timeout_s: float) -> None:
+    """One-line stderr advisory so callers can grep the timeout context."""
+    sys.stderr.write(
+        f'[orchestrate_g5_legacy] bridge timeout: url={url} '
+        f'timeout_s={timeout_s:.3f} — returning sentinel envelope\n')
+
+
+def _default_subprocess_bridge(*, bridge_timeout_s: float = DEFAULT_BRIDGE_TIMEOUT_S):
     """Default bridge factory: spawn ``node g5_raw_lhr_bridge.mjs --url <url>``
-    and return the envelope dict. Raises ``BridgeError`` on missing-node,
-    non-zero exit, or non-JSON stdout. Tests inject their own bridge."""
+    and return the envelope dict.
+
+    Bounded by ``bridge_timeout_s`` seconds (default
+    :data:`DEFAULT_BRIDGE_TIMEOUT_S` = 30s) via ``subprocess.run(timeout=...)``.
+    A timeout is NON-BLOCKING: emits a stderr advisory and returns a
+    schema-conformant sentinel envelope (see :func:`_bridge_timeout_envelope`)
+    instead of raising ``BridgeError``. Existing BridgeError contracts
+    (missing-node, non-zero exit, no JSON line, invalid JSON) are preserved
+    unchanged. Tests inject their own bridge.
+    """
+    if not isinstance(bridge_timeout_s, (int, float)) or bridge_timeout_s <= 0:
+        raise ValueError(
+            f'bridge_timeout_s must be a positive number; got {bridge_timeout_s!r}')
     node = shutil.which('node')
     if not node:
         raise BridgeError("'node' binary not found on PATH; "
@@ -270,8 +315,13 @@ def _default_subprocess_bridge():
     script = DEFAULT_BRIDGE_SCRIPT
 
     def bridge(url: str) -> dict:
-        proc = subprocess.run([node, str(script), '--url', url],
-                                capture_output=True, text=True)
+        try:
+            proc = subprocess.run([node, str(script), '--url', url],
+capture_output=True, text=True,
+timeout=float(bridge_timeout_s))
+        except subprocess.TimeoutExpired as e:
+            _emit_bridge_timeout_advisory(url, timeout_s=float(bridge_timeout_s))
+            return _bridge_timeout_envelope(url, timeout_s=float(bridge_timeout_s))
         if proc.returncode != 0:
             raise BridgeError(f'bridge process exited {proc.returncode}: '
                                 f'stderr={proc.stderr.strip()!r}')
@@ -336,6 +386,7 @@ def run_orchestration(*, lifecycle, collector, bridge, planner, publisher,
                                   f'required exactly {iterations}')
 
         lhr_envelopes: list[dict] = []
+        bridge_advisories: list[dict] = []
         for i in range(iterations):
             try:
                 env = bridge(target_url)
@@ -347,6 +398,21 @@ def run_orchestration(*, lifecycle, collector, bridge, planner, publisher,
                 raise BridgeError(f'bridge invocation {i+1}/{iterations} did not '
                                     "return a 'taxa.g5-raw-lhr.envelope/1' envelope")
             lhr_envelopes.append(env)
+            # Optional advisory path: bounded subprocess bridges can return
+            # a sentinel envelope with an ``advisory`` field on timeout
+            # (non-blocking contract). The orchestrator accumulates these
+            # but does NOT raise — publication proceeds with the rest of
+            # the captured evidence. ``bridge_advisories`` is omitted from
+            # the descriptor when no timeouts happened.
+            adv = env.get('advisory')
+            if isinstance(adv, dict):
+                bridge_advisories.append({
+                    'iteration': i + 1,
+                    'kind': adv.get('kind'),
+                    'reason': adv.get('reason'),
+                    'timeout_s': adv.get('timeout_s'),
+                    'url': env.get('url', target_url),
+                })
 
         hydration = derive_legacy_hydration_metadata(samples,
                                                        captured_at=captured_at,
@@ -369,10 +435,15 @@ def run_orchestration(*, lifecycle, collector, bridge, planner, publisher,
         except Exception as e:
             raise OrchestrationError(f'publisher rejected plan: {e}') from e
 
-        return {'schema': ORCH_SCHEMA, 'published_at': _now_iso(),
-                'target_url': target_url, 'iterations': iterations,
-                'out_dir': str(out_dir), 'plan_schema': plan.get('schema'),
-                'plan_files': len(plan.get('files', []))}
+        descriptor: dict[str, Any] = {
+            'schema': ORCH_SCHEMA, 'published_at': _now_iso(),
+            'target_url': target_url, 'iterations': iterations,
+            'out_dir': str(out_dir),
+            'plan_schema': plan.get('schema'),
+            'plan_files': len(plan.get('files', []))}
+        if bridge_advisories:
+            descriptor['bridge_advisories'] = bridge_advisories
+        return descriptor
     finally:
         lifecycle.stop()
 
