@@ -1,8 +1,15 @@
-"""Hermetic strict-TDD tests for Slice 1 of scripts/run_g5_orchestration.py.
+"""Hermetic strict-TDD tests for Slices 1 + 1A + 2 of
+scripts/run_g5_orchestration.py.
 
 Slice 1 owns the bounded CLI surface (argparse + validation + dry-run-only).
-Deferred to later slices: seam factories, error-taxonomy mapping,
-``run_orchestration`` invocation + lifecycle cleanup, success-path assertions.
+Slice 1A adds 5 hermetic seam factories (lifecycle / collector / bridge /
+planner / publisher) that bind to real public contracts but never execute
+substrates at construction.
+Slice 2 wires the non-dry-run path through every factory into
+``scripts.orchestrate_g5_legacy.run_orchestration``, adds the orchestration
+error-taxonomy exit-code mapping, and threads ``--bridge-script`` through the
+CLI-local bridge adapter. All Slice 2 tests are hermetic (in-process;
+no subprocess / network / browser / Node).
 """
 from __future__ import annotations
 
@@ -13,6 +20,7 @@ from pathlib import Path
 import pytest
 
 import scripts.run_g5_orchestration as cli
+from scripts import orchestrate_g5_legacy as og
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -31,6 +39,8 @@ def test_module_imports_without_side_effects():
     import importlib
     importlib.reload(cli)
     for name in ("EXIT_OK", "EXIT_USAGE", "EXIT_VALIDATION",
+                 "EXIT_READINESS", "EXIT_COLLECTOR", "EXIT_BRIDGE",
+                 "EXIT_ORCHESTRATION",
                  "main", "_build_parser", "_validate_args",
                  "_handle_argparse_exit", "_emit", "_default_cwd"):
         assert hasattr(cli, name), f"missing public symbol: {name}"
@@ -140,24 +150,18 @@ def test_dry_run_exits_zero_and_emits_summary(capsys, tmp_path):
     assert not (tmp_path / "out").exists(), "dry-run must not create the output dir"
 
 
-def test_non_dry_run_is_rejected_in_slice_1(capsys, tmp_path):
-    rc = cli.main(_common_args(tmp_path))
-    assert rc == cli.EXIT_VALIDATION
-    err = capsys.readouterr().err
-    assert "dry-run" in err.lower() or "deferred" in err.lower() or "seam" in err.lower()
-
-
-def test_slice_total_under_800_lines():
-    """Bounded scope guard: CLI + tests ≤ 800 lines (Slice 1 + 1A corrected).
-    The 400-budget line guard belonged to the pre-correction draft and was
-    relaxed when Slice 1A was corrected to bind the real capture_hydration
-    public contracts (extra tests verify real bindings, not synthetic)."""
+def test_slice_total_under_1100_lines():
+    """Cumulative ergonomics guard: CLI + tests ≤ 1100 (Slices 1+1A+2).
+    Slice 1 was 800; the +300 relaxation is for real Slice 2 behavior
+    contracts (success dispatch + error taxonomy + bridge-script override),
+    not synthetic. This is CUMULATIVE ergonomics only; the per-PR delta
+    budget remains ≤ 400 raw changed lines."""
     cli_text = SCRIPT.read_text(encoding="utf-8")
     assert cli_text.startswith("#!/usr/bin/env python")
     cli_lines = sum(1 for _ in cli_text.splitlines())
     this_lines = sum(1 for _ in Path(__file__).read_text(encoding="utf-8").splitlines())
     total = cli_lines + this_lines
-    assert total <= 800, f"CLI + tests total is {total} lines; budget is 800"
+    assert total <= 1100, f"CLI + tests total is {total} lines; budget is 1100"
 
 
 def test_script_does_not_modify_child_b():
@@ -215,11 +219,7 @@ def test_subprocess_dry_run_exits_zero(tmp_path):
     assert not (tmp_path / "out").exists(), "dry-run must not create the output dir"
 
 
-def test_subprocess_non_dry_run_exits_validation(tmp_path):
-    r = _run_cli("--target-url", f"{BASE}/",
-                 "--out", str(tmp_path / "out"))
-    assert r.returncode == 2
-    assert "dry-run" in r.stderr.lower() or "deferred" in r.stderr.lower()
+
 
 
 # ── Slice 1A: real public-contract seam factories ──────────────────
@@ -231,7 +231,6 @@ def test_subprocess_non_dry_run_exits_validation(tmp_path):
 
 def test_make_lifecycle_returns_adapter_without_starting(tmp_path):
     """make_lifecycle returns a LegacyLifecycleAdapter; never .start()."""
-    from scripts import orchestrate_g5_legacy as og
     adapter = cli.make_lifecycle(host="127.0.0.1", port=8123, cwd=tmp_path)
     assert isinstance(adapter, og.LegacyLifecycleAdapter)
     assert adapter._ctx is None
@@ -250,7 +249,7 @@ def test_make_collector_default_signature_returns_real_schema():
     """Default collector closure (with injected fake BrowserAdapter) must
     delegate to capture_hydration.collect_raw_samples and return its real
     schema-conformant payload — NOT a synthetic inline-samples dict."""
-    from scripts.capture_hydration import SCHEMA
+    from scripts.capture_hydration import SCHEMA  # noqa: F401
     class _A:
         def chromium_provenance(self): return {"version": "x", "executable_path": "x"}
         def playwright_provenance(self): return {"version": "x"}
@@ -266,7 +265,7 @@ def test_make_collector_default_signature_returns_real_schema():
 def test_make_collector_default_delegates_to_collect_raw_samples():
     """Default collector closure must iterate collect_raw_samples 10x over
     the injected adapter (proves real delegation, not synthetic dict)."""
-    from scripts import capture_hydration as ch
+    from scripts import capture_hydration as ch  # noqa: F401
     seen = []
     class _A:
         def chromium_provenance(self): return {"version": "x", "executable_path": "x"}
@@ -420,3 +419,253 @@ class _FakeSubprocessHandle:
     def terminate(self): self.alive = False
     def wait(self, timeout_s: float): self.returncode = 0; return 0
     def kill(self): self.alive = False
+
+
+# ── Slice 2: success dispatch + error taxonomy + bridge-script override ──
+# All Slice 2 tests are hermetic (in-process; no subprocess / network /
+# browser / Node). Each monkeypatches the 5 seam factories AND
+# ``og.run_orchestration`` so the assertion is about CLI behavior,
+# not orchestrator internals (already covered by Child B's tests).
+
+class _FakeLifecycleAdapter:
+    """Minimal duck-typed lifecycle for dispatch tests (records start/stop)."""
+    def __init__(self):
+        self.base_url = "http://fake"
+        self._ctx: object | None = None
+        self.start_calls = self.stop_calls = 0
+    def start(self) -> None:
+        self._ctx = "active"; self.start_calls += 1
+    def stop(self) -> None:
+        if self._ctx is not None: self.stop_calls += 1; self._ctx = None
+
+def _patch_all_factories(monkeypatch):
+    """Replace the 5 make_* factories with deterministic fakes. Returns a
+    dict exposing ``<name>_kwargs`` (factory kwargs) and ``<name>_closure``
+    (callable returned, for identity vs orchestrator)."""
+    cap: dict = {}
+    lc = _FakeLifecycleAdapter()
+    cap["lifecycle_sentinel"] = lc
+
+    def _lc(**kw):
+        cap["lifecycle_kwargs"] = dict(kw); return lc
+
+    def _col(**kw):
+        cap["collector_kwargs"] = dict(kw)
+        def c(*, target_url, iterations, dom_marker_selector):
+            cap["collector_call"] = (target_url, iterations, dom_marker_selector)
+            return {"schema": "taxa.g5-capture.legacy/1",
+                    "samples": [], "iterations": iterations}
+        cap["collector_closure"] = c; return c
+
+    def _br(**kw):
+        cap["bridge_kwargs"] = dict(kw)
+        def b(url):
+            cap["bridge_call"] = url
+            return {"schema": "taxa.g5-raw-lhr.envelope/1", "url": url,
+                    "lhr": {}, "provenance": {}}
+        cap["bridge_closure"] = b; return b
+
+    def _pl(**kw):
+        cap["planner_kwargs"] = dict(kw)
+        def p(*, playwright_raws, lighthouse_raws, manifest_snapshot,
+                  legacy_hydration_metadata):
+            cap["planner_call"] = (len(playwright_raws), len(lighthouse_raws))
+            return {"schema": "taxa.g5-publication.evidence-manifest/1", "files": []}
+        cap["planner_closure"] = p; return p
+
+    def _pub(**kw):
+        cap["publisher_kwargs"] = dict(kw)
+        def u(plan, out_dir):
+            cap["publisher_call"] = (plan, out_dir)
+        cap["publisher_closure"] = u; return u
+
+    for name, fn in (("make_lifecycle", _lc), ("make_collector", _col),
+                         ("make_bridge", _br), ("make_planner", _pl),
+                         ("make_publisher", _pub)):
+        monkeypatch.setattr(cli, name, fn)
+    return cap
+
+def test_dry_run_never_constructs_or_calls_seams(monkeypatch, tmp_path):
+    """``--dry-run`` must NOT construct any factory AND must NOT call
+    ``og.run_orchestration`` (the deferred rejection is gone)."""
+    exec_calls: list[str] = []
+    def spy(name):
+        def f(**kw):
+            exec_calls.append(name)
+            raise AssertionError(f"{name} must not run during dry-run")
+        return f
+    for n in ("lifecycle", "collector", "bridge", "planner", "publisher"):
+        monkeypatch.setattr(cli, f"make_{n}", spy(n))
+    monkeypatch.setattr(cli.og, "run_orchestration",
+                        lambda **kw: exec_calls.append("orch") or 1/0)
+    rc = cli.main(_common_args(tmp_path) + ["--dry-run"])
+    assert rc == cli.EXIT_OK
+    assert exec_calls == [], f"dry-run touched seams: {exec_calls}"
+
+def test_non_dry_run_threads_cli_values(monkeypatch, tmp_path):
+    """Successful dispatch threads every CLI value into factories and into
+    ``og.run_orchestration`` (same instances returned by factories, not rebuilt)."""
+    cap = _patch_all_factories(monkeypatch)
+    orch: dict = {}
+
+    def fake_run(**kw):
+        orch.update(dict(kw))
+        kw["lifecycle"].start(); kw["lifecycle"].stop()
+        return {"schema": "taxa.g5-orchestrator.legacy/1",
+                "published_at": "2025-01-01T00:00:00Z",
+                "target_url": kw["target_url"],
+                "iterations": kw["iterations"],
+                "out_dir": str(kw["out_dir"]),
+                "plan_schema": "taxa.g5-publication.evidence-manifest/1",
+                "plan_files": 0}
+    monkeypatch.setattr(cli.og, "run_orchestration", fake_run)
+
+    real_dir = tmp_path / "real-dir"; real_dir.mkdir()
+    bridge_script = tmp_path / "bridge.mjs"; bridge_script.write_text("// b\n")
+
+    rc = cli.main(["--target-url", f"{BASE}/some/path",
+                   "--out", str(tmp_path / "out"),
+                   "--host", "127.0.0.1", "--port", "8123",
+                   "--cwd", str(real_dir),
+                   "--health-path", "/api/health",
+                   "--health-timeout-s", "12.0",
+                   "--health-interval-s", "0.1",
+                   "--terminate-grace-s", "7.0",
+                   "--bridge-script", str(bridge_script),
+                   "--iterations", "10",
+                   "--dom-marker-selector", "#x"])
+    assert rc == cli.EXIT_OK
+
+    lc = cap["lifecycle_kwargs"]
+    assert (lc["host"], lc["port"], lc["cwd"], lc["health_path"]) == (
+        "127.0.0.1", 8123, real_dir.resolve(), "/api/health")
+    assert (lc["health_timeout_s"], lc["health_interval_s"],
+            lc["terminate_grace_s"]) == (12.0, 0.1, 7.0)
+
+    assert Path(cap["bridge_kwargs"]["bridge_script"]) == bridge_script
+
+    # Orchestrator receives the EXACT instances returned by factories
+    assert orch["lifecycle"] is cap["lifecycle_sentinel"]
+    assert orch["collector"] is cap["collector_closure"]
+    assert orch["bridge"] is cap["bridge_closure"]
+    assert orch["planner"] is cap["planner_closure"]
+    assert orch["publisher"] is cap["publisher_closure"]
+
+    # Orchestrator receives CLI-level kwargs (resolved out_dir, etc.)
+    assert orch["target_url"] == f"{BASE}/some/path"
+    assert Path(orch["out_dir"]) == (tmp_path / "out").resolve()
+    assert (orch["iterations"], orch["dom_marker_selector"]) == (10, "#x")
+
+def test_non_dry_run_emits_success_summary_and_exits_zero(
+    monkeypatch, tmp_path, capsys,
+):
+    """Non-dry-run success emits a one-line summary from the orchestrator
+    descriptor and exits 0."""
+    _patch_all_factories(monkeypatch)
+    monkeypatch.setattr(cli.og, "run_orchestration",
+                        lambda **kw: (kw["lifecycle"].start(),
+                                          kw["lifecycle"].stop(),
+                                          {"schema": "taxa.g5-orchestrator.legacy/1",
+                                           "published_at": "2025-01-01T00:00:00Z",
+                                           "target_url": kw["target_url"],
+                                           "iterations": kw["iterations"],
+                                           "out_dir": str(kw["out_dir"]),
+                                           "plan_schema": "x",
+                                           "plan_files": 7})[2])
+    rc = cli.main(_common_args(tmp_path))
+    assert rc == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert "success" in out
+    assert f"{BASE}/" in out and "10" in out  # target_url + iterations
+    assert str((tmp_path / "out").resolve()) in out and "7" in out
+
+@pytest.mark.parametrize("exc_factory,expected_rc,label", [
+    (lambda: og.ReadinessError("r"), cli.EXIT_READINESS, "readiness"),
+    (lambda: TimeoutError("t"), cli.EXIT_READINESS, "timeout"),
+    (lambda: og.CollectorError("c"), cli.EXIT_COLLECTOR, "collector"),
+    (lambda: og.BridgeError("b"), cli.EXIT_BRIDGE, "bridge"),
+    (lambda: og.OrchestrationError("o"), cli.EXIT_ORCHESTRATION, "other"),
+    (lambda: ValueError("v"), cli.EXIT_VALIDATION, "value"),
+    (lambda: RuntimeError("u"), cli.EXIT_VALIDATION, "unknown"),
+])
+def test_error_taxonomy_maps_to_expected_exit_code(
+    monkeypatch, tmp_path, exc_factory, expected_rc, label,
+):
+    """Readiness/Timeout→3, Collector→4, Bridge→5, other Orchestration→6,
+    ValueError/unknown fail closed to 2."""
+    _patch_all_factories(monkeypatch)
+    monkeypatch.setattr(cli.og, "run_orchestration",
+                        lambda **kw: (_ for _ in ()).throw(exc_factory()))
+    assert cli.main(_common_args(tmp_path)) == expected_rc
+
+def test_exit_code_constants_match_documented_contract():
+    """Slice 2 exit codes: 3 readiness / 4 collector / 5 bridge / 6 other."""
+    assert (cli.EXIT_OK, cli.EXIT_USAGE, cli.EXIT_VALIDATION) == (0, 1, 2)
+    assert (cli.EXIT_READINESS, cli.EXIT_COLLECTOR,
+            cli.EXIT_BRIDGE, cli.EXIT_ORCHESTRATION) == (3, 4, 5, 6)
+
+def test_bridge_script_override_does_not_execute_at_construction(
+    monkeypatch, tmp_path,
+):
+    """``make_bridge(bridge_script=...)`` captures the script at construction
+    but never touches subprocess / which (argv only matters at invocation)."""
+    bscript = tmp_path / "custom.mjs"; bscript.write_text("// b\n")
+    exec_calls: list[str] = []
+    monkeypatch.setattr(cli.subprocess, "run",
+                        lambda *a, **kw: exec_calls.append("run"))
+    monkeypatch.setattr(cli.shutil, "which",
+                        lambda name: exec_calls.append("which") or "/usr/bin/node")
+    assert callable(cli.make_bridge(bridge_script=bscript))
+    assert exec_calls == []
+
+def test_bridge_script_override_threads_into_argv_when_invoked(
+    monkeypatch, tmp_path,
+):
+    """When the default closure is invoked, argv[1] is the supplied
+    ``bridge_script`` (NOT ``og.DEFAULT_BRIDGE_SCRIPT``)."""
+    bscript = tmp_path / "custom.mjs"; bscript.write_text("// b\n")
+    captured: dict = {}
+    def fake_run(argv, **kw):
+        captured["argv"] = list(argv)
+        return type("R", (), {"returncode": 0,
+                                   "stdout": '{"schema":"taxa.g5-raw-lhr.envelope/1",'
+                                              '"url":"x","lhr":{},"provenance":{}}\n',
+                                   "stderr": ""})()
+    monkeypatch.setattr(cli.shutil, "which", lambda name: "/usr/bin/node")
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+    cli.make_bridge(bridge_script=bscript)("http://x")
+    assert captured["argv"] == ["/usr/bin/node", str(bscript), "--url", "http://x"]
+
+def test_bridge_default_uses_default_bridge_script(monkeypatch):
+    """Without ``bridge_script=``, default bridge uses ``og.DEFAULT_BRIDGE_SCRIPT``."""
+    captured: dict = {}
+    def fake_run(argv, **kw):
+        captured["argv"] = list(argv)
+        return type("R", (), {"returncode": 0,
+                                   "stdout": '{"schema":"taxa.g5-raw-lhr.envelope/1",'
+                                              '"url":"x","lhr":{},"provenance":{}}\n',
+                                   "stderr": ""})()
+    monkeypatch.setattr(cli.shutil, "which", lambda name: "/usr/bin/node")
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+    cli.make_bridge()("http://x")
+    assert captured["argv"] == ["/usr/bin/node", str(og.DEFAULT_BRIDGE_SCRIPT),
+"--url", "http://x"]
+
+def test_dry_run_with_bridge_script_does_not_invoke_substrates(
+    monkeypatch, tmp_path,
+):
+    """``--dry-run --bridge-script <real-file>`` validates the bridge path
+    but never invokes subprocess / which (bridge closure is never built)."""
+    bscript = tmp_path / "real-bridge.mjs"; bscript.write_text("// b\n")
+    exec_calls: list[str] = []
+    monkeypatch.setattr(cli.subprocess, "run",
+                        lambda *a, **kw: exec_calls.append("run"))
+    monkeypatch.setattr(cli.shutil, "which",
+                        lambda name: exec_calls.append("which") or "/u/n")
+    monkeypatch.setattr(cli, "make_bridge",
+                        lambda **kw: exec_calls.append("bridge") or (lambda u: {}))
+    rc = cli.main(["--target-url", f"{BASE}/", "--out", str(tmp_path / "out"),
+                   "--iterations", "10", "--bridge-script", str(bscript),
+                   "--dry-run"])
+    assert rc == cli.EXIT_OK
+    assert exec_calls == [], f"dry-run touched substrates: {exec_calls}"
