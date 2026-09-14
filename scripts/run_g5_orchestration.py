@@ -29,8 +29,14 @@ Exit codes (Slice 1 narrow contract):
 from __future__ import annotations
 
 import argparse
+import json
+import shutil
+import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
+from typing import Callable, Optional, Sequence
 
 # Make the repo root importable so ``from scripts import ...`` works
 # regardless of invocation (direct ``python scripts/...py``, ``-m``, pytest).
@@ -39,6 +45,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from scripts import orchestrate_g5_legacy as og
+from scripts import capture_hydration as ch
 
 
 # ── exit-code contract (Slice 1 narrow surface) ─────────────────────────────
@@ -145,6 +152,164 @@ def _handle_argparse_exit(exc: SystemExit) -> int:
     """
     return EXIT_OK if exc.code == 0 else EXIT_USAGE
 
+
+# ── Slice 1A: non-executing seam factories ─────────────────────────────
+# Each factory: returns the right shape, threads injectable overrides
+# through, and does NOT spawn / probe / browse / run-Node / invoke
+# collection / publish output / call run_orchestration at construction.
+# Defaults bind to the REAL public contracts from scripts.capture_hydration
+# (collect_raw_samples / plan_evidence_publication / publish_evidence_atomic);
+# only lifecycle spawn/probe + bridge are CLI-local because those are the
+# seams this slice must own without reaching into Child B privates.
+
+
+class _CLIPopenHandle:
+    """CLI-local subprocess handle matching Child B's SubprocessHandle
+    Protocol. Defined locally so the CLI does not import Child B's private
+    subprocess handle."""
+    pid: int
+    argv: tuple
+    returncode: Optional[int]
+    alive: bool
+
+    def __init__(self, proc: "subprocess.Popen", argv: Sequence[str]):
+        self.pid = proc.pid
+        self.argv = tuple(argv)
+        self._proc = proc
+        self.returncode = None
+        self.alive = True
+
+    def terminate(self) -> None:
+        self._proc.terminate()
+
+    def wait(self, timeout_s: float) -> int:
+        return self._proc.wait(timeout=timeout_s)
+
+    def kill(self) -> None:
+        self._proc.kill()
+
+
+def _cli_default_subprocess_spawn(argv: Sequence[str], *, cwd: Path) -> _CLIPopenHandle:
+    """CLI-local default spawn. DEVNULL stdio, exact argv. Independent from
+    Child B's default spawn so the CLI does not import a private symbol."""
+    proc = subprocess.Popen(list(argv), cwd=str(cwd),
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+    return _CLIPopenHandle(proc, argv)
+
+
+def _cli_default_http_health_probe(host: str, port: int, path: str) -> bool:
+    """CLI-local default probe: HTTP 200 + JSON status=='ok'. Independent
+    re-implementation so the CLI does not import Child B privates."""
+    try:
+        with urllib.request.urlopen(f"http://{host}:{port}{path}",
+                                    timeout=2.0) as r:
+            if r.status != 200:
+                return False
+            payload = json.loads(r.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, json.JSONDecodeError):
+        return False
+    return isinstance(payload, dict) and payload.get("status") == "ok"
+
+
+def make_lifecycle(*, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT,
+                   cwd: Path,
+                   spawn: Optional[Callable] = None,
+                   probe: Optional[Callable] = None,
+                   health_path: str = DEFAULT_HEALTH_PATH,
+                   health_timeout_s: float = DEFAULT_HEALTH_TIMEOUT_S,
+                   health_interval_s: float = DEFAULT_HEALTH_INTERVAL_S,
+                   terminate_grace_s: float = DEFAULT_TERMINATE_GRACE_S,
+                   ):
+    """Construct a LegacyLifecycleAdapter with injectable spawn + probe
+    seams. Non-executing: .start() is NOT called, no subprocess is spawned.
+    The returned adapter exposes .start() / .stop() / .base_url."""
+    return og.LegacyLifecycleAdapter(
+        host=host, port=port, cwd=cwd,
+        spawn=spawn if spawn is not None else _cli_default_subprocess_spawn,
+        probe=probe if probe is not None else _cli_default_http_health_probe,
+        health_path=health_path,
+        health_timeout_s=health_timeout_s,
+        health_interval_s=health_interval_s,
+        terminate_grace_s=terminate_grace_s,
+    )
+
+
+def make_collector(*, collector: Optional[Callable[..., dict]] = None,
+                   browser_adapter: Optional[ch.BrowserAdapter] = None,
+                   ) -> Callable[..., dict]:
+    """Return a collector callable. Default closure binds to the REAL public
+    ``capture_hydration.collect_raw_samples``; if no ``browser_adapter`` is
+    injected, the closure lazily constructs a real
+    ``capture_hydration.PlaywrightBrowserAdapter`` only when invoked (never
+    at factory construction). Caller overrides win."""
+    if collector is not None:
+        return collector
+
+    def _default_collector(*, target_url: str, iterations: int,
+                           dom_marker_selector: str) -> dict:
+        adapter = (browser_adapter if browser_adapter is not None
+                   else ch.PlaywrightBrowserAdapter())
+        return ch.collect_raw_samples(
+            target_url=target_url, browser_adapter=adapter,
+            iterations=iterations,
+            dom_marker_selector=dom_marker_selector)
+    return _default_collector
+
+
+def make_bridge(*, bridge: Optional[Callable[[str], dict]] = None,
+                ) -> Callable[[str], dict]:
+    """Return a bridge callable (url) -> dict with envelope schema
+    taxa.g5-raw-lhr.envelope/1. CLI-local default spawns node against
+    Child B's public DEFAULT_BRIDGE_SCRIPT. Non-executing at construction;
+    the closure spawns Node only when invoked later."""
+    if bridge is not None:
+        return bridge
+
+    def _default_bridge(url: str) -> dict:
+        node = shutil.which("node")
+        if not node:
+            raise og.BridgeError(
+                "'node' binary not found on PATH; cannot invoke default bridge")
+        proc = subprocess.run(
+            [node, str(og.DEFAULT_BRIDGE_SCRIPT), "--url", url],
+            capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise og.BridgeError(
+                f"bridge process exited {proc.returncode}: "
+                f"stderr={proc.stderr.strip()!r}")
+        line = next((ln for ln in proc.stdout.splitlines() if ln.strip()),
+                    None)
+        if not line:
+            raise og.BridgeError(
+                f"bridge emitted no envelope JSON line "
+                f"(stdout={proc.stdout!r})")
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError as e:
+            raise og.BridgeError(
+                f"bridge envelope is not valid JSON: {e}") from e
+    return _default_bridge
+
+
+def make_planner(*, planner: Optional[Callable[..., dict]] = None,
+                 ) -> Callable[..., dict]:
+    """Return a planner callable. Default binds to the REAL public
+    ``capture_hydration.plan_evidence_publication`` (deterministic, pure,
+    no-I/O). Caller overrides win."""
+    if planner is not None:
+        return planner
+    return ch.plan_evidence_publication
+
+
+def make_publisher(*, publisher: Optional[Callable[..., None]] = None,
+                   ) -> Callable[..., None]:
+    """Return a publisher callable. Default binds to the REAL public
+    ``capture_hydration.publish_evidence_atomic`` (atomic filesystem publisher
+    with backup/restore semantics). Caller overrides win."""
+    if publisher is not None:
+        return publisher
+    return ch.publish_evidence_atomic
 
 def main(argv: list[str] | None = None) -> int:
     if argv is None:
