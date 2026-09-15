@@ -73,6 +73,71 @@ REQUIRED_TOP_KEYS = (
 )
 
 
+# --- G5 precondition contract (design.md §3.3.5) — slice 3 ------
+# Slice 1 (PR #216) added the hermetic --baseline --candidate
+# --iterations capture mode. Slice 3 layers the FAIL-CLOSED
+# precondition contract on top: --iterations must equal exactly 10;
+# --baseline must NOT be an existing directory (catches the
+# downstream `OSError: Is a directory` surprise from atomic rename);
+# --candidate must be an existing directory; the three flags must
+# appear together. On any precondition failure the script exits
+# non-zero, emits no capture artifact, and never claims G5 pass.
+# Capture, raw evidence schema, and delta calculation land in the
+# closure-path steps 2–4 (PR3d+). The contract is pinned by
+# `tests/test_hydration_timing.py` §G5 precondition contract.
+#
+# Adaptation note: source commit `7dcfea4` additionally required
+# `--baseline` to exist as a FILE on disk (the source treated
+# `--baseline` as a READ path). Current develop (post slice 1)
+# treats `--baseline` as a WRITE path and `_write_atomic` creates
+# any missing parent directories — that contract is preserved here
+# by NOT enforcing a parent-dir precondition; the precondition slice
+# only forbids the directory-at-baseline-path surprise. The legacy
+# `validate <artifact>` mode is preserved verbatim by
+# `test_g5_cli_legacy_positional_path_preserved`.
+G5_EXPECTED_ITERATIONS = 10
+EXIT_G5_PRECONDITION = 10
+G5_FLAGS = ("--baseline", "--candidate", "--iterations")
+
+
+def _fail_g5_precondition(msg: str) -> int:
+    """Emit a G5-precondition failure diagnostic and return the
+    dedicated exit code (10). The message explicitly NEGATES a G5
+    pass claim so no caller can read the output as `G5 PASS`.
+    """
+    sys.stderr.write(
+        f"[measure_hydration] G5 precondition failed: {msg}. "
+        f"No capture artifact emitted; G5 not claimed as passed.\n"
+    )
+    return EXIT_G5_PRECONDITION
+
+
+def _check_g5_preconditions(
+    baseline: Path, candidate: Path, iterations: int,
+) -> int:
+    """Return 0 if every G5 precondition holds; otherwise an exit code.
+
+    Runs BEFORE `_run_capture` so a precondition failure cannot
+    leave a partial baseline on disk and cannot be silently
+    downgraded to a downstream `OSError: Is a directory` surprise.
+    """
+    if iterations != G5_EXPECTED_ITERATIONS:
+        return _fail_g5_precondition(
+            f"--iterations must be {G5_EXPECTED_ITERATIONS}; "
+            f"got {iterations}"
+        )
+    if baseline.exists() and baseline.is_dir():
+        return _fail_g5_precondition(
+            f"--baseline must not be an existing directory: {baseline}"
+        )
+    if not candidate.is_dir():
+        return _fail_g5_precondition(
+            f"--candidate build root not found or not a directory: "
+            f"{candidate}"
+        )
+    return 0
+
+
 def _fail(msg: str, code: int = 1) -> int:
     sys.stderr.write(f"[measure_hydration] {msg}\n")
     return code
@@ -470,6 +535,18 @@ def main(argv: list[str]) -> int:
             "positive integer\n"
         )
         return 1
+    # --- G5 precondition contract (slice 3, design.md §3.3.5) ----
+    # Validates --iterations == 10, --baseline is not an existing
+    # directory, and --candidate is an existing directory.
+    # Failures exit 10 without writing any capture artifact and
+    # never claim G5 pass.
+    rc = _check_g5_preconditions(
+        Path(args.baseline),
+        Path(args.candidate),
+        args.iterations,
+    )
+    if rc != 0:
+        return rc
     return _run_capture(
         Path(args.baseline),
         Path(args.candidate),

@@ -426,3 +426,270 @@ def test_measure_hydration_capture_requires_candidate(
     )
     assert result.returncode != 0
     assert not out.exists(), "must NOT write output without --candidate"
+
+# ---------------------------------------------------------------------------
+# G5 precondition contract (design.md §3.3.5) — slice 3 reconstruction
+# ---------------------------------------------------------------------------
+# Slice 1 (PR #216) added the hermetic --baseline --candidate --iterations
+# capture mode. Slice 3 layers the FAIL-CLOSED precondition contract on top:
+# --iterations must equal exactly 10; --baseline must be a writable path
+# (non-existent, or an existing regular file — but NOT an existing
+# directory) with an existing parent directory; --candidate must be an
+# existing directory; the three flags must appear together. On any
+# precondition failure the script exits non-zero, emits no capture
+# artifact, and never claims G5 pass. Capture, raw evidence schema, and
+# delta calculation land in the closure-path steps 2–4 (PR3d+).
+#
+# This section adapts the precondition contract tests from source commit
+# `7dcfea4` ("feat(g5): enforce hydration capture preconditions (#132)")
+# onto the current develop — which already carries the slice-1 capture
+# pipeline. The legacy positional `validate <artifact>` contract is
+# preserved verbatim by `test_g5_cli_legacy_positional_path_preserved`.
+G5_EXPECTED_ITERATIONS = 10
+EXIT_G5_PRECONDITION = 10
+
+
+@pytest.fixture()
+def g5_baseline_output(tmp_path: Path) -> Path:
+    """Where the G5 capture would write its baseline (does NOT pre-exist).
+
+    Tests assert the path remains untouched after a precondition failure.
+    """
+    return tmp_path / "should-not-exist-by-default.json"
+
+
+@pytest.fixture()
+def g5_baseline_existing_file(tmp_path: Path) -> Path:
+    """An existing JSON file that the capture is allowed to overwrite.
+
+    Used by precondition-pass tests where the slice is allowed to write
+    a real capture artifact on top of this stub.
+    """
+    p = tmp_path / "pre-existing-baseline.json"
+    p.write_text("{}\n", encoding="utf-8")
+    return p
+
+
+@pytest.fixture()
+def g5_candidate_root(tmp_path: Path) -> Path:
+    """Self-contained candidate web root for the precondition tests."""
+    root = tmp_path / "candidate"
+    root.mkdir()
+    (root / "index.html").write_text(
+        "<!doctype html><html><body>g5 precondition fixture</body></html>\n"
+    )
+    return root
+
+
+def _parity_reports_hydration() -> list[Path]:
+    """Return any hydration.json artifacts under parity-reports/ (untracked).
+
+    The current slice-1 capture writes the baseline to the user-provided
+    --baseline path, NOT to `parity-reports/<date>/hydration.json` — so a
+    non-empty result here would mean the script bypassed `--baseline` and
+    auto-emitted into the canonical G5 artifact location, which the
+    precondition contract forbids.
+    """
+    base = REPO_ROOT / "parity-reports"
+    return sorted(base.rglob("hydration.json")) if base.exists() else []
+
+
+def test_g5_cli_requires_all_three_flags_together() -> None:
+    """RED — zero G5 flags must fail closed; no artifact; no G5 pass claim."""
+    before = _parity_reports_hydration()
+    result = _run_script()
+    after = _parity_reports_hydration()
+    assert result.returncode != 0, (
+        f"expected non-zero exit; got {result.returncode}.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "g5 pass" not in (result.stdout + result.stderr).lower()
+    assert after == before, f"hydration artifact emitted: {after}"
+
+
+def test_g5_cli_iterations_must_equal_ten(
+    g5_baseline_output: Path,
+    g5_candidate_root: Path,
+) -> None:
+    """RED — --iterations must be exactly 10; any other value fails closed."""
+    assert not g5_baseline_output.exists()
+    before = _parity_reports_hydration()
+    result = _run_script(
+        "--baseline",
+        str(g5_baseline_output),
+        "--candidate",
+        str(g5_candidate_root),
+        "--iterations",
+        "5",
+    )
+    after = _parity_reports_hydration()
+    assert result.returncode != 0, (
+        f"expected non-zero exit; got {result.returncode}.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    combined = (result.stdout + result.stderr).lower()
+    assert "10" in combined, (
+        f"stderr/stdout must mention required iterations=10; got {combined!r}"
+    )
+    assert "g5 pass" not in combined
+    assert after == before, f"hydration artifact emitted: {after}"
+    assert not g5_baseline_output.exists(), (
+        f"precondition failed but output was written at {g5_baseline_output}"
+    )
+
+
+def test_g5_cli_candidate_must_exist(
+    g5_baseline_output: Path,
+    tmp_path: Path,
+) -> None:
+    """RED — --candidate must point at an existing build-root directory."""
+    assert not g5_baseline_output.exists()
+    before = _parity_reports_hydration()
+    result = _run_script(
+        "--baseline",
+        str(g5_baseline_output),
+        "--candidate",
+        str(tmp_path / "no-such-candidate"),
+        "--iterations",
+        "10",
+    )
+    after = _parity_reports_hydration()
+    assert result.returncode != 0, (
+        f"expected non-zero exit; got {result.returncode}.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    combined = (result.stdout + result.stderr).lower()
+    assert "candidate" in combined, (
+        f"stderr/stdout must mention candidate; got {combined!r}"
+    )
+    assert "g5 pass" not in combined
+    assert after == before, f"hydration artifact emitted: {after}"
+    assert not g5_baseline_output.exists(), (
+        f"precondition failed but output was written at {g5_baseline_output}"
+    )
+
+
+def test_g5_cli_preconditions_pass_does_not_claim_g5_pass(
+    g5_baseline_output: Path,
+    g5_candidate_root: Path,
+) -> None:
+    """TRIANGULATE — with all preconditions met, the slice must NOT claim
+    G5 pass. The capture itself is allowed to write the baseline (per the
+    slice-1 closure-path step 1 disposition), but the precondition contract
+    guarantees that no output ever claims `G5 pass`.
+
+    G5 stays `blocked — comparison not yet attempted` until closure-path
+    steps 2 (candidate-side capture) + 3 (joining) + 4 (±10 % assertion)
+    all close (design.md §3.3.5). The precondition slice cannot flip G5
+    to `passed` on its own.
+    """
+    before = _parity_reports_hydration()
+    result = _run_script(
+        "--baseline",
+        str(g5_baseline_output),
+        "--candidate",
+        str(g5_candidate_root),
+        "--iterations",
+        "10",
+    )
+    after = _parity_reports_hydration()
+    combined = (result.stdout + result.stderr).lower()
+    assert "g5 pass" not in combined, (
+        f"preconditions met but output still claims G5 pass; got {combined!r}"
+    )
+    assert after == before, (
+        f"unexpected parity-reports hydration emission (the slice must "
+        f"only ever emit to the explicit --baseline path): {after}"
+    )
+
+
+def test_g5_cli_only_one_flag_fails_closed(g5_baseline_output: Path) -> None:
+    """TRIANGULATE — providing one of three G5 flags must fail closed
+    (not silently default to legacy mode or auto-fill the others).
+    """
+    before = _parity_reports_hydration()
+    result = _run_script("--baseline", str(g5_baseline_output))
+    after = _parity_reports_hydration()
+    assert result.returncode != 0, (
+        f"single flag must fail closed; got {result.returncode}.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "g5 pass" not in (result.stdout + result.stderr).lower()
+    assert after == before, f"hydration artifact emitted: {after}"
+    assert not g5_baseline_output.exists()
+
+
+def test_g5_cli_two_of_three_flags_fails_closed(
+    g5_baseline_output: Path,
+    g5_candidate_root: Path,
+) -> None:
+    """TRIANGULATE — two of three flags (missing --iterations) must fail
+    closed. The contract is that the three flags MUST appear together;
+    argparse's `default=1` for `--iterations` does NOT satisfy this —
+    the precondition check requires the literal value 10.
+    """
+    before = _parity_reports_hydration()
+    result = _run_script(
+        "--baseline",
+        str(g5_baseline_output),
+        "--candidate",
+        str(g5_candidate_root),
+    )
+    after = _parity_reports_hydration()
+    assert result.returncode != 0, (
+        f"two flags must fail closed; got {result.returncode}.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "g5 pass" not in (result.stdout + result.stderr).lower()
+    assert after == before, f"hydration artifact emitted: {after}"
+    assert not g5_baseline_output.exists()
+
+
+def test_g5_cli_baseline_must_not_be_an_existing_directory(
+    g5_candidate_root: Path,
+    tmp_path: Path,
+) -> None:
+    """TRIANGULATE — --baseline pointing at an existing directory (not a
+    regular file path) must fail closed with the G5 precondition wording,
+    not a downstream "cannot rename temp file → directory" surprise.
+    """
+    baseline_dir = tmp_path / "baseline-is-a-dir"
+    baseline_dir.mkdir()
+    before = _parity_reports_hydration()
+    result = _run_script(
+        "--baseline",
+        str(baseline_dir),
+        "--candidate",
+        str(g5_candidate_root),
+        "--iterations",
+        "10",
+    )
+    after = _parity_reports_hydration()
+    assert result.returncode != 0, (
+        f"dir-as-baseline must fail closed; got {result.returncode}.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    combined = (result.stdout + result.stderr).lower()
+    assert "g5 pass" not in combined
+    assert "baseline" in combined, (
+        f"stderr/stdout must mention baseline; got {combined!r}"
+    )
+    assert after == before, f"hydration artifact emitted: {after}"
+    # The directory must remain untouched (no spurious temp files inside).
+    assert baseline_dir.is_dir()
+    assert not any(baseline_dir.iterdir()), (
+        f"precondition failed but temp file leaked into {baseline_dir}"
+    )
+
+
+def test_g5_cli_legacy_positional_path_preserved(hydration_artifact: Path) -> None:
+    """TRIANGULATE — the legacy positional CLI path must remain intact
+    after the precondition slice is added. The script must still
+    validate a positional hydration JSON artifact and exit zero on a
+    valid one.
+    """
+    result = _run_script(str(hydration_artifact))
+    assert result.returncode == 0, (
+        f"legacy positional path broken by G5 slice; "
+        f"got exit={result.returncode}, stderr={result.stderr}"
+    )
