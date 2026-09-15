@@ -14,6 +14,13 @@
 //               output via a sibling-backup strategy when the final rename
 //               fails. Verification failure prevents runner invocation and
 //               evidence publication; it applies to dry-run too.
+//   capture-5 — G5 raw-LHR seam: captureRawLhr() returns the unmodified raw
+//               LHR (identity) plus provenance for future G5 publishers.
+//               Validates URL + malformed runner output BEFORE returning.
+//               Additive — capture()'s existing G4 runner path stays intact
+//               (no rerouting through the seam). Forwarding manifestEntry by
+//               reference lets future G5 publishers correlate raw LHRs with
+//               the corpus manifest entry that drove the capture.
 // See tools/g4-capture/README.md.
 
 import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
@@ -138,6 +145,39 @@ export function buildProvenance({
     host: os.hostname(),
     capturedAt: new Date().toISOString(),
   };
+}
+
+// `captureRawLhr()` is the G5 raw-LHR seam: a no-I/O helper that drives an
+// injected runner, returns the unmodified raw LHR BY IDENTITY plus provenance
+// parsed from it, and rejects missing url / malformed runner output BEFORE
+// returning. The optional `manifestEntry` is forwarded to the runner by
+// reference (the seam does not inspect it) so future G5 publishers can
+// correlate raw LHRs with the corpus manifest entry that drove the capture.
+// Additive — the dry-run + G4 mapped evidence paths are untouched.
+export async function captureRawLhr({
+  url,
+  runLighthouse: runLighthouseFn,
+  manifestEntry,
+} = {}) {
+  if (!url || typeof url !== "string") {
+    throw new Error("captureRawLhr: url is required");
+  }
+  if (typeof runLighthouseFn !== "function") {
+    throw new Error("captureRawLhr: runLighthouse must be a function");
+  }
+  const lhr = await runLighthouseFn({ url, manifestEntry });
+  if (!lhr || typeof lhr !== "object" || Array.isArray(lhr)) {
+    throw new Error(
+      "captureRawLhr: runner returned malformed output (expected non-array object)",
+    );
+  }
+  const provenance = buildProvenance({
+    lighthouseVersion: lhr.lighthouseVersion ?? "unknown",
+    chromeVersion: lhr.userAgent
+      ? chromeVersionFromUserAgent(lhr.userAgent)
+      : "unknown",
+  });
+  return { lhr, provenance };
 }
 
 // ── Public slice-2 surface ─────────────────────────────────────────────
@@ -267,7 +307,9 @@ export async function verifyTarget({ url, entry, fetchFn = globalThis.fetch }) {
   const expectedSha = entry.expectedContentSha256;
   const expectedMarker = entry.expectedDOMMarker;
   if (typeof expectedSha !== "string" || expectedSha.length === 0) {
-    throw new Error("verifyTarget: entry.expectedContentSha256 required (got empty)");
+    throw new Error(
+      "verifyTarget: entry.expectedContentSha256 required (got empty)",
+    );
   }
   let response;
   try {
@@ -277,24 +319,34 @@ export async function verifyTarget({ url, entry, fetchFn = globalThis.fetch }) {
     throw new Error(`verifyTarget: fetch failed for ${url}: ${msg}`);
   }
   if (!response || typeof response.status !== "number") {
-    throw new Error(`verifyTarget: invalid response for ${url} (missing status)`);
+    throw new Error(
+      `verifyTarget: invalid response for ${url} (missing status)`,
+    );
   }
   if (response.status !== expectedStatus) {
-    throw new Error(`verifyTarget: status mismatch for ${url}: expected ${expectedStatus}, got ${response.status}`);
+    throw new Error(
+      `verifyTarget: status mismatch for ${url}: expected ${expectedStatus}, got ${response.status}`,
+    );
   }
   const buf = new Uint8Array(await response.arrayBuffer());
   const sha = createHash("sha256").update(buf).digest("hex");
   if (sha !== expectedSha) {
-    throw new Error(`verifyTarget: sha256 mismatch for ${url}: expected ${expectedSha}, got ${sha}`);
+    throw new Error(
+      `verifyTarget: sha256 mismatch for ${url}: expected ${expectedSha}, got ${sha}`,
+    );
   }
   // validateManifest() already refuses an empty marker, so reaching this
   // branch with `expectedMarker` falsy would mean the validator was
   // bypassed. Defensive no-op in that case.
-  if (expectedMarker && !new TextDecoder("utf-8").decode(buf).includes(expectedMarker)) {
-    throw new Error(`verifyTarget: DOM marker ${JSON.stringify(expectedMarker)} not found in ${url}`);
+  if (
+    expectedMarker &&
+    !new TextDecoder("utf-8").decode(buf).includes(expectedMarker)
+  ) {
+    throw new Error(
+      `verifyTarget: DOM marker ${JSON.stringify(expectedMarker)} not found in ${url}`,
+    );
   }
 }
-
 
 // Reject any file name whose resolved path escapes the staging dir —
 // absolute paths and `../`-ladder names would otherwise let evidence files
@@ -304,16 +356,19 @@ function _resolveUnderStaging(stagingRoot, name) {
     throw new Error(`atomicWrite: file name must be a non-empty string`);
   }
   if (isAbsolute(name)) {
-    throw new Error(`atomicWrite: file name must be relative: ${JSON.stringify(name)}`);
+    throw new Error(
+      `atomicWrite: file name must be relative: ${JSON.stringify(name)}`,
+    );
   }
   const resolved = resolve(stagingRoot, name);
   const rel = relative(stagingRoot, resolved);
   if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
-    throw new Error(`atomicWrite: file name ${JSON.stringify(name)} resolves outside staging dir`);
+    throw new Error(
+      `atomicWrite: file name ${JSON.stringify(name)} resolves outside staging dir`,
+    );
   }
   return resolved;
 }
-
 
 export async function atomicWrite(outDir, files, { rename = renameSync } = {}) {
   // Selective atomicWrite: replace only the payload-named files in
