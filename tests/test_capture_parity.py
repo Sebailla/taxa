@@ -1474,3 +1474,211 @@ def test_validate_manifest_rejects_empty_expected_dom_marker(tmp_path):
     assert r2.returncode != 0, (
         "validateManifest must reject an entry missing expectedDOMMarker"
     )
+
+
+# ── G5 raw-LHR capture seam ──────────────────────────────────────────────
+# Additive to G4: a no-I/O seam that hands the raw LHR to future publishers.
+# Contract: runner's LHR returned BY IDENTITY; provenance parsed from it;
+# missing url + malformed runner output rejected BEFORE returning. Dry run
+# + G4 mapped evidence contract are untouched (capture() still uses the
+# existing inline runner path; only the seam is added).
+def test_raw_lhr_capture_helper_returns_lhr_by_identity_with_provenance():
+    """captureRawLhr returns the runner's LHR BY IDENTITY plus provenance
+    whose lighthouseVersion + chromeVersion match the raw LHR."""
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e",
+         f"import {{ captureRawLhr }} from 'file://{SCRIPT}';\n"
+         "const synthetic = {\n"
+         "  lighthouseVersion: '12.2.1',\n"
+         "  userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.71 Safari/537.36',\n"
+         "  categories: { performance: { score: 0.95 } },\n"
+         "  audits: { 'first-contentful-paint': { id: 'first-contentful-paint', score: 0.9 } },\n"
+         "};\n"
+         "let runnerArgs = null;\n"
+         "const result = await captureRawLhr({\n"
+         f"  url: {json.dumps(CAPTURE_URL)},\n"
+         "  runLighthouse: async (args) => { runnerArgs = args; return synthetic; },\n"
+         "});\n"
+         "const out = {\n"
+         "  sameIdentity: result.lhr === synthetic,\n"
+         "  runnerGotUrl: !!(runnerArgs && runnerArgs.url === " + json.dumps(CAPTURE_URL) + "),\n"
+         "  lighthouseV: result.provenance.lighthouseVersion,\n"
+         "  chromeV: result.provenance.chromeVersion,\n"
+         "  provSchema: result.provenance.schema,\n"
+         "};\n"
+         "process.stdout.write(JSON.stringify(out));"],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["sameIdentity"] is True, (
+        "captureRawLhr must return the EXACT LHR reference the runner "
+        "produced — no clone, no normalization"
+    )
+    assert out["runnerGotUrl"] is True, (
+        f"runner must receive the URL; got runnerArgs={out!r}"
+    )
+    assert out["lighthouseV"] == "12.2.1", (
+        f"provenance.lighthouseVersion must match the raw LHR; got {out['lighthouseV']!r}"
+    )
+    assert out["chromeV"] == "120.0.6099.71", (
+        f"provenance.chromeVersion must be parsed from userAgent; got {out['chromeV']!r}"
+    )
+    assert out["provSchema"] == "taxa.g4-capture.provenance/1"
+
+
+def test_raw_lhr_capture_helper_forwards_manifest_entry_to_runner_by_reference():
+    """captureRawLhr forwards an optional manifestEntry to the injected
+    runner alongside the URL by REFERENCE (===). The seam does not clone
+    the entry. When manifestEntry is absent, the runner still receives
+    `manifestEntry: undefined` so legacy callers / hermetic tests need
+    not construct one."""
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e",
+         f"import {{ captureRawLhr }} from 'file://{SCRIPT}';\n"
+         "const manifestEntry = { url: " + json.dumps(CAPTURE_URL) + ", expectedContentSha256: 'a'.repeat(64) };\n"
+         "let withEntry = null, withoutEntry = null;\n"
+         "await captureRawLhr({\n"
+         f"  url: {json.dumps(CAPTURE_URL)},\n"
+         "  manifestEntry,\n"
+         "  runLighthouse: async (args) => { withEntry = args; return {}; },\n"
+         "});\n"
+         "await captureRawLhr({\n"
+         f"  url: {json.dumps(CAPTURE_URL)},\n"
+         "  runLighthouse: async (args) => { withoutEntry = args; return {}; },\n"
+         "});\n"
+         "process.stdout.write(JSON.stringify({\n"
+         "  withByRef: withEntry && withEntry.manifestEntry === manifestEntry,\n"
+         "  withSha: withEntry && withEntry.manifestEntry && withEntry.manifestEntry.expectedContentSha256,\n"
+         "  withoutIsUndefined: withoutEntry && withoutEntry.manifestEntry === undefined,\n"
+         "  withoutKeyPresent: withoutEntry && 'manifestEntry' in withoutEntry,\n"
+         "}));"],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["withByRef"] is True, (
+        "captureRawLhr must forward manifestEntry BY REFERENCE (===); "
+        f"got {out!r}"
+    )
+    assert out["withSha"] == "a" * 64, (
+        f"runner must receive the entry's fields intact; got {out['withSha']!r}"
+    )
+    assert out["withoutIsUndefined"] is True, (
+        f"runner must receive manifestEntry=undefined when absent; got {out!r}"
+    )
+    assert out["withoutKeyPresent"] is True, (
+        "manifestEntry key must always be present so callers can "
+        f"distinguish 'absent' from 'not forwarded'; got {out!r}"
+    )
+
+@pytest.mark.parametrize("mode", ["missing-url", "malformed-null", "malformed-array"])
+def test_raw_lhr_capture_helper_rejects_invalid_inputs_before_returning(mode):
+    """Triangulate: captureRawLhr must reject missing url AND malformed
+    runner output (null, array) BEFORE returning. URL validation runs first
+    so a missing url short-circuits the runner entirely."""
+    if mode == "missing-url":
+        script = (
+            "import { captureRawLhr } from 'file://" + str(SCRIPT) + "';\n"
+            "let runnerCalled = false;\n"
+            "const result = await captureRawLhr({\n"
+            "  runLighthouse: async () => { runnerCalled = true; return {}; },\n"
+            "}).catch((e) => ({ err: e.message, runnerCalled }));\n"
+            "process.stdout.write(JSON.stringify(result));\n"
+        )
+    elif mode == "malformed-null":
+        script = (
+            "import { captureRawLhr } from 'file://" + str(SCRIPT) + "';\n"
+            "try {\n"
+            f"  await captureRawLhr({{ url: {json.dumps(CAPTURE_URL)}, runLighthouse: async () => null }});\n"
+            "  process.exit(2);\n"
+            "} catch (e) {\n"
+            "  process.stdout.write(JSON.stringify({err: e.message}));\n"
+            "}\n"
+        )
+    else:  # malformed-array
+        script = (
+            "import { captureRawLhr } from 'file://" + str(SCRIPT) + "';\n"
+            "try {\n"
+            f"  await captureRawLhr({{ url: {json.dumps(CAPTURE_URL)}, runLighthouse: async () => [] }});\n"
+            "  process.exit(2);\n"
+            "} catch (e) {\n"
+            "  process.stdout.write(JSON.stringify({err: e.message}));\n"
+            "}\n"
+        )
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout.strip().splitlines()[-1])
+    if mode == "missing-url":
+        assert "url" in out["err"].lower(), (
+            f"missing-url error must mention 'url'; got {out!r}"
+        )
+        assert out["runnerCalled"] is False, (
+            "missing-url must short-circuit the runner entirely"
+        )
+    else:
+        assert "malformed" in out["err"].lower() or "non-array" in out["err"].lower(), (
+            f"{mode} error must mention malformed/non-array; got {out!r}"
+        )
+
+
+def test_raw_lhr_capture_helper_output_feeds_maplhr_with_g4_contract():
+    """The seam's {lhr, provenance} output MUST be consumable by mapLhr so
+    a future G5 publisher that runs captureRawLhr + mapLhr still gets the
+    G4 mapped-evidence contract (fixed 4 categories, sorted runWarnings).
+    This protects the contract WITHOUT routing capture() through the seam;
+    capture() keeps its existing inline runner path untouched."""
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e",
+         f"import {{ captureRawLhr, mapLhr }} from 'file://{SCRIPT}';\n"
+         "const synthetic = {\n"
+         "  lighthouseVersion: '12.2.1',\n"
+         "  userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.71 Safari/537.36',\n"
+         "  finalUrl: " + json.dumps(CAPTURE_URL) + ",\n"
+         "  fetchTime: '2025-01-01T00:00:00.000Z',\n"
+         "  runWarnings: ['z warning', 'a warning'],\n"
+         "  categories: {\n"
+         "    performance: { score: 0.95, title: 'Performance' },\n"
+         "    accessibility: { score: 1.0, title: 'Accessibility' },\n"
+         "    'best-practices': { score: 0.92, title: 'Best Practices' },\n"
+         "    seo: { score: 1.0, title: 'SEO' },\n"
+         "  },\n"
+         "  audits: {},\n"
+         "};\n"
+         "const seam = await captureRawLhr({\n"
+         f"  url: {json.dumps(CAPTURE_URL)},\n"
+         "  runLighthouse: async () => synthetic,\n"
+         "});\n"
+         "const mapped = mapLhr(seam.lhr);\n"
+         "const out = {\n"
+         "  sameIdentity: seam.lhr === synthetic,\n"
+         "  cats: Object.keys(mapped.categories),\n"
+         "  warnings: mapped.runWarnings,\n"
+         "  provSchema: seam.provenance.schema,\n"
+         "  provLV: seam.provenance.lighthouseVersion,\n"
+         "  provCV: seam.provenance.chromeVersion,\n"
+         "};\n"
+         "process.stdout.write(JSON.stringify(out));"],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["sameIdentity"] is True, (
+        "seam.lhr must be the raw LHR BY IDENTITY so a publisher can "
+        "serialize it without losing fields mapLhr would drop"
+    )
+    assert out["cats"] == [
+        "performance", "accessibility", "best-practices", "seo",
+    ], f"seam→mapLhr must preserve the G4 fixed-category contract; got {out['cats']!r}"
+    assert out["warnings"] == ["a warning", "z warning"], (
+        f"seam→mapLhr must sort runWarnings deterministically; got {out['warnings']!r}"
+    )
+    assert out["provSchema"] == "taxa.g4-capture.provenance/1"
+    assert out["provLV"] == "12.2.1"
+    assert out["provCV"] == "120.0.6099.71", (
+        f"provenance.chromeVersion must be parsed from raw LHR userAgent; "
+        f"got {out['provCV']!r}"
+    )
