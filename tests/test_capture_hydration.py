@@ -30,8 +30,14 @@ TARGET_URL = "http://127.0.0.1:8765/"
 
 class FakeBrowserAdapter:
     """Hermetic test double. Records `calls` for fail-closed assertions."""
-    def __init__(self, *, raise_on=None, raise_message="synthetic iteration failure"):
+    def __init__(self, *, raise_on=None, raise_message="synthetic iteration failure",
+                 wait_ms: float = 0.0, found: bool = True, count: int = 1,
+                 first_text: str | None = "x"):
         self._raise_on, self._raise_message = raise_on, raise_message
+        self._wait_ms: float = wait_ms
+        self._found: bool = found
+        self._count: int = count
+        self._first_text: str | None = first_text
         self.calls: list = []
     def chromium_provenance(self):
         return {"version": "fake-chromium-1.0", "executable_path": "/fake/chromium"}
@@ -46,8 +52,9 @@ class FakeBrowserAdapter:
             "navigation": {"response_start_ms": 0.0, "dom_content_loaded_ms": 0.0,
                            "load_event_ms": 0.0, "redirect_count": 0, "status": 200},
             "paint": {"first_paint_ms": 0.0, "first_contentful_paint_ms": 0.0},
-            "dom_marker": {"selector": dom_marker_selector, "found": True,
-                           "count": 1, "first_text": "x", "wait_ms": 0.0},
+            "dom_marker": {"selector": dom_marker_selector, "found": self._found,
+                           "count": self._count, "first_text": self._first_text,
+                           "wait_ms": self._wait_ms},
             "console": [],
         }
 
@@ -144,8 +151,7 @@ class _StrictPage:
     def wait_for_selector(self, sel, timeout=5000):
         pass
 
-    @property
-    def locator(self):
+    def locator(self, selector):
         return _StrictLocator()
 
 
@@ -392,7 +398,98 @@ def test_playwright_adapter_raises_clear_error_when_playwright_missing(monkeypat
         assert adapter.playwright_provenance() == {"version": "unknown"}
 
 
-# Child A — G5 evidence-manifest plan (deterministic, pure, no-I/O).
+def test_default_dom_marker_selector_matches_g3_fixture():
+    """G5 readiness contract: the raw collector's DEFAULT_DOM_MARKER_SELECTOR
+    MUST target the controlled G3 fixture's dynamic readiness marker —
+    `#tree-view[data-state="ready"]` — not the legacy static selector.
+    Without this pin the collector cannot observe the G3 fixture's
+    first-paint readiness flip emitted by `web/tree.js`."""
+    assert ch.DEFAULT_DOM_MARKER_SELECTOR == '#tree-view[data-state="ready"]', (
+        f"DEFAULT_DOM_MARKER_SELECTOR must match the G3 controlled fixture's "
+        f"dynamic readiness marker (#tree-view[data-state=\"ready\"]); "
+        f"got {ch.DEFAULT_DOM_MARKER_SELECTOR!r}"
+    )
+
+
+def test_collect_propagates_honest_elapsed_readiness_metric():
+    """G5 readiness metric preservation: the raw collector MUST forward
+    every adapter-provided `dom_marker.wait_ms` value verbatim into the
+    sample envelope. The metric is the analogue of 'hydration cost' —
+    how long the adapter waited for the readiness marker to become
+    visible. A hard-coded zero would silently disable the candidate-vs-
+    baseline delta the joiner relies on."""
+    adapter = FakeBrowserAdapter(wait_ms=17.5)
+    result = ch.collect_raw_samples(target_url=TARGET_URL, browser_adapter=adapter)
+    assert len(result["samples"]) == 10
+    for i, s in enumerate(result["samples"]):
+        assert isinstance(s["dom_marker"], dict)
+        assert s["dom_marker"]["wait_ms"] == 17.5, (
+            f"sample[{i}].dom_marker.wait_ms must be preserved verbatim; "
+            f"got {s['dom_marker']['wait_ms']!r}"
+        )
+
+
+def test_collect_missing_readiness_records_negative_one_and_not_found():
+    """G5 readiness missing/invalid behavior: when the adapter reports the
+    readiness marker was never observed, `wait_ms` MUST be -1.0 (the
+    sentinel) AND `found` MUST be False. The collector must NOT coerce
+    a missing marker into a zero or true — that would mask the failure
+    in the candidate-vs-baseline diff."""
+    adapter = FakeBrowserAdapter(wait_ms=-1.0, found=False, count=0,
+                                 first_text=None)
+    result = ch.collect_raw_samples(target_url=TARGET_URL, browser_adapter=adapter)
+    assert len(result["samples"]) == 10
+    for i, s in enumerate(result["samples"]):
+        assert s["dom_marker"]["wait_ms"] == -1.0, (
+            f"sample[{i}].dom_marker.wait_ms must be -1.0 when readiness "
+            f"is missing; got {s['dom_marker']['wait_ms']!r}"
+        )
+        assert s["dom_marker"]["found"] is False, (
+            f"sample[{i}].dom_marker.found must be False when readiness "
+            f"is missing; got {s['dom_marker']['found']!r}"
+        )
+        assert s["dom_marker"]["count"] == 0
+        assert s["dom_marker"]["first_text"] is None
+
+
+def test_real_adapter_derives_wait_ms_from_wall_clock_inside_boundary(monkeypatch):
+    """G5 readiness contract — REAL adapter: `wait_ms` MUST be derived
+    from wall-clock elapsed time across `wait_for_selector` INSIDE the
+    adapter boundary — not a hard-coded 0.0 literal. A regression that
+    reverts to a literal would silently disable the candidate-vs-baseline
+    delta.
+
+    Hermetic: reuses the slice-7 strict sync_playwright() fake to skip
+    the Playwright import + feeds a precise 17.5ms gap through
+    `time.monotonic` (called once before, once after `wait_for_selector`).
+    The error path (timeout) is covered by the FakeBrowserAdapter test
+    above."""
+    cm = _StrictPlaywrightCM()
+    fake_module = types.SimpleNamespace(sync_playwright=lambda: cm)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", fake_module)
+
+    adapter = ch.PlaywrightBrowserAdapter()
+
+    times = iter([1000.000, 1000.0175])
+    monkeypatch.setattr(ch.time, "monotonic", lambda: next(times))
+
+    result = adapter.run_iteration(
+        target_url="http://127.0.0.1:8765/",
+        dom_marker_selector='#tree-view[data-state="ready"]',
+        iteration_index=0)
+    assert result["dom_marker"]["wait_ms"] == pytest.approx(17.5), (
+        f"REAL adapter wait_ms must derive from wall-clock elapsed time; "
+        f"got {result['dom_marker']['wait_ms']!r} (expected ~17.5ms)"
+    )
+    assert result["dom_marker"]["found"] is True
+    assert result["dom_marker"]["count"] == 1
+    assert result["dom_marker"]["selector"] == '#tree-view[data-state="ready"]'
+    assert cm.chromium_outside_accesses == 0, (
+        "chromium was accessed outside the active sync_playwright() "
+        "context in run_iteration()")
+
+
+    # Child A — G5 evidence-manifest plan (deterministic, pure, no-I/O).
 _PW_BASE = {"captured_at": "2026-09-01T00:00:00Z",
             "navigation": {"response_start_ms": 0.0, "dom_content_loaded_ms": 0.0,
                            "load_event_ms": 0.0, "redirect_count": 0, "status": 200},
