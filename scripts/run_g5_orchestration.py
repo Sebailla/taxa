@@ -37,10 +37,13 @@ Exit codes (CLI-wide contract):
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import json
+import os
 import shutil
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -74,6 +77,12 @@ DEFAULT_TERMINATE_GRACE_S = og.DEFAULT_TERMINATE_GRACE_S
 DEFAULT_BRIDGE_TIMEOUT_S = og.DEFAULT_BRIDGE_TIMEOUT_S
 DEFAULT_ITERATIONS = og.ITERATIONS
 DEFAULT_DOM_MARKER_SELECTOR = og.DEFAULT_DOM_MARKER_SELECTOR
+# Slice 4: bridge proof logs. The CLI default lives under the G5
+# evidence-publication raw/ tree (<out>/raw/bridge-logs); the operator
+# may override with --bridge-log-dir. ``None`` is the no-op contract
+# for callers (preserves existing behaviour for hermetic tests).
+DEFAULT_BRIDGE_LOG_DIR_NAME = 'raw/bridge-logs'
+BRIDGE_LOG_SCHEMA = 'taxa.g5-bridge.proof-log/1'
 
 
 def _default_cwd() -> Path:
@@ -104,16 +113,27 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--terminate-grace-s", type=float,
                    default=DEFAULT_TERMINATE_GRACE_S, help="SIGTERM→SIGKILL grace (s)")
     p.add_argument("--bridge-script", default=None,
-                       help=f"Override default bridge (default {og.DEFAULT_BRIDGE_SCRIPT})")
+                   help=f"Override default bridge (default {og.DEFAULT_BRIDGE_SCRIPT})")
     p.add_argument("--bridge-timeout-s", type=float,
-                       default=DEFAULT_BRIDGE_TIMEOUT_S,
-                       help=("Bound bridge subprocess per-invocation timeout "
-                             "(seconds). On timeout the closure emits an stderr "
-                             "advisory and returns a sentinel envelope; the "
-                             "orchestrator does NOT raise. Must be > 0 "
-                             f"(default: {DEFAULT_BRIDGE_TIMEOUT_S})"))
+                   default=DEFAULT_BRIDGE_TIMEOUT_S,
+                   help=("Bound bridge subprocess per-invocation timeout "
+                         "(seconds). On timeout the closure emits an stderr "
+                         "advisory and returns a sentinel envelope; the "
+                         "orchestrator does NOT raise. Must be > 0 "
+                         f"(default: {DEFAULT_BRIDGE_TIMEOUT_S})"))
+    p.add_argument("--bridge-log-dir", default=None,
+                   help=("Directory where the Python bridge closure writes "
+                         "one atomic JSON proof log per invocation "
+                         "(schema=" + BRIDGE_LOG_SCHEMA + ", filename "
+                         "bridge-NN.json, NN = two-digit iteration). "
+                         "Defaults to <out>/" + DEFAULT_BRIDGE_LOG_DIR_NAME +
+                         " when omitted. Pass any directory path; existing "
+                         "bridge-*.json files are rotated on first write. "
+                         "Log-write failures are non-blocking - the bridge "
+                         "returns / raises per its existing contract and a "
+                         "distinct stderr advisory is emitted."))
     p.add_argument("--iterations", type=int, default=DEFAULT_ITERATIONS,
-                       help=f"Must equal {DEFAULT_ITERATIONS} (G5 contract)")
+                   help=f"Must equal {DEFAULT_ITERATIONS} (G5 contract)")
     p.add_argument("--dom-marker-selector", default=DEFAULT_DOM_MARKER_SELECTOR,
                    help="DOM-marker selector for capture readiness wait")
     p.add_argument("--no-headless", action="store_true",
@@ -141,11 +161,43 @@ def _validate_args(args: argparse.Namespace) -> str | None:
         return f"--cwd must be an existing directory; got {args.cwd!r}"
     if args.bridge_script is not None and not Path(args.bridge_script).is_file():
         return f"--bridge-script must be an existing file; got {args.bridge_script!r}"
+    if (args.bridge_log_dir is not None
+            and Path(args.bridge_log_dir).exists()
+            and not Path(args.bridge_log_dir).is_dir()):
+        return (f"--bridge-log-dir must be a directory path (or not exist yet); "
+                f"got {args.bridge_log_dir!r}")
     return None
 
 
 def _emit(msg: str) -> None:
     sys.stderr.write(f"[run_g5_orchestration] {msg}\n")
+
+
+def _now_iso() -> str:
+    """ISO-8601 UTC timestamp with explicit ``Z`` suffix."""
+    return _dt.datetime.now(_dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def _write_bridge_log_atomic(log_dir, iteration, record) -> None:
+    """Atomic write: JSON to a sibling ``.tmp`` file, then ``os.replace``
+    it onto ``bridge-NN.json``. Raises OSError / IOError on filesystem
+    failure; the bridge closure wraps this so a write failure NEVER
+    blocks the bridge success / sentinel / BridgeError contract."""
+    tmp = log_dir / f".bridge-{iteration:02d}.json.tmp"
+    final = log_dir / f"bridge-{iteration:02d}.json"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(record, f, ensure_ascii=False, indent=2, sort_keys=True)
+            f.write("\n")
+        os.replace(tmp, final)
+    except OSError:
+        # Clean up the temp file if rename failed mid-flight.
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+        raise
 
 
 def _argparse_exit_code(exc: SystemExit) -> int:
@@ -257,9 +309,10 @@ def make_collector(*, collector: Optional[Callable[..., dict]] = None,
 
 
 def make_bridge(*, bridge: Optional[Callable[[str], dict]] = None,
-            bridge_script: Optional[Path] = None,
-            bridge_timeout_s: float = DEFAULT_BRIDGE_TIMEOUT_S,
-            ) -> Callable[[str], dict]:
+        bridge_script: Optional[Path] = None,
+        bridge_timeout_s: float = DEFAULT_BRIDGE_TIMEOUT_S,
+        bridge_log_dir: Optional[Path] = None,
+        ) -> Callable[[str], dict]:
     """Return a bridge callable (url) -> dict with envelope schema
     taxa.g5-raw-lhr.envelope/1. CLI-local default spawns node against
     ``bridge_script`` (or ``og.DEFAULT_BRIDGE_SCRIPT`` when None).
@@ -274,6 +327,16 @@ def make_bridge(*, bridge: Optional[Callable[[str], dict]] = None,
     (via ``og._bridge_timeout_envelope``) instead of raising
     ``BridgeError``. Existing BridgeError contracts (missing-node,
     non-zero exit, no JSON line, invalid JSON) are preserved.
+
+    Slice 4 — bridge proof logs: when ``bridge_log_dir`` is not None,
+    the closure atomically persists a JSON proof log per invocation
+    under ``<bridge_log_dir>/bridge-NN.json`` (NN = two-digit iteration
+    counter). The log carries argv / cwd / timestamp / timeout /
+    stdout / stderr / exit_code / timed_out / duration_ms. Previous-run
+    ``bridge-*.json`` files are rotated on first write. Log-write
+    failure is NON-BLOCKING: a distinct stderr advisory is emitted and
+    the bridge success / sentinel / BridgeError contract is preserved.
+    Pass ``bridge_log_dir=None`` to keep the legacy no-log behaviour.
     """
     if bridge is not None:
         return bridge
@@ -284,31 +347,101 @@ def make_bridge(*, bridge: Optional[Callable[[str], dict]] = None,
             f'bridge_timeout_s must be a positive number; '
             f'got {bridge_timeout_s!r}')
 
+    iteration_counter = [0]
+    log_dir_prepared = [False]
+    log_dir = Path(bridge_log_dir) if bridge_log_dir is not None else None
+
+    def _emit_bridge_log_advisory(iteration, err) -> None:
+        """Distinct stderr advisory so a log-write failure
+        is greppable without breaking the bridge contract."""
+        sys.stderr.write(
+            f"[run_g5_orchestration] bridge-log write failed: "
+            f"iteration={iteration} dir={log_dir} "
+            f"err={type(err).__name__}: {err}\n")
+
+    def _try_write_bridge_log(
+            *, iteration, argv, cwd_str, timeout_s,
+            duration_ms, exit_code, timed_out,
+            stdout_text, stderr_text) -> None:
+        """Prepare the log dir on first call (mkdir + rotate
+        previous bridge-*.json), then atomically write one
+        JSON proof log. Non-blocking: every exception is
+        caught and surfaced as a stderr advisory."""
+        if log_dir is None:
+            return
+        try:
+            if not log_dir_prepared[0]:
+                log_dir.mkdir(parents=True, exist_ok=True)
+                for stale in log_dir.glob("bridge-*.json"):
+                    stale.unlink()
+                log_dir_prepared[0] = True
+            record = {
+                "schema": BRIDGE_LOG_SCHEMA,
+                "iteration": iteration,
+                "argv": list(argv),
+                "cwd": cwd_str,
+                "timestamp": _now_iso(),
+                "timeout_s": timeout_s,
+                "duration_ms": duration_ms,
+                "exit_code": exit_code,
+                "timed_out": timed_out,
+                "stdout": stdout_text,
+                "stderr": stderr_text,
+            }
+            _write_bridge_log_atomic(log_dir, iteration, record)
+        except Exception as e:
+            _emit_bridge_log_advisory(iteration, e)
+
     def _default_bridge(url: str) -> dict:
         node = shutil.which("node")
         if not node:
             raise og.BridgeError(
                 "'node' binary not found on PATH; cannot invoke default bridge")
+        iteration_counter[0] += 1
+        iteration = iteration_counter[0]
+        argv = [node, str(script_path), "--url", url]
+        cwd_str = os.getcwd()
+        timeout_s_val = float(bridge_timeout_s)
+        start = time.monotonic()
+        timed_out = False
+        returncode = 0
+        stdout_text = ""
+        stderr_text = ""
         try:
             proc = subprocess.run(
-                [node, str(script_path), "--url", url],
+                argv,
                 capture_output=True, text=True,
-                timeout=float(bridge_timeout_s))
+                timeout=timeout_s_val)
+            returncode = proc.returncode
+            stdout_text = proc.stdout
+            stderr_text = proc.stderr
         except subprocess.TimeoutExpired:
+            timed_out = True
+            returncode = None
+            stderr_text = (
+                f"[run_g5_orchestration] bridge timeout: url={url} "
+                f"timeout_s={timeout_s_val:.3f} — returning sentinel envelope\n")
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        _try_write_bridge_log(
+            iteration=iteration, argv=argv, cwd_str=cwd_str,
+            timeout_s=timeout_s_val, duration_ms=elapsed_ms,
+            exit_code=returncode, timed_out=timed_out,
+            stdout_text=stdout_text, stderr_text=stderr_text)
+        if timed_out:
             og._emit_bridge_timeout_advisory(
-                url, timeout_s=float(bridge_timeout_s))
+                url, timeout_s=timeout_s_val)
             return og._bridge_timeout_envelope(
-                url, timeout_s=float(bridge_timeout_s))
-        if proc.returncode != 0:
+                url, timeout_s=timeout_s_val)
+        if returncode != 0:
             raise og.BridgeError(
-                f"bridge process exited {proc.returncode}: "
-                f"stderr={proc.stderr.strip()!r}")
-        line = next((ln for ln in proc.stdout.splitlines() if ln.strip()),
+                f"bridge process exited {returncode}: "
+                f"stderr={stderr_text.strip()!r}")
+        line = next((ln for ln in stdout_text.splitlines() if ln.strip()),
                     None)
         if not line:
             raise og.BridgeError(
                 f"bridge emitted no envelope JSON line "
-                f"(stdout={proc.stdout!r})")
+                f"(stdout={stdout_text!r})")
         try:
             return json.loads(line)
         except json.JSONDecodeError as e:
@@ -373,8 +506,13 @@ def main(argv: list[str] | None = None) -> int:
                                    health_interval_s=args.health_interval_s,
                                    terminate_grace_s=args.terminate_grace_s)
         collector = make_collector()
+        if args.bridge_log_dir is not None:
+            bridge_log_dir = Path(args.bridge_log_dir)
+        else:
+            bridge_log_dir = out_dir / DEFAULT_BRIDGE_LOG_DIR_NAME
         bridge = make_bridge(bridge_script=bridge_script_path,
-                         bridge_timeout_s=args.bridge_timeout_s)
+                         bridge_timeout_s=args.bridge_timeout_s,
+                         bridge_log_dir=bridge_log_dir)
         planner = make_planner()
         publisher = make_publisher()
 
