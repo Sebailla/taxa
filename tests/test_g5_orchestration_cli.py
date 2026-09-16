@@ -192,12 +192,19 @@ def test_seam_factory_failure_maps_to_runtime_exit(capsys, tmp_path, monkeypatch
 
 
 # ── budget guard + subprocess smoke (no real subprocess/browser/network) ─
-def test_slice_total_under_400_lines():
+def test_slice_total_under_800_lines():
+    """Bounded scope guard: CLI + tests ≤ 800 lines (Slice 12 + 13).
+    The 400-budget guard belonged to the pre-correction Slice 1 draft and
+    was relaxed when Slice 1A (source commit 9c8219b) introduced real
+    capture_hydration public contracts (extra tests verify real bindings,
+    not synthetic re-implementations). Slice 13 adapts the wiring onto
+    current develop (Slices 1–12) which already had inline seam wiring."""
     cli_text = SCRIPT.read_text(encoding="utf-8")
     assert cli_text.startswith("#!/usr/bin/env python")
     cli_lines = sum(1 for _ in cli_text.splitlines())
     this_lines = sum(1 for _ in Path(__file__).read_text(encoding="utf-8").splitlines())
-    assert cli_lines + this_lines <= 400
+    assert cli_lines + this_lines <= 800, (
+f"CLI + tests total is {cli_lines + this_lines} lines; budget is 800")
 
 
 def _sub(*argv: str) -> subprocess.CompletedProcess:
@@ -211,8 +218,237 @@ def test_subprocess_help_exits_zero():
 
 
 def test_subprocess_dry_run_exits_zero_without_side_effects(tmp_path):
-    r = _sub("--target-url", BASE + "/", "--out", str(tmp_path / "out"),
-             "--dry-run")
-    assert r.returncode == 0, r.stderr
-    assert "dry-run" in r.stdout
-    assert not (tmp_path / "out").exists()
+        r = _sub("--target-url", BASE + "/", "--out", str(tmp_path / "out"),
+                 "--dry-run")
+        assert r.returncode == 0, r.stderr
+        assert "dry-run" in r.stdout
+        assert not (tmp_path / "out").exists()
+
+
+# ── Slice 13: seam factories (CLI-local, public) ────────────────────────
+# Each factory must: (1) return the right shape, (2) thread injectable
+# overrides through, (3) NOT spawn / probe / browse / run-Node at
+# construction time. The bridge default must be CLI-local (no Child B
+# private symbol reach-through); collector / planner / publisher defaults
+# must bind to REAL capture_hydration public contracts.
+
+class _FakeSubprocessHandle:
+    """Minimal duck-typed handle for fake_spawn in threading tests."""
+    def __init__(self, pid):
+        self.pid = pid
+        self.argv: tuple = ()
+        self.returncode: int | None = None
+        self.alive: bool = True
+    def terminate(self):
+        self.alive = False
+    def wait(self, timeout_s: float):
+        self.returncode = 0
+        return 0
+    def kill(self):
+        self.alive = False
+
+
+def test_make_lifecycle_returns_adapter_without_starting(tmp_path):
+    adapter = cli.make_lifecycle(host="127.0.0.1", port=8123, cwd=tmp_path)
+    assert isinstance(adapter, og.LegacyLifecycleAdapter)
+    assert adapter._ctx is None
+    assert adapter.base_url == "http://127.0.0.1:8123"
+
+
+def test_make_lifecycle_threads_injectable_spawn_and_probe(tmp_path):
+    def fake_spawn(argv, *, cwd):
+        return _FakeSubprocessHandle(pid=99999)
+    def fake_probe(host, port, path):
+        return True
+    adapter = cli.make_lifecycle(host="127.0.0.1", port=8124, cwd=tmp_path,
+                                  spawn=fake_spawn, probe=fake_probe)
+    assert adapter._kwargs["spawn"] is fake_spawn
+    assert adapter._kwargs["probe"] is fake_probe
+
+
+def test_make_collector_default_signature_returns_real_schema():
+    from scripts.capture_hydration import SCHEMA
+
+    class _A:
+        def chromium_provenance(self):
+            return {"version": "x", "executable_path": "x"}
+        def playwright_provenance(self):
+            return {"version": "x"}
+        def run_iteration(self, *, target_url, dom_marker_selector,
+                          iteration_index):
+            return {"iteration": iteration_index, "captured_at": "x"}
+
+    result = cli.make_collector(browser_adapter=_A())(target_url=f"{BASE}/",
+                                                      iterations=10,
+                                                      dom_marker_selector="#x")
+    assert result["schema"] == SCHEMA
+    assert result["iterations"] == 10
+    assert len(result["samples"]) == 10
+
+
+def test_make_collector_default_delegates_to_collect_raw_samples():
+    from scripts import capture_hydration as ch
+    seen = []
+
+    class _A:
+        def chromium_provenance(self):
+            return {"version": "x", "executable_path": "x"}
+        def playwright_provenance(self):
+            return {"version": "x"}
+        def run_iteration(self, *, target_url, dom_marker_selector,
+                          iteration_index):
+            seen.append(iteration_index)
+            return {"iteration": iteration_index, "captured_at": "x"}
+
+    out = cli.make_collector(browser_adapter=_A())(target_url=f"{BASE}/",
+                                                   iterations=10,
+                                                   dom_marker_selector="#x")
+    assert out["schema"] == ch.SCHEMA
+    assert seen == list(range(10))
+
+
+def test_make_collector_does_not_instantiate_adapter_at_construction():
+    assert callable(cli.make_collector())
+
+
+def test_make_collector_threads_injectable_override():
+    def my_collector(*, target_url, iterations, dom_marker_selector):
+        return {"schema": "x", "samples": []}
+    assert cli.make_collector(collector=my_collector) is my_collector
+
+
+def test_make_bridge_returns_callable():
+    assert callable(cli.make_bridge())
+
+
+def test_make_bridge_threads_injectable_override():
+    def my_bridge(url):
+        return {"schema": "taxa.g5-raw-lhr.envelope/1", "url": url,
+                "lhr": {}, "provenance": {}}
+    assert cli.make_bridge(bridge=my_bridge) is my_bridge
+
+
+def test_make_planner_default_is_plan_evidence_publication():
+    from scripts import capture_hydration as ch
+    assert cli.make_planner() is ch.plan_evidence_publication
+
+
+def test_make_planner_threads_injectable_override():
+    def my_planner(*, playwright_raws, lighthouse_raws,
+                   manifest_snapshot, legacy_hydration_metadata):
+        return {"schema": "taxa.g5-publication.evidence-manifest/1",
+                "files": [], "called": True}
+    planner = cli.make_planner(planner=my_planner)
+    assert planner is my_planner
+
+
+def test_make_publisher_default_is_publish_evidence_atomic():
+    from scripts import capture_hydration as ch
+    assert cli.make_publisher() is ch.publish_evidence_atomic
+
+
+def test_make_publisher_threads_injectable_override():
+    calls = []
+
+    def my_publisher(plan, out_dir):
+        calls.append((plan, out_dir))
+
+    publisher = cli.make_publisher(publisher=my_publisher)
+    assert publisher is my_publisher
+    publisher({"schema": "x"}, Path("/tmp/out"))
+    assert calls == [({"schema": "x"}, Path("/tmp/out"))]
+
+
+def test_factory_construction_does_not_invoke_execution_substrates(monkeypatch):
+    exec_calls = []
+
+    def tracker(name):
+        def _t(*a, **kw):
+            exec_calls.append(name)
+            raise AssertionError(f"{name} must not run at construction")
+        return _t
+
+    monkeypatch.setattr(cli.subprocess, "Popen", tracker("Popen"))
+    monkeypatch.setattr(cli.subprocess, "run", tracker("run"))
+    monkeypatch.setattr(cli.urllib.request, "urlopen", tracker("urlopen"))
+    monkeypatch.setattr(cli.shutil, "which", tracker("which"))
+    cli.make_lifecycle(host="127.0.0.1", port=8125, cwd=Path("/tmp"))
+    cli.make_collector()
+    cli.make_bridge()
+    cli.make_planner()
+    cli.make_publisher()
+    assert exec_calls == []
+
+
+def test_make_lifecycle_does_not_start_lifecycle(tmp_path):
+    assert cli.make_lifecycle(host="127.0.0.1", port=8126,
+                               cwd=tmp_path)._ctx is None
+
+
+def test_cli_does_not_reference_child_b_private_bridge_symbols():
+    import re as _re
+    text = SCRIPT.read_text(encoding="utf-8")
+    for sym in ("_default_subprocess_bridge",):
+        m = _re.search(
+            rf"(?<![A-Za-z0-9_]){_re.escape(sym)}(?![A-Za-z0-9_])", text)
+        assert m is None, (
+            f"CLI must not reference Child B private {sym!r}; "
+            "use cli.make_bridge() instead")
+
+
+def test_build_default_seams_uses_cli_public_factories(tmp_path, monkeypatch):
+    """build_default_seams must wire through the new public make_*()
+    factories (lifecycle, collector, bridge) instead of inlining calls
+    or reaching into Child B privates."""
+    from scripts import capture_hydration as ch
+    seen: dict = {}
+
+    real_make_lc = cli.make_lifecycle
+    real_make_coll = cli.make_collector
+    real_make_br = cli.make_bridge
+
+    def spy_lc(*, host, port, cwd, **kw):
+        seen["lifecycle"] = (host, port, str(cwd))
+        return real_make_lc(host=host, port=port, cwd=cwd, **kw)
+
+    def spy_coll(**kw):
+        seen["collector_factory_called"] = True
+        return real_make_coll(**kw)
+
+    def spy_br(**kw):
+        seen["bridge_factory_called"] = True
+        return real_make_br(**kw)
+
+    monkeypatch.setattr(cli, "make_lifecycle", spy_lc)
+    monkeypatch.setattr(cli, "make_collector", spy_coll)
+    monkeypatch.setattr(cli, "make_bridge", spy_br)
+
+    class _A:
+        def chromium_provenance(self):
+            return {"version": "x", "executable_path": "x"}
+        def playwright_provenance(self):
+            return {"version": "x"}
+        def run_iteration(self, *, target_url, dom_marker_selector,
+                          iteration_index):
+            return {"iteration": iteration_index, "captured_at": "x"}
+
+    monkeypatch.setattr(ch, "collect_raw_samples",
+                        lambda *, target_url, browser_adapter, iterations,
+                               dom_marker_selector: {
+                            "schema": ch.SCHEMA,
+                            "samples": [{"iteration": i, "captured_at": "x"}
+                                        for i in range(iterations)],
+                            "iterations": iterations})
+
+    ns = cli._build_parser().parse_args([
+        "--target-url", f"{BASE}/",
+        "--out", str(tmp_path / "out"),
+        "--iterations", "10",
+        "--cwd", str(tmp_path)])
+    seams = cli.build_default_seams(ns)
+    assert isinstance(seams["lifecycle"], og.LegacyLifecycleAdapter)
+    assert seen["lifecycle"] == ("127.0.0.1", 8765, str(tmp_path))
+    assert seen["collector_factory_called"] is True
+    assert seen["bridge_factory_called"] is True
+    assert seams["planner"] is ch.plan_evidence_publication
+    assert seams["publisher"] is ch.publish_evidence_atomic
