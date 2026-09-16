@@ -1,23 +1,32 @@
 #!/usr/bin/env python
-"""G5 legacy-orchestration CLI — Slice 13 (adapted from ``9c8219b``).
+"""G5 legacy-orchestration CLI — Slices 1–14 (adapted from ``e232a7c``).
 
-Composes ``scripts.orchestrate_g5_legacy.run_orchestration`` with fully
-injectable seam factories (lifecycle, collector, bridge, planner,
-publisher). Slice 13 adapts commit ``9c8219b``'s Slice 1A onto current
-develop (Slices 1–12 ship CLI + lifecycle + orchestration entry + default
-raw-Lighthouse bridge). The bounded ``--dry-run`` surface is preserved
-verbatim; this slice wires CLI-local public seam factories
+Slices 1–13 ship the bounded CLI surface (argparse + validation +
+``--dry-run``), the 5 public seam factories
 (``make_lifecycle`` / ``make_collector`` / ``make_bridge`` / ``make_planner``
-/ ``make_publisher``) and re-routes ``build_default_seams`` through them so
-the CLI no longer reaches into Child B private symbols.
+/ ``make_publisher``), and ``make_bridge(bridge_script=...)`` so the CLI
+threads the optional ``--bridge-script`` override through the
+Node-spawning closure. Slice 14 (adapted from ``e232a7c``) drops the
+deferred-seams ``build_default_seams`` helper, wires every ``make_*()``
+factory directly through ``main()`` into
+``scripts.orchestrate_g5_legacy.run_orchestration``, and maps the
+orchestration error taxonomy to specific exit codes so the caller knows
+which subsystem failed.
 
 Contract:
   * ``--dry-run``: parse + validate + one-line summary, exit 0
     WITHOUT invoking any seam factory or ``run_orchestration``.
-  * (default): build defaults via ``build_default_seams(args)`` and call
-    ``run_orchestration``.
+  * (default): build every seam via the public ``make_*()`` factories and
+    invoke ``run_orchestration`` directly with the exact instances returned.
 
-Exit codes: 0 success, 1 usage, 2 validation, 3 runtime error.
+Exit codes (CLI-wide contract):
+  0   success (dry-run resolved OR orchestration succeeded)
+  1   usage / argparse error
+  2   validation error OR ``ValueError`` / unknown exception (fail closed)
+  3   readiness failure (``og.ReadinessError`` or bare ``TimeoutError``)
+  4   collector failure (``og.CollectorError``)
+  5   bridge failure (``og.BridgeError``)
+  6   other orchestration failure (other ``og.OrchestrationError``)
 """
 from __future__ import annotations
 
@@ -39,8 +48,14 @@ from scripts import orchestrate_g5_legacy as og
 from scripts import capture_hydration as ch
 
 
-# ── exit-code contract ──────────────────────────────────────────────────
-EXIT_OK, EXIT_USAGE, EXIT_VALIDATION, EXIT_RUNTIME = 0, 1, 2, 3
+# ── exit-code contract (CLI-wide) ──────────────────────────────────────
+EXIT_OK = 0
+EXIT_USAGE = 1
+EXIT_VALIDATION = 2
+EXIT_READINESS = 3
+EXIT_COLLECTOR = 4
+EXIT_BRIDGE = 5
+EXIT_ORCHESTRATION = 6
 
 
 # ── argparse defaults (sourced from Child B) ────────────────────────────
@@ -227,13 +242,18 @@ def make_collector(*, collector: Optional[Callable[..., dict]] = None,
 
 
 def make_bridge(*, bridge: Optional[Callable[[str], dict]] = None,
+                bridge_script: Optional[Path] = None,
                 ) -> Callable[[str], dict]:
     """Return a bridge callable (url) -> dict with envelope schema
     taxa.g5-raw-lhr.envelope/1. CLI-local default spawns node against
-    Child B's public DEFAULT_BRIDGE_SCRIPT. Non-executing at construction;
-    the closure spawns Node only when invoked later."""
+    ``bridge_script`` (or ``og.DEFAULT_BRIDGE_SCRIPT`` when None).
+    Non-executing at construction; the closure spawns Node only when
+    invoked later, so ``bridge_script`` is captured at construction
+    time and threaded into argv at invocation time only."""
     if bridge is not None:
         return bridge
+    script_path = (Path(bridge_script) if bridge_script is not None
+                   else og.DEFAULT_BRIDGE_SCRIPT)
 
     def _default_bridge(url: str) -> dict:
         node = shutil.which("node")
@@ -241,7 +261,7 @@ def make_bridge(*, bridge: Optional[Callable[[str], dict]] = None,
             raise og.BridgeError(
                 "'node' binary not found on PATH; cannot invoke default bridge")
         proc = subprocess.run(
-            [node, str(og.DEFAULT_BRIDGE_SCRIPT), "--url", url],
+            [node, str(script_path), "--url", url],
             capture_output=True, text=True)
         if proc.returncode != 0:
             raise og.BridgeError(
@@ -281,62 +301,81 @@ def make_publisher(*, publisher: Optional[Callable[..., None]] = None,
     return ch.publish_evidence_atomic
 
 
-# ── Default seam assembly (monkey-patchable for hermetic tests) ─────────
-def build_default_seams(args: argparse.Namespace) -> dict:
-    """Build the default {lifecycle, collector, bridge, planner, publisher}
-    seam dict consumed by ``run_orchestration`` by routing through the CLI-local
-    public ``make_*()`` factories. Tests override this module-level function
-    with deterministic fakes — no real subprocess, browser, or network is
-    touched by the test suite."""
-    cwd = Path(args.cwd).resolve() if args.cwd else _default_cwd()
-    return {"lifecycle": make_lifecycle(
-                host=args.host, port=args.port, cwd=cwd,
-                health_path=args.health_path,
-                health_timeout_s=args.health_timeout_s,
-                health_interval_s=args.health_interval_s,
-                terminate_grace_s=args.terminate_grace_s),
-            "collector": make_collector(),
-            "bridge": make_bridge(),
-            "planner": make_planner(),
-            "publisher": make_publisher()}
-
-
 def main(argv: list[str] | None = None) -> int:
-    if argv is None:
-        argv = sys.argv[1:]
-    parser = _build_parser()
-    try:
-        args = parser.parse_args(argv)
-    except SystemExit as e:
-        return _argparse_exit_code(e)
-    err = _validate_args(args)
-    if err is not None:
-        _emit(err)
-        return EXIT_VALIDATION
-    out_dir = Path(args.out).resolve()
-    cwd = Path(args.cwd).resolve() if args.cwd else _default_cwd()
-    if args.dry_run:
+        if argv is None:
+            argv = sys.argv[1:]
+        parser = _build_parser()
+        try:
+            args = parser.parse_args(argv)
+        except SystemExit as e:
+            return _argparse_exit_code(e)
+        err = _validate_args(args)
+        if err is not None:
+            _emit(err)
+            return EXIT_VALIDATION
+        out_dir = Path(args.out).resolve()
+        cwd = Path(args.cwd).resolve() if args.cwd else _default_cwd()
+
+        # Side-effect-free path: --dry-run NEVER touches seam factories or
+        # ``og.run_orchestration`` (see test_dry_run_never_constructs_or_calls_seams).
+        if args.dry_run:
+            sys.stdout.write(
+                f"[run_g5_orchestration] dry-run OK: target={args.target_url} "
+                f"out={out_dir} host={args.host} port={args.port} cwd={cwd}\n"
+            )
+            return EXIT_OK
+
+        # Non-dry-run: build 5 factories + invoke the public orchestrator. The
+        # orchestrator receives the EXACT instances returned by the factories
+        # plus CLI-level kwargs (target_url / out_dir / iterations /
+        # dom_marker_selector). See test_non_dry_run_threads_cli_values_*.
+        bridge_script_path = (Path(args.bridge_script) if args.bridge_script
+                              else None)
+        lifecycle = make_lifecycle(host=args.host, port=args.port, cwd=cwd,
+                                   health_path=args.health_path,
+                                   health_timeout_s=args.health_timeout_s,
+                                   health_interval_s=args.health_interval_s,
+                                   terminate_grace_s=args.terminate_grace_s)
+        collector = make_collector()
+        bridge = make_bridge(bridge_script=bridge_script_path)
+        planner = make_planner()
+        publisher = make_publisher()
+
+        # Error taxonomy: most specific first so Readiness/Collector/Bridge
+        # never fall through to OrchestrationError (their parent). TimeoutError
+        # is unrelated to OrchestrationError (it's an OSError); ValueError /
+        # unknown fail closed to validation (2).
+        try:
+            descriptor = og.run_orchestration(
+                lifecycle=lifecycle, collector=collector, bridge=bridge,
+                planner=planner, publisher=publisher,
+                target_url=args.target_url, out_dir=out_dir,
+                dom_marker_selector=args.dom_marker_selector,
+                iterations=args.iterations)
+        except og.ReadinessError as e:
+            _emit(f"readiness: {e}"); return EXIT_READINESS
+        except TimeoutError as e:
+            _emit(f"readiness timeout: {e}"); return EXIT_READINESS
+        except og.CollectorError as e:
+            _emit(f"collector: {e}"); return EXIT_COLLECTOR
+        except og.BridgeError as e:
+            _emit(f"bridge: {e}"); return EXIT_BRIDGE
+        except og.OrchestrationError as e:
+            _emit(f"orchestration: {e}"); return EXIT_ORCHESTRATION
+        except ValueError as e:
+            _emit(f"validation: {e}"); return EXIT_VALIDATION
+        except Exception as e:
+            _emit(f"unexpected: {type(e).__name__}: {e}"); return EXIT_VALIDATION
+
+        # Concise success summary from the descriptor returned by the orchestrator.
         sys.stdout.write(
-            f"[run_g5_orchestration] dry-run OK: target={args.target_url} "
-            f"out={out_dir} host={args.host} port={args.port} cwd={cwd}\n")
+            f"[run_g5_orchestration] success: "
+            f"target={descriptor.get('target_url')} "
+            f"iterations={descriptor.get('iterations')} "
+            f"out={descriptor.get('out_dir')} "
+            f"published_at={descriptor.get('published_at')} "
+            f"plan_files={descriptor.get('plan_files')}\n")
         return EXIT_OK
-    try:
-        seams = build_default_seams(args)
-    except Exception as e:
-        _emit(f"default-seam wiring failed: {type(e).__name__}: {e}")
-        return EXIT_RUNTIME
-    try:
-        r = og.run_orchestration(target_url=args.target_url, out_dir=out_dir,
-            dom_marker_selector=args.dom_marker_selector,
-            iterations=args.iterations, **seams)
-    except og.OrchestrationError as e:
-        _emit(f"orchestration failed: {type(e).__name__}: {e}")
-        return EXIT_RUNTIME
-    sys.stdout.write(
-        f"[run_g5_orchestration] OK: schema={r['schema']} "
-        f"iterations={r['iterations']} out_dir={r['out_dir']} "
-        f"plan_files={r['plan_files']}\n")
-    return EXIT_OK
 
 
 if __name__ == "__main__":
