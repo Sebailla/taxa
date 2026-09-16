@@ -658,6 +658,119 @@ def test_publication_plan_canonical_json_roundtrips_and_serialisable():
             legacy_hydration_metadata=inputs["legacy_hydration_metadata"])
 
 
+# --- Slice 16: bridge-advisories publication (optional file) ------------
+# When the orchestrator captures bridge timeouts it accumulates
+# ``bridge_advisories`` and threads them through the planner. The
+# planner MUST persist them atomically as ``raw/bridge-advisories.json``
+# when non-empty AND MUST produce a byte-identical plan when None or
+# empty (backward compatibility contract for prior slices).
+def test_publication_plan_without_advisories_byte_identical():
+    """Backward compat: omitting / None / empty bridge_advisories must
+    produce a plan whose JSON is byte-identical to the pre-Slice plan."""
+    inputs = _all_valid_inputs()
+    baseline = ch.plan_evidence_publication(**inputs)
+    baseline_json = json.dumps(baseline, sort_keys=True, ensure_ascii=False)
+    # omitted kwarg
+    p_omitted = ch.plan_evidence_publication(**inputs)
+    assert json.dumps(p_omitted, sort_keys=True,
+                      ensure_ascii=False) == baseline_json
+    # explicit None
+    p_none = ch.plan_evidence_publication(**inputs, bridge_advisories=None)
+    assert json.dumps(p_none, sort_keys=True,
+                      ensure_ascii=False) == baseline_json
+    # explicit empty list
+    p_empty = ch.plan_evidence_publication(**inputs, bridge_advisories=[])
+    assert json.dumps(p_empty, sort_keys=True,
+                      ensure_ascii=False) == baseline_json
+    # 22 entries unchanged; no ``raw/bridge-advisories.json`` entry
+    assert len(baseline["files"]) == 22
+    paths = {f["path"] for f in baseline["files"]}
+    assert "raw/bridge-advisories.json" not in paths
+
+
+def test_publication_plan_with_advisories_adds_single_entry():
+    """Non-empty bridge_advisories appends exactly ONE
+    ``raw/bridge-advisories.json`` entry (kind, path, bytes,
+    canonical_json, sha256)."""
+    inputs = _all_valid_inputs()
+    advisories = [
+        {"iteration": 1, "kind": "bridge_timeout",
+         "reason": "bridge subprocess exceeded timeout",
+         "timeout_s": 1.0, "url": "http://127.0.0.1:8765/"},
+        {"iteration": 4, "kind": "bridge_timeout",
+         "reason": "bridge subprocess exceeded timeout",
+         "timeout_s": 1.0, "url": "http://127.0.0.1:8765/"},
+    ]
+    plan = ch.plan_evidence_publication(**inputs,
+                    bridge_advisories=advisories)
+    adv_entries = [f for f in plan["files"]
+                   if f["kind"] == "bridge_advisories"]
+    assert len(adv_entries) == 1
+    entry = adv_entries[0]
+    assert entry["path"] == "raw/bridge-advisories.json"
+    # canonical_json is the wrapped payload (schema + advisories list)
+    payload = json.loads(entry["canonical_json"])
+    assert isinstance(payload, dict)
+    assert isinstance(payload.get("schema"), str)
+    assert payload["schema"].startswith("taxa.g5-publication.bridge-advisories")
+    assert payload.get("advisories") == advisories
+    # sha256 + bytes match canonical_json utf-8 encoding
+    assert entry["sha256"] == hashlib.sha256(
+        entry["canonical_json"].encode("utf-8")).hexdigest()
+    assert entry["bytes"] == len(
+        entry["canonical_json"].encode("utf-8"))
+    # 22 base entries + 1 new entry = 23; previous files unchanged
+    assert len(plan["files"]) == 23
+    all_paths = {f["path"] for f in plan["files"]}
+    assert "raw/bridge-advisories.json" in all_paths
+
+
+def test_publication_plan_advisories_no_iteration_field():
+    """The bridge-advisories file is a single bundled artifact (not per
+    iteration). The entry MUST NOT carry an ``iteration`` field."""
+    inputs = _all_valid_inputs()
+    advisories = [{"iteration": 1, "kind": "bridge_timeout",
+                   "reason": "x", "timeout_s": 1.0,
+                   "url": "http://127.0.0.1:8765/"}]
+    plan = ch.plan_evidence_publication(**inputs,
+                    bridge_advisories=advisories)
+    adv_entries = [f for f in plan["files"]
+                   if f["kind"] == "bridge_advisories"]
+    assert "iteration" not in adv_entries[0]
+
+
+def test_publication_plan_advisories_deterministic_and_pure():
+    """Calling twice with the same advisory list yields byte-identical
+    plans; inputs are not mutated."""
+    inputs = _all_valid_inputs()
+    advisories = [{"iteration": 1, "kind": "bridge_timeout",
+                   "reason": "x", "timeout_s": 1.0,
+                   "url": "http://127.0.0.1:8765/"}]
+    adv_snapshot = json.loads(json.dumps(advisories))
+    p1 = ch.plan_evidence_publication(**inputs,
+              bridge_advisories=advisories)
+    p2 = ch.plan_evidence_publication(**inputs,
+              bridge_advisories=advisories)
+    assert advisories == adv_snapshot
+    b1 = {f["path"]: f["canonical_json"] for f in p1["files"]}
+    b2 = {f["path"]: f["canonical_json"] for f in p2["files"]}
+    assert b1 == b2
+
+
+def test_publication_plan_advisories_rejects_non_list_or_bad_entries():
+    """Non-list bridge_advisories raises ValueError; list with non-dict
+    entries raises ValueError. Only ``list`` of dicts is accepted."""
+    inputs = _all_valid_inputs()
+    for bad in ({"iteration": 1}, (1, 2), "x", 7):
+        with pytest.raises(ValueError, match="bridge_advisories"):
+            ch.plan_evidence_publication(**inputs,
+                        bridge_advisories=bad)
+    for bad_entry in (["x"], [1, 2], [{"kind": "x"}, "x"]):
+        with pytest.raises(ValueError, match="bridge_advisories"):
+            ch.plan_evidence_publication(**inputs,
+                        bridge_advisories=bad_entry)
+
+
 # --- G5 publication child B (atomic filesystem publisher) -----------
 def _publisher_plan():
     return ch.plan_evidence_publication(**_all_valid_inputs())
