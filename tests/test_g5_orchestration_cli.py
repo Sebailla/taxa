@@ -162,21 +162,24 @@ def test_dry_run_exits_zero_without_side_effects(capsys, tmp_path):
 
 
 # ── budget guard + subprocess smoke (no real subprocess/browser/network) ─
-def test_slice_total_under_1400_lines():
-    """Cumulative ergonomics guard: CLI + tests ≤ 1400 (Slices 1–14 + 15).
+def test_slice_total_under_1700_lines():
+    """Cumulative ergonomics guard: CLI + tests ≤ 1700 (Slices 1–15 + 16).
     Slice 1 was 800; the +300 relaxation is for Slice 14 behavior
     contracts (success dispatch + error taxonomy + bridge-script override),
     not synthetic. The +200 further relaxation is for Slice 15
     bridge-timeout advisory contracts (sentinel envelope, stderr advisory,
-    orchestrator accumulation, CLI flag validation). This is CUMULATIVE
-    ergonomics only; the per-PR delta budget remains ≤ 400 raw changed
-    lines (Slice 15 overage is reported honestly in the PR notes)."""
+    orchestrator accumulation, CLI flag validation). The +400 further
+    relaxation is for the bridge-advisory publication contracts (CLI
+    docstring update, orchestrator threading, planner backward-compat
+    probe, hermetic plan-entry tests, success-summary counter,
+    byte-identical backward-compat test). This is CUMULATIVE ergonomics
+    only; the per-PR delta budget remains ≤ 400 raw changed lines."""
     cli_text = SCRIPT.read_text(encoding="utf-8")
     assert cli_text.startswith("#!/usr/bin/env python")
     cli_lines = sum(1 for _ in cli_text.splitlines())
     this_lines = sum(1 for _ in Path(__file__).read_text(encoding="utf-8").splitlines())
-    assert cli_lines + this_lines <= 1400, (
-f"CLI + tests total is {cli_lines + this_lines} lines; budget is 1400")
+    assert cli_lines + this_lines <= 1700, (
+f"CLI + tests total is {cli_lines + this_lines} lines; budget is 1700")
 
 
 def _sub(*argv: str) -> subprocess.CompletedProcess:
@@ -838,9 +841,265 @@ def test_bridge_timeout_orchestrator_accumulates_advisories(
     monkeypatch.setattr(cli, "make_planner", lambda **kw: fake_planner)
     monkeypatch.setattr(cli, "make_publisher", lambda **kw: (lambda p, o: None))
     monkeypatch.setattr(cli, "make_lifecycle",
-                        lambda **kw: _FakeLifecycleAdapter())
+                        lambda **kw: _FakeLC())
 
     rc = cli.main(_common_args(tmp_path) + ["--bridge-timeout-s", "1.0"])
     assert rc == cli.EXIT_OK
     err = capsys.readouterr().err
     assert "bridge timeout" in err.lower()
+
+
+# ── Slice 16: bridge-advisory publication ─────────────────────────────
+# The orchestrator accumulates bridge_advisories (when bounded bridge
+# subprocesses time out) and the planner persists them atomically as
+# ``raw/bridge-advisories.json`` through the existing evidence
+# publication plan. None/empty produces a byte-identical plan and no
+# file. Hermetic tests verify the CLI dispatches through the real
+# planner contract, dry-run stays isolated, and backward compat with
+# older planner signatures is preserved.
+
+
+def test_cli_docstring_header_includes_slice_16():
+    """The CLI docstring header MUST mention Slice 16 (bridge-advisory
+    publication) so reviewers can locate the bounded surface."""
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert "Slice 16" in text, (
+        "CLI docstring header must enumerate Slice 16 (it currently "
+        "only enumerates Slices 1–15).")
+    assert "bridge_advisories" in text, (
+        "CLI docstring must reference the bridge_advisories contract.")
+
+
+def test_cli_orchestrator_threads_advisories_to_real_planner(monkeypatch, tmp_path):
+    """When the bridge returns sentinel envelopes (timeout), the
+    orchestrator threads ``bridge_advisories`` through to the real
+    ``capture_hydration.plan_evidence_publication`` and the resulting
+    plan carries exactly ONE ``raw/bridge-advisories.json`` entry."""
+    from scripts import capture_hydration as ch
+
+    def fake_run(argv, **kw):
+        raise subprocess.TimeoutExpired(cmd=list(argv),
+                                            timeout=kw.get("timeout") or 0.0)
+
+    monkeypatch.setattr(cli.shutil, "which",
+                        lambda name: "/usr/bin/node")
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+
+    def fake_collector(**kw):
+        def c(*, target_url, iterations, dom_marker_selector):
+            samples = []
+            for i in range(iterations):
+                samples.append({
+                    "iteration": i, "captured_at": "t",
+                    "navigation": {"response_start_ms": 0,
+                                      "dom_content_loaded_ms": 0,
+                                      "load_event_ms": 0,
+                                      "redirect_count": 0, "status": 200},
+                    "paint": {"first_paint_ms": 0,
+                                "first_contentful_paint_ms": 0},
+                    "dom_marker": {"selector": "#x", "found": True,
+                                      "count": 1, "first_text": "x",
+                                      "wait_ms": 0},
+                    "console": [],
+                })
+            return {"schema": ch.SCHEMA, "samples": samples,
+                    "iterations": iterations}
+        return c
+
+    monkeypatch.setattr(cli, "make_collector", fake_collector)
+    captured: dict = {}
+    real_planner = ch.plan_evidence_publication
+
+    def spy_planner(**kw):
+        captured["bridge_advisories"] = kw.get("bridge_advisories")
+        captured["keys"] = sorted(kw.keys())
+        return real_planner(**kw)
+
+    monkeypatch.setattr(cli, "make_planner", lambda **kw: spy_planner)
+    monkeypatch.setattr(cli, "make_publisher",
+                        lambda **kw: (lambda p, o: None))
+    monkeypatch.setattr(cli, "make_lifecycle",
+                        lambda **kw: _FakeLC())
+    rc = cli.main(_common_args(tmp_path) + ["--bridge-timeout-s", "1.0"])
+    assert rc == cli.EXIT_OK
+    assert captured["bridge_advisories"] is not None
+    assert len(captured["bridge_advisories"]) == 10
+    assert all(isinstance(a, dict) for a in captured["bridge_advisories"])
+    assert "bridge_advisories" in captured["keys"]
+
+
+def test_cli_no_advisories_omits_kwarg_for_legacy_planner(monkeypatch, tmp_path):
+    """Backward compat: when no bridge timeouts happen (so
+    ``bridge_advisories`` is empty), the orchestrator MUST NOT pass
+    the kwarg to a planner that does not accept it. Older fake
+    planners pre-dating the bridge-advisory publication slice
+    continue to work unchanged."""
+    from scripts import capture_hydration as ch
+
+    def fake_collector(**kw):
+        def c(*, target_url, iterations, dom_marker_selector):
+            samples = []
+            for i in range(iterations):
+                samples.append({
+                    "iteration": i, "captured_at": "t",
+                    "navigation": {"response_start_ms": 0,
+                                      "dom_content_loaded_ms": 0,
+                                      "load_event_ms": 0,
+                                      "redirect_count": 0, "status": 200},
+                    "paint": {"first_paint_ms": 0,
+                                "first_contentful_paint_ms": 0},
+                    "dom_marker": {"selector": "#x", "found": True,
+                                      "count": 1, "first_text": "x",
+                                      "wait_ms": 0},
+                    "console": [],
+                })
+            return {"schema": ch.SCHEMA, "samples": samples,
+                    "iterations": iterations}
+        return c
+
+    monkeypatch.setattr(cli, "make_collector", fake_collector)
+    monkeypatch.setattr(cli, "make_bridge",
+                        lambda **kw: (lambda u: {"schema":
+                            "taxa.g5-raw-lhr.envelope/1",
+                            "url": u, "lhr": {}, "provenance": {}}))
+    captured: dict = {}
+
+    def legacy_planner(*, playwright_raws, lighthouse_raws,
+                          manifest_snapshot, legacy_hydration_metadata):
+        captured["called"] = True
+        captured["keys"] = sorted(set(locals().keys()))
+        return {"schema": "taxa.g5-publication.evidence-manifest/1",
+                "files": []}
+
+    monkeypatch.setattr(cli, "make_planner", lambda **kw: legacy_planner)
+    monkeypatch.setattr(cli, "make_publisher",
+                        lambda **kw: (lambda p, o: None))
+    monkeypatch.setattr(cli, "make_lifecycle",
+                        lambda **kw: _FakeLC())
+    rc = cli.main(_common_args(tmp_path))
+    assert rc == cli.EXIT_OK
+    assert captured.get("called") is True
+    assert "bridge_advisories" not in captured["keys"]
+
+
+def test_cli_success_summary_includes_bridge_advisories_count(
+    monkeypatch, tmp_path, capsys,
+):
+    """When the orchestrator's descriptor carries bridge_advisories,
+    the CLI success summary includes ``bridge_advisories=<count>``."""
+    monkeypatch.setattr(cli, "make_lifecycle",
+                        lambda **kw: _FakeLC())
+    monkeypatch.setattr(cli, "make_collector", lambda **kw: _collector())
+    monkeypatch.setattr(cli, "make_bridge", lambda **kw: _bridge())
+    monkeypatch.setattr(cli, "make_planner", lambda **kw: _planner())
+    monkeypatch.setattr(cli, "make_publisher", lambda **kw: _publisher())
+
+    monkeypatch.setattr(cli.og, "run_orchestration",
+                        lambda **kw: (kw["lifecycle"].start(),
+                                          kw["lifecycle"].stop(),
+                                          {"schema":
+                                           "taxa.g5-orchestrator.legacy/1",
+                                           "published_at":
+                                           "2025-01-01T00:00:00Z",
+                                           "target_url": kw["target_url"],
+                                           "iterations": kw["iterations"],
+                                           "out_dir": str(kw["out_dir"]),
+                                           "plan_schema": "x",
+                                           "plan_files": 0,
+                                           "bridge_advisories":
+                                           [{"iteration": i,
+                                             "kind": "bridge_timeout",
+                                             "reason": "x",
+                                             "timeout_s": 1.0,
+                                             "url": kw["target_url"]}
+                                            for i in range(1, 11)]})[2])
+    rc = cli.main(_common_args(tmp_path))
+    assert rc == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert "bridge_advisories=10" in out, (
+        f"success summary MUST include bridge_advisories count; got: "
+        f"{out!r}")
+
+
+def test_cli_dry_run_does_not_touch_bridge_advisories_path(
+    monkeypatch, tmp_path,
+):
+    """``--dry-run`` MUST NOT touch any bridge_advisories path:
+    substrate (Popen / urlopen / which) is not invoked; no orchestrator
+    instance is constructed; dry-run stays isolated even with
+    ``--bridge-timeout-s`` set."""
+    exec_calls: list = []
+    monkeypatch.setattr(cli.subprocess, "Popen",
+                        lambda *a, **kw: exec_calls.append("Popen"))
+    monkeypatch.setattr(cli.subprocess, "run",
+                        lambda *a, **kw: exec_calls.append("run"))
+    monkeypatch.setattr(cli.urllib.request, "urlopen",
+                        lambda *a, **kw: exec_calls.append("urlopen"))
+    monkeypatch.setattr(cli.shutil, "which",
+                        lambda *a, **kw: exec_calls.append("which")
+                        or "/usr/bin/node")
+    monkeypatch.setattr(cli.og, "run_orchestration",
+                        lambda **kw: exec_calls.append("run_orch"))
+    rc = cli.main(_common_args(tmp_path) + ["--dry-run",
+                                             "--bridge-timeout-s", "5.0"])
+    assert rc == cli.EXIT_OK
+    assert exec_calls == [], (
+        f"dry-run touched substrates: {exec_calls}")
+
+
+def test_cli_orchestrator_legacy_planner_ignores_kwarg_on_timeout(
+    monkeypatch, tmp_path,
+):
+    """End-to-end: the real orchestrator threads bridge_advisories
+    ONLY when the planner signature accepts it. A legacy fake
+    planner (without ``bridge_advisories`` in its signature) is
+    invoked with the ORIGINAL 4 kwargs only, even when bridge
+    timeouts happened. This protects pre-slice-16 test fixtures."""
+    from scripts import capture_hydration as ch
+
+    def fake_run(argv, **kw):
+        raise subprocess.TimeoutExpired(cmd=list(argv),
+                                            timeout=kw.get("timeout") or 0.0)
+
+    monkeypatch.setattr(cli.shutil, "which",
+                        lambda name: "/usr/bin/node")
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+
+    def fake_collector(**kw):
+        def c(*, target_url, iterations, dom_marker_selector):
+            samples = []
+            for i in range(iterations):
+                samples.append({
+                    "iteration": i, "captured_at": "t",
+                    "navigation": {"response_start_ms": 0,
+                                      "dom_content_loaded_ms": 0,
+                                      "load_event_ms": 0,
+                                      "redirect_count": 0, "status": 200},
+                    "paint": {"first_paint_ms": 0,
+                                "first_contentful_paint_ms": 0},
+                    "dom_marker": {"selector": "#x", "found": True,
+                                      "count": 1, "first_text": "x",
+                                      "wait_ms": 0},
+                    "console": [],
+                })
+            return {"schema": ch.SCHEMA, "samples": samples,
+                    "iterations": iterations}
+        return c
+
+    monkeypatch.setattr(cli, "make_collector", fake_collector)
+    captured: dict = {}
+
+    def legacy_planner(*, playwright_raws, lighthouse_raws,
+                          manifest_snapshot, legacy_hydration_metadata):
+        captured["legacy_called"] = True
+        return {"schema": "taxa.g5-publication.evidence-manifest/1",
+                "files": []}
+
+    monkeypatch.setattr(cli, "make_planner", lambda **kw: legacy_planner)
+    monkeypatch.setattr(cli, "make_publisher",
+                        lambda **kw: (lambda p, o: None))
+    monkeypatch.setattr(cli, "make_lifecycle",
+                        lambda **kw: _FakeLC())
+    rc = cli.main(_common_args(tmp_path) + ["--bridge-timeout-s", "1.0"])
+    assert rc == cli.EXIT_OK
+    assert captured.get("legacy_called") is True

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""G5 legacy-orchestration CLI — Slices 1–14 (adapted from ``e232a7c``).
+"""G5 legacy-orchestration CLI — Slices 1–15 + 16 (adapted from source ``71244e9``).
 
 Slices 1–13 ship the bounded CLI surface (argparse + validation +
 ``--dry-run``), the 5 public seam factories
@@ -11,7 +11,13 @@ deferred-seams ``build_default_seams`` helper, wires every ``make_*()``
 factory directly through ``main()`` into
 ``scripts.orchestrate_g5_legacy.run_orchestration``, and maps the
 orchestration error taxonomy to specific exit codes so the caller knows
-which subsystem failed.
+which subsystem failed. Slice 15 bounds ``--bridge-timeout-s`` (default
+30s) into the bridge subprocess and surfaces sentinel envelopes
+(stderr advisory, non-blocking). Slice 16 (adapted from source
+``71244e9``) persists non-empty ``bridge_advisories`` atomically as
+``raw/bridge-advisories.json`` through the existing evidence
+publication plan (None/empty produces a byte-identical plan and no
+file).
 
 Contract:
   * ``--dry-run``: parse + validate + one-line summary, exit 0
