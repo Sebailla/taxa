@@ -65,6 +65,7 @@ DEFAULT_HEALTH_PATH = og.DEFAULT_HEALTH_PATH
 DEFAULT_HEALTH_TIMEOUT_S = og.DEFAULT_HEALTH_TIMEOUT_S
 DEFAULT_HEALTH_INTERVAL_S = og.DEFAULT_HEALTH_INTERVAL_S
 DEFAULT_TERMINATE_GRACE_S = og.DEFAULT_TERMINATE_GRACE_S
+DEFAULT_BRIDGE_TIMEOUT_S = og.DEFAULT_BRIDGE_TIMEOUT_S
 DEFAULT_ITERATIONS = og.ITERATIONS
 DEFAULT_DOM_MARKER_SELECTOR = og.DEFAULT_DOM_MARKER_SELECTOR
 
@@ -97,9 +98,16 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--terminate-grace-s", type=float,
                    default=DEFAULT_TERMINATE_GRACE_S, help="SIGTERM→SIGKILL grace (s)")
     p.add_argument("--bridge-script", default=None,
-                   help=f"Override default bridge (default {og.DEFAULT_BRIDGE_SCRIPT})")
+                       help=f"Override default bridge (default {og.DEFAULT_BRIDGE_SCRIPT})")
+    p.add_argument("--bridge-timeout-s", type=float,
+                       default=DEFAULT_BRIDGE_TIMEOUT_S,
+                       help=("Bound bridge subprocess per-invocation timeout "
+                             "(seconds). On timeout the closure emits an stderr "
+                             "advisory and returns a sentinel envelope; the "
+                             "orchestrator does NOT raise. Must be > 0 "
+                             f"(default: {DEFAULT_BRIDGE_TIMEOUT_S})"))
     p.add_argument("--iterations", type=int, default=DEFAULT_ITERATIONS,
-                   help=f"Must equal {DEFAULT_ITERATIONS} (G5 contract)")
+                       help=f"Must equal {DEFAULT_ITERATIONS} (G5 contract)")
     p.add_argument("--dom-marker-selector", default=DEFAULT_DOM_MARKER_SELECTOR,
                    help="DOM-marker selector for capture readiness wait")
     p.add_argument("--no-headless", action="store_true",
@@ -118,10 +126,11 @@ def _validate_args(args: argparse.Namespace) -> str | None:
     if args.iterations != DEFAULT_ITERATIONS:
         return f"--iterations must be {DEFAULT_ITERATIONS} (G5 contract); got {args.iterations!r}"
     for name, val in (("health-timeout-s", args.health_timeout_s),
-                      ("health-interval-s", args.health_interval_s),
-                      ("terminate-grace-s", args.terminate_grace_s)):
+                  ("health-interval-s", args.health_interval_s),
+                  ("terminate-grace-s", args.terminate_grace_s),
+                  ("bridge-timeout-s", args.bridge_timeout_s)):
         if not isinstance(val, (int, float)) or val <= 0:
-            return f"--{name} must be positive; got {val!r}"
+            return f"--{name} must be a positive number; got {val!r}"
     if args.cwd is not None and not Path(args.cwd).is_dir():
         return f"--cwd must be an existing directory; got {args.cwd!r}"
     if args.bridge_script is not None and not Path(args.bridge_script).is_file():
@@ -242,27 +251,48 @@ def make_collector(*, collector: Optional[Callable[..., dict]] = None,
 
 
 def make_bridge(*, bridge: Optional[Callable[[str], dict]] = None,
-                bridge_script: Optional[Path] = None,
-                ) -> Callable[[str], dict]:
+            bridge_script: Optional[Path] = None,
+            bridge_timeout_s: float = DEFAULT_BRIDGE_TIMEOUT_S,
+            ) -> Callable[[str], dict]:
     """Return a bridge callable (url) -> dict with envelope schema
     taxa.g5-raw-lhr.envelope/1. CLI-local default spawns node against
     ``bridge_script`` (or ``og.DEFAULT_BRIDGE_SCRIPT`` when None).
     Non-executing at construction; the closure spawns Node only when
     invoked later, so ``bridge_script`` is captured at construction
-    time and threaded into argv at invocation time only."""
+    time and threaded into argv at invocation time only.
+
+    Bounded by ``bridge_timeout_s`` seconds (default
+    :data:`DEFAULT_BRIDGE_TIMEOUT_S` = 30s) via
+    ``subprocess.run(timeout=...)``. A timeout is NON-BLOCKING: emits
+    a stderr advisory and returns a schema-conformant sentinel envelope
+    (via ``og._bridge_timeout_envelope``) instead of raising
+    ``BridgeError``. Existing BridgeError contracts (missing-node,
+    non-zero exit, no JSON line, invalid JSON) are preserved.
+    """
     if bridge is not None:
         return bridge
     script_path = (Path(bridge_script) if bridge_script is not None
                    else og.DEFAULT_BRIDGE_SCRIPT)
+    if not isinstance(bridge_timeout_s, (int, float)) or bridge_timeout_s <= 0:
+        raise ValueError(
+            f'bridge_timeout_s must be a positive number; '
+            f'got {bridge_timeout_s!r}')
 
     def _default_bridge(url: str) -> dict:
         node = shutil.which("node")
         if not node:
             raise og.BridgeError(
                 "'node' binary not found on PATH; cannot invoke default bridge")
-        proc = subprocess.run(
-            [node, str(script_path), "--url", url],
-            capture_output=True, text=True)
+        try:
+            proc = subprocess.run(
+                [node, str(script_path), "--url", url],
+                capture_output=True, text=True,
+                timeout=float(bridge_timeout_s))
+        except subprocess.TimeoutExpired:
+            og._emit_bridge_timeout_advisory(
+                url, timeout_s=float(bridge_timeout_s))
+            return og._bridge_timeout_envelope(
+                url, timeout_s=float(bridge_timeout_s))
         if proc.returncode != 0:
             raise og.BridgeError(
                 f"bridge process exited {proc.returncode}: "
@@ -337,7 +367,8 @@ def main(argv: list[str] | None = None) -> int:
                                    health_interval_s=args.health_interval_s,
                                    terminate_grace_s=args.terminate_grace_s)
         collector = make_collector()
-        bridge = make_bridge(bridge_script=bridge_script_path)
+        bridge = make_bridge(bridge_script=bridge_script_path,
+                         bridge_timeout_s=args.bridge_timeout_s)
         planner = make_planner()
         publisher = make_publisher()
 
@@ -367,14 +398,18 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as e:
             _emit(f"unexpected: {type(e).__name__}: {e}"); return EXIT_VALIDATION
 
-        # Concise success summary from the descriptor returned by the orchestrator.
+# Concise success summary from the descriptor returned by the orchestrator.
+        # Includes bridge_advisories count when at least one timeout happened
+        # (the descriptor omits the key entirely otherwise).
+        bridge_advisories = descriptor.get('bridge_advisories') or []
         sys.stdout.write(
             f"[run_g5_orchestration] success: "
             f"target={descriptor.get('target_url')} "
             f"iterations={descriptor.get('iterations')} "
             f"out={descriptor.get('out_dir')} "
             f"published_at={descriptor.get('published_at')} "
-            f"plan_files={descriptor.get('plan_files')}\n")
+            f"plan_files={descriptor.get('plan_files')} "
+            f"bridge_advisories={len(bridge_advisories)}\n")
         return EXIT_OK
 
 
