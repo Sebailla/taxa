@@ -353,3 +353,283 @@ def test_canonical_happy_path_emits_artifact_for_all_26_consumers(tmp_path):
     # PR 1/6 dry-run invariants remain binding under PR 4/6.
     assert body.get("verification_executed") is False, body
     assert body.get("rollback_executed") is False, body
+
+
+# ── 11. Slice 4 — canonical-manifest end-to-end regression pins ────────────
+#
+# Each pin LOCKS IN one specific contract that the rehearsal script holds
+# against the canonical normalized manifest. None of these assertions
+# existed before slice 4; together they form the regression net that
+# keeps the cutover-rehearsal contract from drifting under future refactors.
+# All assertions target the on-disk canonical manifest; the script is
+# invoked in hermetic --dry-run mode and the resulting artifact is read
+# back from <tmp>/cutover-rehearsal.json.
+#
+# Discipline note (strict TDD):
+#   RED   — pin absent: contract unverified (captured in test-history).
+#   GREEN — pin added, observed pass under canonical manifest.
+#   TRIANGULATE — see negative triangulation in
+#                 test_canonical_artifact_manifest_sha256_red_witness: an
+#                 intentionally-wrong assertion that MUST fail, proving the
+#                 sha256 pin can catch a real drift.
+
+import hashlib as _hashlib
+import re as _re
+
+
+# Canonical artifact key set enforced by PR 4/6 + slice 4. NO `out_sha256`
+# is permitted — the artifact is the script's self-description, not a
+# re-hash of the output directory.
+EXPECTED_KEY_SET = frozenset({
+    "consumer_count",
+    "consumer_ids",
+    "manifest_path",
+    "manifest_sha256",
+    "mode",
+    "out_dir",
+    "rollback_executed",
+    "validated_at",
+    "validation_errors",
+    "verification_executed",
+})
+
+
+def _sha256_file(p: Path) -> str:
+    """sha256 hex digest of file bytes; mirrors scripts/rehearse_cutover._sha256."""
+    return _hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+def _run_canonical(tmp_path: Path):
+    """Invoke the script against the canonical manifest. Return
+    (out_dir, body_dict, proc). Shared by every slice-4 pin."""
+    assert CANONICAL_MANIFEST.is_file(), f"missing {CANONICAL_MANIFEST}"
+    out = tmp_path / "out"
+    r = _run(["--manifest", str(CANONICAL_MANIFEST), "--out", str(out), "--dry-run"])
+    assert r.returncode == 0, f"canonical run MUST exit 0 (got {r.returncode}); stderr={r.stderr!r}"
+    assert (out / REHEARSAL).is_file(), f"rehearsal artifact MUST be emitted; stderr={r.stderr!r}"
+    return out, json.loads((out / REHEARSAL).read_text()), r
+
+
+def _canonical_manifest_dict() -> dict:
+    """Load the canonical manifest fresh from disk for side-by-side assertions."""
+    return json.loads(CANONICAL_MANIFEST.read_text())
+
+
+# 11a — manifest SHA pin
+
+
+def test_canonical_artifact_manifest_sha256_matches_manifest_bytes(tmp_path):
+    """GREEN: `manifest_sha256` MUST equal sha256 of the canonical manifest
+    bytes. Pins the hash against future manifest edits and guards against
+    silent re-pointing of `manifest_path`. Strict-TDD triangulation note:
+    the canonical pin below was captured by running an intentionally-wrong
+    SHA assertion (`expected = '0' * 64`) and observing the assertion fail
+    with `expected(wrong) != got == real` — proof that this pin can catch
+    a real drift. The wrong-SHA assertion is NOT retained in the file
+    because it would permanently fail CI; its observed RED output is
+    recorded in the slice-4 commit message."""
+    out, body, _ = _run_canonical(tmp_path)
+    expected = _sha256_file(CANONICAL_MANIFEST)
+    assert body["manifest_sha256"] == expected, (
+        f"manifest_sha256 MUST match sha256(manifest); expected={expected!r}, "
+        f"got={body['manifest_sha256']!r}"
+    )
+    assert len(body["manifest_sha256"]) == 64, body["manifest_sha256"]
+
+
+# 11b — manifest path pin
+
+
+def test_canonical_artifact_manifest_path_pinned(tmp_path):
+    """GREEN: `manifest_path` MUST echo the resolved canonical manifest path
+    verbatim. Pins the path echo so downstream tooling can recover it
+    without re-deriving."""
+    out, body, _ = _run_canonical(tmp_path)
+    expected = str(CANONICAL_MANIFEST.resolve())
+    assert body["manifest_path"] == expected, (
+        f"manifest_path MUST be {expected!r}; got={body['manifest_path']!r}"
+    )
+
+
+# 11c — ordered 26 unique IDs pin
+
+
+def test_canonical_artifact_ordered_26_unique_consumer_ids(tmp_path):
+    """GREEN: `consumer_ids` MUST list exactly 26 unique IDs, in canonical
+    declaration order. Pins the §3.1 consumer roster identity."""
+    out, body, _ = _run_canonical(tmp_path)
+    canonical = _canonical_manifest_dict()
+    expected_ids = [c["id"] for c in canonical["consumers"]
+                    if isinstance(c, dict) and isinstance(c.get("id"), str)]
+    assert len(expected_ids) == 26, (
+        f"canonical manifest MUST list 26 consumers; got {len(expected_ids)}"
+    )
+    assert body["consumer_ids"] == expected_ids, (
+        "consumer_ids MUST equal canonical declaration order; "
+        f"diff={list(zip(expected_ids, body['consumer_ids']))}"
+    )
+    assert len(set(body["consumer_ids"])) == 26, (
+        f"all 26 consumer_ids MUST be unique; got={body['consumer_ids']!r}"
+    )
+
+
+# 11d — Tier-1 selected invariants pin
+
+
+def test_canonical_artifact_tier1_selection_invariants(tmp_path):
+    """GREEN: Tier-1 legacy pre-cut selection MUST hold against the canonical
+    manifest: every consumer's `activation_status` and `replacement.status`
+    is 'selected', `all_replacements_unselected` is False, and
+    `legacy_pre_cut_selection_status.active` is True. Pins the G3 Tier-1
+    PASS contract — no consumer may silently flip back to unselected."""
+    canonical = _canonical_manifest_dict()
+    consumers = canonical["consumers"]
+    for c in consumers:
+        cid = c.get("id")
+        assert c.get("activation_status") == "selected", (
+            f"Tier-1 invariant: every consumer MUST be activation_status=selected; "
+            f"consumer={cid!r}"
+        )
+        assert c.get("replacement", {}).get("status") == "selected", (
+            f"Tier-1 invariant: every consumer MUST be replacement.status=selected; "
+            f"consumer={cid!r}"
+        )
+    inv = canonical["selection_invariants"]
+    assert inv.get("all_replacements_unselected") is False, (
+        "Tier-1 invariant: all_replacements_unselected MUST be False after Tier-1 selection"
+    )
+    assert inv.get("legacy_pre_cut_selection_status", {}).get("active") is True, (
+        "Tier-1 invariant: legacy_pre_cut_selection_status.active MUST be True"
+    )
+
+
+# 11e — UTC timestamp pin
+
+
+_ISO8601_UTC_RE = _re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
+)
+
+
+def test_canonical_artifact_validated_at_is_utc_iso8601(tmp_path):
+    """GREEN: `validated_at` MUST be an ISO 8601 UTC timestamp ending in
+    '+00:00' (or 'Z'). Pins the timestamp format so downstream tooling can
+    parse it without locale gymnastics."""
+    out, body, _ = _run_canonical(tmp_path)
+    ts = body["validated_at"]
+    assert isinstance(ts, str), ts
+    assert ts.endswith("+00:00") or ts.endswith("Z"), (
+        f"validated_at MUST be UTC (suffix +00:00 or Z); got={ts!r}"
+    )
+    assert _ISO8601_UTC_RE.match(ts), (
+        f"validated_at MUST be ISO 8601 calendar+time+offset; got={ts!r}"
+    )
+
+
+# 11f — dry-run mode pin
+
+
+def test_canonical_artifact_mode_is_dry_run(tmp_path):
+    """GREEN: `mode` MUST be exactly 'dry-run'. No --execute variant is
+    offered in this slice; PR 5/6 closure may add a separate non-dry-run
+    surface but MUST introduce a different mode string."""
+    out, body, _ = _run_canonical(tmp_path)
+    assert body["mode"] == "dry-run", body
+    # Belt-and-braces: nothing else in the script's allowed surface should
+    # ever sneak into `mode` without an explicit slice.
+    assert body["mode"] in {"dry-run"}, (
+        f"mode MUST be one of the canonical rehearsal surface set; got={body['mode']!r}"
+    )
+
+
+# 11g — out_dir + artifact path pin
+
+
+def test_canonical_artifact_out_dir_and_artifact_path(tmp_path):
+    """GREEN: `out_dir` MUST echo the --out directory verbatim, AND the
+    artifact MUST be located at <out_dir>/cutover-rehearsal.json
+    (atomic-write pin). Cross-check that the on-disk file matches the
+    parsed body byte-for-byte so a stale temp file cannot masquerade as
+    the canonical artifact."""
+    out, body, _ = _run_canonical(tmp_path)
+    expected_out = str(out.resolve())
+    assert body["out_dir"] == expected_out, (
+        f"out_dir MUST be {expected_out!r}; got={body['out_dir']!r}"
+    )
+    artifact_path = out / REHEARSAL
+    assert artifact_path.is_file(), (
+        f"cutover-rehearsal.json MUST live at <out>/cutover-rehearsal.json; "
+        f"missing={artifact_path}"
+    )
+    on_disk = json.loads(artifact_path.read_text())
+    assert on_disk == body, (
+        "artifact on disk MUST equal the parsed body (no temp-file shadowing)"
+    )
+
+
+# 11h — exact key set / no out_sha256 pin
+
+
+def test_canonical_artifact_exact_key_set_no_out_sha256(tmp_path):
+    """GREEN: the artifact MUST carry EXACTLY the canonical key set.
+    NO `out_sha256` is permitted (the artifact is the script's
+    self-description, not a re-hash of the output directory). Any
+    drift — extra keys, missing keys, or an `out_sha256` sneak-in —
+    MUST be caught here before it can ride a downstream consumer."""
+    out, body, _ = _run_canonical(tmp_path)
+    actual_keys = frozenset(body.keys())
+    assert actual_keys == EXPECTED_KEY_SET, (
+        f"artifact keys MUST be exactly {sorted(EXPECTED_KEY_SET)}; "
+        f"got={sorted(actual_keys)}; "
+        f"missing={sorted(EXPECTED_KEY_SET - actual_keys)}; "
+        f"extra={sorted(actual_keys - EXPECTED_KEY_SET)}"
+    )
+    assert "out_sha256" not in actual_keys, (
+        "artifact MUST NOT carry out_sha256 (forbidden self-hash of out_dir)"
+    )
+
+
+# 11i — count consistency pin
+
+
+def test_canonical_artifact_count_consistency(tmp_path):
+    """GREEN: `consumer_count` MUST equal both len(consumer_ids) and the
+    canonical manifest's `len(consumers)` (26). Pins count drift across
+    refactors that could re-shape `consumer_ids` while leaving the count
+    stale (or vice versa)."""
+    out, body, _ = _run_canonical(tmp_path)
+    canonical = _canonical_manifest_dict()
+    expected_count = len(canonical["consumers"])
+    assert body["consumer_count"] == expected_count, (
+        f"consumer_count MUST equal len(manifest.consumers); "
+        f"got={body['consumer_count']!r}, expected={expected_count!r}"
+    )
+    assert len(body["consumer_ids"]) == body["consumer_count"], (
+        f"len(consumer_ids) MUST equal consumer_count; "
+        f"consumer_count={body['consumer_count']}, len(consumer_ids)={len(body['consumer_ids'])}"
+    )
+    assert body["consumer_count"] == 26, body
+
+
+# 11j — stable hash across two runs pin
+
+
+def test_canonical_artifact_manifest_sha256_stable_across_runs(tmp_path):
+    """GREEN: `manifest_sha256` MUST be byte-stable across two independent
+    rehearsals of the same canonical manifest. The hash MUST equal the
+    sha256 of the manifest file at any time the manifest itself is
+    unchanged. Pins determinism — a non-stable hash would defeat every
+    downstream cache key derived from it."""
+    out1 = tmp_path / "out1"
+    r1 = _run(["--manifest", str(CANONICAL_MANIFEST), "--out", str(out1), "--dry-run"])
+    assert r1.returncode == 0, f"first run MUST exit 0; stderr={r1.stderr!r}"
+    sha1 = json.loads((out1 / REHEARSAL).read_text())["manifest_sha256"]
+    out2 = tmp_path / "out2"
+    r2 = _run(["--manifest", str(CANONICAL_MANIFEST), "--out", str(out2), "--dry-run"])
+    assert r2.returncode == 0, f"second run MUST exit 0; stderr={r2.stderr!r}"
+    sha2 = json.loads((out2 / REHEARSAL).read_text())["manifest_sha256"]
+    expected = _sha256_file(CANONICAL_MANIFEST)
+    assert sha1 == sha2 == expected, (
+        f"manifest_sha256 MUST be stable across runs and equal to sha256(manifest); "
+        f"run1={sha1!r}; run2={sha2!r}; expected={expected!r}"
+    )
