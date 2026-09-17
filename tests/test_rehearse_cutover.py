@@ -633,3 +633,54 @@ def test_canonical_artifact_manifest_sha256_stable_across_runs(tmp_path):
         f"manifest_sha256 MUST be stable across runs and equal to sha256(manifest); "
         f"run1={sha1!r}; run2={sha2!r}; expected={expected!r}"
     )
+
+
+# ── 12. Slice 5 — canonical-artifact bounded-evidence pins (PR 5/6) ──────────
+#
+# Bounded-evidence contract: the canonical `cutover-rehearsal.json` is the
+# script's self-description for the canonical dry-run ONLY. It carries
+# exactly 10 keys (frozen by slice-4 `EXPECTED_KEY_SET`) and MUST NOT carry
+# any Tier-2 / cutover-completion markers — it cannot be misread as Tier-2
+# / cutover closure. This is the §3.3.6 `Disposition (2026-09-13 — G6
+# slice 5 canonical dry-run artifact, bounded closure evidence)` contract.
+
+FORBIDDEN_CLOSURE_MARKERS = frozenset({
+    "tier_2_passed", "g3_tier2_passed", "g4_passed", "g5_passed",
+    "cutover_complete", "rollback_rehearsed", "atomic_cut_executed",
+    "fastapi_activated", "web_dir_repointed",
+})
+
+
+def test_canonical_artifact_bounded_evidence_no_tier2_or_cutover_markers(tmp_path):
+    """GREEN: canonical artifact MUST NOT carry any Tier-2 / G3 / G4 / G5 /
+    cutover-completion closure marker. The slice-4 `EXPECTED_KEY_SET` pin
+    alone cannot catch a refactor that swaps `verification_executed: false`
+    for `g3_tier2_passed: false` (both keys still satisfy the exact-key-set
+    pin). This test pins the SEMANTIC intent: no closure-completion key
+    may appear. Run on `feat/g6-rehearsal-schema-validation-2` at commit
+    `e1fc5a4` against the canonical normalized manifest."""
+    out, body, _ = _run_canonical(tmp_path)
+    actual_keys = frozenset(body.keys())
+    leaked_markers = actual_keys & FORBIDDEN_CLOSURE_MARKERS
+    assert not leaked_markers, (
+        f"canonical artifact MUST NOT carry any Tier-2 / cutover-completion "
+        f"marker; leaked={sorted(leaked_markers)}; actual={sorted(actual_keys)}"
+    )
+
+
+def test_canonical_artifact_bounded_evidence_dry_run_only_no_execute_marker(tmp_path):
+    """GREEN: canonical artifact's dry-run-only contract MUST hold jointly:
+    `mode == "dry-run"` AND `verification_executed is False` AND
+    `rollback_executed is False`. No `--execute` variant is offered in the
+    PR 1/6–PR 5/6 G6 surface; the artifact cannot be misread as a real
+    rehearsal that touched the world."""
+    out, body, _ = _run_canonical(tmp_path)
+    assert body.get("mode") == "dry-run", (
+        f"mode MUST be 'dry-run'; got={body.get('mode')!r}"
+    )
+    assert body.get("verification_executed") is False, (
+        f"verification_executed MUST be False; got={body.get('verification_executed')!r}"
+    )
+    assert body.get("rollback_executed") is False, (
+        f"rollback_executed MUST be False; got={body.get('rollback_executed')!r}"
+    )
