@@ -32,11 +32,11 @@ ask-on-risk; forecast under 250 authored lines, excluding the lockfile.
   - Evidence: independent `pnpm install --frozen-lockfile`, `next dev` plus HTTP checks, `pnpm exec next build`, and `git diff --check` all passed.
   - Note: Next 16 rewrote `next-env.d.ts` from `.next/dev/types` paths to `.next/types` paths during the verified static build. This is a standard generated declaration update and is retained in the candidate.
 - [x] ODD-TW-003 Commit and publish the verified repair.
-  - Outcome: created `fix(tailwind): repair next pipeline`; PR publication is in progress.
-  - Evidence: local work-unit commit created after writer and independent verification. The PR must target `develop`, link approved issue #74, and carry exactly `type:bug`; no automatic merge.
+  - Outcome: created `fix(tailwind): repair next pipeline` and opened PR #299 on `fix/tailwind-next-pipeline` to `develop`.
+  - Evidence: local work-unit commit created after writer and independent verification; PR #299 links approved issue #74 and carries exactly `type:bug`. Smoke tests are pending; no automatic merge.
 
 ## Progress
-The pipeline repair, verification, and local work-unit commit are complete. The app now serves the current migrated placeholder page (`<h1>taxa</h1>`); it does not mount the future application shell.
+The pipeline repair, verification, commit, and PR publication are complete. The app now serves the current migrated placeholder page (`<h1>taxa</h1>`); it does not mount the future application shell.
 
 ## Next step
-Push `fix/tailwind-next-pipeline` and open a `type:bug` pull request to `develop` linked to approved issue #74; do not merge it automatically.
+Wait for PR #299 Smoke tests and human review; do not merge it automatically.
