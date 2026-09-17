@@ -22,14 +22,28 @@ from pathlib import Path
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOMAIN_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "domain" / "taxon.ts"
 
-# Eight Linnaean ranks, verbatim from design.md §Interfaces/Contracts.
+# Twenty-one ranks the FastAPI taxonomy endpoints + committed test
+# fixtures can return (ODD-VTREE-001). Ordered broadest-first so
+# `RANK_ORDER.indexOf(a) < RANK_ORDER.indexOf(b)` exactly when `a`
+# is broader than `b`; mirrors `web/format.js::RANK_ORDER` and the
+# FastAPI SQL `RANK_ORDER` CASE in `api/server.py`. Consumers that
+# need a positional handle (e.g. `TaxonDetailViewModel.rankIndex`)
+# must read it from `RANK_ORDER` at runtime — these indexes do NOT
+# match the pre-ODD-VTREE-001 legacy eight.
 EXPECTED_RANKS: tuple[str, ...] = (
-    "kingdom", "phylum", "class", "order",
-    "family", "genus", "species", "subspecies",
+    "collection", "root", "domain", "superdomain",
+    "kingdom", "subkingdom",
+    "phylum", "subphylum",
+    "class", "subclass",
+    "order", "suborder",
+    "family", "subfamily",
+    "genus", "subgenus",
+    "species", "subspecies",
+    "variety", "subvariety",
+    "form",
 )
 
 # Pinned Taxon field set, verbatim from design.md §Interfaces/Contracts.
@@ -150,7 +164,9 @@ def _run_tsc_isolated(source: Path, out_dir: Path) -> subprocess.CompletedProces
 # Runtime harness — loaded by Node after tsc has emitted taxon.js.
 # Exercises every externally observable helper. Strict equality on the
 # `is*` predicates (the type-narrowing contract) and sign-checks on
-# `compareRanks` (the sort-order contract).
+# `compareRanks` (the sort-order contract). ODD-VTREE-001 expands the
+# rank universe; the harness mirrors `EXPECTED_RANKS` exactly so a
+# future PR that drops any rank fails here.
 _HARNESS_SOURCE = r"""
 const path = require("path");
 const domain = require(path.resolve(process.argv[2]));
@@ -158,34 +174,53 @@ const validTaxon = {
   id: 1, name: "Animalia", rank: "kingdom",
   authorship: null, parent_id: null,
 };
+// Broadest-first ordering mirrors web/format.js::RANK_ORDER and the
+// FastAPI SQL RANK_ORDER CASE (api/server.py). `RANK_ORDER.indexOf(a)
+// < RANK_ORDER.indexOf(b)` exactly when `a` is broader than `b`.
+const expectedRanks = [
+  "collection", "root", "domain", "superdomain",
+  "kingdom", "subkingdom",
+  "phylum", "subphylum",
+  "class", "subclass",
+  "order", "suborder",
+  "family", "subfamily",
+  "genus", "subgenus",
+  "species", "subspecies",
+  "variety", "subvariety", "form",
+];
+const newRanks = [
+  "collection", "root", "domain", "superdomain",
+  "subkingdom", "subphylum", "subclass", "suborder",
+  "subfamily", "subgenus",
+  "variety", "subvariety", "form",
+];
 const cases = {
   rank_order_is_array: Array.isArray(domain.RANK_ORDER),
-  rank_order_length_is_eight: domain.RANK_ORDER.length === 8,
-  rank_order_first_is_kingdom: domain.RANK_ORDER[0] === "kingdom",
-  rank_order_last_is_subspecies:
-    domain.RANK_ORDER[domain.RANK_ORDER.length - 1] === "subspecies",
+  rank_order_length_is_twenty_one: domain.RANK_ORDER.length === 21,
+  rank_order_first_is_collection:
+    domain.RANK_ORDER[0] === "collection",
+  rank_order_eighth_is_phylum: domain.RANK_ORDER[7] === "subphylum",
+  rank_order_last_is_form: domain.RANK_ORDER[domain.RANK_ORDER.length - 1] === "form",
   rank_order_matches_pinned_sequence:
-    JSON.stringify([...domain.RANK_ORDER]) === JSON.stringify([
-      "kingdom", "phylum", "class", "order",
-      "family", "genus", "species", "subspecies",
-    ]),
-  rank_accepts_kingdom:    domain.isValidRank("kingdom") === true,
-  rank_accepts_phylum:     domain.isValidRank("phylum") === true,
-  rank_accepts_class:      domain.isValidRank("class") === true,
-  rank_accepts_order:      domain.isValidRank("order") === true,
-  rank_accepts_family:     domain.isValidRank("family") === true,
-  rank_accepts_genus:      domain.isValidRank("genus") === true,
-  rank_accepts_species:    domain.isValidRank("species") === true,
-  rank_accepts_subspecies: domain.isValidRank("subspecies") === true,
+    JSON.stringify([...domain.RANK_ORDER]) === JSON.stringify(expectedRanks),
+  // Every rank in the union must round-trip through isValidRank.
+  rank_accepts_all_21:
+    expectedRanks.every((r) => domain.isValidRank(r) === true),
+  rank_accepts_superdomain: domain.isValidRank("superdomain") === true,
   rank_rejects_superfamily: domain.isValidRank("superfamily") === false,
-  rank_rejects_unknown:     domain.isValidRank("taxon") === false,
-  rank_rejects_empty:       domain.isValidRank("") === false,
-  rank_rejects_uppercase:   domain.isValidRank("KINGDOM") === false,
-  rank_rejects_null:        domain.isValidRank(null) === false,
-  rank_rejects_undefined:   domain.isValidRank(undefined) === false,
-  rank_rejects_number:      domain.isValidRank(0) === false,
-  rank_rejects_object:      domain.isValidRank({}) === false,
-  taxon_accepts_complete:   domain.isValidTaxon(validTaxon) === true,
+  rank_rejects_tribe: domain.isValidRank("tribe") === false,
+  rank_rejects_unknown: domain.isValidRank("taxon") === false,
+  rank_rejects_empty: domain.isValidRank("") === false,
+  rank_rejects_uppercase: domain.isValidRank("KINGDOM") === false,
+  rank_rejects_null: domain.isValidRank(null) === false,
+  rank_rejects_undefined: domain.isValidRank(undefined) === false,
+  rank_rejects_number: domain.isValidRank(0) === false,
+  rank_rejects_object: domain.isValidRank({}) === false,
+  // isValidTaxon: full + every new rank survives; every rejector fails.
+  taxon_accepts_complete: domain.isValidTaxon(validTaxon) === true,
+  taxon_accepts_new_ranks:
+    newRanks.every((r) =>
+      domain.isValidTaxon(Object.assign({}, validTaxon, { rank: r })) === true),
   taxon_rejects_missing_parent_id: (() => {
     const { parent_id, ...rest } = validTaxon;
     return domain.isValidTaxon(rest) === false;
@@ -208,16 +243,29 @@ const cases = {
   taxon_rejects_string_parent_id: domain.isValidTaxon(
     Object.assign({}, validTaxon, { parent_id: "x" })
   ) === false,
-  taxon_rejects_null:   domain.isValidTaxon(null) === false,
+  taxon_rejects_null: domain.isValidTaxon(null) === false,
   taxon_rejects_string: domain.isValidTaxon("Animalia") === false,
+  // compareRanks: broadest-first contract — synthetic / overlay
+  // roots must compare broader than every Linnaean rank.
   compare_kingdom_vs_species_negative:
     domain.compareRanks("kingdom", "species") < 0,
   compare_species_vs_subspecies_negative:
     domain.compareRanks("species", "subspecies") < 0,
   compare_genus_vs_family_positive:
     domain.compareRanks("genus", "family") > 0,
-  compare_equal_zero:
-    domain.compareRanks("genus", "genus") === 0,
+  compare_superdomain_vs_kingdom_negative:
+    domain.compareRanks("superdomain", "kingdom") < 0,
+  compare_domain_vs_kingdom_negative:
+    domain.compareRanks("domain", "kingdom") < 0,
+  compare_collection_vs_kingdom_negative:
+    domain.compareRanks("collection", "kingdom") < 0,
+  compare_phylum_index_is_six:
+    domain.RANK_ORDER.indexOf("phylum") === 6,
+  compare_genus_index_is_fourteen:
+    domain.RANK_ORDER.indexOf("genus") === 14,
+  compare_collection_vs_form_negative:
+    domain.compareRanks("collection", "form") < 0,
+  compare_equal_zero: domain.compareRanks("genus", "genus") === 0,
 };
 const failed = Object.keys(cases).filter((k) => cases[k] !== true);
 if (failed.length > 0) {
@@ -232,7 +280,7 @@ process.stdout.write("PASS\n");
 
 
 @pytest.fixture()
-def compiled_domain(tmp_path: Path, require_toolchain: None) -> Path:
+def compiled_domain(tmp_path: Path, require_toolchain: None) -> tuple[Path, Path]:
     """Compile `taxon.ts` to CommonJS in `tmp_path/build/`, write the
     Node harness, return the (compiled-module path, harness path)."""
     if not DOMAIN_FILE.exists():

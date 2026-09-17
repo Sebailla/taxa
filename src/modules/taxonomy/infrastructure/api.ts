@@ -1,8 +1,9 @@
 // Taxonomy infrastructure — typed adapter for FastAPI taxon endpoints.
 // spec.md rule 4: infrastructure → domain (inward). The barrel
-// re-exports fetchTaxon, fetchChildren, and TaxonomyApiError. Wire
-// `scientific_name` projects onto domain `name`; `isValidTaxon` rejects
-// ranks outside the eight Linnaean ranks deterministically.
+// re-exports fetchTaxon, fetchChildren, fetchDomains, and
+// TaxonomyApiError. Wire `scientific_name` projects onto domain `name`;
+// `isValidTaxon` rejects ranks outside the domain `Rank` union
+// deterministically (no coercion — ODD-VTREE-001).
 
 import { isValidTaxon } from "../domain/taxon.js";
 import type { Taxon } from "../domain/taxon.js";
@@ -79,6 +80,24 @@ function fromWire(payload: unknown, context: string): Taxon {
   return candidate;
 }
 
+/** Shared list-shape projection: read a JSON array and validate each
+ *  element through `fromWire`. Used by `fetchChildren` and
+ *  `fetchDomains` so a non-array payload, a per-element shape mismatch,
+ *  and an unsupported rank all surface as `TaxonomyApiError`. The
+ *  caller-supplied `context` is interpolated into every error message
+ *  for parity with `fromWire`. */
+function fromWireList(
+  payload: unknown,
+  context: string,
+): readonly Taxon[] {
+  if (!Array.isArray(payload)) {
+    throw new TaxonomyApiError(
+      `taxonomy API ${context} returned a non-array payload: ` + typeof payload,
+    );
+  }
+  return payload.map((element, i) => fromWire(element, `${context}[${i}]`));
+}
+
 export async function fetchTaxon(
   id: number,
   opts: FetchOptions = {},
@@ -113,11 +132,26 @@ export async function fetchChildren(
       { status: r.status },
     );
   }
-  const payload = await readJson(r);
-  if (!Array.isArray(payload)) {
+  return fromWireList(await readJson(r), `/api/taxon/${id}/children`);
+}
+
+/** Top-level domains returned by `GET /api/domains` — CoL domains
+ *  (Archaea, Bacteria, Eukaryota, Viruses), the Biota WoRMS
+ *  superdomain, and the synthetic Freshwater Fishes root. Returns the
+ *  same `Taxon` projection as `fetchTaxon` / `fetchChildren`; a wire
+ *  record carrying an unsupported rank (anything outside the
+ *  `Rank` union) is rejected via `TaxonomyApiError`. Caller-supplied
+ *  `baseUrl` follows the same convention as `fetchTaxon`. */
+export async function fetchDomains(
+  opts: FetchOptions = {},
+): Promise<readonly Taxon[]> {
+  const f = opts.fetch ?? defaultFetch();
+  const r = await f(url(opts.baseUrl ?? "", "/api/domains"));
+  if (!r.ok) {
     throw new TaxonomyApiError(
-      `taxonomy API GET /api/taxon/${id}/children returned a non-array payload: ` + typeof payload,
+      `taxonomy API GET /api/domains failed: ${r.status} ${r.statusText}`,
+      { status: r.status },
     );
   }
-  return payload.map((element, i) => fromWire(element, `/api/taxon/${id}/children[${i}]`));
+  return fromWireList(await readJson(r), "/api/domains");
 }
