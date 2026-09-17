@@ -1,0 +1,577 @@
+/**
+ * Tailwind 4 design tokens — initial scaffold for PR 3c-a (CSS re-split,
+ * position 3 / 16 in the chain).
+ *
+ * Migrated byte-equal from the bespoke inline `<style>` block of
+ * `web/index.html` (legacy `:root { … }` light palette +
+ * `[data-theme="dark"] { … }` dark palette + `--realm-*` family). PRs
+ * 3c-b / 3c-c / 3c-d extend this file with `@layer components` taxonomy
+ * rules, research / chrome rules, and `@keyframes` / `color-mix()` /
+ * utility / reset rules respectively — this PR ships the foundation only.
+ *
+ * Token names mirror the legacy block exactly so plain-CSS
+ * `var(--primary)` references the bespoke rules in the later children
+ * keep resolving without source renames (design.md §"Risks"
+ * namespace-stability contract). The Tailwind 4 `--color-*` namespace
+ * is derived as `var(--<name>)` so utility classes (bg-primary,
+ * text-surface, bg-realm-animalia, …) resolve to the same value as the
+ * plain-CSS references; the dark block overrides the canonical names
+ * only — the `--color-*` aliases follow via `var()` resolution at use
+ * time so utility classes AND plain-CSS `var(--name)` references flip
+ * together when the settings theme toggle stamps `data-theme="dark"` on
+ * `<html>`.
+ */
+@import "tailwindcss";
+
+@theme {
+  /* Light palette — neutral container family (legacy `:root { … }`). */
+  --primary: #1d7ea9;
+  --accent: #176587;
+  --surface: #ffffff;
+  --elevated: #bbbbbb;
+  --on-surface: #333333;
+  --on-surface-variant: #555555;
+  --outline: #bbbbbb;
+  --outline-variant: #d9d9d9;
+  --surface-container-low: #fafafa;
+  --surface-container: #f5f5f5;
+  --surface-container-high: #eeeeee;
+  --surface-container-highest: #e8e8e8;
+
+  /* Realm palette — saturated pastel. Realm hues stay identical in light +
+     dark mode; only the neutral family above inverts. */
+  --realm-bacteria: #5ebd9b;
+  --realm-archaea: #e07466;
+  --realm-viruses: #e8c547;
+  --realm-animalia: #a57fcb;
+  --realm-fungi: #5b9bd5;
+  --realm-plantae: #7cb669;
+  --realm-chromista: #e89b4f;
+  --realm-other: #d49ab6;
+
+  /* Tailwind 4 namespace aliases — utility classes (bg-primary, text-surface,
+     border-outline-variant, bg-realm-animalia, …) derive from these. The
+     var() indirection resolves at use-time so the dark block's overrides on
+     the canonical names flip the utility classes too. */
+  --color-primary: var(--primary);
+  --color-accent: var(--accent);
+  --color-surface: var(--surface);
+  --color-elevated: var(--elevated);
+  --color-on-surface: var(--on-surface);
+  --color-on-surface-variant: var(--on-surface-variant);
+  --color-outline: var(--outline);
+  --color-outline-variant: var(--outline-variant);
+  --color-surface-container-low: var(--surface-container-low);
+  --color-surface-container: var(--surface-container);
+  --color-surface-container-high: var(--surface-container-high);
+  --color-surface-container-highest: var(--surface-container-highest);
+  --color-realm-bacteria: var(--realm-bacteria);
+  --color-realm-archaea: var(--realm-archaea);
+  --color-realm-viruses: var(--realm-viruses);
+  --color-realm-animalia: var(--realm-animalia);
+  --color-realm-fungi: var(--realm-fungi);
+  --color-realm-plantae: var(--realm-plantae);
+  --color-realm-chromista: var(--realm-chromista);
+  --color-realm-other: var(--realm-other);
+}
+
+/* Dark palette — toggled by the legacy settings theme toggle stamping
+   [data-theme="dark"] on <html> (see web/settings.js). Overrides the
+   canonical names only; the --color-* aliases follow via var() resolution.
+   Realm hues stay identical — only the neutral family inverts. */
+[data-theme="dark"] {
+  --primary: #4aa3d0;
+  --accent: #6cb8db;
+  --surface: #1a1d23;
+  --elevated: #2a2e36;
+  --on-surface: #e6e8ec;
+  --on-surface-variant: #a0a4ac;
+  --outline: #4a4e56;
+  --outline-variant: #353941;
+  --surface-container-low: #1e2128;
+  --surface-container: #232730;
+  --surface-container-high: #2a2f38;
+  --surface-container-highest: #313742;
+}
+
+/* Base resets — html/body margin+padding zeroed; body overscroll disabled
+   so iOS / macOS Safari's rubber-band doesn't fight the SPA scroll; main's
+   first/last child drop Tailwind's default margins. PR 3c-d finalizes the
+   @layer base block with the global @keyframes spin affordance. Utility
+   classes (`.bg-primary` / `.animate-spin` / …) belong to PR 3c-e. */
+@layer base {
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+  }
+  body {
+    overscroll-behavior: none;
+  }
+  main > :first-child {
+    margin-top: 0 !important;
+  }
+  main > :last-child {
+    margin-bottom: 0 !important;
+  }
+  /* Global loading-state affordance — the rotate-0 → rotate-360 keyframe
+     the design system uses for materialise spinners and any future loading
+     affordance. Paired with `.animate-spin` (PR 3c-e) which applies
+     `animation: spin 0.8s linear infinite` to component scopes. */
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  /* Remaining global keyframes (PR 3c-e1 — alias + remaining-keyframe
+     slice). Each one preserves the legacy ``web/index.html`` cascade
+     verbatim so the React cutover's animation parity stays intact. The
+     paired utility classes (`.animate-spin`, `.detail-card`, `.toast`,
+     `.search-pulse`) live under `@layer components` (3c-e2 / 3c-b / 3c-c)
+     — keyframes live here under `@layer base` so every layer can reach
+     them without re-importing the @theme tokens. */
+  @keyframes detail-card-enter {
+    from {
+      opacity: 0;
+      transform: translateY(-8px) scale(0.995);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  @keyframes detail-card-leave {
+    from {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(-6px) scale(0.995);
+    }
+  }
+  @keyframes search-pulse-anim {
+    0% {
+      box-shadow: 0 0 0 0 rgba(29, 126, 169, 0.55);
+    }
+    100% {
+      box-shadow: 0 0 0 16px rgba(29, 126, 169, 0);
+    }
+  }
+  @keyframes toast-slide-in {
+    from {
+      opacity: 0;
+      transform: translate(-50%, 8px);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+  }
+}
+
+/* Taxonomy tree + inline Overview/DetailPanel selectors (PR 3c-b).
+   Lives under @layer components so the Tailwind 4 utility surface
+   (PR 3c-d) can still override. Top-level ordering is alphabetical
+   (3c-b.4 refactor contract); per-row kebab + tab-strip descendants
+   collapse into their parents so the visual chain stays in lock-step
+   across the React cutover. */
+@layer components {
+  /* Alias renames (PR 3c-e1 — alias + remaining-keyframe slice; PR 3c-e2
+     extends the same `:root { ... }` block with the
+     `--surface-container-lowest -> --surface` alias chain). The
+     legacy surface used `--primary-fixed` / `--on-primary-fixed`
+     token names; the upstream design tokens shipped by PR 3c-a only
+     expose `--primary` / `--on-primary`. Declaring the alias pair on
+     `:root` inside `@layer components` preserves the legacy mapping
+     so the 3c-e2 utility-class surface (`.bg-primary-fixed`,
+     `.text-on-primary-fixed`, `.bg-surface-container-lowest`) keeps
+     resolving to the upstream token value AND flips with the
+     dark-mode `data-theme` override (the alias chain follows the
+     var() indirection at use-time).
+
+     PR 3c-e2's `--surface-container-lowest -> --surface` alias:
+     the legacy `tailwind.config.js` exposed
+     `surface-container-lowest: #FFFFFF` (light) but the React
+     cutover relies on the same dark-mode `--surface` override so
+     the darkest container (= page surface) tracks the theme;
+     declaring the alias here keeps `.bg-surface-container-lowest`
+     resolving via the theme's var() indirection instead of baking
+     a hardcoded hex literal into the rule body. */
+  :root {
+    --primary-fixed: var(--primary);
+    --on-primary-fixed: var(--on-primary);
+    --surface-container-lowest: var(--surface);
+  }
+
+  /* Utility class (PR 3c-e2) — global spinner animation. References
+     the `@keyframes spin` block shipped under `@layer base` by PR 3c-d
+     (no new keyframe added here). The 0.8s linear infinite timing
+     matches the legacy `web/index.html` `.animate-spin` cascade so
+     the materialise spinner stays in lock-step with the React cutover. */
+  .animate-spin {
+    animation: spin 0.8s linear infinite;
+  }
+
+  /* Authorship — Overview tab body metadata. */
+  .authorship {
+    color: var(--on-surface-variant);
+    font-family: "Raleway", sans-serif;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  /* Utility classes (PR 3c-e2) — background-color helpers. Each rule
+     reads its value from the upstream `@theme` token (or a 3c-e1 /
+     3c-e2 alias declared above on `:root`) so the dark-mode
+     `[data-theme="dark"]` override on `<html>` flips every utility
+     class at use-time via the var() indirection — no hardcoded hex
+     literals here. Ordered alphabetically (PR 3c-e2.4 refactor
+     contract). */
+  .bg-primary {
+    background-color: var(--color-primary);
+  }
+  .bg-primary-fixed {
+    background-color: var(--primary-fixed);
+  }
+  .bg-surface-container-lowest {
+    background-color: var(--surface-container-lowest);
+  }
+  .border-outline-variant {
+    border-color: var(--color-outline-variant);
+  }
+
+  /* Breadcrumb — rank / taxon / scientific-name chain above the tree.
+     JetBrains Mono aligns the rank separators (›) vertically. */
+  .breadcrumb {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 12px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--on-surface);
+  }
+
+  /* Detail panel — sticky column right of the tree. Three tabs in
+     fixed order: Overview / Search / Folder, all reachable from
+     every selection; Overview always visible per the user-selected
+     policy. */
+  .detail-panel {
+    position: sticky;
+    top: 144px;
+    z-index: 30;
+    background: var(--surface);
+    border: 1px solid var(--outline-variant);
+    border-radius: 16px;
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.04),
+      0 4px 12px rgba(15, 23, 42, 0.06),
+      0 12px 32px rgba(15, 23, 42, 0.04);
+    height: auto;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  /* Folder tab body (PR 3c-c) — per-taxon materialize indicator
+     (separate top-level from .search-tab). */
+  .folder-tab {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px 24px;
+  }
+
+  /* Header Browser tab (PR 3c-c) — GLOBAL Research / file explorer
+     (NOT a detail-panel tab, NOT taxon-scoped). */
+  .header-browser-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    font-family: "Raleway", sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--on-surface-variant);
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+  }
+
+  /* Kebab + per-row kebab-menu (3c-b.4: collapsed into parent). */
+  .kebab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+  .kebab > .kebab-menu {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    min-width: 180px;
+    background: var(--surface);
+    border: 1px solid var(--outline-variant);
+    border-radius: 8px;
+    padding: 4px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+    z-index: 50;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .kebab > .kebab-menu.open {
+    display: flex;
+  }
+
+  /* Per-row materialize indicator — status marker when the taxon's
+     root→taxon folder is on disk. */
+  .materialize-indicator {
+    margin-left: 4px;
+    padding: 2px;
+    border-radius: 4px;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #15803d;
+  }
+  .materialize-indicator:hover {
+    background: var(--surface-container-low);
+    color: #166534;
+  }
+
+  /* Overview tab body — scientific name, accepted status, authorship,
+     species count. NEVER hide this tab; user-selected policy binds
+     Overview as always visible. */
+  .overview-tab {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px 24px;
+  }
+
+  /* Research explorer (PR 3c-c) — global two-pane folder tree /
+     file viewer pair. Descendants collapse into this parent (3c-c.4
+     refactor). GLOBAL — NOT taxon-scoped (3c-c.3 (e) contract). */
+  .research-explorer {
+    display: flex;
+    gap: 0;
+    width: 100%;
+    min-height: calc(100vh - 96px);
+    overflow-x: auto;
+  }
+  .research-explorer > .file-explorer-pane {
+    min-width: 14rem;
+    width: 30%;
+    max-width: 30%;
+    flex-shrink: 0;
+    border-right: 1px solid var(--outline-variant);
+    background: var(--surface);
+    padding: 12px 8px;
+    overflow-y: auto;
+    max-height: calc(100vh - 96px);
+  }
+  .research-explorer > .file-viewer-pane {
+    flex: 1;
+    min-width: 0;
+    padding: 16px 24px;
+    background: var(--surface-container-lowest);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: calc(100vh - 96px);
+    overflow-y: auto;
+  }
+
+
+  /* Utility class (PR 3c-e2) — right-side rounded corner helper for
+     the file/folder affordance rows the legacy `web/index.html`
+     cascade emitted via the `rounded-r-md` Tailwind class. */
+  .rounded-r-md {
+    border-top-right-radius: 0.375rem;
+    border-bottom-right-radius: 0.375rem;
+  }
+
+  /* Scientific name — italic by ICZN convention; --roman modifier
+     (PR 5a) flips higher ranks back to roman. */
+  .scientific-name {
+    font-family: "Raleway", sans-serif;
+    font-style: italic;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--on-surface);
+  }
+
+  /* Search tab body (PR 3c-c). Five category sections in fixed order
+     ``General`` → ``Taxonomic`` → ``Academic`` → ``Multimedia`` →
+     ``Documents`` (matches ``web/search_urls.js::CATEGORIES``).
+     Descendants collapse into this parent (3c-c.4 refactor); the
+     ``SearchLinkList`` anchor security contract
+     (target="_blank", rel="noopener noreferrer") lives at the
+     React layer. Closes the regression where ``Search online``
+     lands on ``Overview``. */
+  .search-tab {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px 24px;
+  }
+  .search-tab > .search-category-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .search-tab > .search-category-section > .search-category-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 4px 4px;
+    border-bottom: 1px solid var(--outline-variant);
+    font-family: "Raleway", sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    line-height: 1.3;
+    text-transform: uppercase;
+    color: var(--on-surface-variant);
+  }
+  .search-tab > .search-link-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+    padding: 4px 2px;
+  }
+  .search-tab > .search-link-list > .search-link {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 18px 12px;
+    min-height: 84px;
+    border: 1px solid var(--outline-variant);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--on-surface);
+    text-decoration: none;
+    font-family: "Raleway", sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.3;
+    text-align: center;
+    cursor: pointer;
+  }
+  /* Utility class (PR 3c-e2) — subtle elevation shadow. Matches the
+     legacy Tailwind-3 `shadow-sm` value (0 1px 2px 0 rgb(0 0 0 / 5%))
+     so the Search-tab cards keep the same lift on the React cutover. */
+  .shadow-sm {
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  }
+
+  /* Species count — small monospace metadata (Overview body + tree). */
+  .species-count {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--on-surface-variant);
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  /* Tab strip — segmented control with three buttons in fixed order
+     (Overview / Search / Folder). The data-tab attribute names each
+     tab; PR 5a (taxonomy port) stamps it on the React elements. */
+  .tab-strip {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--surface-container);
+    padding: 0 16px;
+    margin: 0 -16px 16px;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--surface);
+  }
+  .tab-strip > .tab-button {
+    padding: 10px 14px;
+    font-family: "Raleway", sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--on-surface-variant);
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 120ms, border-color 120ms;
+  }
+  .tab-strip > .tab-button:hover {
+    color: var(--on-surface);
+  }
+  .tab-strip > .tab-button.active,
+  .tab-strip > .tab-button[data-tab="Overview"].active,
+  .tab-strip > .tab-button[data-tab="Search"].active,
+  .tab-strip > .tab-button[data-tab="Folder"].active {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+  }
+
+  /* Taxonomic tree — <main> left column; CSS-grid with four columns
+     (rank / name / source / species-count). */
+  .taxa-tree {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: 0;
+    padding: 0;
+    background: var(--surface);
+  }
+  /* Utility classes (PR 3c-e2) — text-color helpers. `.text-on-surface`
+     reads from the `--color-on-surface` 3c-a alias;
+     `.text-on-primary-fixed` routes through the 3c-e1
+     `--on-primary-fixed` alias so the dark-mode
+     `[data-theme="dark"]` override flips both at use-time via the
+     var() indirection. */
+  .text-on-primary-fixed {
+    color: var(--on-primary-fixed);
+  }
+  .text-on-surface {
+    color: var(--color-on-surface);
+  }
+
+  /* Tree row — one rank/name/source/species-count entry plus per-row
+     affordances (kebab, search icon, materialize indicator). */
+  .tree-row {
+    display: contents;
+  }
+  .tree-row:hover {
+    background: var(--surface-container-low);
+  }
+
+  /* Per-row search glyph — end of row's meta block. */
+  .tree-search-icon {
+    margin-left: 8px;
+    padding: 2px;
+    border-radius: 4px;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .tree-search-icon:hover {
+    background: var(--surface-container-low);
+    color: var(--primary);
+  }
+}
