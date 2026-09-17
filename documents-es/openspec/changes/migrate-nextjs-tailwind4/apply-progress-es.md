@@ -19,7 +19,7 @@
 ## Estado de reconstrucción (reemplaza los lotes de apply previos)
 
 | Sub-PR | Alcance | Presupuesto LoC | Archivos fuente | Estado |
-|--------|---------|-----------------|-----------------|--------|
+| -------- | --------- | ----------------- | ----------------- | -------- |
 | PR 1a.1 | Emisor del build-profile | 296 | `scripts/emit_build_profile.mjs` + bloque de contrato de script de `tests/test_build_profile.py` | entregado — origin/develop #75 (`646f00d`) envía `scripts/emit_build_profile.mjs` + `tests/test_build_profile.py` completo (321 LoC) |
 | PR 1a.2 | Test de esquema del build-profile | 241 | resto de `tests/test_build_profile.py` | incierto — #75 añadió `tests/test_build_profile.py` completo; el límite del slice nombrado con 1a.1 (bloque de contrato de script vs resto de esquema) no es determinable a partir del historial de commits |
 | PR 1b.1 | Pin de chromium | 247 | `scripts/verify_chromium.py` + bloque chromium de `tests/test_evidence_baseline.py` | entregado — origin/develop #76 (`97776de`) envía `tests/test_evidence_baseline.py` completo (829 LoC); `scripts/verify_chromium.py` precede al slice (#3c16dad, feat(security)) |
@@ -185,7 +185,7 @@ Las dos reparticiones juntas producen **14 sub-PRs** apuntando a
 ## Riesgos
 
 | Riesgo | Severidad | Mitigación |
-|--------|-----------|------------|
+| -------- | ----------- | ------------ |
 | La secuencia de reconstrucción se interrumpe; un merge parcial de sub-PRs de la Fase 1 deja el proyecto en estado inconsistente. | Media | El test enfocado de cada sub-PR pasa de forma independiente de los sub-PRs posteriores. Un PR atascado bloquea solo a su sucesor, no a toda la cadena. |
 | El árbol de respaldo se edita por accidente durante la reconstrucción; los archivos fuente se desvían del plan. | Alta | El árbol de respaldo se marca como de solo lectura a nivel de sistema de archivos; todo el trabajo de reconstrucción ocurre en árboles nuevos ramificados de `develop`. |
 | Las listas de archivos de PR 3, 4, 5 aún no están detalladas; una pasada futura de planificación debe actualizar `tasks.md` §§Fase 3–5 con listas de archivos por sub-PR explícitas. | Media | Las Fases 3, 4, 5 se mantienen bajo `aún no escrito` en esta pasada; se le indica al worker de apply pausar antes de PR 3 y actualizar las listas por sub-PR. |
@@ -200,7 +200,7 @@ commits (1a.1, 1b.1, 2a, 2b, 2c, 2d); **5 sub-PRs son inciertos**
 (PR 3, PR 4, PR 5). Los registros de staged previos de PR 2a / 2b /
 2c abajo se conservan como contexto histórico — esas unidades ya
 fueron entregadas a `develop` mediante los PRs #78 (#3e596db),
-#80 (#00560db) y #82 (#0bd294a). La unidad de trabajo PR 2a fue
+# 80 (#00560db) y #82 (#0bd294a). La unidad de trabajo PR 2a fue
 staged en el árbol `taxa-worktrees/migrate-nextjs-tailwind4-2a`
 (andamio + test + tsconfig + evidencia OpenSpec + espejos en español);
 el test enfocado `tests/test_module_layers.py` pasa 40 / 40 (RED →
@@ -230,7 +230,7 @@ alias correspondientes; no se requiere `size:exception`.
 La unidad de trabajo PR 2c fue staged en el árbol
 `taxa-worktrees/migrate-nextjs-tailwind4-2c` (entregada mediante
 PR #82 / #0bd294a) (20 fixtures literales
-+ bloque de triangulación runtime de
+- bloque de triangulación runtime de
 `tests/test_no_restricted_imports.py` + registros de progreso
 OpenSpec + espejo en español); el test enfocado
 `tests/test_no_restricted_imports.py` pasa 102 / 102 (32 PR 2b + 70
@@ -278,7 +278,7 @@ reconstrucción según `tasks.md` §Aviso de reconstrucción.
   `openspec/changes/migrate-nextjs-tailwind4/{proposal,tasks}.md` +
   `specs/modular-architecture/spec.md`; espejos en español bajo
   `documents-es/openspec/changes/migrate-nextjs-tailwind4/{proposal,tasks}-es.md`
-  + `specs/modular-architecture/spec-es.md`. Los sub-PRs siguientes
+  - `specs/modular-architecture/spec-es.md`. Los sub-PRs siguientes
   continúan bajo el mismo plan de reconstrucción.
 - **2026-08-29** — `size:exception` de PR 2a **aceptada**. El tamaño
   medido es de **409** líneas de código+test (`tsconfig.json` 45 + 5
@@ -315,7 +315,7 @@ reconstrucción según `tasks.md` §Aviso de reconstrucción.
       mantenedor; no se requiere `size:exception`. Este registro no
       modifica código ni tests y no realiza commit ni push. Espejo en
       inglés actualizado en paralelo.
-    - **2026-08-29** — Unidad de trabajo PR 2c staged en el árbol dedicado
+  - **2026-08-29** — Unidad de trabajo PR 2c staged en el árbol dedicado
       `taxa-worktrees/migrate-nextjs-tailwind4-2c`. Archivos añadidos:
       `scripts/eslint-fixtures/deep_import_<cap>_<layer>.js` (20
       fixtures literales commiteados, 5 LoC cada uno = 100 LoC en total,
@@ -340,7 +340,7 @@ reconstrucción según `tasks.md` §Aviso de reconstrucción.
           líneas (-40,25 %)** de holgura. No se requiere `size:exception`.
           Este registro no modifica código ni tests y no realiza commit ni
           push. Espejo en inglés actualizado en paralelo.
-    - **2026-08-29** — Pasada de reconciliación del ledger (esta
+  - **2026-08-29** — Pasada de reconciliación del ledger (esta
       entrada). Según la tarea del padre, el ledger de
       `apply-progress.md` se reconcilia contra el historial de
       commits de `origin/develop`. **6 / 14 sub-PRs marcados como
@@ -363,7 +363,7 @@ reconstrucción según `tasks.md` §Aviso de reconstrucción.
       forma alias de PR 2b se conservan verbatim. Sin cambios de
       código o test en esta pasada; no se realiza commit / push.
       Espejo en inglés actualizado en paralelo.
-    - **2026-08-30** — Pasada de reconciliación de docs-only G2 / G5
+  - **2026-08-30** — Pasada de reconciliación de docs-only G2 / G5
       (esta entrada). Según la tarea del padre, los artefactos de
       planificación canónicos (`proposal.md`, `design.md`,
       `apply-progress.md`) y sus espejos fieles en español
@@ -400,7 +400,7 @@ reconstrucción según `tasks.md` §Aviso de reconstrucción.
           no intentada`; la activación de PR3e sigue bloqueada hasta que
           G1–G6 cierren. Espejos en español actualizados en paralelo.
           No se realiza commit ni push en esta pasada.
-        - **2026-08-30** — Pasada de correcciones del contrato G2 (tres
+    - **2026-08-30** — Pasada de correcciones del contrato G2 (tres
           decisiones explícitas del mantenedor aplicadas a
           `design.md::§3.3.2.1`; esta entrada). Según la tarea del padre,
           el contrato G2 canónico se corrige para registrar tres
@@ -468,7 +468,7 @@ reconstrucción según `tasks.md` §Aviso de reconstrucción.
           candidato / package-lock / ficheros de evidencia. Espejos
           en español actualizados en paralelo. No se realiza commit
           ni push en esta pasada.
-        - **2026-08-30** — Pasada de corrección del contrato de salida G2
+    - **2026-08-30** — Pasada de corrección del contrato de salida G2
           (una decisión explícita del mantenedor aplicada a
           `design.md::§3.3.2.1`; esta entrada). Según la tarea del padre,
           el contrato G2 canónico se corrige para reflejar la disposición
@@ -487,20 +487,20 @@ reconstrucción según `tasks.md` §Aviso de reconstrucción.
           (4) **Corrección del contrato de salida de Next.js 16 /
           Turbopack** — registrada en `design.md::§3.3.2.1` contra la
           disposición de salida del build limpio `next build` verificada:
-          - (4.a) **Clase CSS** — la clase CSS de ruta-de-aplicación
+      - (4.a) **Clase CSS** — la clase CSS de ruta-de-aplicación
             requerida es **uno-o-más ficheros `*.css` no vacíos en
             cualquier punto bajo
             `<candidate-root>/out/_next/static/chunks/**`** (los bundles
             CSS están co-ubicados con los chunks JS), **no** bajo
             `out/_next/static/css/` (no se requiere ni se aserta ningún
             directorio CSS separado).
-          - (4.b) **Clase JS** — la clase JS de ruta-de-aplicación
+      - (4.b) **Clase JS** — la clase JS de ruta-de-aplicación
             requerida es **uno-o-más ficheros `*.js` no vacíos en
             cualquier punto bajo
             `<candidate-root>/out/_next/static/chunks/**`**; el contrato
             lleva **sin requisito del subdirectorio `chunks/app/`**
             (Next.js 16 / Turbopack emite chunks JS planos).
-          - (4.c) **Semántica del staging de manifiestos** — solo
+      - (4.c) **Semántica del staging de manifiestos** — solo
             `<candidate-root>/.next/build-manifest.json` →
             `<candidate-root>/out/.next/build-manifest.json` es
             **requerido** (su ausencia de la salida del build es un fallo
@@ -533,7 +533,7 @@ reconstrucción según `tasks.md` §Aviso de reconstrucción.
           candidato / package-lock / ficheros de evidencia / artefacto
               de build candidato de Next 16. No se realiza commit ni push en
               esta pasada.
-        - **2026-08-30** — Pasada de registro del PASS de G2 (esta entrada).
+    - **2026-08-30** — Pasada de registro del PASS de G2 (esta entrada).
           Según la tarea del padre, la evidencia verificada independientemente
           del run limpio G2 capturada en el árbol de trabajo dedicado
           `taxa-worktrees/migrate-nextjs-g2-evidence-capture` (sobre
@@ -546,20 +546,20 @@ reconstrucción según `tasks.md` §Aviso de reconstrucción.
           contrato canónico definido en `design.md::§3.3.2.1` (se
           honran las **cuatro** correcciones explícitas del mantenedor).
           Resumen de evidencia:
-          - **Timestamp del run** — build iniciado
+      - **Timestamp del run** — build iniciado
             `2026-08-30T18:10:59.430633+00:00`, build finalizado
             `2026-08-30T18:11:02.803400+00:00` (limpio, ~3,4 s).
-          - **Versión de Node** — `v26.8.1` (requisito duro ≥ `20.9.0`).
-          - **Ubicación del artefacto** —
+      - **Versión de Node** — `v26.8.1` (requisito duro ≥ `20.9.0`).
+      - **Ubicación del artefacto** —
             `taxa-worktrees/migrate-nextjs-g2-evidence-capture/tools/g2-candidate/out/BUILD-INVENTORY.json`
             (y `out/.next/build-manifest.json` para el manifiesto en
             staging). El workspace capturado **no** se comitea; solo se
             referencian aquí la ruta y el contenido del inventario.
-          - **Comando de build** (registrado en el campo
+      - **Comando de build** (registrado en el campo
             `build_command` del inventario) —
             `<candidate-root>/node_modules/.bin/next build` con
             `cwd = <candidate-root>`; exit `0`.
-          - **Clases presentes en el inventario** (sin
+      - **Clases presentes en el inventario** (sin
             `missing_classes`): `application_route_html` ×1
             (`out/index.html`), `js_class` ×1 (un `*.js` no vacío bajo
             `out/_next/static/chunks/**`), `css_class` ×1 (un `*.css`
@@ -570,23 +570,23 @@ reconstrucción según `tasks.md` §Aviso de reconstrucción.
             **cuatro** correcciones), `error_pages` ×1 (`out/404.html`
             clasificado por separado, **no** promovido a
             `application_route_html`).
-          - **Build-manifest en staging** —
+      - **Build-manifest en staging** —
             `<candidate-root>/out/.next/build-manifest.json`,
             **607 bytes**, sha256
             `f52f7edd901e373a2a24a4ecf8ba61c96ad227093c6440dc4a3a6ca58a92f2a3`
             (`staged`).
-          - **App-build-manifest opcional** — `not_emitted` (registrado,
+      - **App-build-manifest opcional** — `not_emitted` (registrado,
             **no** es un fallo de clase faltante).
-          - **Tests** — el test enfocado `tests/test_verify_build.py`
+      - **Tests** — el test enfocado `tests/test_verify_build.py`
             pasa **14 / 14** (12 funciones + 2 expansiones
             parametrizadas sobre `(omit, label)`); el test enfocado
             `tests/test_g2_candidate.py` pasa **34 / 34** (17 funciones
-            + expansiones parametrizadas sobre `(path)` y `(needle)`).
-          - **Log de build** — `<candidate-root>/build.log` capturado
+        - expansiones parametrizadas sobre `(path)` y `(needle)`).
+      - **Log de build** — `<candidate-root>/build.log` capturado
             (presente la advertencia de múltiples lockfiles y **no es
             bloqueante** según el contrato canónico — la salida del
             verificador se propagó limpia a `0`).
-          - **Nota de riesgo** — la tarea breve del padre listó el
+      - **Nota de riesgo** — la tarea breve del padre listó el
             prefijo sha256 del build-manifest en staging como
             `7ad2277db4ab4e80...`; el sha256 **real** capturado es
             `f52f7edd901e373a2a24a4ecf8ba61c96ad227093c6440dc4a3a6ca58a92f2a3`
@@ -597,7 +597,7 @@ reconstrucción según `tasks.md` §Aviso de reconstrucción.
             prefijo del hash más allá de las aserciones de
             bytes-contados + estabilidad de sha256; la aserción del
             contrato canónico se cumple con el sha256 registrado.
-          - **Verdad preservada** — G2 **pasa** (build limpio del
+      - **Verdad preservada** — G2 **pasa** (build limpio del
             candidato + inventario reproducible, todas las aserciones
             del contrato satisfechas); **G3, G4, G5, G6 siguen
             bloqueadas** (G5 irreproducible según la auditoría §3.3.5;
@@ -615,7 +615,7 @@ reconstrucción según `tasks.md` §Aviso de reconstrucción.
             `design.md::§3.3.2.1` **no** se modifica en esta pasada.
 Espejos en español actualizados en paralelo. No se realiza
                 commit, push, ni apertura de PR en esta pasada.
-            - **2026-08-30** — Pasada de autoría del cutover-manifest de G3
+        - **2026-08-30** — Pasada de autoría del cutover-manifest de G3
               (esta entrada). Según la tarea del padre, el manifiesto de
               consumidores machine-readable canónico se añade en
               `openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json`
@@ -736,7 +736,7 @@ Espejos en español actualizados en paralelo. No se realiza
                   dos ficheros). El total de adiciones autoradas de
                   planning-doc en esta pasada se queda bien por debajo del
                   presupuesto de revisión por PR de 400 líneas.
-                - **2026-08-30** — Pasada de registro del PASS canónico de
+          - **2026-08-30** — Pasada de registro del PASS canónico de
                   G3 (esta entrada). Según la tarea del padre, la
                   evidencia verificada independientemente de la preparación
                   Nivel-1 (legacy pre-cut) de G3 capturada tras el merge
@@ -756,7 +756,7 @@ Espejos en español actualizados en paralelo. No se realiza
                   para Nivel-2** (la selección atomic-cut sigue acoada
                   por PASS de G4 + G5 + G6).
                   Resumen de la evidencia:
-                  - **PRs fusionadas en `origin/develop` al momento de la
+            - **PRs fusionadas en `origin/develop` al momento de la
                     captura de evidencia** — PR #109 `test(g3): verify
                     consumer readiness` (verificador autorado) + PR #111
                     `fix(g3): control readiness verification runtime`
@@ -765,22 +765,24 @@ Espejos en español actualizados en paralelo. No se realiza
                     `fix(g3): enforce HTTP consumer expectations`
                     (aplicación fail-closed de forma HTTP vía
                     `tools/g3-legacy-fixture/scripts/check_http_status.py`)
-                    + PR #116 `fix(g3): preserve virtualenv Python paths`
+              - PR #116 `fix(g3): preserve virtualenv Python paths`
                     (preservación de symlinks de virtualenv). Las cuatro
                     PRs están fusionadas en `origin/develop` (HEAD
                     actual `39d29ee`) — el verificador, el runtime
                     controlado, la guarda fail-closed de forma HTTP, y la
                     preservación de symlinks de venv están todos en
                     disco al momento de la captura de evidencia.
-                  - **Línea de comando canónica** —
+            - **Línea de comando canónica** —
                     `python scripts/verify_consumers.py --manifest openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json --out <build-root> --serve --venv <repo-root>/.venv/bin/python --fixture-web-root <repo-root>/tools/g3-legacy-fixture/web --repo-root <repo-root>`
                     — sale `0` (el verificador sale con `EXIT_OK`).
-                  - **Artefacto emitido** —
+            - **Artefacto emitido** —
                     `<build-root>/CONSUMER-READINESS.json`, escrito
                     atómicamente vía temp-file + rename por el verificador;
                     el esquema canónico valida cada clave requerida.
-                  - **Contenido del artefacto (canónico)** — `manifest_path`
+
+            - **Contenido del artefacto (canónico)** — `manifest_path`
                     =
+
                     `openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json`,
                     `manifest_sha256` coincide con el hash del manifiesto
                     canónico en disco (estable entre ejecuciones
@@ -794,7 +796,7 @@ Espejos en español actualizados en paralelo. No se realiza
                     §3.3.3.1 (`activation_complete = true` AND `exit_code
                     = 0` AND `unselected_count = 0` AND
                     `failed_verifications[]` vacío).
-                  - **Cobertura (canónica)** — los **26 / 26**
+            - **Cobertura (canónica)** — los **26 / 26**
                     consumidores de §3.1 PASAN — **21** en §3.1.1 (mount
                     web FastAPI: 2 lecturas HTML + 1 link CSS + 1 entrada
                     de módulo JS + 4 ES-import + 3 dynamic-import + 1 pin
@@ -803,7 +805,7 @@ Espejos en español actualizados en paralelo. No se realiza
                     extensión, con el bloque evidence-baseline plegado por
                     resumen de cobertura) + **5** en §3.1.2
                     (`web/search_urls.js`: 3 usos de runtime en detail.js
-                    + 2 tests contractuales). El `verification.command`
+              - 2 tests contractuales). El `verification.command`
                     de cada consumidor sale `0` contra el fixture
                     controlado servido por `python -m http.server` en un
                     puerto TCP libre aislado elegido por el SO (nunca el
@@ -814,7 +816,7 @@ Espejos en español actualizados en paralelo. No se realiza
                     (PR #115); las expectativas sin forma HTTP (`"ok"`,
                     `"1 passed"`, `"all passed"`, texto arbitrario)
                     mantienen la semántica de sólo-exit-del-shell.
-                  - **Tests que respaldan el PASS** — `tests/test_verify_consumers.py`
+            - **Tests que respaldan el PASS** — `tests/test_verify_consumers.py`
                     (tests de triangulación de runtime controlado /
                     fixture-serve / forma HTTP / preservación de symlinks,
                     todos en verde sobre `origin/develop` tras el merge
@@ -823,7 +825,7 @@ Espejos en español actualizados en paralelo. No se realiza
                     fixture + cobertura de activos del fixture servido,
                     todos en verde sobre `origin/develop` tras el merge
                     de PR #113 + PR #114 + PR #115 + PR #116).
-                  - **Nota de riesgo** — la evidencia del PASS de Nivel-1
+            - **Nota de riesgo** — la evidencia del PASS de Nivel-1
                     es **independiente** de cualquier evidencia de G2 /
                     G4 / G5 / G6; Nivel-1 (legacy pre-cut) no requiere
                     PASS de G2/G4/G5/G6 por contrato, y el comando
@@ -832,15 +834,15 @@ Espejos en español actualizados en paralelo. No se realiza
                     build candidata de G2. El artefacto de PASS **no**
                     ejercita `<build-root>` de un candidato G2; esa ruta
                     es Nivel-2 y sigue acoada por PASS de G2 + G4 + G5
-                    + G6.
-                  - **Verdad preservada** — G3 **Nivel-1 (legacy
+              - G6.
+            - **Verdad preservada** — G3 **Nivel-1 (legacy
                     pre-cut) preparación APROBADA** (captura de evidencia
                     limpia, todos los consumidores en verde, se emite
                     `CONSUMER-READINESS.json` válido); **G3 Nivel-2
                     (selección atomic-cut contra el artefacto de build
                     del Enfoque A / B / C elegido) NO APROBADA** —
                     Nivel-2 requiere G4 (paridad Playwright + Lighthouse)
-                    + G5 (línea base de hidratación reproducible — G5
+              - G5 (línea base de hidratación reproducible — G5
                     actualmente `irreproducible` según auditoría
                     §3.3.5) + G6 (éxito del dry-run de
                     `cutover-rehearsal.json`); el PASS de G2 está
@@ -856,7 +858,7 @@ Espejos en español actualizados en paralelo. No se realiza
                     evidencia canónico**, no una activación de cutover.
                     PR3e sigue bloqueado hasta que la evidencia de
                     Nivel-2 cierre vía PR3d/PR3e.
-                  - **Deltas en `design.md` / `design-es.md`** — la
+            - **Deltas en `design.md` / `design-es.md`** — la
                     celda Productor de la fila §3.3.3 G3 ahora
                     referencia las cuatro PRs (#109, #111, #115, #116);
                     la celda Comando ahora lleva la invocación canónica
@@ -923,7 +925,7 @@ Espejos en español actualizados en paralelo. No se realiza
                   adiciones autoradas de planning-doc en esta pasada se
                   queda bien por debajo del presupuesto de revisión
                   por PR de 400 líneas.
-                - **2026-08-30** — Pasada de autoría de selección legacy
+          - **2026-08-30** — Pasada de autoría de selección legacy
                   pre-cut de G3 (esta entrada). Según la tarea del padre,
                   cada consumidor de §3.1 del manifiesto de cutover
                   canónico se lleva a **selección Nivel-1 (legacy
@@ -1451,3 +1453,202 @@ Espejos en español actualizados en paralelo. No se realiza
                               se actualizan en esta pasada (PR 6/6, espejo
                               en español de PR #221). Sin commit, push, ni
                               apertura de PR abiertos en esta pasada.
+
+                            - **2026-09-13** — Pasada de evidencia de cierre
+                              delimitada de dry-run de la rebanada 5 de G6
+                              (esta entrada — **rebanada con espejo en
+                              inglés + español**; **pasada de documentación
+                              de evidencia delimitada de la rebanada 5
+                              adaptada de PR #258**; el `cutover-manifest.json`
+                              canónico, los docs espejo en español, y las
+                              entradas de documentación de PR 5/6 quedan en
+                              lockstep). Según la tarea padre, la evidencia
+                              de cierre delimitada de la rebanada 5 de G6
+                              para el manifiesto normalizado canónico de 26
+                              consumidores queda registrada aquí y en
+                              `design.md::§3.3.6` (fila `Disposición
+                              (2026-09-13 — artefacto canónico de dry-run de
+                              G6 rebanada 5, evidencia de cierre delimitada)`
+                              + nueva fila `Camino de cierre hacia adelante`
+                              + la cláusula de disposición de G6 añadida
+                              antes de la cláusula de disposición de G3 en el
+                              pie de página de status); el espejo en español
+                              `documents-es/openspec/changes/migrate-nextjs-tailwind4/design-es.md`
+                              lleva la traducción fiel al español;
+                              `documents-es/openspec/changes/migrate-nextjs-tailwind4/apply-progress-es.md`
+                              lleva la traducción fiel al español de esta
+                              entrada. **Ningún fichero fuente / tests /
+                              scripts / tareas / ficheros de producto /
+                              ficheros de evidencia / workspace candidato /
+                              `cutover-manifest.json` / `package-lock.json`
+                              queda tocado, comiteado, o pusheado en esta
+                              pasada. El `cutover-manifest.json` canónico
+                              queda sin cambios.** **G6 pasa para dry-run
+                              canónico (evidencia de cierre delimitada
+                              registrada); G6 NO pasa la ejecución atomic-cut
+                              de Nivel-2 / ensayo de reversión** (sigue acoado
+                              por evidencia del artefacto de build del Enfoque
+                              A / B / C elegido + PASS de G4 + línea base
+                              reproducible de G5). Resumen de evidencia
+                              (factual, derivado del estado en disco de
+                              `tests/test_rehearse_cutover.py` + pin de
+                              evidencia delimitada de la rebanada 5 en el
+                              HEAD `9fd7e74` de `origin/develop`):
+                              - **Base de la rebanada 4** — pin del artefacto
+                                canónico de la rebanada 4 (commit `66a0015`,
+                                funcionalmente equivalente al `e1fc5a4` de la
+                                rama fuente `feat/g6-rehearsal-schema-validation-2`)
+                                está en disco y es autoritativo para el pin
+                                del set de claves del artefacto canónico
+                                (`EXPECTED_KEY_SET` = exactamente 10
+                                claves: `consumer_count`, `consumer_ids`,
+                                `manifest_path`, `manifest_sha256`, `mode`,
+                                `out_dir`, `rollback_executed`,
+                                `validated_at`, `validation_errors`,
+                                `verification_executed`); el pin canónico de
+                                happy-path
+                                `tests/test_rehearse_cutover.py::test_canonical_happy_path_emits_artifact_for_all_26_consumers`
+                                aplica `returncode == 0` + `(out /
+                                "cutover-rehearsal.json").is_file()` + 26
+                                `consumer_ids` únicos + `validation_errors`
+                                vacío + `consumer_count == 26` +
+                                `verification_executed is False` +
+                                `rollback_executed is False` invariantes
+                                end-to-end contra el manifiesto normalizado
+                                canónico.
+                              - **Pines de evidencia delimitada de la
+                                rebanada 5 (esta pasada)** — dos nuevos tests
+                                enfocados en
+                                `tests/test_rehearse_cutover.py` atacan el
+                                manifiesto normalizado canónico vía el helper
+                                en disco `_run_canonical`:
+                                `test_canonical_artifact_bounded_evidence_no_tier2_or_cutover_markers`
+                                pinea que el artefacto canónico NO lleva
+                                ninguno de los marcadores de finalización de
+                                cierre en `FORBIDDEN_CLOSURE_MARKERS =
+                                frozenset({ "tier_2_passed",
+                                "g3_tier2_passed", "g4_passed", "g5_passed",
+                                "cutover_complete", "rollback_rehearsed",
+                                "atomic_cut_executed", "fastapi_activated",
+                                "web_dir_repointed" })` (el pin `EXPECTED_KEY_SET`
+                                de la rebanada 4 por sí solo no puede captar
+                                un refactor que intercambie
+                                `verification_executed: false` por
+                                `g3_tier2_passed: false` — ambas claves
+                                siguen cumpliendo el pin de set exacto de
+                                claves, pero este test pinea la intención
+                                SEMÁNTICA: ninguna clave de finalización de
+                                cierre puede aparecer) +
+                                `test_canonical_artifact_bounded_evidence_dry_run_only_no_execute_marker`
+                                pinea el contrato de solo-dry-run del
+                                artefacto canónico conjuntamente:
+                                `mode == "dry-run"` AND
+                                `verification_executed is False` AND
+                                `rollback_executed is False` (no se ofrece
+                                variante `--execute` en la superficie PR
+                                1/6–PR 5/6 de G6; el artefacto no puede
+                                leerse erróneamente como un ensayo real que
+                                tocó el mundo). Ambos tests pasan contra el
+                                manifiesto normalizado canónico.
+                              - **Línea de comando canónica** —
+                                `python3 scripts/rehearse_cutover.py --manifest openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json --out /tmp/g6-bounded-closure-docs-dry-run --dry-run`
+                                con `cwd = repo-root`; sale `0` contra el
+                                manifiesto normalizado canónico; `--dry-run`
+                                es REQUERIDO (no se ofrece variante
+                                `--execute`).
+                              - **Artefacto emitido** —
+                                `/tmp/g6-bounded-closure-docs-dry-run/cutover-rehearsal.json`,
+                                escrito atómicamente vía temp-file +
+                                `os.replace`. Contenido canónico (verbatim
+                                del dry-run canónico ejecutado para esta
+                                pasada de evidencia de la rebanada 5):
+                                `manifest_path = "openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json"`;
+                                `manifest_sha256 = "3d228ebe5a98081ace5cf088858c0e7fe2b560c77815e5d68e5a01fb375e0c5d"`
+                                (coincide con el hash del manifiesto
+                                canónico en disco, estable entre ensayos
+                                independientes); `validated_at =
+                                "2026-09-17T08:51:44.152763+00:00"`
+                                (ISO-8601 UTC); `mode = "dry-run"`;
+                                `out_dir = "/tmp/g6-bounded-closure-docs-dry-run"`;
+                                `consumer_count = 26`; `consumer_ids[]` =
+                                26 IDs únicos de consumidores en orden de
+                                declaración canónico (21 `mount-*` §3.1.1 +
+                                5 `search-urls-*` §3.1.2);
+                                `validation_errors = []`;
+                                `verification_executed = false`;
+                                `rollback_executed = false`. El artefacto es
+                                **válido** por el contrato
+                                `cutover-rehearsal.json` de la rebanada 4.
+                              - **Cobertura (canónica)** — los **26 / 26**
+                                consumidores de §3.1 enumerados en el
+                                manifiesto normalizado quedan reflejados en
+                                `consumer_ids[]`.
+                              - **Tests que respaldan el PASS** —
+                                `python3 -m pytest tests/test_rehearse_cutover.py tests/test_rehearse_cutover_path_text.py -q`
+                                → **149 pasaron en ~1.86s** (43 en
+                                `tests/test_rehearse_cutover.py` — 31
+                                tests originales PR 1/6–PR 4/6 + 10 pines
+                                canónicos del artefacto de la rebanada 4 +
+                                **2 nuevos pines de evidencia delimitada de
+                                la rebanada 5**; 106 en
+                                `tests/test_rehearse_cutover_path_text.py`),
+                                todos en verde en esta rama
+                                (`docs/g6-bounded-closure`, HEAD `9fd7e74`).
+                                Sin skips; sin nuevos fallos.
+                              - **Contrato de estabilidad + tests
+                                enfocados** — la rama fail-closed de PR
+                                #220 junta todos los errores de esquema vía
+                                `_validate_manifest`, registra cada error a
+                                stderr, sale `EXIT_SCHEMA = 4`, y no emite
+                                `cutover-rehearsal.json`; los helpers
+                                `parse_shell_text` +
+                                `validate_repo_relative_path` de PR #218
+                                descartan rutas absolutas, componentes `..`,
+                                caracteres de control / metacaracteres,
+                                shell vacío / nulo, y cadenas
+                                `verification.command` / `rollback` con
+                                comillas desbalanceadas antes de cualquier
+                                paso posterior. El `manifest_sha256` del
+                                artefacto es estable entre ejecuciones
+                                consecutivas del verificador (verificado por
+                                la rebanada 4
+                                `test_canonical_artifact_manifest_sha256_stable_across_runs`).
+                                Los dos nuevos tests de evidencia delimitada
+                                de la rebanada 5 pinean la **intención
+                                semántica delimitada** del artefacto canónico
+                                que el pin de set de claves de la rebanada 4
+                                por sí solo no puede captar.
+                              - **Verdad preservada** — PASS de G2 registrado
+                                el 2026-08-30 (sin cambios); G3 **APROBADO
+                                para Nivel-1**, **NO APROBADO para Nivel-2**
+                                (la atomic-cut de Nivel-2 sigue acoada por
+                                G4 + G5 + G6, y la atomic-cut requiere un
+                                Enfoque A / B / C elegido, ninguno
+                                seleccionado); G4 sigue **`bloqueada`**
+                                (verificador no autordado); G5 **paso 1 del
+                                camino de cierre completo**, pasos 2 + 3
+                                siguen bloqueados; los Enfoques A / B / C
+                                quedan sin seleccionar; sin activación de
+                                FastAPI (sin repoint de `WEB_DIR`, sin
+                                cutover atómico, sin cambio en
+                                `api/server.py` / Makefile / extensión / API
+                                / fuente de producto); el
+                                `cutover-manifest.json` canónico queda sin
+                                cambios (26 consumidores de §3.1, Nivel-1
+                                `selected`, Nivel-2 sin seleccionar); el
+                                `CONSUMER-READINESS.json` previamente
+                                emitido (si lo hay) queda sin cambios.
+                                **Disposición de G6**: `PASS del dry-run
+                                canónico registrado el 2026-09-13 (evidencia
+                                de cierre delimitada); ejecución atomic-cut
+                                de Nivel-2 / ensayo de reversión TODAVÍA NO
+                                SE EJECUTA`. Los pines de ensayo de la
+                                rebanada 18 (commit `66a0015`) se preservan
+                                verbatim; el comportamiento de la rebanada 7
+                                (`scripts/rehearse_cutover.py` +
+                                `scripts/rehearse_cutover_path_text.py`) se
+                                preserva verbatim. Sin commit, push, ni
+                                apertura de PR abiertos en esta pasada. Las
+                                adiciones totales autoradas quedan bien por
+                                debajo del presupuesto de revisión de 400
+                                líneas por PR.
