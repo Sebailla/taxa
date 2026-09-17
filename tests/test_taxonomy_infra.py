@@ -22,7 +22,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INFRA_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "infrastructure" / "api.ts"
 
@@ -90,11 +89,11 @@ def test_infra_file_has_no_framework_imports() -> None:
 
 
 def test_infra_file_exports_named_fns() -> None:
-    """PR 5a commits to two named exports: `fetchTaxon` and `fetchChildren`. The barrel re-export breaks on a default export."""
+    """PR 5a commits to two named exports: `fetchTaxon` and `fetchChildren`. ODD-VTREE-001 adds `fetchDomains`. The barrel re-export breaks on a default export."""
     if not INFRA_FILE.exists():
         pytest.skip("infra file not present yet")
     text = INFRA_FILE.read_text()
-    for name in ("fetchTaxon", "fetchChildren"):
+    for name in ("fetchTaxon", "fetchChildren", "fetchDomains"):
         pattern = rf"export\s+(?:async\s+)?function\s+{name}\b|export\s+const\s+{name}\b"
         assert re.search(pattern, text), (
             f"infra/api.ts must export `{name}` as a named function or const."
@@ -146,6 +145,13 @@ function makeFetch(responses) {
 
 const ANIMALIA = { id: 5, scientific_name: "Animalia", rank: "kingdom", authorship: null, parent_id: null };
 const CHORDATA = { id: 6, scientific_name: "Chordata", rank: "phylum", authorship: "Bateson, 1885", parent_id: 5 };
+// ODD-VTREE-001 — /api/domains fixture: Biota is a real superdomain
+// returned by FastAPI (worms_id=1). Eukaryota is a CoL domain. The
+// Freshwater Fishes row carries `rank="collection"` so the synthetic
+// root is covered too.
+const BIOTA = { id: 1, scientific_name: "Biota", rank: "superdomain", authorship: null, parent_id: null };
+const EUKARYOTA = { id: 2, scientific_name: "Eukaryota", rank: "domain", authorship: null, parent_id: null };
+const FW_ROOT = { id: 100, scientific_name: "Freshwater Fishes", rank: "collection", authorship: null, parent_id: null };
 
 (async () => {
   // fetchTaxon happy path — wire → domain, URL build.
@@ -203,6 +209,46 @@ const CHORDATA = { id: 6, scientific_name: "Chordata", rank: "phylum", authorshi
     (err) => /500/.test(String(err && err.message || err)),
   );
 
+  // ODD-VTREE-001 — fetchDomains happy path with superdomain + domain +
+  // synthetic-root payload. The shared `fromWireList` helper projects
+  // every element through the same wire → domain mapping as
+  // fetchTaxon / fetchChildren.
+  const f8 = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [BIOTA, EUKARYOTA, FW_ROOT] }]);
+  const roots = await api.fetchDomains({ fetch: f8, baseUrl: "http://x" });
+  assert.strictEqual(roots.length, 3);
+  assert.strictEqual(f8.calls[0].input, "http://x/api/domains");
+  assert.strictEqual(roots[0].rank, "superdomain");
+  assert.strictEqual(roots[1].rank, "domain");
+  assert.strictEqual(roots[2].rank, "collection");
+  for (const r of roots) assert.strictEqual(r.parent_id, null);
+
+  // fetchDomains empty payload — returns [], does not throw.
+  const f9 = makeFetch([{ ok: true, status: 200, statusText: "OK", json: [] }]);
+  assert.strictEqual((await api.fetchDomains({ fetch: f9, baseUrl: "http://x" })).length, 0);
+
+  // fetchDomains HTTP non-OK — status code in message.
+  const f10 = makeFetch([{ ok: false, status: 503, statusText: "Service Unavailable", json: { detail: "DB down" } }]);
+  await assert.rejects(
+    () => api.fetchDomains({ fetch: f10, baseUrl: "http://x" }),
+    (err) => /503/.test(String(err && err.message || err)),
+  );
+
+  // fetchDomains non-array payload — `fromWireList` rejects.
+  const f11 = makeFetch([{ ok: true, status: 200, statusText: "OK", json: { detail: "wrong shape" } }]);
+  await assert.rejects(
+    () => api.fetchDomains({ fetch: f11, baseUrl: "http://x" }),
+    (err) => /non-array/.test(String(err && err.message || err)),
+  );
+
+  // fetchDomains schema-invalid element — `fromWire` rejects.
+  const f12 = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [BIOTA, { id: 99 }] }]);
+  await assert.rejects(
+    () => api.fetchDomains({ fetch: f12, baseUrl: "http://x" }),
+    (err) => /invalid|taxon/i.test(String(err && err.message || err)),
+  );
+
   process.stdout.write("PASS\n");
 })().catch((err) => {
   process.stderr.write("HARNESS_FAILURE: " + (err && err.stack || err) + "\n");
@@ -247,6 +293,14 @@ def test_compiled_module_passes_runtime_contract(
       5. fetchChildren returns an array of mapped Taxons.
       6. fetchChildren forwards `?source=…` verbatim.
       7. fetchChildren rejects on a 500.
+      8. fetchDomains returns a mapped array including a WoRMS
+         superdomain, a CoL domain, and a `collection` synthetic root
+         (ODD-VTREE-001).
+      9. fetchDomains returns an empty array for an empty payload.
+     10. fetchDomains rejects on HTTP non-OK with the status code in
+         the message.
+     11. fetchDomains rejects non-array payloads via `fromWireList`.
+     12. fetchDomains rejects schema-invalid elements via `fromWire`.
     """
     compiled, harness = compiled_infra
     result = subprocess.run(

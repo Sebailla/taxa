@@ -20,6 +20,7 @@
 export {
   fetchTaxon,
   fetchChildren,
+  fetchDomains,
   TaxonomyApiError,
 } from "./infrastructure/api.js";
 export type {
@@ -50,3 +51,23 @@ export type {
   ParentIdResolver,
 } from "./presentation/breadcrumb-path.js";
 export { BREADCRUMB_MAX_HOPS } from "./presentation/breadcrumb-path.js";
+
+// ODD-VTREE-001 — pure tree-state kernel for the visible taxonomy
+// tree. The React `TaxonomyTree` component (ODD-VTREE-002) consumes
+// this helper directly; everything here is framework-free.
+export {
+  EMPTY_TREE_STATE,
+  withRoots,
+  childIds,
+  isExpanded,
+  expand,
+  collapse,
+  toggleExpand,
+  attachChildren,
+  setLoadStatus,
+  loadStatus,
+} from "./presentation/tree-state.js";
+export type {
+  TreeState,
+  NodeLoadStatus,
+} from "./presentation/tree-state.js";
