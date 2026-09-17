@@ -4,7 +4,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "allowImportingTsExtensions": false,
@@ -26,6 +26,11 @@
     "allowSyntheticDefaultImports": true,
     "verbatimModuleSyntax": false,
 
+    "allowJs": true,
+    "noEmit": true,
+    "incremental": true,
+    "plugins": [{ "name": "next" }],
+
     "paths": {
       "@taxa/taxonomy": ["./src/modules/taxonomy/index.ts"],
       "@taxa/taxonomy/*": ["./src/modules/taxonomy/*"],
@@ -40,6 +45,12 @@
     }
   },
 
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "include": [
+    "next-env.d.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
   "exclude": ["node_modules", "web", "etl", "tests", "api"]
 }

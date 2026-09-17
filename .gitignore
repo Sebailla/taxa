@@ -78,3 +78,16 @@ parity-reports/
 # demand. NOT committed — input to G4 / G5 comparison, not a source
 # artifact.
 docs/baselines/
+
+# Next.js / agent generated state — local-only build + index artifacts.
+# `.next/` is the Next.js build/cache directory; root `out/` is the
+# static-export target (`next export`); `.codegraph/` is the read-only
+# CodeGraph index the Pi agent materializes on demand; `tsconfig.tsbuildinfo`
+# is the incremental TypeScript build info regenerated on every `tsc`.
+# None of these are source inputs and all are reproducible from tracked
+# files. (Note: `tools/g4-capture/out/` is already ignored above with a
+# scoped rule and must remain so.)
+.next/
+/out/
+.codegraph/
+tsconfig.tsbuildinfo
