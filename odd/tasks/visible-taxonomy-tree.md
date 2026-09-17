@@ -45,7 +45,7 @@ feature-branch chain; two PRs, each targeting `develop` sequentially after prior
   - Acceptance: conventional commits and PRs linking approved issue #74 with exactly one appropriate `type:*` label; no automatic merges.
 
 ## Progress
-ODD-VTREE-001 is independently verified and committed as `feat(taxonomy): add tree data foundation`. PR A publication is in progress. No UI has been mounted yet; ODD-VTREE-002 starts only after PR A merges.
+ODD-VTREE-001 is independently verified and published as PR #300 (`feat/taxonomy-tree-foundation` → `develop`), linked to approved issue #74 with `type:feature`. No UI has been mounted yet; ODD-VTREE-002 starts only after PR A merges.
 
 ## Next step
-Push `feat/taxonomy-tree-foundation` and open a `type:feature` PR to `develop`, linked to approved issue #74.
+Wait for PR #300 Smoke tests and human merge; then create the visible-shell/tree branch from updated `develop`.
