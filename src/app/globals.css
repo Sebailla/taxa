@@ -205,6 +205,15 @@
     --primary-fixed: var(--primary);
     --on-primary-fixed: var(--on-primary);
     --surface-container-lowest: var(--surface);
+    /* ODD-NTP-002 — materialise the `on-primary` token so the source
+       selector's active affordance + the existing `.text-on-primary-fixed`
+       utility class both have a deterministic color in light + dark
+       modes. White on primary blue works for both modes — light hex
+       and the dark-mode override both land on a blue family. Declared
+       on `:root` instead of `@theme` so the source selector slice
+       stays a focused CSS change without touching the broader token
+       surface. */
+    --on-primary: #ffffff;
   }
 
   /* Utility class (PR 3c-e2) — global spinner animation. References
@@ -573,5 +582,47 @@
   .tree-search-icon:hover {
     background: var(--surface-container-low);
     color: var(--primary);
+  }
+
+  /* Tree-source toggle (CoL / WoRMS / Freshwater) — segmented control.
+     ODD-NTP-002: mirrors the native `web/index.html::.tree-source-toggle`
+     cascade byte-for-byte (1px outline-variant border, 8px radius,
+     32px height, primary-blue active affordance) so the React tree's
+     source selector visually matches the legacy native control without
+     redesigning the tree surface. Active button flips via the
+     `.tree-source-btn.active` class — `aria-pressed` is the a11y hook,
+     the class is the visual hook. */
+  .tree-source-toggle {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--outline-variant);
+    border-radius: 8px;
+    overflow: hidden;
+    height: 32px;
+    background: var(--surface);
+    margin: 8px 0;
+  }
+  .tree-source-toggle > .tree-source-btn {
+    padding: 0 12px;
+    height: 100%;
+    font-family: "Raleway", sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    background: transparent;
+    color: var(--on-surface-variant);
+    border: 0;
+    cursor: pointer;
+    transition:
+      background-color 200ms linear,
+      color 200ms linear;
+  }
+  .tree-source-toggle > .tree-source-btn:hover:not(.active) {
+    background: var(--surface-container-low);
+    color: var(--on-surface);
+  }
+  .tree-source-toggle > .tree-source-btn.active {
+    background: var(--primary);
+    color: var(--on-primary);
   }
 }
