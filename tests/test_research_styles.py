@@ -26,7 +26,15 @@ RESEARCH_CHROME_SELECTORS: tuple[str, ...] = (
 # PR 3c-b taxonomy selectors — PR 3c-c MUST NOT add new top-level declarations
 # of any of these (chain-topology guard). ODD-NTP-002 (native source selector
 # on the taxonomy tree) extends this set with the two native-tree class
-# hooks mirrored from `web/index.html::.tree-source-toggle`.
+# hooks mirrored from `web/index.html::.tree-source-toggle`. ODD-NTP-003
+# (native tree structure, tier paging, and disclosure behavior) extends
+# the set with the eight native-tree class hooks mirrored from
+# `web/index.html` (`.tier-header`, `.load-all`), `web/tree.js`
+# (`.rank-badge`, `.tree-row-status`), and the native collapse-all
+# affordance (`.tree-collapse-all` + `.collapse-all-btn`) plus the
+# `.tree-source-toggle-wrapper` wrapper introduced to share the 8px
+# vertical rhythm with the collapse-all button row, and the
+# `.scientific-name--roman` ICZN-roman modifier.
 TAXONOMY_OWNED_BY_3C_B: tuple[str, ...] = (
     ".taxa-tree", ".tree-row", ".kebab", ".kebab-menu",
     ".tree-search-icon", ".materialize-indicator", ".detail-panel",
@@ -34,6 +42,10 @@ TAXONOMY_OWNED_BY_3C_B: tuple[str, ...] = (
     ".scientific-name", ".authorship", ".species-count",
     # ODD-NTP-002 — native source selector on the taxonomy tree.
     ".tree-source-toggle", ".tree-source-btn",
+    # ODD-NTP-003 — native tree structure + tier paging + disclosure.
+    ".rank-badge", ".scientific-name--roman", ".tier-header",
+    ".load-all", ".tree-collapse-all", ".collapse-all-btn",
+    ".tree-row-status", ".tree-source-toggle-wrapper",
 )
 # PR 3c-e2 utility-class surface — the nine legacy utility classes that
 # ship as top-level rules under ``@layer components`` (see

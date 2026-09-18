@@ -266,6 +266,23 @@
     color: var(--on-surface);
   }
 
+  /* Collapse-all button (ODD-NTP-003) — per-button visual contract
+     used inside the `.tree-collapse-all` wrapper below. Mirrors the
+     native `web/index.html::#collapse-all` cascade so the React
+     cutover keeps the same Raleway 13px / 500 affordance without
+     redesigning the tree surface. */
+  .collapse-all-btn {
+    font-family: "Raleway", sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--on-surface-variant);
+    transition: background-color 120ms linear, color 120ms linear;
+  }
+  .collapse-all-btn:not(:disabled):hover {
+    background: var(--surface-container-low);
+    color: var(--on-surface);
+  }
+
   /* Detail panel — sticky column right of the tree. Three tabs in
      fixed order: Overview / Search / Folder, all reachable from
      every selection; Overview always visible per the user-selected
@@ -338,6 +355,32 @@
     display: flex;
   }
 
+  /* Load N more (ODD-NTP-003) — primary-blue pill that reveals every
+     remaining child of the tier on a single click. Mirrors
+     `web/index.html::.load-all` byte-for-byte (Raleway 13px / 600,
+     #ffffff on #1d7ea9, 200ms linear background transition) so the
+     React cutover keeps the native tier-load affordance without
+     redesigning the tree surface. */
+  .load-all {
+    font-family: "Raleway", sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+    padding: 10px 16px;
+    background: #1d7ea9;
+    border-radius: 8px;
+    border: 0;
+    cursor: pointer;
+    transition: background-color 200ms linear;
+  }
+  .load-all:hover {
+    background: #176587;
+  }
+  .load-all:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   /* Per-row materialize indicator — status marker when the taxon's
      root→taxon folder is on disk. */
   .materialize-indicator {
@@ -365,6 +408,19 @@
     flex-direction: column;
     gap: 12px;
     padding: 16px 24px;
+  }
+
+  /* Rank badge (ODD-NTP-003) — Raleway, 13px, 600, 1px tracking
+     (H4 from brief). The native tree uses `text-on-surface-variant`
+     / `bg-surface-container-highest` on the badge; the React port
+     mirrors that contract byte-for-byte so the rank column keeps
+     the native visual weight on the React cutover. */
+  .rank-badge {
+    font-family: "Raleway", sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: 1px;
   }
 
   /* Research explorer (PR 3c-c) — global two-pane folder tree /
@@ -417,6 +473,22 @@
     font-size: 13px;
     line-height: 1.4;
     color: var(--on-surface);
+  }
+
+  /* Latin binomials (ODD-NTP-003) — italic by ICZN convention for
+     genus + below; roman for higher ranks (domain, kingdom, phylum,
+     class, order, family, plus sub-ranks and tribe/subtribe).
+     Mirrors `web/format.js::ITALIC_RANKS` +
+     `web/format.js::scientificNameClass` so the React cutover keeps
+     the native italic-by-rank contract without redesigning the
+     tree surface. The `--roman` modifier flips higher ranks back
+     to roman, matching the legacy `web/format.js::scientificNameClass`
+     two-class output. */
+  .scientific-name {
+    font-style: italic;
+  }
+  .scientific-name--roman {
+    font-style: normal;
   }
 
   /* Search tab body (PR 3c-c). Five category sections in fixed order
@@ -536,12 +608,20 @@
     border-bottom-color: var(--primary);
   }
 
-  /* Taxonomic tree — <main> left column; CSS-grid with four columns
-     (rank / name / source / species-count). */
+  /* Taxonomic tree — <main> left column; vertical block flow of
+     rows. ODD-NTP-003: the React cutover renders each taxon as a
+     REAL block row (legacy `web/tree.js::renderNodeRow` uses
+     `flex items-center w-full` with `padding-left: ${16 +
+     indentPx}px`). The previous ODD-VTREE-002 grid flattened
+     every row's four cells (`display: contents`) so only the
+     name cell took the depth indent; ODD-NTP-003 replaces that
+     with a single full-width flex row whose `padding-left`
+     indents the entire identity + disclosure block. The selector,
+     collapse-all control, and per-row status affordances span
+     the full width via `width: 100%` (or `align-self: stretch`
+     for flex children). No four-column grid is needed any more. */
   .taxa-tree {
-    display: grid;
-    grid-template-columns: auto 1fr auto auto;
-    gap: 0;
+    display: block;
     padding: 0;
     background: var(--surface);
   }
@@ -558,13 +638,123 @@
     color: var(--color-on-surface);
   }
 
-  /* Tree row — one rank/name/source/species-count entry plus per-row
-     affordances (kebab, search icon, materialize indicator). */
+  /* Tier-group header (ODD-NTP-003) — flat (no shadow), 8px radius,
+     1px border. Sits at depth+1 (same indent as its children) so
+     the staircase reads as "parent → tier header → children" with
+     each level one step deeper than the previous one. Mirrors
+     `web/index.html::.tier-header` byte-for-byte (12px 16px
+     padding, `var(--surface)` background, 1px
+     `var(--outline-variant)` border, 8px radius, Raleway 16px /
+     600 / 1px tracking on the h2). */
+  .tier-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--outline-variant);
+    border-radius: 8px;
+    margin-top: 4px;
+    margin-bottom: 4px;
+    position: relative;
+    z-index: 10;
+    width: calc(100% - var(--tier-margin-right, 0px));
+  }
+  .tier-header h2 {
+    font-family: "Raleway", sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: 1px;
+    color: var(--on-surface);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+  }
+
+  /* Tree-collapse-all wrapper (ODD-NTP-003) — native `#collapse-all`
+     affordance. Sits inside the tree surface so the user always
+     sees it next to the source selector; mirrors
+     `web/nav.js::renderCollapseAllButton` (disabled when no
+     expansion exists). The per-button visual contract lives on
+     `.collapse-all-btn` (alphabetic position above). */
+  .tree-collapse-all {
+    display: flex;
+    align-items: center;
+    margin: 8px 0;
+  }
+
+  /* Tree row — one taxon as a real flex block. The disclosure
+     chevron / leaf dot, rank badge, scientific name, and future
+     per-row affordances (kebab, search icon, materialize
+     indicator) all sit inside this single block; the depth indent
+     applies to the entire identity block via `padding-left`
+     (legacy `16 + depth * 24`px, matches
+     `TreeRow.ROW_BASE_PADDING_PX + depth * ROW_INDENT_PX`).
+     The `:hover` background paints the whole row at once — under
+     the previous `display: contents` cascade, only the cells that
+     participated in the parent grid picked up the hover tint. */
   .tree-row {
-    display: contents;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding-top: var(--row-padding-y, 6px);
+    padding-bottom: var(--row-padding-y, 6px);
+    padding-right: 16px;
+    background: transparent;
+    border: 0;
+    box-sizing: border-box;
   }
   .tree-row:hover {
     background: var(--surface-container-low);
+  }
+  /* The disclosure control is a transparent inline button so the
+     row's hover background covers it too — its only job is the
+     toggle / select dispatch + a11y label. */
+  .tree-row > .tree-row-disclosure {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    flex: 1;
+    text-align: left;
+  }
+  .tree-row > .tree-row-disclosure:disabled {
+    cursor: default;
+  }
+  .tree-row > .tree-row-disclosure:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Per-row loading / error affordance (ODD-NTP-003) — flat sibling
+     of the row, indent matches the row's depth + 24 (one level
+     deeper than the row that triggered the fetch). The status
+     attribute (`[data-row-status="loading" | "error"]`) drives the
+     color flip; the rule body stays Raleway 13px with the
+     loading-state muted to `--on-surface-variant` and the
+     error-state resting on `--on-surface` (legacy
+     `web/tree.js::renderRowStatus`). */
+  .tree-row-status {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: "Raleway", sans-serif;
+    font-size: 13px;
+  }
+  .tree-row-status[data-row-status="error"] {
+    color: var(--on-surface);
+  }
+  .tree-row-status[data-row-status="loading"] {
+    color: var(--on-surface-variant);
   }
 
   /* Per-row search glyph — end of row's meta block. */
@@ -624,5 +814,19 @@
   .tree-source-toggle > .tree-source-btn.active {
     background: var(--primary);
     color: var(--on-primary);
+  }
+
+  /* ODD-NTP-003: the segmented control is wrapped in
+     `.tree-source-toggle-wrapper` so the segmented control sits
+     flush with the collapse-all button row; both share the same 8px
+     vertical rhythm so the tree surface reads as one cohesive
+     toolbar. */
+  .tree-source-toggle-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin: 8px 0;
   }
 }
