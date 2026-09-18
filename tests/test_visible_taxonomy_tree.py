@@ -500,6 +500,355 @@ def test_tree_row_initial_state_is_collapsed() -> None:
 
 
 # ---------------------------------------------------------------------------
+# ODD-NTP-004 — native row identity + source affordances.
+#
+# - TreeRow carries `data-realm` (computed from `taxon.path`) so the
+#   CSS realm-tint cascade in `src/app/globals.css` can colour the
+#   scientific-name span per domain / kingdom.
+# - TreeRow renders the status dot (accepted / synonym / unknown).
+# - TreeRow renders the source info affordance (CoL-only /
+#   WoRMS-only / cross-link) when the legacy `sourceInfoTooltip`
+#   predicate returns a string. Renders nothing otherwise.
+# - TreeRow renders the materialize indicator when
+#   `research_path_exists === true` (or the propagated cache hits).
+#   ODD-NTP-004 defers the desktop / file endpoints; the indicator
+#   is a pure visual state with no click handler.
+# - TreeRow renders the species-count badge via `speciesCountBadge`.
+# - TreeRow renders the kebab trigger + menu structure. Items
+#   whose backing React behavior exists stay enabled; items whose
+#   backing handler is deferred to ODD-NTP-005 render with
+#   `disabled` + `aria-disabled="true"`.
+# - TreeRow carries the depth-sensitive scientific-name class so the
+#   root row gets the larger `font-h1` treatment and descendants
+#   stay on `font-body-lg`.
+# ---------------------------------------------------------------------------
+
+def test_tree_row_renders_data_realm_attribute() -> None:
+    """ODD-NTP-004: every row must stamp `data-realm` (derived from
+    `taxon.path` via `realmForPath`) so the CSS realm-tint cascade
+    can colour the scientific-name span per domain / kingdom.
+    Mirrors `web/tree.js::renderNodeRow::realm` byte-for-byte."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    assert "data-realm" in text, (
+        "ODD-NTP-004: TreeRow.tsx must stamp data-realm on every row."
+    )
+    assert "realmForPath" in text, (
+        "ODD-NTP-004: TreeRow.tsx must compute the realm via realmForPath."
+    )
+
+
+def test_tree_row_renders_status_dot() -> None:
+    """ODD-NTP-004: every row renders a status dot with the canonical
+    class hooks (`status-dot`, `status-dot-{accepted|synonym|unknown}`)
+    so the CSS in `src/app/globals.css` carries the colour cascade.
+    Mirrors `web/tree.js::renderNodeRow::statusDot`. The dot also
+    carries a `data-status-dot` attribute for tests + tooling."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    assert "status-dot" in text, (
+        "ODD-NTP-004: TreeRow.tsx must render the .status-dot element."
+    )
+    assert "statusDotDescriptor" in text, (
+        "ODD-NTP-004: TreeRow.tsx must consume the statusDotDescriptor helper."
+    )
+    assert "data-status-dot" in text, (
+        "ODD-NTP-004: status dot must stamp data-status-dot for tests."
+    )
+
+
+def test_tree_row_renders_source_info_affordance() -> None:
+    """ODD-NTP-004: the source info glyph renders ONLY when the
+    legacy `sourceInfoTooltip` predicate returns a string (CoL-only
+    in CoL view; WoRMS-only or cross-link in WoRMS / Freshwater
+    view). Renders nothing otherwise. Mirrors `web/tree.js::
+    renderNodeRow::sourceInfo` byte-for-byte."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    assert "source-info" in text, (
+        "ODD-NTP-004: TreeRow.tsx must render the .source-info glyph."
+    )
+    assert "data-source-info" in text, (
+        "ODD-NTP-004: source info glyph must stamp data-source-info."
+    )
+
+
+def test_tree_row_renders_materialize_indicator() -> None:
+    """ODD-NTP-004: the materialize indicator renders when
+    `research_path_exists === true`. The visual is a green folder
+    glyph with an accessible label. ODD-NTP-004 explicitly defers
+    the desktop / file endpoints, so the indicator has no click
+    handler."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    assert "materialize-indicator" in text, (
+        "ODD-NTP-004: TreeRow.tsx must render the .materialize-indicator glyph."
+    )
+    assert "data-materialize-indicator" in text, (
+        "ODD-NTP-004: materialize indicator must stamp data-materialize-indicator."
+    )
+    assert "hasMaterializedFolder" in text, (
+        "ODD-NTP-004: TreeRow.tsx must consume the hasMaterializedFolder helper."
+    )
+
+
+def test_tree_row_renders_species_count_badge() -> None:
+    """ODD-NTP-004: the species-count badge renders when
+    `taxon.species_count` is truthy. Mirrors `web/tree.js::
+    renderNodeRow::speciesCountBadge` — formatted via the row-format
+    helper with the canonical 5 / 3k / 2.5M thresholds. The badge
+    carries a hover title that includes the binomial + count
+    context."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    assert "species-count-badge" in text, (
+        "ODD-NTP-004: TreeRow.tsx must render the .species-count-badge element."
+    )
+    assert "speciesCountBadge" in text, (
+        "ODD-NTP-004: TreeRow.tsx must consume the speciesCountBadge helper."
+    )
+    assert "data-species-count" in text, (
+        "ODD-NTP-004: species count badge must stamp data-species-count."
+    )
+
+
+def test_tree_row_renders_kebab_trigger() -> None:
+    """ODD-NTP-004: every row renders a kebab trigger button with
+    `data-action="toggle-kebab"` + `aria-haspopup="menu"` +
+    `aria-expanded` so the visual weight stays low for full-tree
+    scrolls and the menu state is observable by assistive tech."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    assert "kebab-trigger" in text, (
+        "ODD-NTP-004: TreeRow.tsx must render the .kebab-trigger button."
+    )
+    assert '"toggle-kebab"' in text or "'toggle-kebab'" in text, (
+        "ODD-NTP-004: kebab trigger must stamp data-action=\"toggle-kebab\"."
+    )
+    assert "aria-haspopup" in text, (
+        "ODD-NTP-004: kebab trigger must declare aria-haspopup=\"menu\"."
+    )
+    assert "aria-expanded" in text, (
+        "ODD-NTP-004: kebab trigger must declare aria-expanded."
+    )
+
+
+def test_tree_row_renders_kebab_menu_items() -> None:
+    """ODD-NTP-004: the kebab menu carries the three legacy actions:
+    'Search online' / 'Open folder' / 'View on WoRMS'. Items whose
+    backing React behavior is deferred to ODD-NTP-005 render with
+    `disabled` + `aria-disabled="true"` so the user sees them as
+    clearly unavailable rather than silently wired to the wrong
+    endpoint. Mirrors the legacy `web/tree.js::renderNodeRow::
+    kebabItems` ordering byte-for-byte.
+
+    ODD-NTP-004 explicitly enables ONLY `View on WoRMS` (the
+    `<a target="_blank">` anchor doesn't need a React handler);
+    `Search online` and `Open folder` stay disabled until ODD-NTP-005
+    wires the corresponding React behavior."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    assert "kebab-menu" in text, (
+        "ODD-NTP-004: TreeRow.tsx must render the .kebab-menu container."
+    )
+    assert '"open-searches"' in text or "'open-searches'" in text, (
+        "ODD-NTP-004: kebab menu must carry the open-searches data-action."
+    )
+    assert '"open-folder-tab"' in text or "'open-folder-tab'" in text, (
+        "ODD-NTP-004: kebab menu must carry the open-folder-tab data-action."
+    )
+    assert "wormsUrlFor" in text, (
+        "ODD-NTP-004: TreeRow.tsx must consume the wormsUrlFor helper."
+    )
+    # The "View on WoRMS" item renders as an <a> with target="_blank".
+    assert 'target="_blank"' in text, (
+        "ODD-NTP-004: 'View on WoRMS' must render as <a target=\"_blank\">."
+    )
+    # Deferred actions render with `disabled` + `aria-disabled="true"`.
+    assert "aria-disabled" in text, (
+        "ODD-NTP-004: deferred kebab items must carry aria-disabled."
+    )
+
+
+def test_tree_row_carries_depth_sensitive_name_class() -> None:
+    """ODD-NTP-004: the scientific-name span carries a
+    depth-sensitive class (`scientific-name-depth-0` for the root
+    row, `scientific-name-depth-n` for descendants) so the CSS in
+    `src/app/globals.css` can apply the larger `font-h1` treatment
+    on root rows and the smaller `font-body-lg` on descendants.
+    Mirrors the legacy `web/tree.js::nameClassFor` helper. The
+    class string is generated by the row-format
+    `scientificNameDepthClass` helper; the CSS rule ships in
+    `src/app/globals.css` and is verified separately by the
+    `out_index_html_has_row_affordance_styles` static-export
+    witness."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    assert "scientificNameDepthClass" in text, (
+        "ODD-NTP-004: TreeRow.tsx must consume the scientificNameDepthClass helper."
+    )
+    # The depth-sensitive class MUST reach the JSX output. The
+    # helper concatenates `scientific-name scientific-name-depth-0`
+    # for depth === 0 and `scientific-name scientific-name-depth-n`
+    # otherwise, so we assert on the helper call site + the literal
+    # `scientific-name-depth-0` / `scientific-name-depth-n` strings
+    # in the source. The literal strings actually live in the
+    # row-format helper (which the React component imports); both
+    # locations are verified by the runtime row-format harness.
+    row_format_text = _read_text(REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "row-format.ts")
+    assert "scientific-name-depth-0" in row_format_text, (
+        "ODD-NTP-004: row-format.ts must generate the depth-0 class."
+    )
+    assert "scientific-name-depth-n" in row_format_text, (
+        "ODD-NTP-004: row-format.ts must generate the depth-n class."
+    )
+
+
+def test_taxonomy_tree_manages_kebab_state() -> None:
+    """ODD-NTP-004: TaxonomyTree owns the kebab state (which row's
+    kebab menu is currently open). The state is passed down to
+    TreeRow via `kebabOpenId` so click-outside / Escape dismissal
+    live at the tree level. Mirrors the legacy
+    `web/nav.js::closeAllKebabMenus` predicate (only one kebab
+    open at a time)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "kebabOpenId" in text, (
+        "ODD-NTP-004: TaxonomyTree.tsx must own the kebabOpenId state."
+    )
+    assert "handleToggleKebab" in text, (
+        "ODD-NTP-004: TaxonomyTree.tsx must declare a handleToggleKebab handler."
+    )
+    assert "handleKebabAction" in text, (
+        "ODD-NTP-004: TaxonomyTree.tsx must declare a handleKebabAction handler."
+    )
+    assert "setKebabOpenId" in text, (
+        "ODD-NTP-004: TaxonomyTree.tsx must update kebabOpenId via setKebabOpenId."
+    )
+
+
+def test_taxonomy_tree_dismisses_kebab_on_source_switch() -> None:
+    """ODD-NTP-004: a source switch clears every open kebab so a
+    menu never lingers over a row that has been re-projected under
+    a different source. Mirrors the legacy `web/nav.js::
+    tree-source toggle` reset (which cleared the kebab as part of
+    the source-bound state reset)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    # The handler must reset kebabOpenId alongside the source-bound
+    # reset state. The body may contain nested `{ ... }` from
+    # `setState((prev) => ...)` updater tuples; anchor on the
+    # literal `setKebabOpenId(null)` call site instead of trying to
+    # match braces.
+    handle_idx = text.find("const handleSourceChange")
+    assert handle_idx != -1, (
+        "TaxonomyTree.tsx must declare handleSourceChange."
+    )
+    # Find the next occurrence of `setActiveSource(next);` which is
+    # the last line of the handler body. Use that as a tail anchor.
+    set_active_idx = text.find("setActiveSource(next);", handle_idx)
+    assert set_active_idx != -1, (
+        "TaxonomyTree.tsx must call setActiveSource(next) in handleSourceChange."
+    )
+    body = text[handle_idx:set_active_idx]
+    assert "setKebabOpenId(null)" in body, (
+        "ODD-NTP-004: handleSourceChange must close the open kebab "
+        "as part of the source-bound reset."
+    )
+
+
+def test_taxonomy_tree_dismisses_kebab_on_collapse_all() -> None:
+    """ODD-NTP-004: the collapse-all control also clears the open
+    kebab so a menu never lingers over a row that has been
+    collapsed."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    handle_idx = text.find("const handleCollapseAll")
+    assert handle_idx != -1, (
+        "TaxonomyTree.tsx must declare handleCollapseAll."
+    )
+    # Anchor on the `clearExpansion` call site (must be present in
+    # the body) and the `setKebabOpenId(null)` reset.
+    assert "setKebabOpenId(null)" in text[handle_idx:handle_idx + 800], (
+        "ODD-NTP-004: handleCollapseAll must close the open kebab."
+    )
+
+
+def test_taxonomy_tree_handles_escape_keypress() -> None:
+    """ODD-NTP-004: pressing Escape closes every open kebab.
+    Mirrors the legacy `web/nav.js::keydown` listener (a single
+    document-level handler closes the menu on Escape)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert '"keydown"' in text or "'keydown'" in text, (
+        "ODD-NTP-004: TaxonomyTree.tsx must register a keydown listener."
+    )
+    assert "Escape" in text, (
+        "ODD-NTP-004: TaxonomyTree.tsx must listen for the Escape key."
+    )
+
+
+def test_taxonomy_tree_handles_click_outside() -> None:
+    """ODD-NTP-004: clicking outside the open kebab closes it.
+    Mirrors the legacy `web/nav.js::closeAllKebabMenus` predicate
+    (clicking outside the open `.kebab-menu` closes the menu).
+    The handler is only attached when a kebab is open so the
+    document-level touchpoint is removed as soon as the menu
+    closes."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert '"mousedown"' in text or "'mousedown'" in text, (
+        "ODD-NTP-004: TaxonomyTree.tsx must register a mousedown listener."
+    )
+    assert '".kebab"' in text or "'\\.kebab'" in text or "closest('.kebab')" in text, (
+        "ODD-NTP-004: click-outside handler must skip clicks on .kebab descendants."
+    )
+
+
+def test_out_index_html_has_kebab_styles(static_export) -> None:
+    """ODD-NTP-004: the static export's CSS must define the
+    `.kebab-trigger` / `.kebab-menu` / `.kebab-item` / `.kebab`
+    rules so the native kebab affordance renders identically to
+    the legacy oracle."""
+    css_chunks = sorted((REPO_ROOT / "out" / "_next" / "static" / "chunks").glob("*.css"))
+    css_body = "\n".join(
+        c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks
+    )
+    assert ".kebab-trigger" in css_body, (
+        "ODD-NTP-004: static CSS must define the .kebab-trigger rule."
+    )
+    assert ".kebab-menu" in css_body, (
+        "ODD-NTP-004: static CSS must define the .kebab-menu rule."
+    )
+    assert ".kebab-item" in css_body, (
+        "ODD-NTP-004: static CSS must define the .kebab-item rule."
+    )
+
+
+def test_out_index_html_has_row_affordance_styles(static_export) -> None:
+    """ODD-NTP-004: the static export's CSS must define every
+    per-row affordance rule introduced in ODD-NTP-004
+    (status-dot, source-info, materialize-indicator,
+    species-count-badge, scientific-name-depth-0,
+    scientific-name-depth-n, realm-tint cascade)."""
+    css_chunks = sorted((REPO_ROOT / "out" / "_next" / "static" / "chunks").glob("*.css"))
+    css_body = "\n".join(
+        c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks
+    )
+    for selector in (
+        ".status-dot",
+        ".status-dot-accepted",
+        ".status-dot-synonym",
+        ".status-dot-unknown",
+        ".source-info",
+        ".materialize-indicator",
+        ".species-count-badge",
+        ".scientific-name-depth-0",
+        ".scientific-name-depth-n",
+    ):
+        assert selector in css_body, (
+            f"ODD-NTP-004: static CSS must define the {selector} rule."
+        )
+    # Realm-tint cascade (mirrors `web/index.html::.tree-row[data-realm="X"]
+    # .scientific-name`). Seven canonical realms (the source form
+    # uses unquoted attribute selectors `[data-realm=X]` which is
+    # what Tailwind v4's minifier emits). The "other" fallback is
+    # the `.tree-row[data-realm] .scientific-name` base rule.
+    for realm in ("bacteria", "archaea", "viruses", "animalia",
+                  "fungi", "plantae", "chromista"):
+        assert f'data-realm={realm}' in css_body, (
+            f"ODD-NTP-004: static CSS must define the realm tint for {realm!r}."
+        )
+
+
+# ---------------------------------------------------------------------------
 # Build witness — static export carries the visible shell + tree SSR
 # ---------------------------------------------------------------------------
 

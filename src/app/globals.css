@@ -330,11 +330,81 @@
     cursor: pointer;
   }
 
-  /* Kebab + per-row kebab-menu (3c-b.4: collapsed into parent). */
+  /* Kebab + per-row kebab-menu (3c-b.4: collapsed into parent).
+     ODD-NTP-004: the trigger is hover-only visible (`.tree-row:hover
+     .kebab-trigger`, `.tree-row:focus-within .kebab-trigger`,
+     `.kebab .kebab-trigger:focus-visible`) so the visual weight
+     stays low for full-tree scrolls; the menu opens via the
+     `[data-kebab-open]` flag on the `.kebab` wrapper. Item states
+     (`disabled`, `aria-disabled`) follow the legacy
+     `.kebab-item:hover` cascade and stay focus-visible for keyboard
+     navigation. Selectors are written as descendants of `.kebab` so
+     they survive the chain-topology guard in
+     `tests/test_research_styles.py` (only `.kebab` is whitelisted,
+     not `.kebab-item` / `.kebab-trigger` as top-level classes).
+     Ordered alphabetically: `.kebab` (top-level) first, then the
+     descendant selectors (`.kebab .*` before `.kebab > *` because
+     `.` < `>` in ASCII), then the `.tree-row:hover` /
+     `.tree-row:focus-within` overrides that surface the trigger on
+     row hover. */
   .kebab {
     position: relative;
     display: inline-flex;
     align-items: center;
+  }
+  .kebab .kebab-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border: 0;
+    background: transparent;
+    border-radius: 6px;
+    font-family: "Raleway", sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--on-surface);
+    text-align: left;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background-color 120ms linear;
+  }
+  .kebab .kebab-item:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .kebab .kebab-item:focus-visible:not(:disabled),
+  .kebab .kebab-item:hover:not(:disabled) {
+    background: var(--surface-container-low);
+    outline: none;
+  }
+  .kebab .kebab-item-label {
+    flex: 1;
+    white-space: nowrap;
+  }
+  .kebab .kebab-trigger {
+    margin-left: 4px;
+    padding: 2px;
+    border-radius: 4px;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition:
+      opacity 120ms linear,
+      background-color 120ms linear;
+  }
+  .kebab .kebab-trigger:focus-visible {
+    background: var(--surface-container-low);
+    outline: none;
+    opacity: 1;
+  }
+  .kebab .kebab-trigger:hover {
+    background: var(--surface-container-low);
+    outline: none;
   }
   .kebab > .kebab-menu {
     display: none;
@@ -353,6 +423,9 @@
   }
   .kebab > .kebab-menu.open {
     display: flex;
+  }
+  .kebab[data-kebab-open="true"] .kebab-trigger {
+    opacity: 1;
   }
 
   /* Load N more (ODD-NTP-003) — primary-blue pill that reveals every
@@ -382,14 +455,18 @@
   }
 
   /* Per-row materialize indicator — status marker when the taxon's
-     root→taxon folder is on disk. */
+     root→taxon folder is on disk. ODD-NTP-004: pure visual state
+     (the desktop / file endpoints are deferred), so the cursor is
+     `default` instead of `pointer` and there is no click handler.
+     The hover affordance lifts the colour but does not advertise
+     a click target. */
   .materialize-indicator {
     margin-left: 4px;
     padding: 2px;
     border-radius: 4px;
     background: transparent;
     border: 0;
-    cursor: pointer;
+    cursor: default;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -489,6 +566,27 @@
   }
   .scientific-name--roman {
     font-style: normal;
+  }
+
+  /* Depth-sensitive scientific-name size + weight (ODD-NTP-004).
+     The root row (depth === 0) gets the larger `font-h1` treatment
+     (Raleway 18px / 700) so the user's eye lands on the visible
+     identity first; descendant rows (depth > 0) stay on the
+     smaller `font-body-lg` size (Raleway 14px / 400) so the depth
+     staircase reads cleanly. Italic-by-default / --roman-modifier
+     live on the base `.scientific-name` rule; the depth modifiers
+     only adjust size + weight. The selectors are chained on
+     `.scientific-name` so the chain-topology guard whitelists them
+     under the existing `.scientific-name` base class. */
+  .scientific-name.scientific-name-depth-0 {
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+  .scientific-name.scientific-name-depth-n {
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.4;
   }
 
   /* Search tab body (PR 3c-c). Five category sections in fixed order
@@ -685,6 +783,18 @@
     margin: 8px 0;
   }
 
+  /* Kebab trigger visibility — the trigger stays `opacity: 0` by
+     default but reveals on `.tree-row:hover` /
+     `.tree-row:focus-within`. Lives here (after `.tree-collapse-all`,
+     before `.tree-row`) so the `.tree-row` selector head sorts
+     alphabetically between `.tree-collapse-all` and the existing
+     `.tree-row` rule per the chain-topology alphabetical contract in
+     `tests/test_research_styles.py`. */
+  .tree-row:focus-within .kebab-trigger,
+  .tree-row:hover .kebab-trigger {
+    opacity: 1;
+  }
+
   /* Tree row — one taxon as a real flex block. The disclosure
      chevron / leaf dot, rank badge, scientific name, and future
      per-row affordances (kebab, search icon, materialize
@@ -709,6 +819,73 @@
   .tree-row:hover {
     background: var(--surface-container-low);
   }
+
+  /* Per-row source info affordance — small info glyph whose
+     tooltip names the taxon's source identity (CoL-only /
+     WoRMS-only / WoRMS cross-link). ODD-NTP-004: the cursor
+     stays `help` so the user knows the icon is informational;
+     the colour flip on hover mirrors the legacy cascade.
+     Descendant of `.tree-row` for the chain-topology guard.
+     Ordered BEFORE the status-dot / species-count-badge rules
+     so the alphabetical chain-topology contract
+     (`tests/test_research_styles.py`) puts `.tree-row .source-info`
+     (`.so`) ahead of `.tree-row .species-count-badge` (`.sp`) and
+     `.tree-row .status-dot` (`.st`). */
+  .tree-row .source-info {
+    cursor: help;
+    transition: color 120ms linear;
+  }
+  .tree-row .source-info:hover {
+    color: var(--primary);
+  }
+
+  /* Per-row species-count badge — formatted via the row-format
+     `speciesCountBadge` helper (5 / 3k / 2.5M thresholds). ODD-NTP-004:
+     JetBrains Mono + neutral surface-container background mirrors
+     the legacy `web/index.html::.font-mono-data` cascade.
+     Descendant of `.tree-row` for the chain-topology guard.
+     Ordered AFTER `.source-info` and BEFORE `.status-dot` for the
+     alphabetical contract (`.sp` < `.st`). */
+  .tree-row .species-count-badge {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--on-surface-variant);
+    background-color: var(--surface-container);
+    padding: 4px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  /* Per-row status dot — accepted (green) / synonym (amber) /
+     unknown (outline). ODD-NTP-004: the `.status-dot` base rule
+     paints the shared dot size + layout; the per-state modifier
+     classes (`.status-dot-accepted`, `.status-dot-synonym`,
+     `.status-dot-unknown`) carry the colour. Mirrors the legacy
+     `web/index.html` cascade (8px circles with the canonical
+     `bg-green-500` / `bg-amber-500` / `bg-outline` hues).
+     Selectors are descendants of `.tree-row` so the chain-topology
+     guard in `tests/test_research_styles.py` whitelists them under
+     the existing `.tree-row` base class. Ordered AFTER
+     `.source-info` / `.species-count-badge` for the alphabetical
+     contract (`.st` > `.sp` > `.so`). */
+  .tree-row .status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .tree-row .status-dot-accepted {
+    background-color: #22c55e;
+  }
+  .tree-row .status-dot-synonym {
+    background-color: #f59e0b;
+  }
+  .tree-row .status-dot-unknown {
+    background-color: var(--outline);
+  }
+
   /* The disclosure control is a transparent inline button so the
      row's hover background covers it too — its only job is the
      toggle / select dispatch + a11y label. */
@@ -755,6 +932,46 @@
   }
   .tree-row-status[data-row-status="loading"] {
     color: var(--on-surface-variant);
+  }
+
+  /* Realm tint — Classification tree rows mirror the Browser
+     folder tint from `web/index.html` (ODD-NTP-004). Every row
+     carries `data-realm` (bacteria / archaea / viruses / animalia
+     / fungi / plantae / chromista / other) so the user can tell
+     domains and kingdoms apart at a glance. The hue goes on the
+     scientific-name span ONLY (not the rank badge, not the meta
+     block) so the rank tier stays legible while the Latin name
+     picks up the domain / kingdom colour. The cascade mirrors the
+     legacy `web/index.html::.tree-row[data-realm="X"]
+     .scientific-name` byte-for-byte. Ordered AFTER `.tree-row-status`
+     (`.tree-row-` < `.tree-row[` in ASCII) for the alphabetical
+     chain-topology contract in `tests/test_research_styles.py`.
+     Within the cascade, the attribute-value rules (`[data-realm="..."]`)
+     come BEFORE the bare-attribute rule (`[data-realm]`) because
+     `"` (0x22) < `]` (0x5D) in ASCII. */
+  .tree-row[data-realm="animalia"] .scientific-name {
+    color: var(--realm-animalia);
+  }
+  .tree-row[data-realm="archaea"] .scientific-name {
+    color: var(--realm-archaea);
+  }
+  .tree-row[data-realm="bacteria"] .scientific-name {
+    color: var(--realm-bacteria);
+  }
+  .tree-row[data-realm="chromista"] .scientific-name {
+    color: var(--realm-chromista);
+  }
+  .tree-row[data-realm="fungi"] .scientific-name {
+    color: var(--realm-fungi);
+  }
+  .tree-row[data-realm="plantae"] .scientific-name {
+    color: var(--realm-plantae);
+  }
+  .tree-row[data-realm="viruses"] .scientific-name {
+    color: var(--realm-viruses);
+  }
+  .tree-row[data-realm] .scientific-name {
+    color: var(--realm-other);
   }
 
   /* Per-row search glyph — end of row's meta block. */

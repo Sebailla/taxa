@@ -47,16 +47,18 @@ feature-branch-chain (user selected). Forecast: roughly 1,400 authored lines acr
 - [x] ODD-NTP-003 Restore native tree structure, tier paging, and disclosure behavior.
   - Implementation: replaced flattened grid rows with native 24px full-row depth blocks; restored rank-tier grouping, PAGE_SIZE=5 staircase, tier load-more, source auto-unroll, leaf/non-leaf disclosure, and collapse-all.
   - Evidence: independent verifier approved 151 focused checks and 21 live browser/API assertions: full depth formula, CoL tier pagination, per-tier load-more, WoRMS auto-unroll, source reset, no domains refetch, collapse-all, and leaf semantics.
-  - Delivery: published as PR #304 (`feat/native-tree-structure` → `feat/native-tree-source-selector`) with exactly `type:feature`; checks are pending.
-- [ ] ODD-NTP-004 Restore native row identity and source affordances.
-  - Acceptance: rank/name typography, realm tint, status/extinction/count/source/folder affordances, kebab behavior, and accessible focus/selection match the legacy tree.
+  - Delivery: published as replacement PR #306 (`feat/native-tree-structure-rebased` → `develop`) after the deleted-base chain recovery; Smoke tests passed and it merged.
+- [x] ODD-NTP-004 Restore native row identity and source affordances.
+  - Implementation: ported pure native row formatting, realm tint, status/extinction/count/source/folder indicators, source tooltip/cross-link, and accessible kebab state. Deferred Search online/Open folder actions are explicitly disabled until their React behavior lands in ODD-NTP-005.
+  - Evidence: independent verifier approved focused taxonomy/style checks, strict typecheck, and production CSS inspection. Browser rendering could not run because the verifier correctly did not start an API server; live API behavior was validated by the writer.
+  - Delivery: ready to commit and open a PR against `develop`.
 - [ ] ODD-NTP-005 Restore source-aware in-tree navigation and prove parity.
   - Acceptance: selection/focus/breadcrumb parent paths use the active source relation; focused tests, typecheck, static build, API/CORS checks, and browser comparisons of all three trees pass.
 - [ ] ODD-NTP-006 Publish parity work units.
   - Acceptance: each coherent work unit has a Conventional Commit and PR linked to approved issue #74 with exactly one `type:*` label; no automatic merge.
 
 ## Progress
-User selected chained PR delivery. ODD-NTP-001 is published as PR #302 (Smoke tests passed); ODD-NTP-002 is published as PR #303; ODD-NTP-003 is published as PR #304. No merge is authorized.
+ODD-NTP-001, ODD-NTP-002 (replacement PR #305), and ODD-NTP-003 (replacement PR #306) are merged into `develop`. ODD-NTP-004 is independently verified and ready to publish from `feat/native-tree-row-affordances`.
 
 ## Next step
-Build ODD-NTP-004 on a branch chained from PR #304, then open its PR against `feat/native-tree-structure`.
+Commit and open the row-affordance PR against `develop`, then complete ODD-NTP-005 final navigation/parity verification.
