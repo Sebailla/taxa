@@ -47,7 +47,7 @@ feature-branch-chain (user selected). Forecast: roughly 1,400 authored lines acr
 - [x] ODD-NTP-003 Restore native tree structure, tier paging, and disclosure behavior.
   - Implementation: replaced flattened grid rows with native 24px full-row depth blocks; restored rank-tier grouping, PAGE_SIZE=5 staircase, tier load-more, source auto-unroll, leaf/non-leaf disclosure, and collapse-all.
   - Evidence: independent verifier approved 151 focused checks and 21 live browser/API assertions: full depth formula, CoL tier pagination, per-tier load-more, WoRMS auto-unroll, source reset, no domains refetch, collapse-all, and leaf semantics.
-  - Delivery: ready for PR #304 chained against PR #303.
+  - Delivery: published as PR #304 (`feat/native-tree-structure` → `feat/native-tree-source-selector`) with exactly `type:feature`; checks are pending.
 - [ ] ODD-NTP-004 Restore native row identity and source affordances.
   - Acceptance: rank/name typography, realm tint, status/extinction/count/source/folder affordances, kebab behavior, and accessible focus/selection match the legacy tree.
 - [ ] ODD-NTP-005 Restore source-aware in-tree navigation and prove parity.
@@ -56,7 +56,7 @@ feature-branch-chain (user selected). Forecast: roughly 1,400 authored lines acr
   - Acceptance: each coherent work unit has a Conventional Commit and PR linked to approved issue #74 with exactly one `type:*` label; no automatic merge.
 
 ## Progress
-User selected chained PR delivery. ODD-NTP-001 is published as PR #302 (Smoke tests passed); ODD-NTP-002 is published as PR #303. ODD-NTP-003 is independently verified and ready to publish from `feat/native-tree-structure` against `feat/native-tree-source-selector`.
+User selected chained PR delivery. ODD-NTP-001 is published as PR #302 (Smoke tests passed); ODD-NTP-002 is published as PR #303; ODD-NTP-003 is published as PR #304. No merge is authorized.
 
 ## Next step
-Commit and open PR #304; then build ODD-NTP-004 on a branch chained from the PR #304 branch.
+Build ODD-NTP-004 on a branch chained from PR #304, then open its PR against `feat/native-tree-structure`.
