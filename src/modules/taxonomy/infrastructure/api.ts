@@ -5,8 +5,8 @@
 // `isValidTaxon` rejects ranks outside the domain `Rank` union
 // deterministically (no coercion — ODD-VTREE-001).
 
-import { isValidTaxon } from "../domain/taxon.js";
-import type { Taxon } from "../domain/taxon.js";
+import { isValidTaxon } from "../domain/taxon";
+import type { Taxon } from "../domain/taxon";
 
 type FetchLike = (
   input: string,

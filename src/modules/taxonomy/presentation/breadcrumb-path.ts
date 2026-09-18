@@ -13,7 +13,7 @@
 // HTTP, no DOM, no framework imports. Pure: no I/O, no async, no state
 // mutation.
 
-import type { Rank, Taxon } from "../domain/taxon.js";
+import type { Rank, Taxon } from "../domain/taxon";
 
 /** Hard cap on parent-chain hops. Mirrors the legacy `let safety = 30`. */
 export const BREADCRUMB_MAX_HOPS = 30;

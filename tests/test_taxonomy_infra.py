@@ -152,6 +152,13 @@ const CHORDATA = { id: 6, scientific_name: "Chordata", rank: "phylum", authorshi
 const BIOTA = { id: 1, scientific_name: "Biota", rank: "superdomain", authorship: null, parent_id: null };
 const EUKARYOTA = { id: 2, scientific_name: "Eukaryota", rank: "domain", authorship: null, parent_id: null };
 const FW_ROOT = { id: 100, scientific_name: "Freshwater Fishes", rank: "collection", authorship: null, parent_id: null };
+// ODD-VTREE-002 — live-API evidence: the live `Viruses` row carries
+// `rank="unranked"` and the live child payload carries ICNV viral
+// `realm` rows (Adnaviria, Riboviria, …). Both must survive the
+// canonical fetchDomains / fetchChildren projection without coercion.
+const VIRUSES = { id: 5392750, scientific_name: "Viruses", rank: "unranked", authorship: null, parent_id: null };
+const ADNAVIRIA = { id: 10, scientific_name: "Adnaviria", rank: "realm", authorship: null, parent_id: 5392750 };
+const RIBOVIRIA = { id: 11, scientific_name: "Riboviria", rank: "realm", authorship: null, parent_id: 5392750 };
 
 (async () => {
   // fetchTaxon happy path — wire → domain, URL build.
@@ -249,6 +256,40 @@ const FW_ROOT = { id: 100, scientific_name: "Freshwater Fishes", rank: "collecti
     (err) => /invalid|taxon/i.test(String(err && err.message || err)),
   );
 
+  // ODD-VTREE-002 — `/api/domains`-style `unranked` row passes the
+  // canonical projection. The live CoL data carries a `Viruses` row
+  // whose rank is `unranked` (it is a CoL root with no asserted
+  // kingdom). `fetchDomains` must project it without coercion, the
+  // same way it projects `superdomain`, `domain`, and `collection`.
+  const f13 = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [BIOTA, EUKARYOTA, FW_ROOT, VIRUSES] }]);
+  const liveRoots = await api.fetchDomains({ fetch: f13, baseUrl: "http://x" });
+  assert.strictEqual(liveRoots.length, 4);
+  assert.strictEqual(f13.calls[0].input, "http://x/api/domains");
+  const virusesRow = liveRoots.find((r) => r.id === 5392750);
+  assert.ok(virusesRow, "fetchDomains must surface the live unranked Viruses row");
+  assert.strictEqual(virusesRow.rank, "unranked");
+  assert.strictEqual(virusesRow.name, "Viruses");
+  assert.strictEqual(virusesRow.parent_id, null);
+
+  // ODD-VTREE-002 — child-list `realm` row passes the canonical
+  // projection. The live payload returned by
+  // `/api/taxon/{Viruses}/children` includes ICNV viral realms
+  // (Adnaviria, Riboviria, …); `fetchChildren` must surface them
+  // without coercion.
+  const f14 = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [ADNAVIRIA, RIBOVIRIA] }]);
+  const viralChildren = await api.fetchChildren(5392750, { fetch: f14, baseUrl: "http://x" });
+  assert.strictEqual(viralChildren.length, 2);
+  assert.strictEqual(f14.calls[0].input, "http://x/api/taxon/5392750/children");
+  assert.ok(viralChildren.every((c) => c.rank === "realm"),
+    "fetchChildren must surface every viral realm row as rank=realm; got " +
+    JSON.stringify(viralChildren.map((c) => c.rank)));
+  assert.strictEqual(viralChildren[0].name, "Adnaviria");
+  assert.strictEqual(viralChildren[0].parent_id, 5392750);
+  assert.strictEqual(viralChildren[1].name, "Riboviria");
+  assert.strictEqual(viralChildren[1].parent_id, 5392750);
+
   process.stdout.write("PASS\n");
 })().catch((err) => {
   process.stderr.write("HARNESS_FAILURE: " + (err && err.stack || err) + "\n");
@@ -301,6 +342,10 @@ def test_compiled_module_passes_runtime_contract(
          the message.
      11. fetchDomains rejects non-array payloads via `fromWireList`.
      12. fetchDomains rejects schema-invalid elements via `fromWire`.
+     13. ODD-VTREE-002: `/api/domains`-style `unranked` row passes the
+         canonical `fetchDomains` projection without coercion.
+     14. ODD-VTREE-002: child-list `realm` rows pass the canonical
+         `fetchChildren` projection without coercion.
     """
     compiled, harness = compiled_infra
     result = subprocess.run(

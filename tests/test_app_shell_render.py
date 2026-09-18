@@ -26,16 +26,32 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SRC_LAYOUT = REPO_ROOT / "src" / "app" / "layout.tsx"
 SRC_PAGE = REPO_ROOT / "src" / "app" / "page.tsx"
+APP_SHELL_FILE = REPO_ROOT / "src" / "modules" / "app-shell" / "presentation" / "AppShell.tsx"
+APP_SHELL_BARREL = REPO_ROOT / "src" / "modules" / "app-shell" / "index.ts"
+TAXONOMY_TREE_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "TaxonomyTree.tsx"
+TAXONOMY_TREE_ROW_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "TreeRow.tsx"
+TAXONOMY_BARREL = REPO_ROOT / "src" / "modules" / "taxonomy" / "index.ts"
 NEXT_CONFIG_MJS = REPO_ROOT / "next.config.mjs"
 OUT_DIR = REPO_ROOT / "out"
 OUT_INDEX = OUT_DIR / "index.html"
 CHUNKS_CSS_GLOB = (REPO_ROOT / "out" / "_next" / "static" / "chunks").glob
 CHUNKS_JS_GLOB = (REPO_ROOT / "out" / "_next" / "static" / "chunks").rglob
 
-FORBIDDEN_IMPORTS = (
+# ODD-VTREE-002 mounts the visible AppShell in page.tsx, so the chain-topology
+# guard relaxes for ``@taxa/app-shell`` (now expected) and stays in force for
+# the still-deferred owners (``@taxa/browser-state`` + ``./globals.css``).
+FORBIDDEN_LAYOUT_IMPORTS = (
     r"""from\s+["']@taxa/app-shell""",
     r"""from\s+["']@taxa/browser-state""",
     r"""from\s+["']\./globals\.css["']""",
+)
+FORBIDDEN_PAGE_IMPORTS = (
+    r"""from\s+["']@taxa/browser-state""",
+    r"""from\s+["']\./globals\.css["']""",
+)
+REQUIRED_PAGE_IMPORTS = (
+    r"""from\s+["']@taxa/app-shell["']""",
+    r"""from\s+["']@taxa/taxonomy["']""",
 )
 
 
@@ -180,18 +196,47 @@ def test_layout_uses_next_font_for_raleway():
 
 
 @pytest.mark.parametrize(
-    "src_path, label",
-    [(SRC_LAYOUT, "layout.tsx"), (SRC_PAGE, "page.tsx")],
+    "src_path, label, forbidden, owners",
+    [
+        (
+            SRC_LAYOUT,
+            "layout.tsx",
+            FORBIDDEN_LAYOUT_IMPORTS,
+            ("@taxa/app-shell", "@taxa/browser-state", "./globals.css"),
+        ),
+        (
+            SRC_PAGE,
+            "page.tsx",
+            FORBIDDEN_PAGE_IMPORTS,
+            ("@taxa/browser-state", "./globals.css"),
+        ),
+    ],
     ids=["layout", "page"],
 )
-def test_app_file_does_not_import_owners_of_later_prs(src_path, label):
-    """Chain-topology guard: PR 3b MUST NOT import cross-module barrels
-    owned by later PRs (``@taxa/app-shell`` → 4b, ``@taxa/browser-state`` →
-    4a, ``./globals.css`` → 3c)."""
+def test_app_file_does_not_import_owners_of_later_prs(src_path, label, forbidden, owners):
+    """Chain-topology guard.
+
+    PR 3b (layout.tsx) MUST NOT import cross-module barrels owned by later
+    PRs (``@taxa/app-shell`` → 4b, ``@taxa/browser-state`` → 4a,
+    ``./globals.css`` → 3c).
+
+    ODD-VTREE-002 (page.tsx) mounts the AppShell + TaxonomyTree, so the
+    ``@taxa/app-shell`` guard relaxes for page.tsx only. ``@taxa/browser-state``
+    and ``./globals.css`` are still owned by deferred PRs and stay forbidden.
+    """
     text = _read_text(src_path)
-    for pattern, owner in zip(FORBIDDEN_IMPORTS, ("@taxa/app-shell", "@taxa/browser-state", "./globals.css")):
+    for pattern, owner in zip(forbidden, owners, strict=True):
         assert not re.search(pattern, text), (
             f"{label} MUST NOT import {owner} — that module's owner is a later PR in the chain"
+        )
+
+
+def test_page_mounts_app_shell_and_taxonomy_tree():
+    """ODD-VTREE-002 mounts the visible AppShell + TaxonomyTree in page.tsx."""
+    text = _read_text(SRC_PAGE)
+    for pattern in REQUIRED_PAGE_IMPORTS:
+        assert re.search(pattern, text), (
+            f"page.tsx must satisfy pattern {pattern!r}"
         )
 
 
@@ -255,7 +300,7 @@ def test_build_manifest_records_app_router_page(built_index_html):
     sorted_pages_match = re.search(r'"sortedPages"\s*:\s*\[([^\]]*)\]', text)
     assert sorted_pages_match, "_buildManifest.js must declare a sortedPages array"
     assert sorted_pages_match.group(1).strip(), (
-        f"_buildManifest.js::sortedPages is empty — src/app/page.tsx was not registered"
+        "_buildManifest.js::sortedPages is empty — src/app/page.tsx was not registered"
     )
 
 
@@ -274,8 +319,13 @@ def test_out_index_html_body_has_no_data_theme_before_hydration(built_index_html
     )
 
 
-def test_out_next_static_chunks_reference_no_browser_state_or_app_shell(built_index_html):
-    """Static-export chunks MUST NOT bundle ``@taxa/browser-state`` or ``@taxa/app-shell`` imports."""
+def test_out_next_static_chunks_reference_no_browser_state(built_index_html):
+    """Static-export chunks MUST NOT bundle ``@taxa/browser-state``.
+
+    ODD-VTREE-002 mounts the AppShell + TaxonomyTree so ``@taxa/app-shell``
+    is now expected inside the client bundle. The ``@taxa/browser-state``
+    guard remains in force — that alias is owned by PR 4a.
+    """
     chunks_dir = REPO_ROOT / "out" / "_next" / "static" / "chunks"
     js_files = sorted(CHUNKS_JS_GLOB("*.js"))
     assert chunks_dir.is_dir(), "missing out/_next/static/chunks — static export produced no JS chunks"
@@ -285,6 +335,21 @@ def test_out_next_static_chunks_reference_no_browser_state_or_app_shell(built_in
         assert "@taxa/browser-state" not in body, (
             f"{js.relative_to(REPO_ROOT)} references @taxa/browser-state — that alias is reserved for PR 4a"
         )
-        assert "@taxa/app-shell" not in body, (
-            f"{js.relative_to(REPO_ROOT)} references @taxa/app-shell — that alias is reserved for PR 4b"
-        )
+
+
+def test_out_next_static_chunks_include_app_shell(built_index_html):
+    """ODD-VTREE-002 mounts the AppShell so its barrel must appear in the
+    static export. The absence would mean the page is rendering the
+    placeholder path again."""
+    js_files = sorted(CHUNKS_JS_GLOB("*.js"))
+    assert js_files, "static export must emit at least one JS chunk under out/_next/static/chunks/"
+    found = False
+    for js in js_files:
+        body = js.read_text(encoding="utf-8", errors="ignore")
+        if "Taxonomic Tree" in body or "AppShell" in body or "Loading domains" in body:
+            found = True
+            break
+    assert found, (
+        "no static-export JS chunk references the AppShell/TaxonomyTree "
+        "rendered text — the page is not mounting ODD-VTREE-002"
+    )
