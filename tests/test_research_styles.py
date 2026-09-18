@@ -24,12 +24,16 @@ RESEARCH_CHROME_SELECTORS: tuple[str, ...] = (
     ".research-explorer", ".file-explorer-pane", ".file-viewer-pane",
 )
 # PR 3c-b taxonomy selectors — PR 3c-c MUST NOT add new top-level declarations
-# of any of these (chain-topology guard).
+# of any of these (chain-topology guard). ODD-NTP-002 (native source selector
+# on the taxonomy tree) extends this set with the two native-tree class
+# hooks mirrored from `web/index.html::.tree-source-toggle`.
 TAXONOMY_OWNED_BY_3C_B: tuple[str, ...] = (
     ".taxa-tree", ".tree-row", ".kebab", ".kebab-menu",
     ".tree-search-icon", ".materialize-indicator", ".detail-panel",
     ".tab-strip", ".tab-button", ".overview-tab", ".breadcrumb",
     ".scientific-name", ".authorship", ".species-count",
+    # ODD-NTP-002 — native source selector on the taxonomy tree.
+    ".tree-source-toggle", ".tree-source-btn",
 )
 # PR 3c-e2 utility-class surface — the nine legacy utility classes that
 # ship as top-level rules under ``@layer components`` (see

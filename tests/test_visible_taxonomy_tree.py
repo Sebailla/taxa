@@ -296,3 +296,292 @@ def test_out_index_html_keeps_static_origin(static_export):
     assert re.search(r'href=["\']https?://[^"\']*domains', html) is None, (
         "out/index.html must not reference absolute /api/domains URLs"
     )
+
+
+# ---------------------------------------------------------------------------
+# ODD-NTP-002 — native source-parity contract for the visible tree.
+#
+# Source-level checks on `TaxonomyTree.tsx` (selector presence, native
+# source order, source-conditional Freshwater control, source-bound
+# state reset, per-source child-request wiring) + the matching
+# static-export witness (`out/index.html` must carry the segmented
+# control shape + the active CoL affordance after hydration).
+# ---------------------------------------------------------------------------
+
+def test_taxonomy_tree_renders_source_selector() -> None:
+    """ODD-NTP-002: TaxonomyTree must render the source selector inside
+    the tree surface (`role=\"group\" aria-label=\"Tree data source\"`).
+    Mirrors the legacy ``#tree-source-toggle`` native control."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert 'role="group"' in text, (
+        "TaxonomyTree.tsx must render the source selector with role=\"group\""
+    )
+    # The aria-label literal lives as a JS string (selectorLabel
+    # constant) rather than inlined on the attribute — pin both
+    # the label string and the attribute hook.
+    assert '"Tree data source"' in text, (
+        "TaxonomyTree.tsx must declare the source-selector label as the literal \"Tree data source\""
+    )
+    assert "aria-label" in text, (
+        "TaxonomyTree.tsx must render the source selector with aria-label"
+    )
+    # Class hooks so the focused segmented-control CSS in globals.css
+    # can attach without a redesign pass.
+    assert "tree-source-toggle" in text, (
+        "TaxonomyTree.tsx must stamp the .tree-source-toggle class on the selector"
+    )
+    assert "tree-source-btn" in text, (
+        "TaxonomyTree.tsx must stamp the .tree-source-btn class on each source button"
+    )
+
+
+def test_taxonomy_tree_starts_with_col_active() -> None:
+    """ODD-NTP-002: CoL starts active. Mirrors the legacy
+    `state.treeSource = "col"` default in `web/state.js`."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert re.search(r"DEFAULT_SOURCE\b[^=]*=\s*[\"\']col[\"\']", text), (
+        "TaxonomyTree.tsx must default the active source to 'col'"
+    )
+
+
+def test_taxonomy_tree_selector_orders_col_then_worms() -> None:
+    """ODD-NTP-002: native order is CoL → WoRMS → Freshwater (conditional)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    # The label sequence must appear in the segmented control mapping.
+    seq = re.search(
+        r"src\s*===\s*[\"\']col[\"\']\s*\?\s*[\"\']CoL[\"\']\s*:\s*"
+        r"src\s*===\s*[\"\']worms[\"\']\s*\?\s*[\"\']WoRMS[\"\']\s*:\s*[\"\']Freshwater[\"\']",
+        text,
+    )
+    assert seq, (
+        "TaxonomyTree.tsx must label CoL → WoRMS → Freshwater in the native order"
+    )
+
+
+def test_taxonomy_tree_selector_is_conditional_on_freshwater_root() -> None:
+    """ODD-NTP-002: Freshwater appears ONLY when the fetched root
+    payload carries at least one row with a non-null `freshwater_id`.
+    Mirrors the legacy `web/app.js::boot` check
+    `roots.some(r => r.freshwater_id != null)`. The React helper
+    `availableSourcesFor(rawRoots)` encapsulates it; the component must
+    consume that helper so the Freshwater toggle is data-driven, not
+    hardcoded."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "availableSourcesFor" in text, (
+        "TaxonomyTree.tsx must consume the availableSourcesFor helper"
+    )
+    # The default sources (pre-fetch) must be CoL + WoRMS only —
+    # Freshwater must not be in the unconditional default.
+    assert re.search(
+        r"if\s*\(\s*!rawRoots\s*\)\s*return\s*\[\s*[\"\']col[\"\']\s*,\s*[\"\']worms[\"\']\s*\]",
+        text,
+    ), (
+        "TaxonomyTree.tsx must default the source list to CoL + WoRMS "
+        "until the raw root payload resolves"
+    )
+
+
+def test_taxonomy_tree_threads_active_source_to_fetch_children() -> None:
+    """ODD-NTP-002: child requests must call canonical
+    `fetchChildren(id, { source: activeSource })` so each source's
+    request carries its matching `?source=…` query string. Mirrors
+    the legacy `web/api.js::loadChildren` source wiring."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert re.search(
+        r"fetchChildren\s*\(\s*id\s*,\s*\{\s*baseUrl\s*:\s*TAXA_API_ORIGIN\s*,"
+        r"\s*source\s*:\s*activeSource",
+        text,
+        re.DOTALL,
+    ), (
+        "TaxonomyTree.tsx must call fetchChildren(id, { source: activeSource, ... })"
+    )
+
+
+def test_taxonomy_tree_uses_canonical_source_helper_for_filtering() -> None:
+    """ODD-NTP-002: source filtering must go through the canonical
+    `sourceMatches` predicate (or its source-aware wrappers) imported
+    from `./tree-state`. The component must not invent its own
+    predicate inline."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "sourceMatches" in text or "withRootsForSource" in text, (
+        "TaxonomyTree.tsx must route source filtering through the canonical helper"
+    )
+
+
+def test_taxonomy_tree_resets_source_state_on_switch() -> None:
+    """ODD-NTP-002: switching sources must clear every source-bound
+    React state (roots, child cache, expanded, load status, per-row
+    error) before re-displaying the new source's roots. Mirrors the
+    legacy `web/nav.js::tree-source toggle` reset. The raw root cache
+    SURVIVES the switch — `loadRoots` runs once on mount and the
+    `rawRoots + activeSource` effect re-projects the cached payload
+    against the new source without a second `/api/domains` round
+    trip."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "resetSourceState" in text, (
+        "TaxonomyTree.tsx must consume resetSourceState on source switch"
+    )
+    # The handler must (a) early-out when the user re-clicks the
+    # active source (matching the legacy `if (state.treeSource ===
+    # source) return;` guard) and (b) clear the per-row error before
+    # the next effect re-applies the source filter.
+    assert re.search(
+        r"if\s*\(\s*next\s*===\s*activeSource\s*\)\s*return",
+        text,
+    ), (
+        "TaxonomyTree.tsx must early-out on re-clicking the active source"
+    )
+
+
+def test_taxonomy_tree_load_roots_is_source_independent() -> None:
+    """ODD-NTP-002 (regression — no domain refetch on source switch):
+    `loadRoots` MUST NOT close over `activeSource`. Closing over the
+    active source would put `loadRoots` in the `useEffect([loadRoots])`
+    dependency array, which means the effect re-fires on every source
+    switch and the React island issues a SECOND `/api/domains` round
+    trip — defeating the purpose of caching the raw root payload
+    client-side. The fix is to:
+      1. Remove the `activeSource` reference from the `loadRoots`
+         callback body (the source filter is applied by the
+         `rawRoots + activeSource` effect, not by `loadRoots`).
+      2. Drop `activeSource` from the `useCallback` dependency array
+         so the callback reference is stable across source switches.
+    This regression catches any future PR that re-introduces the
+    closure (a single `activeSource` reference in the body or deps
+    fails this test before code review)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    # Anchor the body on the `}, [deps])` closing pattern so nested
+    # braces inside `try { ... }` / `if (...) { ... }` / setState
+    # updater tuples don't terminate the match early. The useCallback
+    # closing `}, [...]` is the only place that pattern occurs.
+    match = re.search(
+        r"const\s+loadRoots\s*=\s*useCallback\s*\(\s*async\s*\(\s*\)\s*=>\s*\{"
+        r"(.*?)"
+        r"\}\s*,\s*\[\s*([^\]]*?)\s*\]\s*\)",
+        text,
+        re.DOTALL,
+    )
+    assert match, (
+        "TaxonomyTree.tsx must declare loadRoots as `const loadRoots = "
+        "useCallback(async () => { ... }, [deps])`."
+    )
+    body, deps = match.group(1), match.group(2)
+    assert "activeSource" not in body, (
+        "ODD-NTP-002: loadRoots must not close over `activeSource`; "
+        "the source filter is applied by the `rawRoots + activeSource` "
+        "effect, not by loadRoots. A source switch must NOT issue a "
+        "second `/api/domains` request."
+    )
+    assert "activeSource" not in deps, (
+        "ODD-NTP-002: loadRoots's `useCallback` dependency array must "
+        "NOT include `activeSource`. Including it would make "
+        "`useEffect([loadRoots])` re-fire on every source switch and "
+        "issue a second `/api/domains` round trip."
+    )
+
+
+def test_taxonomy_tree_load_children_uses_source_predicate() -> None:
+    """ODD-NTP-002 (regression — no unfiltered foreign-source children):
+    `loadChildren` MUST call `attachChildrenForSource(state, id, kids,
+    activeSource)` — the source-aware variant that applies the
+    `sourceMatches` predicate before the visible child list is built.
+    Calling the bare `attachChildren(state, id, kids)` would let
+    foreign-source rows slip through: a WoRMS-only row landing under
+    a CoL parent's response would render in the CoL view, breaking
+    the source-bound child contract (and silently violating the
+    `?source=…` query the helper already sends). The fix is to call
+    `attachChildrenForSource` so the predicate filters the payload
+    before the ids land in `childIdsByParent`."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    # The source-aware variant must be imported from tree-state.
+    assert re.search(
+        r"\battachChildrenForSource\b",
+        text,
+    ), (
+        "TaxonomyTree.tsx must import and use `attachChildrenForSource` "
+        "so the active-source predicate is applied before attachment."
+    )
+    # Find the loadChildren callback body. The declaration spans
+    # multiple lines (`useCallback(\n  async (id) => {\n    ...\n  },\n  [deps]\n)`)
+    # so anchor on the closing `}, [...]` pattern.
+    match = re.search(
+        r"const\s+loadChildren\s*=\s*useCallback\s*\(\s*async\s*\(\s*id\s*:\s*number\s*\)\s*=>\s*\{"
+        r"(.*?)"
+        r"\}\s*,\s*\[",
+        text,
+        re.DOTALL,
+    )
+    assert match, (
+        "TaxonomyTree.tsx must declare loadChildren as `const "
+        "loadChildren = useCallback(async (id) => { ... }, [deps])`."
+    )
+    body = match.group(1)
+    # Bare `attachChildren(` (NOT followed by `ForSource`) must not
+    # appear inside the loadChildren body.
+    bare_calls = re.findall(r"\battachChildren\s*(?!\s*ForSource)", body)
+    assert not bare_calls, (
+        "ODD-NTP-002: loadChildren must NOT call the bare "
+        "`attachChildren(state, id, kids)`; it must call "
+        "`attachChildrenForSource(state, id, kids, activeSource)` so "
+        "foreign-source rows are filtered before attachment. The bare "
+        "variant lets WoRMS-only rows render under CoL and vice versa."
+    )
+    assert "attachChildrenForSource" in body, (
+        "ODD-NTP-002: loadChildren body must call "
+        "`attachChildrenForSource(prev, id, kids, activeSource)` so the "
+        "active-source predicate is applied before the child ids land "
+        "in `childIdsByParent`."
+    )
+
+
+def test_taxonomy_tree_uses_canonical_api_origin_and_helpers() -> None:
+    """ODD-NTP-002: the canonical API origin + fetch helpers stay in
+    place (ODD-VTREE-002 + ODD-NTP-001 source/data helper public
+    contract is preserved)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "process.env.NEXT_PUBLIC_TAXA_API_ORIGIN" in text, (
+        "TaxonomyTree.tsx must source its API origin from NEXT_PUBLIC_TAXA_API_ORIGIN"
+    )
+    assert re.search(
+        r"from\s+[\"\']@taxa/taxonomy[\"\']", text,
+    ), (
+        "TaxonomyTree.tsx must import the data helpers via the @taxa/taxonomy barrel"
+    )
+
+
+def test_out_index_html_has_source_selector_styles(static_export) -> None:
+    """ODD-NTP-002: the static export must include the focused
+    segmented-control CSS (`.tree-source-toggle` + `.tree-source-btn`
+    + `.tree-source-btn.active`). The active affordance must use the
+    primary token so the React tree matches the legacy native
+    visual."""
+    css_chunks = sorted((REPO_ROOT / "out" / "_next" / "static" / "chunks").glob("*.css"))
+    assert css_chunks, "static export must emit at least one CSS chunk"
+    css_body = "\n".join(
+        c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks
+    )
+    assert ".tree-source-toggle" in css_body, (
+        "static CSS must define the .tree-source-toggle class"
+    )
+    assert ".tree-source-btn" in css_body, (
+        "static CSS must define the .tree-source-btn class"
+    )
+    # The active rule must declare BOTH `background:var(--primary)` AND
+    # `color:var(--on-primary)` so the React cutover is in lock-step
+    # with the canonical token. The rule body is minified into one
+    # block, so a single-substring check on the canonical
+    # `.tree-source-btn.active` selector + the canonical tokens covers
+    # the visual contract byte-equal to the legacy web/index.html cascade.
+    assert re.search(
+        r"\.tree-source-toggle>\.tree-source-btn\.active\b",
+        css_body,
+    ), (
+        "static CSS must define the .tree-source-toggle>.tree-source-btn.active rule"
+    )
+    assert "var(--primary)" in css_body, (
+        "static CSS must reference the canonical --primary token"
+    )
+    assert "var(--on-primary)" in css_body, (
+        "static CSS must reference the canonical --on-primary token "
+        "for the active button's text color"
+    )
