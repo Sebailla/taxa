@@ -43,9 +43,11 @@ feature-branch-chain (user selected). Forecast: roughly 1,400 authored lines acr
   - Implementation: React now renders native-order CoL/WoRMS plus conditional Freshwater controls; roots filter from one cached `/api/domains` response and children load through the active `source` query with source filtering before attachment.
   - Correction: switching sources does not refetch domains. It clears roots, child cache, expanded IDs, load state, and row errors, then reprojects cached raw roots; a separate regression prevents the React dependency race that previously would have reloaded domains.
   - Evidence: independent verifier approved 134 focused tests, strict typecheck, static build, and live Chromium/API coverage. Browser proved all three root sets, all three source-qualified lazy requests, no root refetch across four switches, and a collapsed CoL return state.
-  - Delivery: ready for PR #303 chained against PR #302.
-- [ ] ODD-NTP-003 Restore native tree structure, tier paging, and disclosure behavior.
-  - Acceptance: recursive rows preserve full-row depth; rank-tier headers, incremental load/load-all, collapse-all, leaf behavior, and WoRMS/Freshwater auto-unroll match native observable behavior.
+  - Delivery: published as PR #303 (`feat/native-tree-source-selector` → `feat/native-tree-parity`) with exactly `type:feature`; checks are pending.
+- [x] ODD-NTP-003 Restore native tree structure, tier paging, and disclosure behavior.
+  - Implementation: replaced flattened grid rows with native 24px full-row depth blocks; restored rank-tier grouping, PAGE_SIZE=5 staircase, tier load-more, source auto-unroll, leaf/non-leaf disclosure, and collapse-all.
+  - Evidence: independent verifier approved 151 focused checks and 21 live browser/API assertions: full depth formula, CoL tier pagination, per-tier load-more, WoRMS auto-unroll, source reset, no domains refetch, collapse-all, and leaf semantics.
+  - Delivery: ready for PR #304 chained against PR #303.
 - [ ] ODD-NTP-004 Restore native row identity and source affordances.
   - Acceptance: rank/name typography, realm tint, status/extinction/count/source/folder affordances, kebab behavior, and accessible focus/selection match the legacy tree.
 - [ ] ODD-NTP-005 Restore source-aware in-tree navigation and prove parity.
@@ -54,7 +56,7 @@ feature-branch-chain (user selected). Forecast: roughly 1,400 authored lines acr
   - Acceptance: each coherent work unit has a Conventional Commit and PR linked to approved issue #74 with exactly one `type:*` label; no automatic merge.
 
 ## Progress
-User selected chained PR delivery. ODD-NTP-001 is published as PR #302. ODD-NTP-002 is independently verified and ready to publish from `feat/native-tree-source-selector` against `feat/native-tree-parity`.
+User selected chained PR delivery. ODD-NTP-001 is published as PR #302 (Smoke tests passed); ODD-NTP-002 is published as PR #303. ODD-NTP-003 is independently verified and ready to publish from `feat/native-tree-structure` against `feat/native-tree-source-selector`.
 
 ## Next step
-Commit and open PR #303; then build ODD-NTP-003 on a branch chained from the PR #303 branch.
+Commit and open PR #304; then build ODD-NTP-004 on a branch chained from the PR #304 branch.

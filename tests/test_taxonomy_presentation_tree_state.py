@@ -153,6 +153,17 @@ assert.strictEqual(e.nodes.size, 0);
 assert.deepStrictEqual(ts.childIds(e, 999), []);
 assert.strictEqual(ts.isExpanded(e, 1), false);
 assert.strictEqual(ts.loadStatus(e, 1), "idle");
+// ODD-NTP-003: empty state carries a `showAll` set (initially empty).
+assert.ok(e.showAll instanceof Set, "EMPTY_TREE_STATE.showAll is a Set");
+assert.strictEqual(e.showAll.size, 0, "EMPTY_TREE_STATE.showAll starts empty");
+assert.strictEqual(ts.expandedTierCount(e), 0, "expandedTierCount == 0 on empty");
+assert.strictEqual(ts.PAGE_SIZE, 5, "PAGE_SIZE == 5 (matches legacy oracle)");
+assert.strictEqual(ts.isLeafRank("species"), true, "species is a leaf");
+assert.strictEqual(ts.isLeafRank("subspecies"), true, "subspecies is a leaf");
+assert.strictEqual(ts.isLeafRank("genus"), false, "genus is not a leaf");
+assert.strictEqual(ts.isLeafRank("kingdom"), false, "kingdom is not a leaf");
+assert.strictEqual(ts.isLeafRank("unranked"), false, "unranked is not a leaf");
+assert.strictEqual(ts.isLeafRank("realm"), false, "realm is not a leaf");
 
 // B. withRoots + attachChildren + dedup + load status.
 let s = ts.withRoots(e, [ANI]);
@@ -266,16 +277,239 @@ sFilled = ts.withRoots(sFilled, [ANI, FW]);
 sFilled = ts.attachChildren(sFilled, ANI.id, [CHOR, ARTH]);
 sFilled = ts.expand(sFilled, ANI.id);
 sFilled = ts.setLoadStatus(sFilled, ANI.id, "loaded");
+sFilled = ts.setShowAll(sFilled, ANI.id, CHOR.rank, true); // ODD-NTP-003: showAll set
+assert.strictEqual(sFilled.showAll.size, 1, "showAll populated before reset");
 const reset = ts.resetSourceState(sFilled);
 assert.deepStrictEqual([...reset.rootIds], [], "rootIds cleared");
 assert.deepStrictEqual([...reset.expandedIds], [], "expanded set cleared");
 assert.deepStrictEqual([...reset.childIdsByParent.keys()], [], "child cache cleared");
 assert.deepStrictEqual([...reset.loadStatus.keys()], [], "load status cleared");
+assert.deepStrictEqual([...reset.showAll], [], "showAll cleared (ODD-NTP-003)");
 assert.strictEqual(reset.nodes, sFilled.nodes, "nodes map is preserved (identity-equal)");
 // A subsequent source-aware merge re-surfaces the cached roots without
 // re-fetching — the foreign-id preservation contract.
 const recovered = ts.withRootsForSource(reset, [ANI, FW], "worms");
 assert.deepStrictEqual([...recovered.rootIds], [1], "WoRMS view re-surfaces Animalia only");
+
+// M. ODD-NTP-003 — groupChildrenByRank: rank order matches the
+// canonical breadth axis (broadest first); source filter drops
+// foreign rows; PAGE_SIZE caps the visible slice; showAll lifts
+// the cap. Mirrors legacy `web/tree.js::renderNode` byte-for-byte.
+let sG = e;
+sG = ts.withRoots(sG, [ANI]);
+sG = ts.attachChildren(sG, ANI.id, [CHOR, ARTH, MAMM]);
+// Add two phyla + two classes so the PAGE_SIZE staircase has more
+// than PAGE_SIZE rows to fan out across rank tiers.
+const ARTH2 = T(8, "Brachiopoda", "phylum", 1, { coldp_id: "64HXK" });
+const ARTH3 = T(9, "Bryozoa", "phylum", 1, { coldp_id: "64HXL" });
+const MAMM2 = T(10, "Reptilia", "class", 2, { coldp_id: "64HXN" });
+const MAMM3 = T(11, "Aves", "class", 2, { coldp_id: "64HXP" });
+sG = ts.attachChildren(sG, ANI.id, [ARTH2, ARTH3, MAMM2, MAMM3]);
+
+const groupsCol = ts.groupChildrenByRank(sG, ANI.id, "col");
+// CoL view: 4 phyla + 3 classes = 2 groups, broadest-first.
+assert.strictEqual(groupsCol.length, 2, "CoL: phylum + class groups");
+assert.strictEqual(groupsCol[0].rank, "phylum", "phylum tier first (broadest-first)");
+assert.strictEqual(groupsCol[0].count, 4, "phylum tier has 4 children");
+assert.strictEqual(groupsCol[1].rank, "class", "class tier second");
+assert.strictEqual(groupsCol[1].count, 3, "class tier has 3 children");
+// PAGE_SIZE=5 → all 4 phyla visible, 0 remaining.
+assert.strictEqual(groupsCol[0].visibleIds.length, 4, "phylum tier fully visible (PAGE_SIZE=5)");
+assert.strictEqual(groupsCol[0].remaining, 0, "phylum tier has 0 remaining");
+assert.strictEqual(groupsCol[1].visibleIds.length, 3, "class tier fully visible (PAGE_SIZE=5)");
+assert.strictEqual(groupsCol[1].remaining, 0, "class tier has 0 remaining");
+assert.strictEqual(groupsCol[0].fullyShown, false, "phylum tier not fullyShown by default");
+assert.strictEqual(groupsCol[1].fullyShown, false, "class tier not fullyShown by default");
+// Children within a group preserve insertion order (no reshuffle).
+assert.deepStrictEqual(
+  [...groupsCol[0].visibleIds], [CHOR.id, ARTH.id, ARTH2.id, ARTH3.id],
+  "phylum tier preserves insertion order",
+);
+
+// N. ODD-NTP-003 — PAGE_SIZE staircase activates when a tier carries
+// more than PAGE_SIZE children. Build a 7-phylum family, confirm
+// only PAGE_SIZE=5 visible until showAll flips.
+const PHYLUM_LIST = [
+  T(20, "P1", "phylum", 1, { coldp_id: "c1" }),
+  T(21, "P2", "phylum", 1, { coldp_id: "c2" }),
+  T(22, "P3", "phylum", 1, { coldp_id: "c3" }),
+  T(23, "P4", "phylum", 1, { coldp_id: "c4" }),
+  T(24, "P5", "phylum", 1, { coldp_id: "c5" }),
+  T(25, "P6", "phylum", 1, { coldp_id: "c6" }),
+  T(26, "P7", "phylum", 1, { coldp_id: "c7" }),
+];
+const PHYLUM_PARENT = T(27, "Parent", "domain", null, { coldp_id: "P" });
+let sP = e;
+sP = ts.withRoots(sP, [PHYLUM_PARENT]);
+sP = ts.attachChildren(sP, PHYLUM_PARENT.id, PHYLUM_LIST);
+const groupsP = ts.groupChildrenByRank(sP, PHYLUM_PARENT.id, "col");
+assert.strictEqual(groupsP.length, 1, "single phylum tier");
+assert.strictEqual(groupsP[0].count, 7, "tier has 7 children");
+assert.strictEqual(groupsP[0].visibleIds.length, ts.PAGE_SIZE, "PAGE_SIZE cap honored");
+assert.strictEqual(groupsP[0].remaining, 7 - ts.PAGE_SIZE, "remaining == count - visibleIds");
+assert.strictEqual(groupsP[0].fullyShown, false, "not fullyShown before toggle");
+// Toggle showAll and confirm the cap lifts.
+const sPAll = ts.setShowAll(sP, PHYLUM_PARENT.id, "phylum", true);
+const groupsPAll = ts.groupChildrenByRank(sPAll, PHYLUM_PARENT.id, "col");
+assert.strictEqual(groupsPAll[0].visibleIds.length, 7, "showAll lifts the cap");
+assert.strictEqual(groupsPAll[0].remaining, 0, "showAll drains the remaining count");
+assert.strictEqual(groupsPAll[0].fullyShown, true, "fullyShown == true after setShowAll(true)");
+
+// O. ODD-NTP-003 — setShowAll / toggleShowAll / isShowAll contract.
+const key = `${PHYLUM_PARENT.id}::phylum`;
+assert.strictEqual(ts.isShowAll(sP, PHYLUM_PARENT.id, "phylum"), false, "absent by default");
+const sPSet = ts.setShowAll(sP, PHYLUM_PARENT.id, "phylum", true);
+assert.strictEqual(ts.isShowAll(sPSet, PHYLUM_PARENT.id, "phylum"), true, "setShowAll(true) adds");
+assert.strictEqual(sPSet.showAll.has(key), true, "showAll set contains key");
+const sPSetIdem = ts.setShowAll(sPSet, PHYLUM_PARENT.id, "phylum", true);
+assert.strictEqual(sPSetIdem, sPSet, "setShowAll(true) is idempotent (reference-equal)");
+const sPClear = ts.setShowAll(sPSet, PHYLUM_PARENT.id, "phylum", false);
+assert.strictEqual(ts.isShowAll(sPClear, PHYLUM_PARENT.id, "phylum"), false, "setShowAll(false) removes");
+assert.strictEqual(sPClear.showAll.has(key), false, "showAll set drops key");
+const sPClearIdem = ts.setShowAll(sPClear, PHYLUM_PARENT.id, "phylum", false);
+assert.strictEqual(sPClearIdem, sPClear, "setShowAll(false) is idempotent (reference-equal)");
+// toggleShowAll flips the flag both ways.
+const sT1 = ts.toggleShowAll(sP, PHYLUM_PARENT.id, "phylum");
+assert.strictEqual(ts.isShowAll(sT1, PHYLUM_PARENT.id, "phylum"), true, "toggle absent→present");
+const sT2 = ts.toggleShowAll(sT1, PHYLUM_PARENT.id, "phylum");
+assert.strictEqual(ts.isShowAll(sT2, PHYLUM_PARENT.id, "phylum"), false, "toggle present→absent");
+
+// P. ODD-NTP-003 — source-aware groupChildrenByRank: WoRMS view
+// drops CoL-only phyla (Arthropoda is CoL-only; Chordata + Brachiopoda
+// are CoL+WoRMS; Bryozoa is CoL-only). Mixed payload → WoRMS view
+// shows only the 2 with worms_id.
+const ARTH_W = T(28, "Arthropoda-W", "phylum", 1, { coldp_id: "64HXH", worms_id: 1066 });
+const BRAC_W = T(29, "Brachiopoda-W", "phylum", 1, { coldp_id: "64HXK", worms_id: 1806 });
+const BRYO_W = T(30, "Bryozoa-W", "phylum", 1, { coldp_id: "64HXL" }); // CoL-only
+const sWParent = T(31, "Animalia-W", "kingdom", null, { coldp_id: "K2", worms_id: 2 });
+let sW = e;
+sW = ts.withRoots(sW, [sWParent]);
+sW = ts.attachChildren(sW, sWParent.id, [ARTH_W, BRAC_W, BRYO_W]);
+const groupsWorms = ts.groupChildrenByRank(sW, sWParent.id, "worms");
+assert.strictEqual(groupsWorms.length, 1, "WoRMS view: one phylum tier");
+assert.strictEqual(groupsWorms[0].count, 2, "WoRMS view: only CoL+WoRMS rows pass");
+assert.deepStrictEqual(
+  [...groupsWorms[0].visibleIds], [ARTH_W.id, BRAC_W.id],
+  "WoRMS view: phylum tier preserves source-filtered insertion order",
+);
+// CoL view of the same payload keeps all three.
+const groupsWCol = ts.groupChildrenByRank(sW, sWParent.id, "col");
+assert.strictEqual(groupsWCol[0].count, 3, "CoL view: all 3 phyla pass");
+
+// Q. ODD-NTP-003 — empty group rendering. No cached children → empty
+// tiers list; tier header slot is dropped. Matches legacy oracle.
+const emptyGroups = ts.groupChildrenByRank(e, 999, "col");
+assert.deepStrictEqual([...emptyGroups], [], "no cached children → empty groups");
+// Mixed payload with one source-filtered row → tier header count > 1
+// suppressed (only renders when count > 1, per legacy renderTierHeader).
+const solo = T(40, "Solo", "class", 1, { coldp_id: "x" });
+const sSolo = ts.attachChildren(e, 1, [solo]);
+const soloGroups = ts.groupChildrenByRank(sSolo, 1, "col");
+assert.strictEqual(soloGroups.length, 1, "single-row group is still produced");
+assert.strictEqual(soloGroups[0].count, 1, "single-row group has count=1");
+assert.strictEqual(soloGroups[0].visibleIds.length, 1, "single-row group shows 1 child");
+assert.strictEqual(soloGroups[0].remaining, 0, "single-row group has 0 remaining");
+
+// R. ODD-NTP-003 — autoUnrollForSource: WoRMS / Freshwater view
+// marks every tier of an expanded parent as showAll on expansion.
+// CoL view is a no-op. Mirrors legacy `web/nav.js::toggleExpand`.
+// Mixed payload → only the source-matching rank tiers are added.
+const ARTH_W2 = T(50, "Arthropoda-W2", "phylum", 1, { coldp_id: "c", worms_id: 1066 });
+const CHOR_W = T(51, "Chordata-W", "phylum", 1, { coldp_id: "d", worms_id: 1821 });
+const sWormsParent = T(52, "Biota-W", "superdomain", null, { worms_id: 1 });
+let sAuto = e;
+sAuto = ts.withRoots(sAuto, [sWormsParent]);
+sAuto = ts.attachChildren(sAuto, sWormsParent.id, [ARTH_W2, CHOR_W]);
+// CoL source: no-op (no source-matching rows; nothing to unroll).
+const sAutoCol = ts.autoUnrollForSource(sAuto, sWormsParent.id, "col");
+assert.strictEqual(sAutoCol, sAuto, "CoL: autoUnrollForSource is identity-equal no-op");
+// WoRMS source: both tiers added to showAll (single rank group of
+// 2 phyla — one tier key for "phylum").
+const sAutoWorms = ts.autoUnrollForSource(sAuto, sWormsParent.id, "worms");
+assert.strictEqual(sAutoWorms.showAll.size, 1, "WoRMS: 1 tier key added");
+assert.strictEqual(
+  sAutoWorms.showAll.has(`${sWormsParent.id}::phylum`),
+  true, "WoRMS: phylum tier unrolled",
+);
+// Mixed-rank WoRMS parent: every rank group gets its own key.
+const BIOTA_KIDS = [
+  T(60, "Animalia-K", "kingdom", 52, { coldp_id: "K", worms_id: 2 }),
+  T(61, "Plantae-K", "kingdom", 52, { coldp_id: "P", worms_id: 3 }),
+];
+const sMix = ts.attachChildren(sAuto, sWormsParent.id, BIOTA_KIDS);
+const sMixUnroll = ts.autoUnrollForSource(sMix, sWormsParent.id, "worms");
+assert.strictEqual(sMixUnroll.showAll.size, 2, "WoRMS: phylum + kingdom tier keys added (2 ranks)");
+assert.strictEqual(
+  sMixUnroll.showAll.has(`${sWormsParent.id}::phylum`), true,
+  "WoRMS: phylum tier unrolled",
+);
+assert.strictEqual(
+  sMixUnroll.showAll.has(`${sWormsParent.id}::kingdom`), true,
+  "WoRMS: kingdom tier unrolled",
+);
+// Idempotent: re-running autoUnrollForSource on a state where every
+// tier is already unrolled returns reference-equal state.
+const sMixReUnroll = ts.autoUnrollForSource(sMixUnroll, sWormsParent.id, "worms");
+assert.strictEqual(sMixReUnroll, sMixUnroll, "autoUnrollForSource idempotent when fully unrolled");
+
+// S. ODD-NTP-003 — clearShowAll + clearExpansion semantics.
+// clearShowAll only drops showAll; expanded stays.
+const sKept = ts.expand(sP, PHYLUM_PARENT.id);
+const sShowCleared = ts.clearShowAll(ts.setShowAll(sKept, PHYLUM_PARENT.id, "phylum", true));
+assert.strictEqual(sShowCleared.showAll.size, 0, "clearShowAll drops showAll");
+assert.strictEqual(ts.isExpanded(sShowCleared, PHYLUM_PARENT.id), true, "clearShowAll preserves expansion");
+// Identity-equal no-op when showAll is already empty — the legacy
+// `web/nav.js::collapseAll` early-return at the start of the
+// handler.
+assert.strictEqual(ts.clearShowAll(sKept), sKept, "clearShowAll is identity-equal no-op on absent state");
+// clearExpansion drops both expanded + showAll.
+const sCleared = ts.clearExpansion(ts.setShowAll(sKept, PHYLUM_PARENT.id, "phylum", true));
+assert.strictEqual(sCleared.expandedIds.size, 0, "clearExpansion drops expanded");
+assert.strictEqual(sCleared.showAll.size, 0, "clearExpansion drops showAll");
+assert.strictEqual(sCleared.childIdsByParent, sKept.childIdsByParent, "clearExpansion preserves child cache");
+assert.strictEqual(sCleared.loadStatus, sKept.loadStatus, "clearExpansion preserves load status");
+assert.strictEqual(sCleared.nodes, sKept.nodes, "clearExpansion preserves nodes");
+assert.strictEqual(ts.clearExpansion(e), e, "clearExpansion identity-equal no-op on empty state");
+// expandedTierCount tracks both sets.
+assert.strictEqual(ts.expandedTierCount(sKept), 1, "expanded-only → 1");
+const sBoth = ts.setShowAll(sKept, PHYLUM_PARENT.id, "phylum", true);
+assert.strictEqual(ts.expandedTierCount(sBoth), 2, "expanded+showAll → 2");
+
+// T. ODD-NTP-003 — groupChildrenByRank preserves insertion order
+// inside a rank group even when the source filter removes rows.
+// The fetched sequence drives the order; the source predicate
+// never reshuffles rows the legacy tree would render sequentially.
+const MIX = [
+  T(70, "P-A", "phylum", 1, { coldp_id: "a", worms_id: 11 }),
+  T(71, "P-B", "phylum", 1, { coldp_id: "b" }), // CoL-only — excluded in WoRMS
+  T(72, "P-C", "phylum", 1, { coldp_id: "c", worms_id: 13 }),
+];
+const MIX_PARENT = T(73, "Mix-Parent", "kingdom", null, { coldp_id: "M", worms_id: 1 });
+let sMix2 = e;
+sMix2 = ts.withRoots(sMix2, [MIX_PARENT]);
+sMix2 = ts.attachChildren(sMix2, MIX_PARENT.id, MIX);
+const groupsMixWorms = ts.groupChildrenByRank(sMix2, MIX_PARENT.id, "worms");
+assert.deepStrictEqual(
+  [...groupsMixWorms[0].visibleIds], [70, 72],
+  "WoRMS view: insertion order preserved within rank group (70, 72)",
+);
+
+// U. ODD-NTP-003 — groupChildrenByRank returns groups sorted by
+// canonical rank breadth (broadest-first). Mixed ranks under one
+// parent → kingdom, phylum, class in that order.
+const RANKS = [
+  T(80, "Class-K", "class", 1, { coldp_id: "c" }),
+  T(81, "Kingdom-K", "kingdom", 1, { coldp_id: "k" }),
+  T(82, "Phylum-K", "phylum", 1, { coldp_id: "p" }),
+];
+let sRanks = e;
+sRanks = ts.withRoots(sRanks, [T(83, "Root", "domain", null, { coldp_id: "r" })]);
+sRanks = ts.attachChildren(sRanks, 83, RANKS);
+const groupsRanks = ts.groupChildrenByRank(sRanks, 83, "col");
+assert.strictEqual(groupsRanks.length, 3, "three rank groups");
+assert.strictEqual(groupsRanks[0].rank, "kingdom", "kingdom first (broadest)");
+assert.strictEqual(groupsRanks[1].rank, "phylum", "phylum second");
+assert.strictEqual(groupsRanks[2].rank, "class", "class last (narrowest)");
 
 process.stdout.write("PASS\n");
 """
