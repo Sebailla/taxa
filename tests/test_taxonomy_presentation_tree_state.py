@@ -71,9 +71,14 @@ def test_tree_state_imports_only_from_domain(tree_state_text: str) -> None:
 
 def test_tree_state_exports_required_helpers(tree_state_text: str) -> None:
     for name in (
-        "EMPTY_TREE_STATE", "withRoots", "childIds", "isExpanded",
-        "expand", "collapse", "toggleExpand", "attachChildren",
+        "EMPTY_TREE_STATE", "withRoots", "withRootsForSource",
+        "childIds", "isExpanded",
+        "expand", "collapse", "toggleExpand",
+        "attachChildren", "attachChildrenForSource",
         "setLoadStatus", "loadStatus",
+        "sourceMatches", "filterChildrenForSource",
+        "hasFreshwaterRoot", "availableSourcesFor",
+        "resetSourceState",
     ):
         pattern = rf"export\s+(?:async\s+)?function\s+{name}\b|export\s+const\s+{name}\b"
         assert re.search(pattern, tree_state_text), (
@@ -121,13 +126,25 @@ _NODE_HARNESS = r"""
 const path = require("path");
 const assert = require("assert");
 const ts = require(path.resolve(process.argv[2]));
-const T = (id, name, rank, parentId) => ({ id, name, rank, authorship: null, parent_id: parentId });
-const ANI = T(1, "Animalia", "kingdom", null);
-const CHOR = T(2, "Chordata", "phylum", 1);
-const MAMM = T(3, "Mammalia", "class", 2);
-const CANIS = T(4, "Canis", "genus", 3);
-const BIOTA = T(5, "Biota", "superdomain", null);
-const FW = T(100, "Freshwater Fishes", "collection", null);
+// Minimal Taxon-shaped fixture — every source-affordance field the
+// ODD-NTP-002 helpers read is set explicitly so the source contract
+// is reproducible from a hand-rolled constructor (the canonical
+// `Taxon` carries more nullable fields; the unused ones default to
+// `undefined` and the helpers never read them).
+const T = (id, name, rank, parentId, sourceIds = {}) => ({
+  id, name, rank, authorship: null, parent_id: parentId,
+  coldp_id: null, worms_id: null, freshwater_id: null,
+  freshwater_parent_id: null,
+  ...sourceIds,
+});
+const ANI = T(1, "Animalia", "kingdom", null, { coldp_id: "K", worms_id: 2 });
+const ARTH = T(7, "Arthropoda", "phylum", 1, { coldp_id: "64HXH" }); // CoL-only
+const CHOR = T(2, "Chordata", "phylum", 1, { coldp_id: "64HXG", worms_id: 1821 });
+const MAMM = T(3, "Mammalia", "class", 2, { coldp_id: "64HXJ", worms_id: 367 });
+const CANIS = T(4, "Canis", "genus", 3, { coldp_id: "64HXM", worms_id: 137093 });
+const BIOTA = T(5, "Biota", "superdomain", null, { worms_id: 1 });
+const FW = T(100, "Freshwater Fishes", "collection", null, { freshwater_id: 1 });
+const FW_FAM = T(101, "Cichlidae", "family", 100, { freshwater_id: 12 });
 
 // A. Empty state.
 const e = ts.EMPTY_TREE_STATE;
@@ -187,6 +204,79 @@ assert.strictEqual(ts.isExpanded(frozen, 1), false);
 assert.strictEqual(frozen.rootIds.length, 0);
 assert.deepStrictEqual(ts.childIds(frozen, 1), []);
 
+// H. ODD-NTP-002 — sourceMatches nullability contract.
+assert.strictEqual(ts.sourceMatches(ANI, "col"), true, "CoL: coldp_id set");
+assert.strictEqual(ts.sourceMatches(ARTH, "col"), true, "CoL: coldp_id-only row");
+assert.strictEqual(ts.sourceMatches(BIOTA, "col"), false, "CoL: worms-only row excluded");
+assert.strictEqual(ts.sourceMatches(ANI, "worms"), true, "WoRMS: worms_id set");
+assert.strictEqual(ts.sourceMatches(ARTH, "worms"), false, "WoRMS: CoL-only row excluded");
+assert.strictEqual(ts.sourceMatches(BIOTA, "worms"), true, "WoRMS: Biota row");
+assert.strictEqual(ts.sourceMatches(FW, "worms"), false, "WoRMS: freshwater-only row excluded");
+assert.strictEqual(ts.sourceMatches(FW, "freshwater"), true, "Freshwater: synthetic root");
+assert.strictEqual(ts.sourceMatches(FW_FAM, "freshwater"), true, "Freshwater: family row");
+assert.strictEqual(ts.sourceMatches(ANI, "freshwater"), false, "Freshwater: CoL+WoRMS row excluded");
+assert.strictEqual(ts.sourceMatches(BIOTA, "freshwater"), false, "Freshwater: Biota excluded");
+
+// I. ODD-NTP-002 — withRootsForSource preserves foreign ids on `nodes`,
+// exposes only source-matching ids on `rootIds`.
+let raws = [BIOTA, ANI, ARTH, FW];
+const sCol = ts.withRootsForSource(e, raws, "col");
+assert.deepStrictEqual([...sCol.rootIds], [1, 7], "CoL view: Animalia + Arthropoda only");
+// `nodes` retains every fetched taxon so a later source switch can
+// re-surface them without a re-fetch.
+assert.strictEqual(sCol.nodes.size, 4);
+assert.ok(sCol.nodes.has(5) && sCol.nodes.has(100));
+const sWorms = ts.withRootsForSource(sCol, raws, "worms");
+assert.deepStrictEqual([...sWorms.rootIds], [5, 1], "WoRMS view: Biota + Animalia");
+// `nodes` carries the foreign ids across source switches (Biota +
+// Freshwater remain on `nodes` even though they're hidden under CoL).
+assert.strictEqual(sWorms.nodes.size, 4);
+assert.ok(sWorms.nodes.has(5) && sWorms.nodes.has(100) && sWorms.nodes.has(7));
+const sFresh = ts.withRootsForSource(sCol, raws, "freshwater");
+assert.deepStrictEqual([...sFresh.rootIds], [100], "Freshwater view: synthetic root only");
+
+// J. ODD-NTP-002 — filterChildrenForSource + attachChildrenForSource
+// apply the source predicate before the visible child list is built.
+// `attachChildren` records every row on `nodes` but `childIds` returns
+// the source-filtered sequence (or via `attachChildrenForSource`
+// directly).
+const kids = [CHOR, ARTH, FW_FAM]; // CoL / WoRMS / Freshwater membership
+const childSCol = ts.attachChildrenForSource(e, 1, kids, "col");
+assert.deepStrictEqual([...ts.childIds(childSCol, 1)], [2, 7], "CoL child filter keeps Chordata + Arthropoda");
+const childSWorms = ts.attachChildrenForSource(e, 1, kids, "worms");
+assert.deepStrictEqual([...ts.childIds(childSWorms, 1)], [2], "WoRMS child filter keeps Chordata only");
+const childSFresh = ts.attachChildrenForSource(e, 1, kids, "freshwater");
+assert.deepStrictEqual([...ts.childIds(childSFresh, 1)], [101], "Freshwater child filter keeps Cichlidae only");
+// Load status transitions to `loaded` regardless of how many children pass the filter.
+assert.strictEqual(ts.loadStatus(childSCol, 1), "loaded");
+assert.strictEqual(ts.loadStatus(childSWorms, 1), "loaded");
+assert.strictEqual(ts.loadStatus(childSFresh, 1), "loaded");
+
+// K. ODD-NTP-002 — hasFreshwaterRoot + availableSourcesFor.
+assert.strictEqual(ts.hasFreshwaterRoot([BIOTA, ANI]), false, "no freshwater in CoL-only roots");
+assert.strictEqual(ts.hasFreshwaterRoot([BIOTA, ANI, FW]), true, "Freshwater root detected");
+assert.deepStrictEqual(ts.availableSourcesFor([BIOTA, ANI]), ["col", "worms"], "no Freshwater toggle");
+assert.deepStrictEqual(ts.availableSourcesFor([BIOTA, ANI, FW]), ["col", "worms", "freshwater"], "Freshwater toggle appended");
+
+// L. ODD-NTP-002 — resetSourceState clears every source-bound field
+// while preserving `nodes` (the cached projections survive the reset
+// so a later source switch can re-surface them without a re-fetch).
+let sFilled = e;
+sFilled = ts.withRoots(sFilled, [ANI, FW]);
+sFilled = ts.attachChildren(sFilled, ANI.id, [CHOR, ARTH]);
+sFilled = ts.expand(sFilled, ANI.id);
+sFilled = ts.setLoadStatus(sFilled, ANI.id, "loaded");
+const reset = ts.resetSourceState(sFilled);
+assert.deepStrictEqual([...reset.rootIds], [], "rootIds cleared");
+assert.deepStrictEqual([...reset.expandedIds], [], "expanded set cleared");
+assert.deepStrictEqual([...reset.childIdsByParent.keys()], [], "child cache cleared");
+assert.deepStrictEqual([...reset.loadStatus.keys()], [], "load status cleared");
+assert.strictEqual(reset.nodes, sFilled.nodes, "nodes map is preserved (identity-equal)");
+// A subsequent source-aware merge re-surfaces the cached roots without
+// re-fetching — the foreign-id preservation contract.
+const recovered = ts.withRootsForSource(reset, [ANI, FW], "worms");
+assert.deepStrictEqual([...recovered.rootIds], [1], "WoRMS view re-surfaces Animalia only");
+
 process.stdout.write("PASS\n");
 """
 
@@ -194,9 +284,15 @@ process.stdout.write("PASS\n");
 def test_compiled_tree_state_passes_runtime_contract(
     tmp_path: Path, require_toolchain: None,
 ) -> None:
-    """A–G: empty state, withRoots, attachChildren (dedup + unknown parent),
+    """A–L: empty state, withRoots, attachChildren (dedup + unknown parent),
     expand/collapse/toggleExpand (idempotent), load-status lifecycle,
-    superdomain/collection roots round-trip, immutability of EMPTY_TREE_STATE."""
+    superdomain/collection roots round-trip, immutability of EMPTY_TREE_STATE,
+    source predicate contract (CoL/WoRMS/Freshwater nullability checks),
+    source-aware roots merge (foreign ids preserved on `nodes`),
+    source-aware child attachment, Freshwater-root predicate + native
+    source-order helper, and source-bound state reset (clear roots /
+    expanded / child cache / load status while preserving the `nodes`
+    projection cache)."""
     for p in (TREE_STATE_FILE, DOMAIN_FILE):
         if not p.is_file():
             pytest.skip(f"missing required source: {p}")

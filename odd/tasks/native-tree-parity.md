@@ -38,9 +38,12 @@ feature-branch-chain (user selected). Forecast: roughly 1,400 authored lines acr
   - Implementation: canonical projection now retains every FastAPI field used by the native tree (`coldp_id`, `worms_id`, `freshwater_id`, `freshwater_parent_id`, status/extinction/path/species-count/materialization metadata) with exact nullability; public `TaxonomySource` options flow through both canonical API helpers.
   - Correction: `worms_parent_id` is an internal database/query column, not a FastAPI response field. The React contract deliberately does not invent it; later WoRMS ancestry must use attached tree edges unless a separately authorized backend contract adds the field.
   - Evidence: independent verifier approved; 55 targeted domain/infra/application/tree/shell tests, strict typecheck, and static build passed. Full offline suite had one confirmed pre-existing unrelated search-category failure. No presentation layer changed.
-  - Delivery: ready as the first chained PR against `develop`.
-- [ ] ODD-NTP-002 Implement source selector and three-tree loading semantics.
-  - Acceptance: CoL, WoRMS, and conditional Freshwater controls match native visibility and active state; each source requests correct children and filters foreign rows; source switch resets source-bound state.
+  - Delivery: published as PR #302 (`feat/native-tree-parity` → `develop`) with exactly `type:feature`; Smoke tests are pending.
+- [x] ODD-NTP-002 Implement source selector and three-tree loading semantics.
+  - Implementation: React now renders native-order CoL/WoRMS plus conditional Freshwater controls; roots filter from one cached `/api/domains` response and children load through the active `source` query with source filtering before attachment.
+  - Correction: switching sources does not refetch domains. It clears roots, child cache, expanded IDs, load state, and row errors, then reprojects cached raw roots; a separate regression prevents the React dependency race that previously would have reloaded domains.
+  - Evidence: independent verifier approved 134 focused tests, strict typecheck, static build, and live Chromium/API coverage. Browser proved all three root sets, all three source-qualified lazy requests, no root refetch across four switches, and a collapsed CoL return state.
+  - Delivery: ready for PR #303 chained against PR #302.
 - [ ] ODD-NTP-003 Restore native tree structure, tier paging, and disclosure behavior.
   - Acceptance: recursive rows preserve full-row depth; rank-tier headers, incremental load/load-all, collapse-all, leaf behavior, and WoRMS/Freshwater auto-unroll match native observable behavior.
 - [ ] ODD-NTP-004 Restore native row identity and source affordances.
@@ -51,7 +54,7 @@ feature-branch-chain (user selected). Forecast: roughly 1,400 authored lines acr
   - Acceptance: each coherent work unit has a Conventional Commit and PR linked to approved issue #74 with exactly one `type:*` label; no automatic merge.
 
 ## Progress
-User selected chained PR delivery. ODD-NTP-001 is independently verified and ready to publish as the first chain slice. Renderer behavior remains unchanged pending ODD-NTP-002.
+User selected chained PR delivery. ODD-NTP-001 is published as PR #302. ODD-NTP-002 is independently verified and ready to publish from `feat/native-tree-source-selector` against `feat/native-tree-parity`.
 
 ## Next step
-Commit and open the ODD-NTP-001 PR to `develop`; then build ODD-NTP-002 on that PR branch.
+Commit and open PR #303; then build ODD-NTP-003 on a branch chained from the PR #303 branch.
