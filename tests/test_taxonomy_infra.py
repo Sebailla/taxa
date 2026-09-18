@@ -100,6 +100,32 @@ def test_infra_file_exports_named_fns() -> None:
         )
 
 
+def test_infra_file_exports_source_type_and_domains_options() -> None:
+    """ODD-NTP-001: the public `TaxonomySource` type + `FetchDomainsOptions`
+    interface are re-exported from the taxonomy barrel so React callers
+    can type the source option on `fetchDomains` / `fetchChildren`
+    without a deep import. A future PR that demotes the type to
+    module-local breaks the source-aware API contract."""
+    if not INFRA_FILE.exists():
+        pytest.skip("infra file not present yet")
+    text = INFRA_FILE.read_text()
+    assert re.search(
+        r"export\s+type\s+TaxonomySource\b",
+        text,
+    ), "infra/api.ts must export `TaxonomySource` as a public type."
+    assert re.search(
+        r"export\s+interface\s+FetchDomainsOptions\b",
+        text,
+    ), "infra/api.ts must export `FetchDomainsOptions` as a public interface."
+    # The source union must pin exactly the three FastAPI-accepted
+    # values — same shape as the FastAPI `Query(pattern=...)` regex
+    # in `api/server.py::get_children`.
+    assert re.search(
+        r"TaxonomySource\s*=\s*[\"\']col[\"\']\s*\|\s*[\"\']worms[\"\']\s*\|\s*[\"\']freshwater[\"\']",
+        text,
+    ), "TaxonomySource must enumerate exactly 'col' | 'worms' | 'freshwater'."
+
+
 # ---------------------------------------------------------------------------
 # Compile + runtime contract (Node harness with injected fetch).
 # ---------------------------------------------------------------------------
@@ -143,22 +169,115 @@ function makeFetch(responses) {
   return fn;
 }
 
-const ANIMALIA = { id: 5, scientific_name: "Animalia", rank: "kingdom", authorship: null, parent_id: null };
-const CHORDATA = { id: 6, scientific_name: "Chordata", rank: "phylum", authorship: "Bateson, 1885", parent_id: 5 };
+// ODD-NTP-001 — wire fixture for the native FastAPI `Taxon` payload.
+// Every legacy tree field exposed on the public wire is present
+// with realistic values (CoL + WoRMS identifiers + freshwater parent
+// relation + UI metadata). `worms_parent_id` is intentionally
+// absent — the FastAPI `Taxon` Pydantic model does not expose it,
+// and the canonical projection must not invent a client-visible
+// field for a private server column. The canonical projection
+// must surface every wire field without coercion.
+const ANIMALIA = { id: 5, scientific_name: "Animalia", rank: "kingdom",
+  authorship: null, parent_id: null,
+  coldp_id: "K", worms_id: 2, freshwater_id: null,
+  freshwater_parent_id: null,
+  status: "accepted", is_extinct: false, path: "Animalia",
+  species_count: 134, research_path_exists: true,
+};
+const CHORDATA = { id: 6, scientific_name: "Chordata", rank: "phylum",
+  authorship: "Bateson, 1885", parent_id: 5,
+  coldp_id: "64HXG", worms_id: 1821, freshwater_id: null,
+  freshwater_parent_id: null,
+  status: "accepted", is_extinct: false, path: "Animalia|Chordata",
+  species_count: 80, research_path_exists: null,
+};
+// ODD-NTP-001 — CoL-only wire row (no WoRMS / Freshwater match). The
+// projection must surface null for every absent identifier / source
+// parent — never coerced to zero, empty string, or another source.
+const COL_ONLY = { id: 7, scientific_name: "Arthropoda", rank: "phylum",
+  authorship: null, parent_id: 5,
+  coldp_id: "64HXH", worms_id: null, freshwater_id: null,
+  freshwater_parent_id: null,
+  status: "accepted", is_extinct: false, path: "Animalia|Arthropoda",
+  species_count: 100, research_path_exists: false,
+};
+// ODD-NTP-001 — freshwater-overlay row. freshwater_parent_id is the
+// real hierarchy; parent_id is null because the CSV rows don't carry
+// a CoL backbone link. The projection must keep both fields distinct.
+const FW_CICHLID = { id: 101, scientific_name: "Cichlidae", rank: "family",
+  authorship: null, parent_id: null,
+  coldp_id: null, worms_id: null, freshwater_id: 12,
+  freshwater_parent_id: 100,
+  status: "accepted", is_extinct: false, path: null,
+  species_count: 50, research_path_exists: null,
+};
 // ODD-VTREE-001 — /api/domains fixture: Biota is a real superdomain
 // returned by FastAPI (worms_id=1). Eukaryota is a CoL domain. The
 // Freshwater Fishes row carries `rank="collection"` so the synthetic
 // root is covered too.
-const BIOTA = { id: 1, scientific_name: "Biota", rank: "superdomain", authorship: null, parent_id: null };
-const EUKARYOTA = { id: 2, scientific_name: "Eukaryota", rank: "domain", authorship: null, parent_id: null };
-const FW_ROOT = { id: 100, scientific_name: "Freshwater Fishes", rank: "collection", authorship: null, parent_id: null };
+const BIOTA = { id: 1, scientific_name: "Biota", rank: "superdomain",
+  authorship: null, parent_id: null,
+  coldp_id: null, worms_id: 1, freshwater_id: null,
+  freshwater_parent_id: null,
+  status: "accepted", is_extinct: false, path: null,
+  species_count: 250000, research_path_exists: true,
+};
+const EUKARYOTA = { id: 2, scientific_name: "Eukaryota", rank: "domain",
+  authorship: null, parent_id: null,
+  coldp_id: "D", worms_id: null, freshwater_id: null,
+  freshwater_parent_id: null,
+  status: "accepted", is_extinct: false, path: "Eukaryota",
+  species_count: 200000, research_path_exists: true,
+};
+const FW_ROOT = { id: 100, scientific_name: "Freshwater Fishes", rank: "collection",
+  authorship: null, parent_id: null,
+  coldp_id: null, worms_id: null, freshwater_id: 1,
+  freshwater_parent_id: null,
+  status: "accepted", is_extinct: false, path: null,
+  species_count: 18000, research_path_exists: true,
+};
 // ODD-VTREE-002 — live-API evidence: the live `Viruses` row carries
 // `rank="unranked"` and the live child payload carries ICNV viral
 // `realm` rows (Adnaviria, Riboviria, …). Both must survive the
 // canonical fetchDomains / fetchChildren projection without coercion.
-const VIRUSES = { id: 5392750, scientific_name: "Viruses", rank: "unranked", authorship: null, parent_id: null };
-const ADNAVIRIA = { id: 10, scientific_name: "Adnaviria", rank: "realm", authorship: null, parent_id: 5392750 };
-const RIBOVIRIA = { id: 11, scientific_name: "Riboviria", rank: "realm", authorship: null, parent_id: 5392750 };
+const VIRUSES = { id: 5392750, scientific_name: "Viruses", rank: "unranked",
+  authorship: null, parent_id: null,
+  coldp_id: "V", worms_id: null, freshwater_id: null,
+  freshwater_parent_id: null,
+  status: "accepted", is_extinct: false, path: "Viruses",
+  species_count: 9000, research_path_exists: null,
+};
+const ADNAVIRIA = { id: 10, scientific_name: "Adnaviria", rank: "realm",
+  authorship: null, parent_id: 5392750,
+  coldp_id: null, worms_id: null, freshwater_id: null,
+  freshwater_parent_id: null,
+  status: "accepted", is_extinct: false, path: "Viruses|Adnaviria",
+  species_count: 5, research_path_exists: null,
+};
+const RIBOVIRIA = { id: 11, scientific_name: "Riboviria", rank: "realm",
+  authorship: null, parent_id: 5392750,
+  coldp_id: null, worms_id: null, freshwater_id: null,
+  freshwater_parent_id: null,
+  status: "accepted", is_extinct: false, path: "Viruses|Riboviria",
+  species_count: 5000, research_path_exists: null,
+};
+
+// ODD-NTP-001 (regression — real `/source=worms` wire shape) — the
+// actual `/api/taxon/5953123/children?source=worms` response captured
+// against the live FastAPI server (see `docs/runbook-freshwater-…`
+// + the ODD-NTP-001 correction log). The wire shape carries every
+// FastAPI `Taxon` field EXCEPT `worms_parent_id` — the canonical
+// `Taxon` projection MUST accept this shape, surface every wire
+// field, and NOT invent a `worms_parent_id` slot. The runtime check
+// below pins all three contracts in one assertion.
+const REAL_WORMS_CHILD = {
+  id: 41675, scientific_name: "Animalia", rank: "kingdom",
+  authorship: "", parent_id: 41674,
+  coldp_id: "N", worms_id: 2, freshwater_id: null,
+  freshwater_parent_id: null,
+  status: "accepted", is_extinct: false, path: "/Eukaryota/Animalia",
+  species_count: 1607192, research_path_exists: true,
+};
 
 (async () => {
   // fetchTaxon happy path — wire → domain, URL build.
@@ -171,6 +290,78 @@ const RIBOVIRIA = { id: 11, scientific_name: "Riboviria", rank: "realm", authors
   assert.strictEqual(t.rank, "kingdom");
   assert.strictEqual(t.authorship, null);
   assert.strictEqual(t.parent_id, null);
+  // ODD-NTP-001 — every legacy tree field exposed on the wire
+  // survives projection with FastAPI nullability preserved (CoL +
+  // WoRMS row, no freshwater). `worms_parent_id` is intentionally
+  // absent — see REAL_WORMS_CHILD below for the regression check
+  // that the canonical projection does NOT invent it.
+  assert.strictEqual(t.coldp_id, "K");
+  assert.strictEqual(t.worms_id, 2);
+  assert.strictEqual(t.freshwater_id, null);
+  assert.strictEqual(t.freshwater_parent_id, null);
+  assert.strictEqual(t.status, "accepted");
+  assert.strictEqual(t.is_extinct, false);
+  assert.strictEqual(t.path, "Animalia");
+  assert.strictEqual(t.species_count, 134);
+  assert.strictEqual(t.research_path_exists, true);
+
+  // ODD-NTP-001 — CoL-only wire payload: every absent source id /
+  // source parent surfaces as null, never coerced to zero or empty
+  // string or to another source's value.
+  const f1b = makeFetch([{ ok: true, status: 200, statusText: "OK", json: COL_ONLY }]);
+  const colOnly = await api.fetchTaxon(7, { fetch: f1b, baseUrl: "http://x" });
+  assert.strictEqual(colOnly.coldp_id, "64HXH");
+  assert.strictEqual(colOnly.worms_id, null);
+  assert.strictEqual(colOnly.freshwater_id, null);
+  assert.strictEqual(colOnly.freshwater_parent_id, null);
+  assert.strictEqual(colOnly.research_path_exists, false);
+
+  // ODD-NTP-001 — freshwater-overlay wire row: freshwater_parent_id
+  // is the real hierarchy; parent_id is null. Both must survive
+  // independently — coercing freshwater_parent_id → parent_id would
+  // break the CoL walker, coercing parent_id → 0 would break the
+  // CoL tree (the row would be re-parented under id=0).
+  const f1c = makeFetch([{ ok: true, status: 200, statusText: "OK", json: FW_CICHLID }]);
+  const fw = await api.fetchTaxon(101, { fetch: f1c, baseUrl: "http://x" });
+  assert.strictEqual(fw.parent_id, null);
+  assert.strictEqual(fw.freshwater_parent_id, 100);
+  assert.strictEqual(fw.freshwater_id, 12);
+
+  // ODD-NTP-001 (regression — real /source=worms wire shape) —
+  // fetchTaxon against the live `/api/taxon/5953123/children?source=worms`
+  // response (REAL_WORMS_CHILD above) must (a) succeed without
+  // throwing, (b) surface every wire field, and (c) NOT invent a
+  // `worms_parent_id` slot on the canonical `Taxon`. The last check
+  // is the structural guard: a canonical Taxon has no
+  // `worms_parent_id` property because the FastAPI wire does not
+  // expose it. Inventing the field would (a) be unreachable from
+  // any real fetch, (b) leak a private server column into the
+  // client contract, and (c) require a future coordinated server +
+  // client change to ever populate. WoRMS source-aware parent
+  // ancestry must instead be built from attached tree edges (see
+  // the domain `Taxon` JSDoc + the ODD-NTP-001 correction log).
+  const fReal = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: REAL_WORMS_CHILD }]);
+  const realWorms = await api.fetchTaxon(41675, { fetch: fReal, baseUrl: "http://x" });
+  assert.strictEqual(realWorms.id, 41675);
+  assert.strictEqual(realWorms.name, "Animalia");
+  assert.strictEqual(realWorms.rank, "kingdom");
+  assert.strictEqual(realWorms.parent_id, 41674);
+  assert.strictEqual(realWorms.coldp_id, "N");
+  assert.strictEqual(realWorms.worms_id, 2);
+  assert.strictEqual(realWorms.freshwater_id, null);
+  assert.strictEqual(realWorms.freshwater_parent_id, null);
+  assert.strictEqual(realWorms.status, "accepted");
+  assert.strictEqual(realWorms.is_extinct, false);
+  assert.strictEqual(realWorms.path, "/Eukaryota/Animalia");
+  assert.strictEqual(realWorms.species_count, 1607192);
+  assert.strictEqual(realWorms.research_path_exists, true);
+  // The structural regression: the canonical Taxon MUST NOT carry
+  // a `worms_parent_id` property — confirming in one runtime check
+  // that the projection does not invent the field.
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(realWorms, "worms_parent_id"), false,
+    "ODD-NTP-001 regression: canonical Taxon must not carry a worms_parent_id property; " +
+    "the FastAPI wire does not expose the field.");
 
   // fetchTaxon HTTP non-OK — throws with status in message.
   const f2 = makeFetch([{ ok: false, status: 404, statusText: "Not Found", json: { detail: "taxon 99 not found" } }]);
@@ -194,20 +385,54 @@ const RIBOVIRIA = { id: 11, scientific_name: "Riboviria", rank: "realm", authors
     (err) => /invalid|taxon/i.test(String(err && err.message || err)),
   );
 
-  // fetchChildren happy path — array of mapped Taxons.
+  // fetchChildren happy path — array of mapped Taxons; the projection
+  // carries every legacy tree field exposed on the wire (ODD-NTP-001).
   const f5 = makeFetch([{ ok: true, status: 200, statusText: "OK",
-    json: [CHORDATA, { id: 7, scientific_name: "Arthropoda", rank: "phylum", authorship: null, parent_id: 5 }] }]);
+    json: [CHORDATA, COL_ONLY] }]);
   const kids = await api.fetchChildren(5, { fetch: f5, baseUrl: "http://x" });
   assert.ok(Array.isArray(kids));
   assert.strictEqual(kids.length, 2);
   assert.strictEqual(kids[0].name, "Chordata");
   assert.strictEqual(kids[0].rank, "phylum");
+  // ODD-NTP-001 — Chordata carries worms_id because it has a WoRMS
+  // match. The canonical Taxon does NOT carry worms_parent_id (the
+  // FastAPI wire does not expose it) — see the structural regression
+  // below for the guard.
+  assert.strictEqual(kids[0].worms_id, 1821);
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(kids[0], "worms_parent_id"), false,
+    "ODD-NTP-001 regression: canonical Taxon must not carry a worms_parent_id property.");
+  // ODD-NTP-001 — Arthropoda is a CoL-only row. worms_id /
+  // freshwater_id / freshwater_parent_id must all surface as null
+  // (never coerced).
+  assert.strictEqual(kids[1].coldp_id, "64HXH");
+  assert.strictEqual(kids[1].worms_id, null);
+  assert.strictEqual(kids[1].freshwater_id, null);
+  assert.strictEqual(kids[1].freshwater_parent_id, null);
 
   // fetchChildren ?source=worms — query forwarded verbatim.
   const f6 = makeFetch([{ ok: true, status: 200, statusText: "OK", json: [] }]);
   await api.fetchChildren(5, { fetch: f6, baseUrl: "http://x", source: "worms" });
-  assert.ok(f6.calls[0].input.includes("source=worms"),
+  assert.strictEqual(f6.calls[0].input, "http://x/api/taxon/5/children?source=worms",
     "fetchChildren must forward ?source=… verbatim: " + f6.calls[0].input);
+
+  // fetchChildren ?source=freshwater — query forwarded verbatim.
+  const f6b = makeFetch([{ ok: true, status: 200, statusText: "OK", json: [] }]);
+  await api.fetchChildren(5, { fetch: f6b, baseUrl: "http://x", source: "freshwater" });
+  assert.strictEqual(f6b.calls[0].input, "http://x/api/taxon/5/children?source=freshwater");
+
+  // fetchChildren ?source=col — explicit CoL query (default shape
+  // also byte-identical to the pre-ODD-NTP-001 contract when no
+  // source is supplied — see the assertion below).
+  const f6c = makeFetch([{ ok: true, status: 200, statusText: "OK", json: [] }]);
+  await api.fetchChildren(5, { fetch: f6c, baseUrl: "http://x", source: "col" });
+  assert.strictEqual(f6c.calls[0].input, "http://x/api/taxon/5/children?source=col");
+
+  // fetchChildren with NO source — URL stays byte-identical to the
+  // pre-ODD-NTP-001 contract (no trailing `?`, no empty fragment).
+  const f6d = makeFetch([{ ok: true, status: 200, statusText: "OK", json: [] }]);
+  await api.fetchChildren(5, { fetch: f6d, baseUrl: "http://x" });
+  assert.strictEqual(f6d.calls[0].input, "http://x/api/taxon/5/children",
+    "fetchChildren without source must stay byte-identical to the pre-ODD-NTP-001 URL");
 
   // fetchChildren non-OK — throws.
   const f7 = makeFetch([{ ok: false, status: 500, statusText: "Server Error", json: { detail: "boom" } }]);
@@ -229,6 +454,54 @@ const RIBOVIRIA = { id: 11, scientific_name: "Riboviria", rank: "realm", authors
   assert.strictEqual(roots[1].rank, "domain");
   assert.strictEqual(roots[2].rank, "collection");
   for (const r of roots) assert.strictEqual(r.parent_id, null);
+  // ODD-NTP-001 — every legacy tree field exposed on the wire
+  // survives the canonical /api/domains projection. The WoRMS Biota
+  // row carries worms_id=1 (WoRMS root, but the wire has no
+  // worms_parent_id field); the CoL Eukaryota row carries coldp_id
+  // but no worms / freshwater match; the synthetic Freshwater
+  // Fishes root carries freshwater_id=1 with freshwater_parent_id
+  // null.
+  const biota = roots.find((r) => r.id === 1);
+  assert.strictEqual(biota.coldp_id, null);
+  assert.strictEqual(biota.worms_id, 1);
+  assert.strictEqual(biota.freshwater_id, null);
+  assert.strictEqual(biota.freshwater_parent_id, null);
+  assert.strictEqual(biota.status, "accepted");
+  assert.strictEqual(biota.is_extinct, false);
+  assert.strictEqual(biota.species_count, 250000);
+  assert.strictEqual(biota.research_path_exists, true);
+  // ODD-NTP-001 structural regression: the canonical Taxon does
+  // NOT carry a `worms_parent_id` property — even for the Biota
+  // root that has a WoRMS hierarchy in the legacy / Nav.js.
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(biota, "worms_parent_id"), false,
+    "ODD-NTP-001 regression: canonical Taxon must not carry a worms_parent_id property.");
+  const euk = roots.find((r) => r.id === 2);
+  assert.strictEqual(euk.coldp_id, "D");
+  assert.strictEqual(euk.worms_id, null);
+  assert.strictEqual(euk.freshwater_id, null);
+  assert.strictEqual(euk.research_path_exists, true);
+  const fwRoot = roots.find((r) => r.id === 100);
+  assert.strictEqual(fwRoot.freshwater_id, 1);
+  assert.strictEqual(fwRoot.freshwater_parent_id, null);
+  assert.strictEqual(fwRoot.coldp_id, null);
+  assert.strictEqual(fwRoot.worms_id, null);
+
+  // ODD-NTP-001 — fetchDomains ?source=col|worms|freshwater — query
+  // forwarded verbatim. The FastAPI server may ignore the parameter
+  // on this endpoint, but the React helper forwards it so future
+  // server-side filtering lands without a coordinated React update.
+  const f8s_col = makeFetch([{ ok: true, status: 200, statusText: "OK", json: [] }]);
+  await api.fetchDomains({ fetch: f8s_col, baseUrl: "http://x", source: "col" });
+  assert.strictEqual(f8s_col.calls[0].input, "http://x/api/domains?source=col",
+    "fetchDomains must forward ?source=col verbatim: " + f8s_col.calls[0].input);
+  const f8s_worms = makeFetch([{ ok: true, status: 200, statusText: "OK", json: [] }]);
+  await api.fetchDomains({ fetch: f8s_worms, baseUrl: "http://x", source: "worms" });
+  assert.strictEqual(f8s_worms.calls[0].input, "http://x/api/domains?source=worms",
+    "fetchDomains must forward ?source=worms verbatim: " + f8s_worms.calls[0].input);
+  const f8s_fw = makeFetch([{ ok: true, status: 200, statusText: "OK", json: [] }]);
+  await api.fetchDomains({ fetch: f8s_fw, baseUrl: "http://x", source: "freshwater" });
+  assert.strictEqual(f8s_fw.calls[0].input, "http://x/api/domains?source=freshwater",
+    "fetchDomains must forward ?source=freshwater verbatim: " + f8s_fw.calls[0].input);
 
   // fetchDomains empty payload — returns [], does not throw.
   const f9 = makeFetch([{ ok: true, status: 200, statusText: "OK", json: [] }]);
@@ -289,6 +562,24 @@ const RIBOVIRIA = { id: 11, scientific_name: "Riboviria", rank: "realm", authors
   assert.strictEqual(viralChildren[0].parent_id, 5392750);
   assert.strictEqual(viralChildren[1].name, "Riboviria");
   assert.strictEqual(viralChildren[1].parent_id, 5392750);
+  // ODD-NTP-001 — viral realm rows must surface every legacy tree
+  // field exposed on the wire with FastAPI nullability preserved
+  // (no CoL/WoRMS/FW id; no source-specific parent; path is
+  // populated). The structural regression guards the
+  // `worms_parent_id` non-invention contract on every projected row.
+  for (const c of viralChildren) {
+    assert.strictEqual(c.coldp_id, null);
+    assert.strictEqual(c.worms_id, null);
+    assert.strictEqual(c.freshwater_id, null);
+    assert.strictEqual(c.freshwater_parent_id, null);
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(c, "worms_parent_id"), false,
+      "ODD-NTP-001 regression: canonical Taxon must not carry a worms_parent_id property.");
+    assert.strictEqual(c.status, "accepted");
+    assert.strictEqual(c.is_extinct, false);
+    assert.ok(typeof c.path === "string" && c.path.startsWith("Viruses|"),
+      "viral realm path must be populated; got " + JSON.stringify(c.path));
+    assert.strictEqual(typeof c.species_count, "number");
+  }
 
   process.stdout.write("PASS\n");
 })().catch((err) => {

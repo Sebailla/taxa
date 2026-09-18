@@ -51,9 +51,21 @@ EXPECTED_RANKS: tuple[str, ...] = (
     "unranked",
 )
 
-# Pinned Taxon field set, verbatim from design.md §Interfaces/Contracts.
+# Pinned Taxon field set. design.md §Interfaces/Contracts commits to
+# the legacy CoL backbone fields; ODD-NTP-001 grew the canonical
+# projection so every legacy tree field from the FastAPI `Taxon`
+# payload survives — source identifiers, source-specific parent
+# relations (`freshwater_parent_id` only — `worms_parent_id` is NOT
+# on the public wire shape), and UI metadata (status / extinction /
+# path / counts / research-path indicator). A future PR that
+# silently drops any of these fails
+# `test_domain_file_declares_expected_taxon_fields` before review.
 EXPECTED_TAXON_FIELDS: tuple[str, ...] = (
     "id", "name", "rank", "authorship", "parent_id",
+    "coldp_id", "worms_id", "freshwater_id",
+    "freshwater_parent_id",
+    "status", "is_extinct", "path",
+    "species_count", "research_path_exists",
 )
 
 
@@ -117,14 +129,57 @@ def test_domain_file_has_no_framework_imports() -> None:
 
 def test_domain_file_declares_expected_taxon_fields() -> None:
     """Every pinned field MUST appear in the source — a future PR that
-    silently drops e.g. `parent_id` fails this test before review."""
+    silently drops e.g. `parent_id` fails this test before review.
+    ODD-NTP-001: the canonical projection carries every legacy tree
+    field from the FastAPI `Taxon` payload (identifiers, source-specific
+    parent relations, UI metadata); this assertion pins the source-level
+    declaration so a future PR cannot silently drop one of them."""
     if not DOMAIN_FILE.exists():
         pytest.skip("domain file not present yet")
     text = DOMAIN_FILE.read_text()
     for field in EXPECTED_TAXON_FIELDS:
         assert re.search(rf"\b{re.escape(field)}\b\s*:", text), (
-            f"taxon.ts is missing required field '{field}' (design.md)."
+            f"taxon.ts is missing required field '{field}' (design.md + ODD-NTP-001)."
         )
+
+
+def test_domain_file_does_not_invent_worms_parent_id() -> None:
+    """ODD-NTP-001 (regression — no invented client field): the
+    canonical `Taxon` interface MUST NOT declare `worms_parent_id`.
+    The FastAPI `Taxon` Pydantic model (`api/server.py`) exposes
+    `parent_id` + `freshwater_parent_id` but does NOT expose
+    `worms_parent_id`; the WoRMS overlay column is used internally
+    by `api/server.py::get_children` but is not on the public wire
+    shape. A canonical `Taxon` carrying an invented `worms_parent_id`
+    would (a) be unreachable from any real fetch, (b) leak a private
+    server column into the client contract, and (c) require a
+    future coordinated server + client change to ever populate.
+    This source-level guard catches a future PR that re-introduces
+    the field before it reaches review. The runtime equivalent
+    (asserting `fromWire` doesn't surface the field on a real wire
+    payload) lives in `tests/test_taxonomy_infra.py`."""
+    if not DOMAIN_FILE.exists():
+        pytest.skip("domain file not present yet")
+    text = DOMAIN_FILE.read_text()
+    # Restrict the search to the `Taxon` interface body so a comment
+    # reference (e.g. "WoRMS overlay … `worms_parent_id` … is not
+    # on the canonical projection") does not trip the guard. We match
+    # a TypeScript field declaration (`readonly worms_parent_id:` or
+    # `worms_parent_id:`) so an explanatory comment is allowed.
+    taxon_block_re = re.compile(
+        r"export\s+interface\s+Taxon\b[\s\S]*?\n\}",
+        re.MULTILINE,
+    )
+    m = taxon_block_re.search(text)
+    assert m, "Taxon interface block not found in taxon.ts."
+    block = m.group(0)
+    assert not re.search(r"\bworms_parent_id\s*:", block), (
+        "ODD-NTP-001: the canonical `Taxon` interface MUST NOT "
+        "declare `worms_parent_id` — the FastAPI wire does not "
+        "expose it. WoRMS source-aware parent ancestry must be "
+        "built from attached tree edges (or a separately "
+        "authorized backend change)."
+    )
 
 
 def test_domain_file_declares_all_eight_ranks() -> None:
@@ -175,12 +230,68 @@ def _run_tsc_isolated(source: Path, out_dir: Path) -> subprocess.CompletedProces
 # `compareRanks` (the sort-order contract). ODD-VTREE-001 expands the
 # rank universe; the harness mirrors `EXPECTED_RANKS` exactly so a
 # future PR that drops any rank fails here.
+#
+# ODD-NTP-001 (native-tree-parity data layer): the harness exercises
+# the ODD-NTP-001 contract that every legacy tree field from the
+# FastAPI `Taxon` payload survives the canonical projection, with
+# FastAPI nullability preserved (null stays null; never coerced to
+# zero / empty string / another source). A minimal test-taxonomy
+# constructor that omits the optional wire properties still passes
+# — the optional-wire validation runs ONLY WHEN PRESENT, so
+# existing fixtures (PR 5b / ODD-VTREE-001) keep working.
+#
+# ODD-NTP-001 (no invented client field): `worms_parent_id` is
+# deliberately absent from the canonical projection because the
+# FastAPI wire does not expose it. A wire payload matching the real
+# `/api/taxon/{id}/children?source=worms` shape (no `worms_parent_id`)
+# must validate cleanly without an invented client field.
 _HARNESS_SOURCE = r"""
 const path = require("path");
 const domain = require(path.resolve(process.argv[2]));
+// ODD-NTP-001: minimal constructor — no optional wire properties.
+// isValidTaxon must still accept it; the optional-wire validation
+// only fires when the property is present.
 const validTaxon = {
   id: 1, name: "Animalia", rank: "kingdom",
   authorship: null, parent_id: null,
+};
+// ODD-NTP-001: fully populated Taxon — every legacy tree field set
+// with realistic values. isValidTaxon must accept it.
+const fullTaxon = {
+  id: 5, name: "Animalia", rank: "kingdom",
+  authorship: null, parent_id: null,
+  coldp_id: "K", worms_id: 2, freshwater_id: null,
+  freshwater_parent_id: null,
+  status: "accepted", is_extinct: false, path: "Animalia",
+  species_count: 134, research_path_exists: true,
+};
+// ODD-NTP-001: every optional field null — CoL-only row (no worms
+// match, no freshwater match). isValidTaxon must accept it and
+// every source id / source-specific parent must stay null.
+const colOnlyTaxon = {
+  id: 6, name: "Arthropoda", rank: "phylum",
+  authorship: null, parent_id: 5,
+  coldp_id: "64HXG", worms_id: null, freshwater_id: null,
+  freshwater_parent_id: null,
+  status: "accepted", is_extinct: false, path: "Animalia|Arthropoda",
+  species_count: 100, research_path_exists: null,
+};
+// ODD-NTP-001 (regression — no invented client field): the real
+// `/api/taxon/{id}/children?source=worms` wire shape carries every
+// FastAPI `Taxon` field EXCEPT `worms_parent_id` (confirmed against
+// the live FastAPI Pydantic model + a real
+// `/api/taxon/5953123/children?source=worms` response). A canonical
+// `Taxon` matching this shape — optional wire fields set or unset
+// per the wire — must validate cleanly. This is the regression
+// assertion that catches a future PR which invents a
+// `worms_parent_id` field on the canonical domain.
+const realWormsChildren = {
+  id: 41675, name: "Animalia", rank: "kingdom",
+  authorship: "", parent_id: 41674,
+  coldp_id: "N", worms_id: 2, freshwater_id: null,
+  freshwater_parent_id: null,
+  status: "accepted", is_extinct: false, path: "/Eukaryota/Animalia",
+  species_count: 1607192, research_path_exists: true,
 };
 // Broadest-first ordering mirrors web/format.js::RANK_ORDER and the
 // FastAPI SQL RANK_ORDER CASE (api/server.py). `RANK_ORDER.indexOf(a)
@@ -276,6 +387,102 @@ const cases = {
   ) === false,
   taxon_rejects_null: domain.isValidTaxon(null) === false,
   taxon_rejects_string: domain.isValidTaxon("Animalia") === false,
+  // ODD-NTP-001 — fully populated Taxon (every legacy tree field)
+  // passes validation, with the new integer fields properly typed
+  // and the boolean `is_extinct` / `research_path_exists` honored.
+  taxon_accepts_full: domain.isValidTaxon(fullTaxon) === true,
+  // ODD-NTP-001 — every optional field null survives validation;
+  // preserves FastAPI nullability for CoL-only / WoRMS-only /
+  // freshwater-only rows.
+  taxon_accepts_col_only: domain.isValidTaxon(colOnlyTaxon) === true,
+  // ODD-NTP-001 — null is the canonical "not in this source" sentinel
+  // for every optional id / parent-id. A null worms_id must NOT be
+  // rejected; coercing null to zero would break the source-aware
+  // parent chain in web/nav.js (legacy parity oracle).
+  taxon_accepts_null_coldp_id: domain.isValidTaxon(
+    Object.assign({}, validTaxon, { coldp_id: null })
+  ) === true,
+  taxon_accepts_null_worms_id: domain.isValidTaxon(
+    Object.assign({}, validTaxon, { worms_id: null })
+  ) === true,
+  taxon_accepts_null_freshwater_id: domain.isValidTaxon(
+    Object.assign({}, validTaxon, { freshwater_id: null })
+  ) === true,
+  taxon_accepts_null_freshwater_parent_id: domain.isValidTaxon(
+    Object.assign({}, validTaxon, { freshwater_parent_id: null })
+  ) === true,
+  taxon_accepts_null_status: domain.isValidTaxon(
+    Object.assign({}, validTaxon, { status: null })
+  ) === true,
+  taxon_accepts_null_is_extinct: domain.isValidTaxon(
+    Object.assign({}, validTaxon, { is_extinct: null })
+  ) === true,
+  taxon_accepts_null_path: domain.isValidTaxon(
+    Object.assign({}, validTaxon, { path: null })
+  ) === true,
+  taxon_accepts_null_species_count: domain.isValidTaxon(
+    Object.assign({}, validTaxon, { species_count: null })
+  ) === true,
+  taxon_accepts_null_research_path_exists: domain.isValidTaxon(
+    Object.assign({}, validTaxon, { research_path_exists: null })
+  ) === true,
+  // ODD-NTP-001 — when an optional wire property IS present, its type
+  // must match (no coercion). String ids stay strings; integer ids
+  // stay integers; boolean flags stay booleans.
+  taxon_rejects_string_worms_id: domain.isValidTaxon(
+    Object.assign({}, validTaxon, { worms_id: "42" })
+  ) === false,
+  taxon_rejects_float_worms_id: domain.isValidTaxon(
+    Object.assign({}, validTaxon, { worms_id: 1.5 })
+  ) === false,
+  taxon_rejects_float_species_count: domain.isValidTaxon(
+    Object.assign({}, validTaxon, { species_count: 12.5 })
+  ) === false,
+  taxon_rejects_string_freshwater_parent_id: domain.isValidTaxon(
+    Object.assign({}, validTaxon, { freshwater_parent_id: "x" })
+  ) === false,
+  taxon_rejects_number_coldp_id: domain.isValidTaxon(
+    Object.assign({}, validTaxon, { coldp_id: 42 })
+  ) === false,
+  taxon_rejects_number_status: domain.isValidTaxon(
+    Object.assign({}, validTaxon, { status: 42 })
+  ) === false,
+  taxon_rejects_string_is_extinct: domain.isValidTaxon(
+    Object.assign({}, validTaxon, { is_extinct: "false" })
+  ) === false,
+  taxon_rejects_string_research_path_exists: domain.isValidTaxon(
+    Object.assign({}, validTaxon, { research_path_exists: "true" })
+  ) === false,
+  taxon_rejects_number_research_path_exists: domain.isValidTaxon(
+    Object.assign({}, validTaxon, { research_path_exists: 1 })
+  ) === false,
+  // ODD-NTP-001 — a missing source id is NOT coerced into another
+  // source. `worms_id` left absent while `freshwater_id` is set must
+  // still pass (the two are independent; coercion would silently
+  // break the source-aware parent chain).
+  taxon_accepts_mixed_source_ids: domain.isValidTaxon(
+    Object.assign({}, validTaxon, { freshwater_id: 7 })
+  ) === true,
+  // ODD-NTP-001 (regression — real /source=worms wire shape) — a
+  // Taxon matching the live `/api/taxon/{id}/children?source=worms`
+  // response (no `worms_parent_id`) must validate. This guards
+  // against a future PR that invents a `worms_parent_id` field on
+  // the canonical `Taxon` and starts rejecting real wire payloads.
+  taxon_accepts_real_worms_wire_shape:
+    domain.isValidTaxon(realWormsChildren) === true,
+  // ODD-NTP-001 (regression — canonical Taxon has no
+  // `worms_parent_id` slot). Adding the field to a record must
+  // not change `isValidTaxon`'s verdict, because the canonical
+  // projection does not declare the property — the optional
+  // "validate only when present" loop is the single validation
+  // entry point and it iterates a closed key list. The runtime
+  // projection regression (asserting the projected Taxon carries
+  // no `worms_parent_id`) lives in the infra harness, where
+  // `fromWire` actually runs against a wire payload.
+  taxon_accepts_record_with_invented_worms_parent_id: (() => {
+    const withInvented = Object.assign({}, validTaxon, { worms_parent_id: 1 });
+    return domain.isValidTaxon(withInvented) === true;
+  })(),
   // compareRanks: broadest-first contract — synthetic / overlay
   // roots must compare broader than every Linnaean rank.
   compare_kingdom_vs_species_negative:

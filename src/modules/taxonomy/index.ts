@@ -26,6 +26,8 @@ export {
 export type {
   FetchOptions,
   FetchChildrenOptions,
+  FetchDomainsOptions,
+  TaxonomySource,
 } from "./infrastructure/api";
 
 // Application layer — typed port + readonly view-models.
