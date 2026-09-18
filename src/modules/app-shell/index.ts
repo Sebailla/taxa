@@ -6,18 +6,9 @@
  * `tsconfig.json`). Direct imports into the layer folders below are
  * blocked by `.eslintrc.cjs::no-restricted-imports`.
  *
- * PR 2a (Phase 2 scaffold work unit) ships an empty barrel — the real
- * exports land with the PR 3 frontend-bootstrap (tasks 3.1–3.6):
- *   - `presentation/AppShell.tsx`   → header tabs + nav + footer
- *                                     (server component shell)
- *   - `presentation/Layout.tsx`     → root layout primitive
- *   - `application/useShellState`   → tab + nav selection view-models
- *
- * `app-shell` is the host module for the single Next.js route
- * (`src/app/page.tsx`). It composes the other capability modules
- * through their public barrels — never by deep import.
- *
- * An empty barrel is intentionally a no-op re-export so this file is
- * a valid TypeScript module and `tsc --noEmit` accepts it.
+ * ODD-VTREE-002 ships the server-component `AppShell` (header /
+ * footer frame). The taxonomy tree mounts inside `<AppShell>` via
+ * the public `@taxa/taxonomy` barrel — never by deep import.
  */
-export {};
+export { default as AppShell } from "./presentation/AppShell";
+export type { AppShellProps } from "./presentation/AppShell";

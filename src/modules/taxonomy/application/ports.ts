@@ -11,7 +11,7 @@
 // `source` filter. Structural function subtyping lets the adapter's
 // wider signatures satisfy this narrower port.
 
-import type { Taxon } from "../domain/taxon.js";
+import type { Taxon } from "../domain/taxon";
 
 /** Source qualifier for `fetchChildren` — mirrors the merged
  *  adapter's source field. "col" = Catalogue of Life (default),

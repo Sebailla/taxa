@@ -9,12 +9,24 @@
 // tests/test_api_materialize.py). Wire ranks outside this union are
 // rejected by `isValidTaxon` rather than coerced — the FastAPI endpoints
 // return DB rows verbatim, so the union is the source of truth.
+//
+// ODD-VTREE-002 (live-API correction): the live `/api/domains` payload
+// exposes a `Viruses` row whose DB rank is `unranked` (CoL surfaces
+// unranked clades at the root when no kingdom has been asserted), and
+// its child payload carries viral `realm` rows (Adnaviria, Duplodnaviria,
+// Riboviria, …) — both ranks are real wire data the previous union
+// rejected, so the canonical projection threw on every live root load.
+// `realm` slots into the broadest-first ordering between `superdomain`
+// and `kingdom`; `unranked` sits AFTER the named ranked sequence
+// because it carries NO asserted taxonomic breadth (an `unranked` clade
+// can be a sibling of a kingdom, a genus, or anything in between).
 
 export type Rank =
   | "collection"   // synthetic freshwater root (api/server.py CASE -1)
   | "root"         // alternate freshwater-root label used in some fixtures
   | "domain"       // CoL domains (Archaea, Bacteria, Eukaryota, Viruses)
   | "superdomain"  // Biota (WoRMS root, returned by /api/domains)
+  | "realm"        // ICNV viral realms (Adnaviria, Riboviria, …) — broader than kingdom, narrower than superdomain
   | "kingdom"
   | "subkingdom"
   | "phylum"
@@ -31,7 +43,8 @@ export type Rank =
   | "subspecies"
   | "variety"
   | "subvariety"
-  | "form";
+  | "form"
+  | "unranked";    // CoL unranked clades — NO asserted taxonomic breadth; sorts after every named rank
 
 export interface Taxon {
   readonly id: number;
@@ -41,33 +54,41 @@ export interface Taxon {
   readonly parent_id: number | null;
 }
 
-/** Twenty-one ranks in taxonomic order — broadest-first, so
+/** Twenty-three ranks in taxonomic order — broadest-first, so
  *  `compareRanks(a, b) < 0` exactly when `a` is broader than `b`.
  *  Matches the breadth ordering used by `web/format.js::RANK_ORDER`
  *  (collection → … → form) and the FastAPI SQL `RANK_ORDER` CASE in
  *  `api/server.py` (collection = -1, domain = 0, kingdom = 1, …).
  *  Layout: synthetic / overlay roots first (collection, root, domain,
- *  superdomain), then Linnaean ranks breadth-by-breadth (kingdom,
+ *  superdomain), then `realm` (viral clade broader than kingdom;
+ *  ODD-VTREE-002), then Linnaean ranks breadth-by-breadth (kingdom,
  *  subkingdom, phylum, subphylum, class, subclass, order, suborder,
  *  family, subfamily, genus, subgenus, species, subspecies), then the
- *  infraspecific tail (variety, subvariety, form). Every rank the
+ *  infraspecific tail (variety, subvariety, form), then `unranked`
+ *  LAST because it carries NO asserted taxonomic breadth (it sorts
+ *  below every named rank and cannot meaningfully be compared on the
+ *  broadest-first axis — `compareRanks` still produces a deterministic
+ *  order, but the gap is structural, not taxonomic). Every rank the
  *  FastAPI `/api/domains`, `/api/taxon/{id}`, and
  *  `/api/taxon/{id}/children` endpoints can return is represented —
  *  the union of `api/server.py` SQL `RANK_ORDER`,
  *  `etl/load_freshwater.py` `KNOWN_RANKS`, and the ranks used in
  *  committed test fixtures (tests/test_api_freshwater.py,
- *  tests/test_api_materialize.py). Indexes do NOT match the
- *  pre-ODD-VTREE-001 legacy eight; consumers that need a stable
- *  positional handle must read it from this array at runtime
- *  (e.g. `TaxonDetailViewModel.rankIndex` already calls
- *  `RANK_ORDER.indexOf(...)`). Exposed so call sites sort by rank
- *  without re-declaring the sequence. */
+ *  tests/test_api_materialize.py, plus the live ODD-VTREE-002 evidence
+ *  that `Viruses` rows carry `unranked` and viral realms carry
+ *  `realm`). Indexes do NOT match the pre-ODD-VTREE-001 legacy eight;
+ *  consumers that need a stable positional handle must read it from
+ *  this array at runtime (e.g. `TaxonDetailViewModel.rankIndex`
+ *  already calls `RANK_ORDER.indexOf(...)`). Exposed so call sites
+ *  sort by rank without re-declaring the sequence. */
 export const RANK_ORDER: readonly Rank[] = [
   // Synthetic / overlay roots — broadest, sort above every Linnaean rank.
   "collection",
   "root",
   "domain",
   "superdomain",
+  // Viral realms (ODD-VTREE-002) — broader than kingdom, narrower than superdomain.
+  "realm",
   // Linnaean ranks — broadest to narrowest.
   "kingdom",
   "subkingdom",
@@ -83,15 +104,19 @@ export const RANK_ORDER: readonly Rank[] = [
   "subgenus",
   "species",
   "subspecies",
-  // Infraspecific tail — narrowest.
+  // Infraspecific tail — narrowest named ranks.
   "variety",
   "subvariety",
   "form",
+  // Breadth-less tail (ODD-VTREE-002) — sorts below every named rank;
+  // ordering relative to other `unranked` rows falls back to name.
+  "unranked",
 ] as const;
 
 /** Type-narrowing predicate: is `value` one of the ranks in
  *  `RANK_ORDER`? Returns true iff `value` is a string present in the
- *  ordered rank list (currently twenty-one entries; see ODD-VTREE-001). */
+ *  ordered rank list (currently twenty-three entries; ODD-VTREE-001
+ *  added the named ranks, ODD-VTREE-002 added `realm` + `unranked`). */
 export function isValidRank(value: unknown): value is Rank {
   return (
     typeof value === "string" &&

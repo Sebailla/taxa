@@ -4,7 +4,7 @@
 // consumes this helper directly. spec.md rule 4: depends on the
 // internal domain only — no React, no Next, no HTTP, no DOM, no fetch.
 
-import type { Taxon } from "../domain/taxon.js";
+import type { Taxon } from "../domain/taxon";
 
 /** Per-node load lifecycle. `idle` is the default for ids the helper
  *  has not observed. */

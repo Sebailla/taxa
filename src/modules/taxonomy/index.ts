@@ -22,35 +22,35 @@ export {
   fetchChildren,
   fetchDomains,
   TaxonomyApiError,
-} from "./infrastructure/api.js";
+} from "./infrastructure/api";
 export type {
   FetchOptions,
   FetchChildrenOptions,
-} from "./infrastructure/api.js";
+} from "./infrastructure/api";
 
 // Application layer — typed port + readonly view-models.
-export type { SourceFilter, TaxonomyRepository } from "./application/ports.js";
-export { TAXONOMY_PORT_NAME } from "./application/ports.js";
+export type { SourceFilter, TaxonomyRepository } from "./application/ports";
+export { TAXONOMY_PORT_NAME } from "./application/ports";
 export type {
   TaxonNodeViewModel,
   TaxonTreeViewModel,
   TaxonBreadcrumbSegment,
   TaxonDetailViewModel,
-} from "./application/view-models.js";
-export { buildTaxonTree, buildTaxonDetail } from "./application/view-models.js";
+} from "./application/view-models";
+export { buildTaxonTree, buildTaxonDetail } from "./application/view-models";
 
 // Presentation layer — pure parent-chain walker. Consumers receive
 // `walkBreadcrumbPath` so they can pre-compute the focused-taxon's
 // ancestor chain outside the React tree (tests, server-side snapshots,
 // view-model builders). The React `Breadcrumb` component lands in PR
 // 5c slice 2 and will be re-exported here once it ships.
-export { walkBreadcrumbPath } from "./presentation/breadcrumb-path.js";
+export { walkBreadcrumbPath } from "./presentation/breadcrumb-path";
 export type {
   BreadcrumbSegment,
   BreadcrumbSource,
   ParentIdResolver,
-} from "./presentation/breadcrumb-path.js";
-export { BREADCRUMB_MAX_HOPS } from "./presentation/breadcrumb-path.js";
+} from "./presentation/breadcrumb-path";
+export { BREADCRUMB_MAX_HOPS } from "./presentation/breadcrumb-path";
 
 // ODD-VTREE-001 — pure tree-state kernel for the visible taxonomy
 // tree. The React `TaxonomyTree` component (ODD-VTREE-002) consumes
@@ -66,8 +66,14 @@ export {
   attachChildren,
   setLoadStatus,
   loadStatus,
-} from "./presentation/tree-state.js";
+} from "./presentation/tree-state";
 export type {
   TreeState,
   NodeLoadStatus,
-} from "./presentation/tree-state.js";
+} from "./presentation/tree-state";
+
+// ODD-VTREE-002 — visible taxonomy tree (client island). Re-exported
+// here so cross-module consumers (`src/app/page.tsx`) can mount the
+// tree without a deep import. `TreeRow` stays internal to the
+// presentation folder — it is not part of the public barrel.
+export { default as TaxonomyTree } from "./presentation/TaxonomyTree";

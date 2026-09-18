@@ -10,6 +10,8 @@
     "build:css": "tailwindcss -i web/index.css -o web/dist/tailwind.css --minify",
     "watch:css": "tailwindcss -i web/index.css -o web/dist/tailwind.css --watch",
     "build:web": "next build",
+    "dev": "next dev",
+    "dev:local": "NEXT_PUBLIC_TAXA_API_ORIGIN=http://127.0.0.1:8765 next dev",
     "check-runtime": "node scripts/check-runtime.mjs"
   },
   "dependencies": {

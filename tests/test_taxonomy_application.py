@@ -6,10 +6,10 @@ inward deps + rule 5 barrel export. References: tasks.md §Phase 5 (5.2).
 """
 from __future__ import annotations
 
+from pathlib import Path
 import re
 import shutil
 import subprocess
-from pathlib import Path
 
 import pytest
 
@@ -149,17 +149,23 @@ if (!eq(cyc.roots, []) || cyc.totalNodeCount !== 0) fail("cycle");
 // subphylum=7, class=8, subclass=9, order=10, suborder=11,
 // family=12, subfamily=13, genus=14, subgenus=15, species=16,
 // subspecies=17, variety=18, subvariety=19, form=20.
+// ODD-VTREE-002 inserts realm between superdomain and kingdom, and
+// appends unranked after every named rank: collection=0, root=1,
+// domain=2, superdomain=3, realm=4, kingdom=5, subkingdom=6,
+// phylum=7, subphylum=8, class=9, subclass=10, order=11, suborder=12,
+// family=13, subfamily=14, genus=15, subgenus=16, species=17,
+// subspecies=18, variety=19, subvariety=20, form=21, unranked=22.
 const det = buildTaxonDetail({ taxon: chor, ancestors: [ani], childCount: 1, allDescendants: [canis] });
-if (det.taxon.id !== 2 || det.childCount !== 1 || !det.hasChildren || det.descendantCount !== 1 || det.rankIndex !== 6) fail("detail.focused");
+if (det.taxon.id !== 2 || det.childCount !== 1 || !det.hasChildren || det.descendantCount !== 1 || det.rankIndex !== 7) fail("detail.focused");
 if (!eq(det.breadcrumb.map((s) => s.id), [1, 2]) || det.breadcrumb[1].rank !== "phylum") fail("detail.breadcrumb");
 const rd = buildTaxonDetail({ taxon: ani, ancestors: [], childCount: 2 });
-if (rd.breadcrumb.length !== 1 || !rd.hasChildren || rd.descendantCount !== 0 || rd.rankIndex !== 4) fail("root.detail");
+if (rd.breadcrumb.length !== 1 || !rd.hasChildren || rd.descendantCount !== 0 || rd.rankIndex !== 5) fail("root.detail");
 const ld = buildTaxonDetail({ taxon: canis, ancestors: [ani, chor], childCount: 0 });
-if (ld.hasChildren || ld.breadcrumb.length !== 3 || ld.breadcrumb[2].id !== 4 || ld.rankIndex !== 14) fail("leaf.detail");
+if (ld.hasChildren || ld.breadcrumb.length !== 3 || ld.breadcrumb[2].id !== 4 || ld.rankIndex !== 15) fail("leaf.detail");
 // rankIndex is sourced from RANK_ORDER.indexOf — broadest-first.
 // Synthetic / overlay roots (collection, domain, superdomain) must
 // report a strictly smaller index than every Linnaean rank
-// (kingdom here, rankIndex = 4 in the broadest-first ordering).
+// (kingdom here, rankIndex = 5 in the broadest-first ordering).
 const sup = T(100, "Biota", "superdomain", null);
 const dom = T(101, "Eukaryota", "domain", 100);
 const col = T(102, "Freshwater Fishes", "collection", 101);
@@ -169,6 +175,18 @@ const colDet = buildTaxonDetail({ taxon: col, ancestors: [sup, dom], childCount:
 if (supDet.rankIndex >= rd.rankIndex) fail("superdomain.broader_than_kingdom");
 if (domDet.rankIndex >= rd.rankIndex) fail("domain.broader_than_kingdom");
 if (colDet.rankIndex >= rd.rankIndex) fail("collection.broader_than_kingdom");
+// ODD-VTREE-002: realm is broader than kingdom, narrower than superdomain;
+// unranked sorts after every named rank (no asserted taxonomic breadth).
+const realm = T(200, "Adnaviria", "realm", 100);
+const viruses = T(201, "Viruses", "unranked", null);
+const realmDet = buildTaxonDetail({ taxon: realm, ancestors: [sup], childCount: 1 });
+const virusesDet = buildTaxonDetail({ taxon: viruses, ancestors: [], childCount: 1 });
+if (realmDet.rankIndex !== 4) fail("realm.index");
+if (realmDet.rankIndex >= rd.rankIndex) fail("realm.broader_than_kingdom");
+if (realmDet.rankIndex <= supDet.rankIndex) fail("realm.narrower_than_superdomain");
+if (virusesDet.rankIndex !== 22) fail("unranked.index");
+if (virusesDet.rankIndex <= ld.rankIndex) fail("unranked.after_named_ranks");
+if (virusesDet.rankIndex <= 0) fail("unranked.after_collection");
 
 process.stdout.write("PASS\n");
 """

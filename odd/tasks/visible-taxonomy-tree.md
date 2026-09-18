@@ -15,6 +15,7 @@ Expand the taxonomy `Rank` union to include real API ranks (including `superdoma
 - Mount a minimal accessible AppShell and lazy taxonomy tree in the App Router.
 - Reuse existing Tailwind selectors; add no backend API routes and no new CSS selectors.
 - Represent loading, error, empty, and per-row lazy-load failure states.
+- Present only collapsed root domains initially; load children lazily on explicit expansion.
 
 ## Non-goals
 - Detail panel, Overview/Search/Folder tabs, breadcrumb UI, kebab actions, research explorer, source switching, settings/theme controls, URL hash routing, backend changes, and legacy web deletion.
@@ -36,16 +37,25 @@ feature-branch chain; two PRs, each targeting `develop` sequentially after prior
   - Review: independent verifier approved. The coherent source/test diff remains ~678 lines, above the ~400 review guidance but not artificially splittable without separating one foundation contract.
   - Delivery: ready to commit and publish as PR A.
 - [ ] ODD-VTREE-002 Mount the visible shell and interactive lazy taxonomy tree.
-  - Scope: AppShell, health status island, TaxonomyTree/TreeRow, `page.tsx` integration, focused runtime/browser/build evidence.
-  - Acceptance: local page has header/footer and root rows; expanding a root loads children; loading/error/empty states are accessible; static build passes.
-  - Delivery: PR B, created only after PR A merges; split further if evidence exceeds review budget.
-- [ ] ODD-VTREE-003 Verify each delivered slice and record evidence.
-  - Acceptance: focused tests plus static build; browser evidence where environment permits; no out-of-scope paths.
+  - Implementation: AppShell, TaxonomyTree/TreeRow, and `page.tsx` integration are present only on the feature branch.
+  - Correction path: static export cannot use Next rewrites/proxy. Local preview will use a documented `NEXT_PUBLIC_TAXA_API_ORIGIN=http://127.0.0.1:8765` dev-only origin, while production static export retains relative `/api` for the future cutover.
+  - Applied corrections: `page.tsx` now uses public barrels; the tree reuses canonical API helpers; disclosure no longer points at empty hidden targets; `dev:local` supplies the direct FastAPI origin.
+  - Turbopack correction: converted the affected public-barrel and direct taxonomy `domain/taxon` paths to extensionless TypeScript imports; do not change the FastAPI production mount or legacy UI.
+  - Mechanical correction (this turn): removed the remaining `.js` suffix from every `from "../domain/taxon.js"` import across the direct taxonomy-layer consumers — `application/view-models.ts` (type+value), `application/ports.ts` (type), `infrastructure/api.ts` (value+type), `presentation/tree-state.ts` (type), and `presentation/breadcrumb-path.ts` (type). Five files, seven import statements, type/value identity and ordering preserved. `next-env.d.ts` unchanged by hand (no `../domain/taxon` targets; Next auto-rewrote it to `.next/dev/types/*` during `next build`).
+  - Verification: `pnpm exec tsc --noEmit` clean; `pnpm exec next build` produced the static export (`Route (app)` shows `○ /` and `○ /_not-found`); `git diff --check` clean; FastAPI on `127.0.0.1:8765` returned HTTP 200 for `/api/health`, `/api/domains`, `/api/taxon/1`, and `/api/taxon/1/children`; CORS preflight `OPTIONS /api/domains` from `Origin: http://127.0.0.1:3000` returned 200 with `access-control-allow-origin: http://127.0.0.1:3000` (matches the configured `^https?://(localhost|127\.0\.0\.1)(:\d+)?$` regex); `pnpm run dev:local` on port 3000 served `GET /` HTTP 200, the rendered HTML carried the `AppShell` header (`Taxonomic Tree`), the `<section aria-label="Taxonomic tree">` with the initial `Loading domains…` status, and the footer `apiOrigin=/api`. Processes stopped afterwards.
+  - Live-rank correction: the contract now models `unranked` Viruses and `realm` children without coercion; `next-env.d.ts` matches HEAD and is excluded from the candidate.
+  - Verification: independent browser evidence rendered six real collapsed roots through CORS and expanded Viruses into 35 children including seven realms; 121 focused tests, TypeScript, static build, and diff checks passed.
+  - Review: independent verifier approved the cohesive PR B candidate (~1,139 lines including source/tests/path corrections). It exceeds the 400-line guidance but is the second and final planned visible-tree PR; splitting would ship an empty shell instead of an observable feature.
+  - Delivery: ready to commit and publish.
+- [x] ODD-VTREE-003 Verify each delivered slice and record evidence.
+  - Evidence: PR A independently approved and merged. PR B independently approved with 121 focused tests, strict typecheck, static build, CORS/API probes, and Chromium root-load/expansion evidence.
 - [ ] ODD-VTREE-004 Publish each completed slice.
-  - Acceptance: conventional commits and PRs linking approved issue #74 with exactly one appropriate `type:*` label; no automatic merges.
+  - Foundation: PR #300 merged.
+  - Visible tree: committed as `feat(taxonomy): mount visible tree` and published as PR #301 (`feat/visible-taxonomy-tree` → `develop`).
+  - Evidence: PR #301 links approved issue #74 and has exactly `type:feature`; Smoke tests are pending; no automatic merge.
 
 ## Progress
-ODD-VTREE-001 is independently verified and published as PR #300 (`feat/taxonomy-tree-foundation` → `develop`), linked to approved issue #74 with `type:feature`. No UI has been mounted yet; ODD-VTREE-002 starts only after PR A merges.
+ODD-VTREE-001 merged as PR #300. ODD-VTREE-002 is independently verified and published as PR #301: local preview loads six collapsed real roots and expands Viruses through direct FastAPI CORS. No merge is authorized.
 
 ## Next step
-Wait for PR #300 Smoke tests and human merge; then create the visible-shell/tree branch from updated `develop`.
+Wait for PR #301 Smoke tests and human merge. The next UI scope (detail panel, breadcrumb, tabs, or research) requires a fresh decision.

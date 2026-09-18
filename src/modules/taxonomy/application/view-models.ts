@@ -1,8 +1,8 @@
 // Taxonomy application — pure readonly view-model types + builders.
 // spec.md rule 4: domain ONLY; no framework, no HTTP, no DOM.
 
-import type { Rank, Taxon } from "../domain/taxon.js";
-import { compareRanks, isValidTaxon, RANK_ORDER } from "../domain/taxon.js";
+import type { Rank, Taxon } from "../domain/taxon";
+import { compareRanks, isValidTaxon, RANK_ORDER } from "../domain/taxon";
 
 /** Plain-data, immutable tree node. Children sorted by taxonomic
  *  breadth (kingdom → subspecies) then case-insensitive name. */

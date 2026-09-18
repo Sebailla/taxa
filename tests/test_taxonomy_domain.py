@@ -25,8 +25,11 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOMAIN_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "domain" / "taxon.ts"
 
-# Twenty-one ranks the FastAPI taxonomy endpoints + committed test
-# fixtures can return (ODD-VTREE-001). Ordered broadest-first so
+# Twenty-three ranks the FastAPI taxonomy endpoints + committed test
+# fixtures can return (ODD-VTREE-001 grew to 21; ODD-VTREE-002 added
+# `realm` between `superdomain` and `kingdom`, plus `unranked` AFTER
+# the named ranked sequence because it carries no asserted taxonomic
+# breadth). Ordered broadest-first so
 # `RANK_ORDER.indexOf(a) < RANK_ORDER.indexOf(b)` exactly when `a`
 # is broader than `b`; mirrors `web/format.js::RANK_ORDER` and the
 # FastAPI SQL `RANK_ORDER` CASE in `api/server.py`. Consumers that
@@ -35,6 +38,7 @@ DOMAIN_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "domain" / "taxon.ts"
 # match the pre-ODD-VTREE-001 legacy eight.
 EXPECTED_RANKS: tuple[str, ...] = (
     "collection", "root", "domain", "superdomain",
+    "realm",
     "kingdom", "subkingdom",
     "phylum", "subphylum",
     "class", "subclass",
@@ -44,6 +48,7 @@ EXPECTED_RANKS: tuple[str, ...] = (
     "species", "subspecies",
     "variety", "subvariety",
     "form",
+    "unranked",
 )
 
 # Pinned Taxon field set, verbatim from design.md §Interfaces/Contracts.
@@ -124,7 +129,10 @@ def test_domain_file_declares_expected_taxon_fields() -> None:
 
 def test_domain_file_declares_all_eight_ranks() -> None:
     """Each of the eight Linnaean ranks MUST appear as a string
-    literal. A future PR that drops e.g. `subspecies` fails here."""
+    literal. A future PR that drops e.g. `subspecies` fails here.
+    (The function name is a legacy leftover from the pre-ODD-VTREE-001
+    contract; the assertion iterates the full `EXPECTED_RANKS` tuple,
+    so the live ranks (`realm`, `unranked`) are covered too.)"""
     if not DOMAIN_FILE.exists():
         pytest.skip("domain file not present yet")
     text = DOMAIN_FILE.read_text()
@@ -177,8 +185,14 @@ const validTaxon = {
 // Broadest-first ordering mirrors web/format.js::RANK_ORDER and the
 // FastAPI SQL RANK_ORDER CASE (api/server.py). `RANK_ORDER.indexOf(a)
 // < RANK_ORDER.indexOf(b)` exactly when `a` is broader than `b`.
+// ODD-VTREE-002 adds `realm` (viral clade between superdomain and
+// kingdom) and `unranked` (breadth-less tail — sorts after every
+// named rank because CoL surfaces unranked clades at the root when
+// no kingdom has been asserted; ordering between two `unranked`
+// rows falls back to name).
 const expectedRanks = [
   "collection", "root", "domain", "superdomain",
+  "realm",
   "kingdom", "subkingdom",
   "phylum", "subphylum",
   "class", "subclass",
@@ -187,26 +201,35 @@ const expectedRanks = [
   "genus", "subgenus",
   "species", "subspecies",
   "variety", "subvariety", "form",
+  "unranked",
 ];
 const newRanks = [
-  "collection", "root", "domain", "superdomain",
+  "collection", "root", "domain", "superdomain", "realm",
   "subkingdom", "subphylum", "subclass", "suborder",
   "subfamily", "subgenus",
-  "variety", "subvariety", "form",
+  "variety", "subvariety", "form", "unranked",
 ];
 const cases = {
   rank_order_is_array: Array.isArray(domain.RANK_ORDER),
-  rank_order_length_is_twenty_one: domain.RANK_ORDER.length === 21,
+  rank_order_length_is_twenty_three: domain.RANK_ORDER.length === 23,
   rank_order_first_is_collection:
     domain.RANK_ORDER[0] === "collection",
-  rank_order_eighth_is_phylum: domain.RANK_ORDER[7] === "subphylum",
-  rank_order_last_is_form: domain.RANK_ORDER[domain.RANK_ORDER.length - 1] === "form",
+  rank_order_fifth_is_realm:
+    domain.RANK_ORDER[4] === "realm",
+  rank_order_sixth_is_kingdom:
+    domain.RANK_ORDER[5] === "kingdom",
+  rank_order_eighth_is_phylum: domain.RANK_ORDER[7] === "phylum",
+  rank_order_ninth_is_subphylum: domain.RANK_ORDER[8] === "subphylum",
+  rank_order_last_is_unranked:
+    domain.RANK_ORDER[domain.RANK_ORDER.length - 1] === "unranked",
   rank_order_matches_pinned_sequence:
     JSON.stringify([...domain.RANK_ORDER]) === JSON.stringify(expectedRanks),
   // Every rank in the union must round-trip through isValidRank.
-  rank_accepts_all_21:
+  rank_accepts_all_23:
     expectedRanks.every((r) => domain.isValidRank(r) === true),
   rank_accepts_superdomain: domain.isValidRank("superdomain") === true,
+  rank_accepts_realm: domain.isValidRank("realm") === true,
+  rank_accepts_unranked: domain.isValidRank("unranked") === true,
   rank_rejects_superfamily: domain.isValidRank("superfamily") === false,
   rank_rejects_tribe: domain.isValidRank("tribe") === false,
   rank_rejects_unknown: domain.isValidRank("taxon") === false,
@@ -221,6 +244,14 @@ const cases = {
   taxon_accepts_new_ranks:
     newRanks.every((r) =>
       domain.isValidTaxon(Object.assign({}, validTaxon, { rank: r })) === true),
+  taxon_accepts_realm:
+    domain.isValidTaxon(Object.assign({}, validTaxon, {
+      id: 40, name: "Adnaviria", rank: "realm", parent_id: null,
+    })) === true,
+  taxon_accepts_unranked:
+    domain.isValidTaxon(Object.assign({}, validTaxon, {
+      id: 41, name: "Viruses", rank: "unranked", parent_id: null,
+    })) === true,
   taxon_rejects_missing_parent_id: (() => {
     const { parent_id, ...rest } = validTaxon;
     return domain.isValidTaxon(rest) === false;
@@ -259,10 +290,29 @@ const cases = {
     domain.compareRanks("domain", "kingdom") < 0,
   compare_collection_vs_kingdom_negative:
     domain.compareRanks("collection", "kingdom") < 0,
-  compare_phylum_index_is_six:
-    domain.RANK_ORDER.indexOf("phylum") === 6,
-  compare_genus_index_is_fourteen:
-    domain.RANK_ORDER.indexOf("genus") === 14,
+  // ODD-VTREE-002: realm is broader than kingdom, narrower than superdomain.
+  compare_realm_vs_kingdom_negative:
+    domain.compareRanks("realm", "kingdom") < 0,
+  compare_realm_vs_superdomain_positive:
+    domain.compareRanks("realm", "superdomain") > 0,
+  compare_realm_vs_form_negative:
+    domain.compareRanks("realm", "form") < 0,
+  // ODD-VTREE-002: unranked sorts after every named rank (no asserted
+  // taxonomic breadth — see RANK_ORDER JSDoc).
+  compare_unranked_vs_form_positive:
+    domain.compareRanks("unranked", "form") > 0,
+  compare_unranked_vs_kingdom_positive:
+    domain.compareRanks("unranked", "kingdom") > 0,
+  compare_unranked_vs_collection_positive:
+    domain.compareRanks("unranked", "collection") > 0,
+  compare_phylum_index_is_seven:
+    domain.RANK_ORDER.indexOf("phylum") === 7,
+  compare_genus_index_is_fifteen:
+    domain.RANK_ORDER.indexOf("genus") === 15,
+  compare_realm_index_is_four:
+    domain.RANK_ORDER.indexOf("realm") === 4,
+  compare_unranked_index_is_twenty_two:
+    domain.RANK_ORDER.indexOf("unranked") === 22,
   compare_collection_vs_form_negative:
     domain.compareRanks("collection", "form") < 0,
   compare_equal_zero: domain.compareRanks("genus", "genus") === 0,
