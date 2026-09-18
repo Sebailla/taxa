@@ -16,6 +16,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MODULE_DIR = REPO_ROOT / "src" / "modules" / "taxonomy"
 TREE_STATE_FILE = MODULE_DIR / "presentation" / "tree-state.ts"
+ROW_FORMAT_FILE = MODULE_DIR / "presentation" / "row-format.ts"
 BARREL_FILE = MODULE_DIR / "index.ts"
 DOMAIN_FILE = MODULE_DIR / "domain" / "taxon.ts"
 
@@ -100,12 +101,101 @@ def test_barrel_reexports_tree_state() -> None:
     assert "tree-state" in text, "barrel must reference ./presentation/tree-state.js."
 
 
+# ---------------------------------------------------------------------------
+# ODD-NTP-004 — row-format helper (per-row pure format functions).
+#
+# Pins the React port's per-row identity contract:
+#   - rank label / italic classifier / scientific-name class
+#   - realm tint derived from taxon.path
+#   - status dot descriptor (accepted/synonym/unknown)
+#   - species-count badge formatter
+#   - source-info tooltip (CoL-only / WoRMS-only / cross-link)
+#   - WoRMS URL builder
+#   - materialized-folder predicate
+# ---------------------------------------------------------------------------
+
+def test_row_format_file_exists() -> None:
+    assert ROW_FORMAT_FILE.is_file(), (
+        f"missing row-format helper: {ROW_FORMAT_FILE}. ODD-NTP-004 ships this file."
+    )
+    assert ROW_FORMAT_FILE.suffix == ".ts", "row-format must be `.ts` (no JSX)."
+
+
+def test_row_format_imports_only_from_domain_or_sibling() -> None:
+    """ODD-NTP-004: row-format.ts depends only on the taxonomy
+    domain (`../domain/taxon`) and on the sibling `tree-state.ts`
+    for the `TreeSource` literal. spec.md rule 4 + ESLint
+    `no-restricted-imports`. The helper stays framework-free."""
+    if not ROW_FORMAT_FILE.is_file():
+        pytest.skip("row-format.ts not present yet")
+    text = ROW_FORMAT_FILE.read_text()
+    for src in re.findall(r'from\s+["\']([^"\']+)["\']', text):
+        assert src.startswith(("../domain/", "./tree-state")), (
+            f"row-format.ts imports from {src!r}; must be ../domain/ or ./tree-state only."
+        )
+
+
+@pytest.mark.parametrize("token", _FORBIDDEN)
+def test_row_format_source_free_of_forbidden_tokens(token: str, row_format_text: str) -> None:
+    assert token not in row_format_text, (
+        f"row-format.ts must stay free of {token!r}; spec.md rule 4."
+    )
+
+
+@pytest.fixture()
+def row_format_text(require_toolchain: None) -> str:
+    if not ROW_FORMAT_FILE.exists():
+        pytest.skip("row-format.ts not present yet")
+    return ROW_FORMAT_FILE.read_text()
+
+
+def test_row_format_exports_required_helpers(row_format_text: str) -> None:
+    """ODD-NTP-004: row-format.ts must export every per-row
+    helper the React tree reads (rank label / italic classifier /
+    scientific-name class / depth class / realm / status dot
+    descriptor / species-count badge / WoRMS URL builder /
+    materialized-folder predicate)."""
+    for name in (
+        "rankLabel", "rankPluralFor", "isItalicRank",
+        "scientificNameClass", "scientificNameDepthClass",
+        "realmForPath", "statusDotDescriptor", "speciesCountBadge",
+        "wormsUrlFor", "hasMaterializedFolder",
+    ):
+        pattern = rf"export\s+(?:async\s+)?function\s+{name}\b|export\s+const\s+{name}\b"
+        assert re.search(pattern, row_format_text), (
+            f"row-format.ts must export `{name}`."
+        )
+    assert "export interface StatusDotDescriptor" in row_format_text, (
+        "row-format.ts must export the StatusDotDescriptor interface."
+    )
+
+
+def test_barrel_reexports_row_format() -> None:
+    """ODD-NTP-004: the public taxonomy barrel re-exports the
+    row-format helpers so consumers can import them via
+    `@taxa/taxonomy` (spec.md rule 5 — no deep imports)."""
+    if not BARREL_FILE.exists():
+        pytest.skip("barrel not present yet")
+    text = BARREL_FILE.read_text()
+    for name in (
+        "rankLabel", "rankPluralFor", "isItalicRank",
+        "scientificNameClass", "scientificNameDepthClass",
+        "realmForPath", "statusDotDescriptor", "speciesCountBadge",
+        "wormsUrlFor", "hasMaterializedFolder",
+        "StatusDotDescriptor",
+    ):
+        assert name in text, f"barrel must re-export {name}."
+    assert "row-format" in text, "barrel must reference ./presentation/row-format.js."
+
+
 def _run_tsc(out_dir: Path) -> subprocess.CompletedProcess:
     sources: list[str] = []
     if DOMAIN_FILE.is_file():
         sources.append(str(DOMAIN_FILE))
     if TREE_STATE_FILE.is_file():
         sources.append(str(TREE_STATE_FILE))
+    if ROW_FORMAT_FILE.is_file():
+        sources.append(str(ROW_FORMAT_FILE))
     if not sources:
         pytest.skip("no source files to compile")
     return subprocess.run(
@@ -126,6 +216,7 @@ _NODE_HARNESS = r"""
 const path = require("path");
 const assert = require("assert");
 const ts = require(path.resolve(process.argv[2]));
+const rf = require(path.resolve(process.argv[3]));
 // Minimal Taxon-shaped fixture — every source-affordance field the
 // ODD-NTP-002 helpers read is set explicitly so the source contract
 // is reproducible from a hand-rolled constructor (the canonical
@@ -511,6 +602,105 @@ assert.strictEqual(groupsRanks[0].rank, "kingdom", "kingdom first (broadest)");
 assert.strictEqual(groupsRanks[1].rank, "phylum", "phylum second");
 assert.strictEqual(groupsRanks[2].rank, "class", "class last (narrowest)");
 
+// V. ODD-NTP-004 — row-format pure helpers (port of web/format.js
+// + the source-info / wormsUrl / hasMaterialized helpers from
+// web/tree.js).
+assert.strictEqual(rf.rankLabel("genus"), "Genus", "rankLabel upper-cases the first letter");
+assert.strictEqual(rf.rankLabel("species"), "Species", "rankLabel handles species too");
+assert.strictEqual(rf.rankLabel("unranked"), "Unranked", "rankLabel handles unranked clade rank");
+assert.strictEqual(rf.rankPluralFor("phylum"), "phyla", "rankPluralFor uses irregular plurals");
+assert.strictEqual(rf.rankPluralFor("family"), "families", "rankPluralFor handles families");
+assert.strictEqual(rf.rankPluralFor("order"), "Orders", "rankPluralFor falls back to English +s");
+assert.strictEqual(rf.isItalicRank("genus"), true, "genus is italic");
+assert.strictEqual(rf.isItalicRank("subgenus"), true, "subgenus is italic");
+assert.strictEqual(rf.isItalicRank("species"), true, "species is italic");
+assert.strictEqual(rf.isItalicRank("subspecies"), true, "subspecies is italic");
+assert.strictEqual(rf.isItalicRank("variety"), true, "variety is italic");
+assert.strictEqual(rf.isItalicRank("form"), true, "form is italic");
+assert.strictEqual(rf.isItalicRank("kingdom"), false, "kingdom is roman");
+assert.strictEqual(rf.isItalicRank("phylum"), false, "phylum is roman");
+assert.strictEqual(rf.isItalicRank("order"), false, "order is roman");
+assert.strictEqual(rf.isItalicRank("family"), false, "family is roman");
+assert.strictEqual(rf.isItalicRank("subfamily"), false, "subfamily follows parent rank (roman)");
+assert.strictEqual(rf.isItalicRank("unranked"), false, "unranked clade is roman");
+assert.strictEqual(rf.scientificNameClass("genus"), "scientific-name", "italic by default for genus");
+assert.strictEqual(rf.scientificNameClass("species"), "scientific-name", "italic by default for species");
+assert.strictEqual(rf.scientificNameClass("kingdom"), "scientific-name scientific-name--roman", "kingdom gets the --roman modifier");
+assert.strictEqual(rf.scientificNameClass("phylum"), "scientific-name scientific-name--roman", "phylum gets the --roman modifier");
+assert.strictEqual(rf.scientificNameDepthClass(0), "scientific-name scientific-name-depth-0", "depth 0 → larger treatment");
+assert.strictEqual(rf.scientificNameDepthClass(1), "scientific-name scientific-name-depth-n", "depth 1 → smaller treatment");
+assert.strictEqual(rf.scientificNameDepthClass(5), "scientific-name scientific-name-depth-n", "depth 5 → smaller treatment");
+assert.strictEqual(rf.realmForPath("Bacteria/Acidobacteria/X"), "bacteria", "bacteria domain tint");
+assert.strictEqual(rf.realmForPath("Archaea/Euryarchaeota/X"), "archaea", "archaea domain tint");
+assert.strictEqual(rf.realmForPath("Viruses/Adnaviria/X"), "viruses", "viruses domain tint");
+assert.strictEqual(rf.realmForPath("Eukaryota/Animalia/Chordata/X"), "animalia", "animalia kingdom tint");
+assert.strictEqual(rf.realmForPath("Eukaryota/Animalia"), "animalia", "animalia kingdom tint without trailing segments");
+assert.strictEqual(rf.realmForPath("Eukaryota/Fungi/Basidiomycota/X"), "fungi", "fungi kingdom tint");
+assert.strictEqual(rf.realmForPath("Eukaryota/Plantae/Magnoliophyta/X"), "plantae", "plantae kingdom tint");
+assert.strictEqual(rf.realmForPath("Eukaryota/Chromista/X"), "chromista", "chromista kingdom tint");
+assert.strictEqual(rf.realmForPath("Eukaryota/Protozoa/X"), "protozoa", "protozoa kingdom tint");
+assert.strictEqual(rf.realmForPath("Eukaryota/Diaphoretickes/X"), "other", "unrecognised Eukaryota kingdom → other");
+assert.strictEqual(rf.realmForPath("Eukaryota"), "other", "Eukaryota without kingdom → other");
+assert.strictEqual(rf.realmForPath(""), "other", "empty path → other");
+assert.strictEqual(rf.realmForPath(null), "other", "null path → other");
+assert.strictEqual(rf.realmForPath(undefined), "other", "undefined path → other");
+assert.strictEqual(rf.realmForPath("Eukaryota/id-7_Animalia/X"), "animalia", "strips id-N_ prefix from kingdom segment");
+assert.strictEqual(rf.realmForPath("Bacteria/id-12_Acidobacteriota/X"), "bacteria", "strips id-N_ prefix from domain segment");
+const dotAccepted = rf.statusDotDescriptor("accepted");
+assert.strictEqual(dotAccepted.title, "Accepted", "status dot 'accepted' tooltip");
+assert.ok(dotAccepted.className.includes("status-dot-accepted"), "status dot 'accepted' class");
+const dotSynonym = rf.statusDotDescriptor("synonym");
+assert.strictEqual(dotSynonym.title, "Synonym", "status dot 'synonym' tooltip");
+assert.ok(dotSynonym.className.includes("status-dot-synonym"), "status dot 'synonym' class");
+const dotUnknown = rf.statusDotDescriptor(null);
+assert.strictEqual(dotUnknown.title, "Unknown", "status dot null tooltip → Unknown");
+assert.ok(dotUnknown.className.includes("status-dot-unknown"), "status dot null class → unknown");
+const dotAmbiguous = rf.statusDotDescriptor("ambiguous synonym");
+assert.strictEqual(dotAmbiguous.title, "Unknown", "non-canonical status falls back to Unknown");
+assert.ok(dotAmbiguous.className.includes("status-dot-unknown"), "non-canonical status class");
+assert.strictEqual(rf.speciesCountBadge(5), "5 spp.", "single-digit count");
+assert.strictEqual(rf.speciesCountBadge(999), "999 spp.", "999 upper bound");
+assert.strictEqual(rf.speciesCountBadge(1000), "1k spp.", "1k threshold rounds to 1k");
+assert.strictEqual(rf.speciesCountBadge(1500), "2k spp.", "1.5k rounds up to 2k");
+assert.strictEqual(rf.speciesCountBadge(1234567), "1.2M spp.", "1.2M (7 digits hits the millions branch)");
+assert.strictEqual(rf.speciesCountBadge(999999), "1000k spp.", "999,999 rounds up to 1000k");
+assert.strictEqual(rf.speciesCountBadge(1000000), "1M spp.", "1M threshold");
+assert.strictEqual(rf.speciesCountBadge(2500000), "2.5M spp.", "2.5M");
+assert.strictEqual(rf.speciesCountBadge(1500000), "1.5M spp.", "1.5M");
+assert.strictEqual(rf.speciesCountBadge(20000000), "20M spp.", "20M");
+assert.strictEqual(rf.speciesCountBadge(null), "", "null → empty string");
+assert.strictEqual(rf.speciesCountBadge(undefined), "", "undefined → empty string");
+assert.strictEqual(rf.speciesCountBadge(0), "", "zero → empty string");
+// ODD-NTP-004 — sourceInfoTooltip predicate (port of the legacy
+// web/tree.js::sourceTooltipText branch).
+const COL_ONLY = T(200, "ColOnly", "kingdom", null, { coldp_id: "abc" });
+const WORMS_ONLY = T(201, "WormsOnly", "kingdom", null, { worms_id: 137093 });
+const CROSS = T(202, "Cross", "kingdom", null, { coldp_id: "def", worms_id: 137094 });
+assert.strictEqual(rf.sourceInfoTooltip(COL_ONLY, "col"), "CoL-only — ColDP ID abc (no WoRMS match).", "CoL-only tooltip in CoL view");
+assert.strictEqual(rf.sourceInfoTooltip(COL_ONLY, "worms"), null, "CoL-only row in WoRMS view → no info glyph");
+assert.strictEqual(rf.sourceInfoTooltip(WORMS_ONLY, "worms"), "WoRMS-only — AphiaID 137093 (no CoL match). Open in WoRMS.", "WoRMS-only tooltip in WoRMS view");
+assert.strictEqual(rf.sourceInfoTooltip(WORMS_ONLY, "col"), null, "WoRMS-only row in CoL view → no info glyph");
+assert.strictEqual(rf.sourceInfoTooltip(WORMS_ONLY, "freshwater"), "WoRMS-only — AphiaID 137093 (no CoL match). Open in WoRMS.", "WoRMS-only row in Freshwater view → WoRMS tooltip (legacy non-CoL branch)");
+assert.strictEqual(rf.sourceInfoTooltip(CROSS, "worms"), "WoRMS cross-link — AphiaID 137094. Open in WoRMS.", "cross-link tooltip in WoRMS view");
+assert.strictEqual(rf.sourceInfoTooltip(CROSS, "freshwater"), "WoRMS cross-link — AphiaID 137094. Open in WoRMS.", "cross-link tooltip in Freshwater view");
+assert.strictEqual(rf.sourceInfoTooltip(CROSS, "col"), null, "cross-link row in CoL view → no info glyph (CoL identity already in badge context)");
+// ODD-NTP-004 — wormsUrlFor builds the canonical marinespecies URL.
+assert.strictEqual(rf.wormsUrlFor(WORMS_ONLY), "https://www.marinespecies.org/aphia.php?p=taxdetails&id=137093", "WoRMS URL format");
+assert.strictEqual(rf.wormsUrlFor(CROSS), "https://www.marinespecies.org/aphia.php?p=taxdetails&id=137094", "WoRMS URL for cross-link");
+const NO_WORMS = T(203, "NoWorms", "kingdom", null, { coldp_id: "z" });
+assert.strictEqual(rf.wormsUrlFor(NO_WORMS), null, "No worms_id → null URL");
+// ODD-NTP-004 — hasMaterializedFolder honours research_path_exists + materialized cache.
+const NO_PATH = T(300, "NoPath", "kingdom", null, { coldp_id: "x" });
+const WITH_PATH = T(301, "WithPath", "kingdom", null, { coldp_id: "y", research_path_exists: true });
+assert.strictEqual(rf.hasMaterializedFolder(NO_PATH), false, "no research_path_exists → false");
+assert.strictEqual(rf.hasMaterializedFolder(WITH_PATH), true, "research_path_exists=true → true");
+// Propagated materialized cache wins for rows that have no wire signal yet.
+const PROPAGATED = new Set([NO_PATH.id]);
+assert.strictEqual(rf.hasMaterializedFolder(NO_PATH, PROPAGATED), true, "propagated materialized cache wins");
+assert.strictEqual(rf.hasMaterializedFolder(WITH_PATH, PROPAGATED), true, "wire signal + propagated cache: wire signal wins (or ties)");
+const EMPTY_PROPAGATED = new Set();
+assert.strictEqual(rf.hasMaterializedFolder(NO_PATH, EMPTY_PROPAGATED), false, "no wire signal + empty cache → false");
+
 process.stdout.write("PASS\n");
 """
 
@@ -526,22 +716,27 @@ def test_compiled_tree_state_passes_runtime_contract(
     source-aware child attachment, Freshwater-root predicate + native
     source-order helper, and source-bound state reset (clear roots /
     expanded / child cache / load status while preserving the `nodes`
-    projection cache)."""
-    for p in (TREE_STATE_FILE, DOMAIN_FILE):
+    projection cache). V: ODD-NTP-004 row-format pure helpers
+    (rank label / plural / italic / realm / status dot /
+    species-count badge / source-info tooltip / WoRMS URL /
+    materialize predicate)."""
+    for p in (TREE_STATE_FILE, ROW_FORMAT_FILE, DOMAIN_FILE):
         if not p.is_file():
             pytest.skip(f"missing required source: {p}")
     out_dir = tmp_path / "build"
     out_dir.mkdir()
     result = _run_tsc(out_dir)
     assert result.returncode == 0, (
-        f"tree-state.ts failed to compile.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+        f"tree-state/row-format compilation failed.\nstdout: {result.stdout}\nstderr: {result.stderr}"
     )
-    compiled = out_dir / "presentation" / "tree-state.js"
-    assert compiled.is_file(), f"tsc did not emit {compiled}."
+    compiled_tree = out_dir / "presentation" / "tree-state.js"
+    compiled_rf = out_dir / "presentation" / "row-format.js"
+    assert compiled_tree.is_file(), f"tsc did not emit {compiled_tree}."
+    assert compiled_rf.is_file(), f"tsc did not emit {compiled_rf}."
     harness = tmp_path / "harness.cjs"
     harness.write_text(_NODE_HARNESS)
     result = subprocess.run(
-        ["node", str(harness), str(compiled)],
+        ["node", str(harness), str(compiled_tree), str(compiled_rf)],
         cwd=REPO_ROOT, capture_output=True, text=True, check=False,
     )
     assert result.returncode == 0 and result.stdout.strip() == "PASS", (

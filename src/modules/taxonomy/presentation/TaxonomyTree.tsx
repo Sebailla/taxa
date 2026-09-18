@@ -185,6 +185,14 @@ export default function TaxonomyTree(): React.ReactElement {
     status: "idle",
     message: null,
   });
+  // ODD-NTP-004 — kebab open state. Lives at the tree level so a
+  // click-outside / Escape dismisses every open menu at once and
+  // the visible tree carries only one open kebab at a time. Source
+  // switches and collapse-all both close the open kebab via
+  // `setKebabOpenId(null)` so the menu never lingers over a row
+  // that has been re-projected under a different source / a
+  // different collapsed state.
+  const [kebabOpenId, setKebabOpenId] = useState<number | null>(null);
 
   // `loadRoots` fetches `/api/domains` ONCE on mount. It deliberately
   // does NOT close over `activeSource` — the source filter is applied
@@ -217,6 +225,45 @@ export default function TaxonomyTree(): React.ReactElement {
   useEffect(() => {
     void loadRoots();
   }, [loadRoots]);
+
+  // ODD-NTP-004 — Escape dismisses any open kebab menu. Mirrors the
+  // legacy `web/nav.js::keydown` listener: a single document-level
+  // keydown handler closes every open menu on Escape. The listener
+  // is only attached when `kebabOpenId !== null` so a no-op kebab
+  // (closed state) does not register a document-level event
+  // listener. Cleanup removes the listener when the kebab closes.
+  useEffect(() => {
+    if (kebabOpenId === null) return;
+    const onKeyDown = (ev: KeyboardEvent): void => {
+      if (ev.key === "Escape") setKebabOpenId(null);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [kebabOpenId]);
+
+  // ODD-NTP-004 — click-outside dismisses any open kebab menu.
+  // Mirrors the legacy `web/nav.js::closeAllKebabMenus` predicate:
+  // a single document-level mousedown handler closes the open menu
+  // when the click lands outside the open kebab (the kebab trigger
+  // is a sibling of `.kebab-menu` inside `.kebab`, so a click on
+  // the trigger would otherwise be caught by `closest('.kebab')`
+  // and skipped). The listener is only attached when a kebab is
+  // open so the document-level touchpoint is removed as soon as
+  // the menu closes (no permanent global listener).
+  useEffect(() => {
+    if (kebabOpenId === null) return;
+    const onMouseDown = (ev: MouseEvent): void => {
+      const target = ev.target;
+      if (!(target instanceof Element)) {
+        setKebabOpenId(null);
+        return;
+      }
+      if (target.closest(".kebab")) return;
+      setKebabOpenId(null);
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, [kebabOpenId]);
 
   /** Apply the active source to the raw root payload. Fires when
    *  (a) `rawRoots` first becomes non-null after a successful fetch,
@@ -329,6 +376,12 @@ export default function TaxonomyTree(): React.ReactElement {
     // refetch.
     setState((prev) => resetSourceState(prev));
     setRoot((prev) => ({ status: prev.status, message: null }));
+    // ODD-NTP-004 — clear the open kebab so a menu never lingers
+    // over a row that has been re-projected under a different
+    // source. Mirrors the legacy `web/nav.js::tree-source toggle`
+    // reset (which cleared the kebab as part of the source-bound
+    // state reset).
+    setKebabOpenId(null);
     setActiveSource(next);
   }, [activeSource]);
 
@@ -341,7 +394,48 @@ export default function TaxonomyTree(): React.ReactElement {
 
   const handleCollapseAll = useCallback(() => {
     setState((prev) => clearExpansion(prev));
+    // ODD-NTP-004 — clear the open kebab so a menu never lingers
+    // over a row that has been collapsed.
+    setKebabOpenId(null);
   }, []);
+
+  // ODD-NTP-004 — kebab trigger handler. Mirrors the legacy
+  // `web/nav.js::toggleKebabMenu` predicate byte-for-byte: clicking
+  // a kebab trigger toggles its menu; opening one menu closes every
+  // other open menu (one kebab at a time — multiple open menus would
+  // fight each other for the click-outside-close logic). The state
+  // lives at the tree level so a single click-outside / Escape
+  // listener dismisses every menu at once.
+  const handleToggleKebab = useCallback((id: number) => {
+    setKebabOpenId((prev) => (prev === id ? null : id));
+  }, []);
+
+  // ODD-NTP-004 — kebab item action handler. ODD-NTP-004 only wires
+  // `view-on-worms` (it just navigates to the WoRMS URL — the anchor
+  // + target already handles the navigation; the React handler is a
+  // no-op callback hook for future analytics / log lines). The
+  // `open-searches` / `open-folder-tab` actions are deferred to
+  // ODD-NTP-005; the kebab items render with `disabled` +
+  // `aria-disabled="true"` so the user sees them as clearly
+  // unavailable. Closing the menu on action keeps the click-outside
+  // affordance consistent with the legacy oracle (a menu that stays
+  // open after the user clicked an item would block the row hover
+  // state from re-painting).
+  const handleKebabAction = useCallback(
+    (
+      _id: number,
+      action: "open-searches" | "open-folder-tab" | "view-on-worms",
+    ) => {
+      if (action === "view-on-worms") {
+        // The anchor + target="_blank" already navigates; this
+        // handler is the future hook for analytics / log lines.
+        // Closing the menu keeps the click-outside / Escape
+        // dismissal uniform with the legacy oracle.
+      }
+      setKebabOpenId(null);
+    },
+    [],
+  );
 
   /** Source selector metadata. Recomputed only when the raw root
    *  payload changes — the `useMemo` keeps the segmented control
@@ -547,6 +641,10 @@ export default function TaxonomyTree(): React.ReactElement {
             depth={depth}
             state={tree}
             onToggle={handleToggle}
+            activeSource={activeSource}
+            kebabOpenId={kebabOpenId}
+            onToggleKebab={handleToggleKebab}
+            onKebabAction={handleKebabAction}
           />
           {expanded && status === "loading" ? renderRowStatus(tree, id, depth) : null}
           {expanded && status === "error" ? renderRowStatus(tree, id, depth) : null}
@@ -587,6 +685,10 @@ export default function TaxonomyTree(): React.ReactElement {
               depth={depth + 1}
               state={tree}
               onToggle={handleToggle}
+              activeSource={activeSource}
+              kebabOpenId={kebabOpenId}
+              onToggleKebab={handleToggleKebab}
+              onKebabAction={handleKebabAction}
             />
             {expanded && status === "loading" ? renderRowStatus(tree, childId, depth + 1) : null}
             {expanded && status === "error" ? renderRowStatus(tree, childId, depth + 1) : null}

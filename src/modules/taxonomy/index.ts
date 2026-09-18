@@ -72,7 +72,28 @@ export {
 export type {
   TreeState,
   NodeLoadStatus,
+  TreeSource,
+  RankGroup,
 } from "./presentation/tree-state";
+
+// ODD-NTP-004 — pure per-row format helpers (rank label / italic
+// classifier / realm-for-path / status dot descriptor / species-count
+// formatter / source-info tooltip / WoRMS URL builder). Used by
+// `TreeRow` to render the legacy native row identity and source
+// affordances byte-for-byte.
+export {
+  rankLabel,
+  rankPluralFor,
+  isItalicRank,
+  scientificNameClass,
+  scientificNameDepthClass,
+  realmForPath,
+  statusDotDescriptor,
+  speciesCountBadge,
+  wormsUrlFor,
+  hasMaterializedFolder,
+} from "./presentation/row-format";
+export type { StatusDotDescriptor } from "./presentation/row-format";
 
 // ODD-VTREE-002 — visible taxonomy tree (client island). Re-exported
 // here so cross-module consumers (`src/app/page.tsx`) can mount the
