@@ -49,7 +49,17 @@
 //     already-fetched taxon's projection (the projection carries
 //     every FastAPI field; see ODD-NTP-001 wire → domain).
 
-import type { Taxon } from "../domain/taxon";
+import type { Rank, Taxon } from "../domain/taxon";
+import { compareRanks } from "../domain/taxon";
+
+/** ODD-NTP-003 — page size for native tier grouping. Mirrors the
+ *  legacy `web/state.js::PAGE_SIZE` constant. Each `(parentId,
+ *  rank)` group shows up to this many children before a "Load N
+ *  more" / "Load all" affordance appears. Native ordering:
+ *  PAGE_SIZE children render in insertion order, then a single
+ *  "Load N more" button on the tier header reveals every
+ *  remaining child at once. */
+export const PAGE_SIZE = 5;
 
 /** Per-node load lifecycle. `idle` is the default for ids the helper
  *  has not observed. */
@@ -68,13 +78,21 @@ export type TreeSource = "col" | "worms" | "freshwater";
  *  fresh instance. Children are keyed by `Taxon.id`. The `nodes`
  *  map survives every source-bound reset (the projection preserves
  *  every FastAPI field, including source identifiers, so a later
- *  source switch can re-render cached rows without a re-fetch). */
+ *  source switch can re-render cached rows without a re-fetch).
+ *
+ *  ODD-NTP-003 — `showAll` mirrors the legacy
+ *  `web/state.js::showAll` set: keys are `"${parentId}::${rank}"`
+ *  and presence means the corresponding tier group is fully
+ *  unrolled (no PAGE_SIZE staircase). The collapse-all control and
+ *  the source switch both clear `showAll` so the tree rebuilds
+ *  from a blank slate, exactly as the legacy nav.js reset did. */
 export interface TreeState {
   readonly nodes: ReadonlyMap<number, Taxon>;
   readonly rootIds: readonly number[];
   readonly childIdsByParent: ReadonlyMap<number, readonly number[]>;
   readonly expandedIds: ReadonlySet<number>;
   readonly loadStatus: ReadonlyMap<number, NodeLoadStatus>;
+  readonly showAll: ReadonlySet<string>;
 }
 
 function makeEmptyState(): TreeState {
@@ -84,6 +102,7 @@ function makeEmptyState(): TreeState {
     childIdsByParent: new Map<number, readonly number[]>(),
     expandedIds: new Set<number>(),
     loadStatus: new Map<number, NodeLoadStatus>(),
+    showAll: new Set<string>(),
   };
 }
 
@@ -106,6 +125,7 @@ export function withRoots(
     childIdsByParent: state.childIdsByParent,
     expandedIds: state.expandedIds,
     loadStatus: state.loadStatus,
+    showAll: state.showAll,
   };
 }
 
@@ -133,6 +153,7 @@ export function withRootsForSource(
     childIdsByParent: state.childIdsByParent,
     expandedIds: state.expandedIds,
     loadStatus: state.loadStatus,
+    showAll: state.showAll,
   };
 }
 
@@ -193,6 +214,210 @@ export function attachChildren(
   const loadStatus = new Map(state.loadStatus);
   loadStatus.set(parentId, "loaded");
   return { ...state, nodes, childIdsByParent, loadStatus };
+}
+
+/** ODD-NTP-003 — a single `(parentId, rank)` tier slice as it should
+ *  be rendered. Mirrors the legacy `web/tree.js::renderTierHeader`
+ *  contract: the tier shows `visibleIds` (capped at PAGE_SIZE when
+ *  `showAll` is absent) plus a "Load N more" affordance when
+ *  `remaining > 0`. Children WITHIN a group preserve their fetched
+ *  insertion order so the source predicate never reshuffles rows the
+ *  legacy tree would render sequentially. Groups are sorted by
+ *  `compareRanks` (broadest-first) so the legacy order survives the
+ *  React port. */
+export interface RankGroup {
+  readonly rank: Rank;
+  readonly count: number;
+  readonly visibleIds: readonly number[];
+  readonly remaining: number;
+  readonly fullyShown: boolean;
+}
+
+/** ODD-NTP-003 — pure source-aware group + paginate pipeline.
+ *  Reads `state.childIdsByParent.get(parentId)` and applies, in order:
+ *    1. `sourceMatches` filter (foreign-source rows from a mixed
+ *       payload never enter the visible tier list)
+ *    2. rank grouping (children WITHIN a group keep insertion order;
+ *       GROUPS sort by `compareRanks`)
+ *    3. PAGE_SIZE staircase (cap at PAGE_SIZE unless `showAll`
+ *       contains `"${parentId}::${rank}"`)
+ *  An empty child bucket (no children cached for the parent, or no
+ *  matching-source children) yields an empty groups list — callers
+ *  can skip the tier-header slot. Matches the legacy
+ *  `web/tree.js::renderNode` flow bit-for-bit so the React tree's
+ *  visible tiers match the legacy oracle on CoL / WoRMS /
+ *  Freshwater and across source switches. */
+export function groupChildrenByRank(
+  state: TreeState,
+  parentId: number,
+  source: TreeSource,
+): readonly RankGroup[] {
+  const childIdList = state.childIdsByParent.get(parentId);
+  if (!childIdList || childIdList.length === 0) return [];
+  // Source-filter + group by rank in a single pass so the foreign-
+  // source rows never enter the bucket and the rank-order list
+  // stays canonical.
+  const bucket = new Map<Rank, number[]>();
+  for (const id of childIdList) {
+    const child = state.nodes.get(id);
+    if (!child) continue;
+    if (!sourceMatches(child, source)) continue;
+    let ids = bucket.get(child.rank);
+    if (!ids) {
+      ids = [];
+      bucket.set(child.rank, ids);
+    }
+    ids.push(id);
+  }
+  // Sort groups by canonical rank breadth (broadest-first). Groups
+  // with the same rank are already insertion-stable (the iteration
+  // walks the child list in source-order).
+  const sortedGroups = [...bucket.entries()].sort(
+    ([aRank], [bRank]) => compareRanks(aRank, bRank),
+  );
+  const groups: RankGroup[] = [];
+  for (const [rank, ids] of sortedGroups) {
+    const fullyShown = state.showAll.has(`${parentId}::${rank}`);
+    const visibleIds = fullyShown ? ids : ids.slice(0, PAGE_SIZE);
+    groups.push({
+      rank,
+      count: ids.length,
+      visibleIds,
+      remaining: Math.max(0, ids.length - visibleIds.length),
+      fullyShown,
+    });
+  }
+  return groups;
+}
+
+/** ODD-NTP-003 — set the `showAll` flag for `(parentId, rank)`.
+ *  `enabled=true` adds the key; `enabled=false` removes it.
+ *  Idempotent — no-op when the flag already matches the requested
+ *  state (the returned instance is reference-equal to `state` so
+ *  React skips the render). Mirrors the legacy
+ *  `web/nav.js::load-all` / `web/nav.js::collapseAll` actions. */
+export function setShowAll(
+  state: TreeState,
+  parentId: number,
+  rank: Rank,
+  enabled: boolean,
+): TreeState {
+  const key = `${parentId}::${rank}`;
+  const has = state.showAll.has(key);
+  if (has === enabled) return state;
+  const next = new Set(state.showAll);
+  if (enabled) next.add(key);
+  else next.delete(key);
+  return { ...state, showAll: next };
+}
+
+/** ODD-NTP-003 — toggle the `showAll` flag for `(parentId, rank)`.
+ *  Mirrors the legacy "Load N more" → "Load all" one-click
+ *  unroll. */
+export function toggleShowAll(
+  state: TreeState,
+  parentId: number,
+  rank: Rank,
+): TreeState {
+  return setShowAll(state, parentId, rank, !state.showAll.has(`${parentId}::${rank}`));
+}
+
+/** ODD-NTP-003 — read the `showAll` flag for `(parentId, rank)`. */
+export function isShowAll(
+  state: TreeState,
+  parentId: number,
+  rank: Rank,
+): boolean {
+  return state.showAll.has(`${parentId}::${rank}`);
+}
+
+/** ODD-NTP-003 — clear every `showAll` entry without touching the
+ *  expanded set. Used by the collapse-all control when the user
+ *  wants to flatten just the tier pagination while keeping the
+ *  expansion tree visible (rare; the canonical "collapse all"
+ *  control uses `clearExpansion` instead). */
+export function clearShowAll(state: TreeState): TreeState {
+  if (state.showAll.size === 0) return state;
+  return { ...state, showAll: new Set<string>() };
+}
+
+/** ODD-NTP-003 — native "Collapse all" semantics: clear both the
+ *  expanded set AND every `showAll` flag so the tree returns to a
+ *  flat roots-only view. Mirrors the legacy
+ *  `web/nav.js::collapseAll` function byte-for-byte (the legacy
+ *  early-return when both sets are empty is preserved by
+ *  `clearShowAll`'s identity-equal no-op). */
+export function clearExpansion(state: TreeState): TreeState {
+  if (state.expandedIds.size === 0 && state.showAll.size === 0) return state;
+  return {
+    nodes: state.nodes,
+    rootIds: state.rootIds,
+    childIdsByParent: state.childIdsByParent,
+    expandedIds: new Set<number>(),
+    loadStatus: state.loadStatus,
+    showAll: new Set<string>(),
+  };
+}
+
+/** ODD-NTP-003 — native source-specific auto-unroll. When a node is
+ *  expanded under the WoRMS or Freshwater source, every tier of
+ *  that node is added to `showAll` so a single expansion reveals
+ *  the full subtree — Biota → Animalia → phylum → class → ... →
+ *  species without the user hitting "Load N more" at every level.
+ *  CoL view keeps the PAGE_SIZE=5 staircase to stay snappy. The
+ *  legacy `web/nav.js::toggleExpand` runs the same predicate after
+ *  every successful `loadChildren(id)` call. The helper is a
+ *  no-op when the source is CoL or when the parent has no
+ *  matching-source children. */
+export function autoUnrollForSource(
+  state: TreeState,
+  parentId: number,
+  source: TreeSource,
+): TreeState {
+  if (source !== "worms" && source !== "freshwater") return state;
+  const childIdList = state.childIdsByParent.get(parentId);
+  if (!childIdList || childIdList.length === 0) return state;
+  // `state.showAll` is typed `ReadonlySet<string>` (the public contract
+  // for `TreeState`); copy-on-mutate must rebuild the set as a
+  // mutable `Set<string>` so `.add(...)` is callable. The reference-
+  // equality shortcut above (no-op when nothing changes) keeps the
+  // common path allocation-free.
+  let next: Set<string> = new Set(state.showAll);
+  let mutated = next.size !== state.showAll.size;
+  if (!mutated) {
+    for (const id of childIdList) {
+      const child = state.nodes.get(id);
+      if (!child) continue;
+      if (!sourceMatches(child, source)) continue;
+      const key = `${parentId}::${child.rank}`;
+      if (!next.has(key)) {
+        mutated = true;
+        break;
+      }
+    }
+  }
+  if (!mutated) return state;
+  // Reset and re-add — cheaper than rebuilding a second map when
+  // most tiers are already in `showAll`.
+  if (next.size !== state.showAll.size) {
+    next = new Set(state.showAll);
+  }
+  for (const id of childIdList) {
+    const child = state.nodes.get(id);
+    if (!child) continue;
+    if (!sourceMatches(child, source)) continue;
+    const key = `${parentId}::${child.rank}`;
+    next.add(key);
+  }
+  return { ...state, showAll: next };
+}
+
+/** ODD-NTP-003 — read every tier key currently expanded for a
+ *  parent. Used by the collapse-all control's tooltip / a11y
+ *  affordance ("you have 3 tiers expanded"). Mirrors the legacy
+ *  `state.expanded.size + state.showAll.size` heuristic. */
+export function expandedTierCount(state: TreeState): number {
+  return state.expandedIds.size + state.showAll.size;
 }
 
 /** ODD-NTP-002 — source-aware child attachment. Applies the
@@ -282,6 +507,10 @@ export function availableSourcesFor(
  *    - load status → cleared (the previous load lifecycle no
  *      longer matches the visible ids; a `loaded` row in WoRMS
  *      view is `idle` again under Freshwater)
+ *    - showAll → cleared (ODD-NTP-003 — every tier key
+ *      `"${parentId}::${rank}"` from the previous source may not
+ *      even exist under the new one; the auto-unroll that follows
+ *      rebuilds the set on the first WoRMS / Freshwater expand)
  *    - nodes → PRESERVED (the projection carries every FastAPI
  *      field including source identifiers — a later source switch
  *      can re-render cached rows without a re-fetch, and the
@@ -301,6 +530,7 @@ export function resetSourceState(state: TreeState): TreeState {
     childIdsByParent: new Map<number, readonly number[]>(),
     expandedIds: new Set<number>(),
     loadStatus: new Map<number, NodeLoadStatus>(),
+    showAll: new Set<string>(),
   };
 }
 
@@ -318,4 +548,15 @@ export function setLoadStatus(
 /** Read the load status for `id`; defaults to `idle`. */
 export function loadStatus(state: TreeState, id: number): NodeLoadStatus {
   return state.loadStatus.get(id) ?? "idle";
+}
+
+/** ODD-NTP-003 — leaf predicate. Matches the legacy
+ *  `web/tree.js::isLeaf` (rank === "species" || rank ===
+ *  "subspecies"). Leaves are disclosed by a `•` glyph (no chevron),
+ *  carry no children, and clicking them dispatches the "select"
+ *  data-action (selection lands in ODD-NTP-005; the contract here
+ *  is only the rank classification). Re-exported here so the
+ *  React component does not need to import `Rank` directly. */
+export function isLeafRank(rank: Rank): boolean {
+  return rank === "species" || rank === "subspecies";
 }

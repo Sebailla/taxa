@@ -26,6 +26,7 @@ APP_SHELL_FILE = REPO_ROOT / "src" / "modules" / "app-shell" / "presentation" / 
 APP_SHELL_BARREL = REPO_ROOT / "src" / "modules" / "app-shell" / "index.ts"
 TAXONOMY_TREE_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "TaxonomyTree.tsx"
 TAXONOMY_TREE_ROW_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "TreeRow.tsx"
+TAXONOMY_TREE_STATE_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "tree-state.ts"
 TAXONOMY_BARREL = REPO_ROOT / "src" / "modules" / "taxonomy" / "index.ts"
 TAXONOMY_DOMAIN_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "domain" / "taxon.ts"
 TAXONOMY_INFRA_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "infrastructure" / "api.ts"
@@ -193,6 +194,294 @@ def test_tree_row_uses_semantic_disclosure_button() -> None:
     )
     assert "display: none" not in text and "display:none" not in text, (
         "TreeRow.tsx must not ship a hidden rowgroup (invalid a11y plumbing)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# ODD-NTP-003 — native structural parity for the visible tree.
+#
+# - TreeRow renders a REAL block element (not `display: contents`) so the
+#   depth indent applies to the whole identity + disclosure block.
+# - The native 24px indent staircase is preserved at every depth.
+# - Tier headers are rendered for groups with `count > 1` and live at
+#   depth+1 (matching the legacy `web/tree.js::renderTierHeader`).
+# - "Load N more" / "Load all" affordances route through the source-aware
+#   tree-state helpers (`setShowAll` / `toggleShowAll`).
+# - The native collapse-all control clears both expanded + showAll.
+# - Leaf behavior: species / subspecies rows carry `data-action="select"`
+#   and a `•` glyph; higher ranks carry `data-action="toggle-expand"`.
+# - WoRMS / Freshwater auto-unroll fires on every expansion.
+# ---------------------------------------------------------------------------
+
+def test_tree_row_renders_a_real_block() -> None:
+    """ODD-NTP-003: TreeRow must render as a real block element so the
+    depth indent applies to the entire identity + disclosure block
+    (legacy `web/tree.js::renderNodeRow` uses `flex items-center
+    w-full` with `padding-left: ${16 + indentPx}px`). The previous
+    `display: contents` grid flattening is gone — only the name
+    cell took the depth indent under that layout, which made the
+    React tree visually flattened compared to the legacy oracle."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    # Strip both /* ... */ and // ... comments so docstring
+    # references to the legacy cascade ("NOT a `display: contents`
+    # placeholder") don't trip the substring check. We only care
+    # about runtime CSS values or JSX `style={{ display: "contents"
+    # }}` literals.
+    stripped = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    stripped = re.sub(r"^\s*//.*$", "", stripped, flags=re.MULTILINE)
+    assert "display: contents" not in stripped, (
+        "ODD-NTP-003: TreeRow.tsx must NOT use `display: contents` "
+        "(in JSX, inline style, or CSS) — the row must be a real "
+        "block element so depth indents the whole identity + "
+        "disclosure block."
+    )
+    # The row carries `padding-left: 16 + depth * 24` (or the
+    # equivalent `${ROW_BASE_PADDING_PX + depth * ROW_INDENT_PX}px`
+    # template literal).
+    assert re.search(r"paddingLeft.*16\s*\+\s*depth\s*\*\s*24|paddingLeft.*ROW_BASE", text), (
+        "ODD-NTP-003: TreeRow.tsx must compute padding-left as "
+        "`16 + depth * 24` (matches legacy `web/tree.js::renderNodeRow`)."
+    )
+    # ROW_INDENT_PX = 24 is the canonical indent step.
+    assert "ROW_INDENT_PX = 24" in text, (
+        "ODD-NTP-003: TreeRow.tsx must expose ROW_INDENT_PX = 24 "
+        "(legacy 24px indent step)."
+    )
+
+
+def test_tree_row_disclosure_glyphs_match_native() -> None:
+    """ODD-NTP-003: leaf rows carry a `•` glyph (no chevron); higher
+    ranks show `▾` (expanded) / `▸` (collapsed). Mirrors
+    `web/tree.js::chevronFor` which used a small `•` marker for
+    species / subspecies and `arrow_drop_down` / `chevron_right`
+    for higher ranks."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    # Leaf dot + the two chevron glyphs must all appear in the
+    # disclosure block.
+    assert '"•"' in text, (
+        "ODD-NTP-003: TreeRow.tsx must render a `•` glyph for leaves."
+    )
+    assert '"▾"' in text, (
+        "ODD-NTP-003: TreeRow.tsx must render `▾` for expanded rows."
+    )
+    assert '"▸"' in text, (
+        "ODD-NTP-003: TreeRow.tsx must render `▸` for collapsed rows."
+    )
+
+
+def test_tree_row_stamps_data_action_per_rank() -> None:
+    """ODD-NTP-003: leaves stamp `data-action="select"`; higher ranks
+    stamp `data-action="toggle-expand"`. Mirrors
+    `web/tree.js::renderNodeRow`'s `data-action` contract so the
+    future ODD-NTP-005 selection handler dispatches correctly."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    assert re.search(
+        r'data-action\s*=\s*\{?\s*(?:knownLeaf\s*\?\s*["\']select["\']|"select")',
+        text,
+    ), (
+        "ODD-NTP-003: TreeRow.tsx must stamp data-action=\"select\" for leaves."
+    )
+    assert '"toggle-expand"' in text or "'toggle-expand'" in text, (
+        "ODD-NTP-003: TreeRow.tsx must stamp data-action=\"toggle-expand\" for higher ranks."
+    )
+
+
+def test_tree_row_stamps_depth_and_leaf_attributes() -> None:
+    """ODD-NTP-003: rows expose `data-depth` and `data-leaf` for the
+    future ODD-NTP-004 affordance surface + a11y tooling. Mirrors
+    the legacy `web/tree.js::renderNodeRow` data-attribute
+    contract."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    assert "data-depth=" in text, (
+        "ODD-NTP-003: TreeRow.tsx must stamp data-depth on each row."
+    )
+    assert "data-leaf=" in text, (
+        "ODD-NTP-003: TreeRow.tsx must stamp data-leaf on leaf rows."
+    )
+
+
+def test_taxonomy_tree_renders_tier_headers() -> None:
+    """ODD-NTP-003: tier headers render for groups with `count > 1`,
+    sitting at depth+1 (same indent as their children). Mirrors
+    `web/tree.js::renderTierHeader` byte-for-byte."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "renderTierHeader" in text, (
+        "ODD-NTP-003: TaxonomyTree.tsx must declare a renderTierHeader helper."
+    )
+    assert 'data-tier-header=""' in text, (
+        "ODD-NTP-003: TaxonomyTree.tsx must stamp data-tier-header on tier headers."
+    )
+    assert 'data-tier-parent=' in text, (
+        "ODD-NTP-003: tier header must carry data-tier-parent so the "
+        "next iteration can identify which parent the tier belongs to."
+    )
+    assert 'data-tier-rank=' in text, (
+        "ODD-NTP-003: tier header must carry data-tier-rank."
+    )
+
+
+def test_taxonomy_tree_load_more_routes_through_source_aware_helpers() -> None:
+    """ODD-NTP-003: the "Load N more" affordance calls
+    `setShowAll(state, parentId, rank, true)` via a
+    `handleLoadMore(parentId, rank)` handler. Mirrors the legacy
+    `web/nav.js::load-all` action."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "handleLoadMore" in text, (
+        "ODD-NTP-003: TaxonomyTree.tsx must declare a handleLoadMore helper."
+    )
+    assert "setShowAll" in text, (
+        "ODD-NTP-003: TaxonomyTree.tsx must use the setShowAll helper."
+    )
+    assert re.search(
+        r"data-action\s*=\s*[\"\']load-all[\"\']",
+        text,
+    ), (
+        "ODD-NTP-003: TaxonomyTree.tsx must stamp data-action=\"load-all\" "
+        "on the tier-header 'Load N more' button."
+    )
+
+
+def test_taxonomy_tree_renders_collapse_all_control() -> None:
+    """ODD-NTP-003: the native collapse-all control clears both
+    `expandedIds` and `showAll`. Disabled when no expansion
+    exists. Mirrors `web/nav.js::collapseAll` +
+    `renderCollapseAllButton` byte-for-byte."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "handleCollapseAll" in text, (
+        "ODD-NTP-003: TaxonomyTree.tsx must declare a handleCollapseAll handler."
+    )
+    assert "clearExpansion" in text, (
+        "ODD-NTP-003: handleCollapseAll must call clearExpansion "
+        "(clears both expandedIds + showAll in one shot)."
+    )
+    assert 'id="collapse-all"' in text or 'id=\\"collapse-all\\"' in text, (
+        "ODD-NTP-003: collapse-all button must carry id=\"collapse-all\" "
+        "(matches the legacy `web/nav.js` selector)."
+    )
+    assert 'data-action="collapse-all"' in text or "data-action=\"collapse-all\"" in text, (
+        "ODD-NTP-003: collapse-all button must stamp data-action=\"collapse-all\"."
+    )
+
+
+def test_taxonomy_tree_wires_auto_unroll_for_source() -> None:
+    """ODD-NTP-003: WoRMS / Freshwater expansions auto-unroll
+    every tier of the expanded node. Mirrors the legacy
+    `web/nav.js::toggleExpand` predicate. The CoL view is a no-op
+    so the PAGE_SIZE staircase stays snappy."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "autoUnrollForSource" in text, (
+        "ODD-NTP-003: TaxonomyTree.tsx must consume autoUnrollForSource."
+    )
+    # The auto-unroll helper must be called for at least one of the
+    # two places the legacy oracle calls it (toggleExpand /
+    # attachChildren). The CoL view must stay a no-op.
+    assert re.search(
+        r"(worms|freshwater).*autoUnrollForSource|autoUnrollForSource.*(?:worms|freshwater)",
+        text,
+        re.DOTALL,
+    ), (
+        "ODD-NTP-003: autoUnrollForSource must be gated on the WoRMS / "
+        "Freshwater source (CoL view stays a no-op)."
+    )
+
+
+def test_taxonomy_tree_uses_group_children_by_rank() -> None:
+    """ODD-NTP-003: the recursive render routes through
+    `groupChildrenByRank` so rank grouping + source filtering +
+    PAGE_SIZE staircase + showAll are all applied in the canonical
+    pure helper. The component must NOT reinvent grouping logic."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "groupChildrenByRank" in text, (
+        "ODD-NTP-003: TaxonomyTree.tsx must consume groupChildrenByRank."
+    )
+
+
+def test_tree_state_source_file_exports_ntp_003_helpers() -> None:
+    """ODD-NTP-003: tree-state.ts must export the full native
+    structural surface: PAGE_SIZE constant, groupChildrenByRank,
+    setShowAll / toggleShowAll / isShowAll, clearShowAll /
+    clearExpansion, autoUnrollForSource, expandedTierCount,
+    isLeafRank, and the `showAll` field on `TreeState`."""
+    text = _read_text(TAXONOMY_TREE_STATE_FILE)
+    for name in (
+        "PAGE_SIZE", "groupChildrenByRank", "setShowAll",
+        "toggleShowAll", "isShowAll", "clearShowAll",
+        "clearExpansion", "autoUnrollForSource",
+        "expandedTierCount", "isLeafRank", "RankGroup",
+    ):
+        assert re.search(
+            rf"export\s+(?:async\s+)?function\s+{name}\b|"
+            rf"export\s+const\s+{name}\b|"
+            rf"export\s+interface\s+{name}\b|"
+            rf"export\s+type\s+{name}\b",
+            text,
+        ), (
+            f"ODD-NTP-003: tree-state.ts must export `{name}`."
+        )
+    assert "showAll" in text, (
+        "ODD-NTP-003: tree-state.ts must carry a showAll field on TreeState."
+    )
+
+
+def test_tree_state_rank_group_contract() -> None:
+    """ODD-NTP-003: the `RankGroup` type exposes rank + count +
+    visibleIds + remaining + fullyShown — the exact fields the
+    React component reads to render the tier header + visible
+    children + Load N more affordance."""
+    text = _read_text(TAXONOMY_TREE_STATE_FILE)
+    for field in ("rank", "count", "visibleIds", "remaining", "fullyShown"):
+        assert re.search(
+            rf"readonly\s+{field}\s*:",
+            text,
+        ), (
+            f"ODD-NTP-003: RankGroup must expose `{field}`."
+        )
+
+
+def test_out_index_html_omits_display_contents_in_tree_css(static_export) -> None:
+    """ODD-NTP-003: the static export's CSS must NOT include
+    `.tree-row { display: contents }` (the previous ODD-VTREE-002
+    cascade). The new ODD-NTP-003 row is a real flex block so
+    the depth indent applies to the whole identity block."""
+    css_chunks = sorted((REPO_ROOT / "out" / "_next" / "static" / "chunks").glob("*.css"))
+    assert css_chunks, "static export must emit at least one CSS chunk"
+    css_body = "\n".join(
+        c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks
+    )
+    # The minified cascade concatenates `.tree-row{display:contents}`
+    # into one block. Reject that single concat only — generic
+    # `display:contents` references elsewhere (e.g. utility classes
+    # outside the tree cascade) are not in scope of this assertion.
+    assert ".tree-row{display:contents" not in css_body, (
+        "ODD-NTP-003: static CSS must not include "
+        "`.tree-row{display:contents}` (real block layout only)."
+    )
+    assert not re.search(
+        r"\.tree-row\s*\{[^}]*display\s*:\s*contents",
+        css_body,
+    ), (
+        "ODD-NTP-003: the .tree-row selector must use a block / flex "
+        "display, not `display: contents`."
+    )
+
+
+def test_out_index_html_has_tier_header_css(static_export) -> None:
+    """ODD-NTP-003: the static export's CSS must define the
+    `.tier-header` and `.load-all` rules so the native tier
+    grouping renders identically to the legacy oracle."""
+    css_chunks = sorted((REPO_ROOT / "out" / "_next" / "static" / "chunks").glob("*.css"))
+    css_body = "\n".join(
+        c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks
+    )
+    assert ".tier-header" in css_body, (
+        "ODD-NTP-003: static CSS must define the .tier-header rule."
+    )
+    assert ".load-all" in css_body, (
+        "ODD-NTP-003: static CSS must define the .load-all rule."
+    )
+    assert "collapse-all-btn" in css_body or ".collapse-all-btn" in css_body or "tree-collapse-all" in css_body, (
+        "ODD-NTP-003: static CSS must define the .collapse-all-btn / "
+        ".tree-collapse-all rule for the native collapse-all control."
     )
 
 
