@@ -31,11 +31,12 @@ After completing tree parity, the next selected slice is the native DetailPanel 
   - Implementation: selected taxon now mounts native-style Overview inside the tree island, with canonical identity/source/realm/status/count/path data, close behavior, source-aware chain controls, and per-taxon tab state.
   - Evidence: independent verifier approved; 380 related tests, strict typecheck, static build, CSS export evidence, and existing tree interaction checks passed. Later tabs are visibly disabled rather than falsely wired.
   - Delivery: ready to publish.
-- [ ] ODD-TDO-002 Verify and publish the Overview slice.
+- [x] ODD-TDO-002 Verify and publish the Overview slice.
   - Acceptance: focused tests, strict typecheck, static build, diff check, browser/API evidence, independent verification, conventional commit, and PR linked to issue #74 with exactly one `type:*` label.
+  - Delivery: PR #309 (`feat/taxonomy-detail-overview` → `develop`) merged via commit `a8ba85a`.
 
 ## Progress
-ODD-TDO-001 is independently verified and ready for PR delivery.
+ODD-TDO-001 and ODD-TDO-002 are merged to `develop` through PR #309 (commit `a8ba85a`). Later detail-panel tabs (Search, Folder, Vernaculars, Synonyms, Distribution) are tracked as separate slices; the Folder and Search tabs landed through PRs #310 and #318.
 
 ## Next step
-Commit, open a PR to `develop`, then wait for CI and explicit merge authorization.
+The ODD slice is closed. Read [`openspec/changes/complete-taxa-frontend-migration/SUPERSEDED.md`](../openspec/changes/complete-taxa-frontend-migration/SUPERSEDED.md) for the delivered-evidence summary and the remaining production cutover gap (`web/` to built `out/`, FastAPI mount, legacy removal, validation gates).

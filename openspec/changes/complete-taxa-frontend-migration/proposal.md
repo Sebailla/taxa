@@ -1,5 +1,13 @@
 # Proposal: complete-taxa-frontend-migration
 
+> **SUPERSEDED** — this OpenSpec change was **never executed as planned**.
+> The 16-child PR #143 chain stayed in draft and is **superseded by
+> direct-to-develop ODD deliveries**. This artifact is preserved as
+> planning history. See
+> [`SUPERSEDED.md`](./SUPERSEDED.md) for the delivered evidence and
+> the remaining production cutover gap. PR #143 will be closed without
+> merge after this documentation is published.
+
 > **Phase**: sdd-init seed. Successor to `migrate-nextjs-tailwind4`.
 > The total Taxa frontend migration is user-authorized; this change is
 > its OpenSpec/SDD home. **No application code is authored by this

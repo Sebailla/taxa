@@ -21,7 +21,12 @@ Backend/legacy changes; `only` filter UI, grouping, gazetteer/degree rendering, 
 
 ## Tasks
 - [x] ODD-TDDIST-001 Implement native Distribution contract and UI.
-- [ ] ODD-TDDIST-002 Verify and publish Distribution slice.
+- [x] ODD-TDDIST-002 Verify and publish Distribution slice.
+  - Delivery: PR #318 (`feat/taxonomy-detail-distribution` → `develop`) merged via commit `405ea2f`.
 
 ## Progress
 - ODD-TDDIST-001 implemented. Files: api.ts (DistributionEntry + fetchDistribution + FetchDistributionOptions + isValidDistribution + fromWireDistributionList), DetailPanel.tsx (Distribution tab enabled, distributionStatus + onRetryDistribution props wired, body dispatch on `activeTab === "distribution"`), DistributionTab.tsx (new pure renderer with DistributionTabStatus union + loading/empty/error/loaded/retry states + establishment-means chip with `unknown` fallback + area text), TaxonomyTree.tsx (distributionByTaxonId cache + loadDistribution callback + eager-fetch effect on `selected` change + handleSourceChange retains cache), index.ts (re-exports fetchDistribution + DistributionEntry + FetchDistributionOptions), globals.css (.distribution-tab cascade with alphabetical ordering under @layer components). Tests: test_taxonomy_infra.py (named-fn test, DistributionEntry + FetchDistributionOptions test, runtime harness for fetchDistribution: happy path, limit override, empty/non-OK/non-array/per-element-schema failures, type checks, id checks, JSON failures), test_visible_taxonomy_tree.py (18 new tests: file/client/canonical-projection/header+count/row-chip+area/loading/empty/error+retry/unknown-fallback/DetailPanel/enabled/body-dispatch/eager-fetch/cache/source-switch-retention/props-pass-through/barrel/CSS/static-export), test_research_styles.py (.distribution-tab whitelist). next-env.d.ts unchanged (drift resolved after validation). All 489 focused tests pass + TypeScript clean + next build succeeds.
+- ODD-TDDIST-002 merged through PR #318 (commit `405ea2f`).
+
+## Next step
+The ODD slice is closed. Read [`openspec/changes/complete-taxa-frontend-migration/SUPERSEDED.md`](../openspec/changes/complete-taxa-frontend-migration/SUPERSEDED.md) for the delivered-evidence summary and the remaining production cutover gap (`web/` to built `out/`, FastAPI mount, legacy removal, validation gates).
