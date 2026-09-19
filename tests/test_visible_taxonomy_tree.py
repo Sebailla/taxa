@@ -1530,21 +1530,66 @@ def test_tree_row_view_details_kebab_is_enabled() -> None:
     )
 
 
-def test_tree_row_open_folder_is_still_deferred() -> None:
-    """ODD-NTP-005: the kebab 'Open folder' item stays `disabled`
-    until the Folder tab + desktop file endpoints ship. Detail-panel
-    / desktop file actions still lack React backing."""
+def test_tree_row_open_folder_kebab_is_enabled_for_materialized_rows() -> None:
+    """ODD-OPENFOLDER-001: the kebab 'Open folder' item is ENABLED
+    (rendered ONLY when `hasMaterializedFolder(taxon)` is true) and
+    routes through the existing selection/focus primitive plus the
+    per-taxon Folder active-tab state, mirroring the legacy
+    `web/nav.js::open-folder-tab` handler byte-for-byte. The
+    materialization predicate is preserved so non-materialized rows
+    do NOT expose the action; the menu dismissal contract + the
+    keyboard accessibility story stay intact."""
     text = _read_text(TAXONOMY_TREE_ROW_FILE)
     match = re.search(
         r'data-action="open-folder-tab"[\s\S]*?</button>',
         text,
     )
-    assert match, "TreeRow.tsx must render the open-folder-tab kebab item."
+    assert match, (
+        "ODD-OPENFOLDER-001: TreeRow.tsx must render the open-folder-tab "
+        "kebab item (rendered only for materialized rows)."
+    )
     body = match.group(0)
-    assert "disabled" in body and 'aria-disabled="true"' in body, (
-        "ODD-NTP-005: 'Open folder' kebab item must stay disabled + "
-        "aria-disabled=\"true\" until the Folder tab + desktop file "
-        "endpoints ship."
+    # The kebab item is no longer deferred — the React Folder tab
+    # is fully backed and the navigation slice routes the action.
+    assert "disabled" not in body, (
+        "ODD-OPENFOLDER-001: 'Open folder' kebab item must NOT be "
+        "disabled; the React Folder tab + selection primitive back "
+        "the action (matching `web/nav.js::open-folder-tab`)."
+    )
+    assert 'aria-disabled="true"' not in body, (
+        "ODD-OPENFOLDER-001: 'Open folder' kebab item must NOT carry "
+        "aria-disabled=\"true\"; the navigation slice genuinely backs it."
+    )
+    # The item handler routes through `onKebabAction(taxon.id,
+    # "open-folder-tab")` so the parent can pin the active detail
+    # tab to "folder" and select/focus the taxon.
+    assert re.search(
+        r'onKebabAction\([^)]*"open-folder-tab"',
+        body,
+    ), (
+        "ODD-OPENFOLDER-001: 'Open folder' must call onKebabAction with "
+        "'open-folder-tab' so the parent can pin Folder as the active "
+        "detail tab (mirrors `web/nav.js::open-folder-tab`)."
+    )
+    # The kebab item is wrapped in `isMaterialized ? ... : null` so
+    # non-materialized rows do NOT expose the action — the predicate
+    # is preserved byte-for-byte (matches the legacy
+    # `web/tree.js::hasFolder` visibility rule).
+    assert re.search(
+        r"isMaterialized\s*\?\s*\(\s*<button",
+        text,
+    ), (
+        "ODD-OPENFOLDER-001: 'Open folder' must remain gated on the "
+        "`hasMaterializedFolder(taxon)` predicate so non-materialized "
+        "rows do NOT expose the action."
+    )
+    # The click handler must call `ev.stopPropagation()` so the row
+    # wrapper's `data-action="select"` / `"toggle-expand"` does not
+    # also fire on the click — matches the kebab-item contract used
+    # by the other enabled items.
+    assert "ev.stopPropagation()" in body, (
+        "ODD-OPENFOLDER-001: 'Open folder' click handler must "
+        "stopPropagation() so the row-level action does not also fire."
     )
 
 
@@ -1567,6 +1612,65 @@ def test_taxonomy_tree_handle_kebab_action_dispatches_view_details() -> None:
     assert "handleSelect(id)" in body, (
         "ODD-TDDISC-001: handleKebabAction must call handleSelect(id) "
         "for open-searches (the navigation slice's selection primitive)."
+    )
+
+
+def test_taxonomy_tree_handle_kebab_action_routes_open_folder_tab() -> None:
+    """ODD-OPENFOLDER-001: handleKebabAction routes 'open-folder-tab'
+    through the existing selection/focus primitive AND pins the
+    per-taxon active tab to 'folder' — mirroring the legacy
+    `web/nav.js::open-folder-tab` byte-for-byte (which set
+    `state.focused = id`, `state.activeTab[id] = "folder"`, then
+    `selectTaxon(id)`). The kebab dismissal contract stays intact
+    because `handleSelect` closes the kebab as a side effect."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    handle_idx = text.find("const handleKebabAction")
+    assert handle_idx != -1, (
+        "TaxonomyTree.tsx must declare handleKebabAction."
+    )
+    # Inspect the whole callback body (not just the first 800 chars)
+    # so the assertion on the 'open-folder-tab' branch is robust to
+    # any future comment padding above the new branch.
+    body = text[handle_idx:handle_idx + 1600]
+    assert "open-folder-tab" in body, (
+        "ODD-OPENFOLDER-001: handleKebabAction must branch on "
+        "'open-folder-tab'."
+    )
+    # Pin the active tab to 'folder' before delegating to
+    # handleSelect — matches `state.activeTab[id] = "folder"` in
+    # `web/nav.js`. The functional updater form keeps the callback
+    # identity stable across per-taxon cache mutations, so we
+    # anchor on the literal pattern rather than the deps array.
+    assert re.search(
+        r"setPerTaxonActiveTab\(",
+        body,
+    ), (
+        "ODD-OPENFOLDER-001: 'open-folder-tab' branch must update "
+        "perTaxonActiveTab so the Folder tab becomes the active tab "
+        "on first render (mirrors `state.activeTab[id] = 'folder'`)."
+    )
+    assert re.search(
+        r'next\.set\(\s*id\s*,\s*["\']folder["\']\s*\)',
+        body,
+    ), (
+        "ODD-OPENFOLDER-001: per-taxon active-tab update must set the "
+        "key to the literal 'folder' so the Folder tab lands on the "
+        "right row."
+    )
+    # Then call handleSelect(id) for selection/focus + kebab close
+    # (the kebab dismissal contract stays intact — handleSelect
+    # closes the kebab as a side effect, matching the legacy
+    # `selectTaxon(id)` flow in `web/nav.js`). Anchor on the
+    # `if (action === "open-folder-tab")` branch head so the regex
+    # proves THIS branch (and not a stray docstring mention of
+    # either token) actually calls handleSelect(id).
+    assert re.search(
+        r'if\s*\(\s*action\s*===\s*["\']open-folder-tab["\']\s*\)[\s\S]*?handleSelect\(id\)',
+        body,
+    ), (
+        "ODD-OPENFOLDER-001: 'open-folder-tab' branch must call "
+        "handleSelect(id) AFTER pinning the active tab so the "
+        "selection/focus + kebab-close side effects fire."
     )
 
 

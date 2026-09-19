@@ -73,9 +73,11 @@
  *     actions into a single menu that opens on click. ODD-NTP-005
  *     enables "View details" (the action maps to `onSelect`,
  *     which the navigation slice genuinely backs); "Open folder"
- *     stays disabled until the Folder tab + desktop file
- *     endpoints ship (detail-panel / desktop file actions still
- *     lack React backing).
+ *     (rendered only when `hasMaterializedFolder(taxon)` is true)
+ *     is enabled by ODD-OPENFOLDER-001 and routes through the
+ *     existing selection/focus primitive + the per-taxon active
+ *     tab state so the Folder detail tab lands on the right row
+ *     (mirrors `web/nav.js::open-folder-tab` byte-for-byte).
  *
  * ODD-TDDISC-001 — discoverable row-level detail action:
  *   - Every row renders a compact Material Symbols `visibility`
@@ -176,10 +178,14 @@ export interface TreeRowProps {
    *  level. */
   readonly onToggleKebab: (id: number) => void;
   /** Kebab item action handler. Called by every enabled kebab menu
-   *  item. With ODD-NTP-005 the navigation slice genuinely backs
-   *  `open-searches` (which delegates to `onSelect`); `open-folder-tab`
-   *  remains deferred until the Folder tab + desktop file endpoints
-   *  ship; `view-on-worms` is wired via anchor + target. */
+   *  item. ODD-OPENFOLDER-001: `open-folder-tab` is now ENABLED for
+   *  materialized rows (rendered only when
+   *  `hasMaterializedFolder(taxon)` is true) and routes through the
+   *  existing selection/focus primitive + the per-taxon active-tab
+   *  state, mirroring the legacy `web/nav.js::open-folder-tab`
+   *  handler (which sets `state.focused = id`,
+   *  `state.activeTab[id] = "folder"`, and `selectTaxon(id)`).
+   *  `view-on-worms` is wired via anchor + target. */
   readonly onKebabAction: (
     id: number,
     action: "open-searches" | "open-folder-tab" | "view-on-worms",
@@ -474,13 +480,20 @@ export default function TreeRow({
               </span>
               <span className="kebab-item-label">View details</span>
             </button>
-            {/* "Open folder" — DEFERRED. Renders ONLY when
-                `hasMaterializedFolder(taxon)` is true (the legacy
-                oracle showed the action only when the
-                root→taxon folder was on disk) and stays
-                `disabled` until the Folder tab + desktop file
-                endpoints ship (detail-panel / desktop file
-                actions still lack React backing). */}
+            {/* "Open folder" — ENABLED in ODD-OPENFOLDER-001 when
+                the taxon's root→taxon folder exists on disk (the
+                legacy oracle showed the action only when
+                `hasMaterializedFolder(taxon)` is true). The item
+                routes through `onKebabAction(id, "open-folder-tab")`
+                so the parent can pin the active detail tab to
+                "folder" and select/focus the taxon — mirrors the
+                legacy `web/nav.js::open-folder-tab` handler byte-
+                for-byte (which set `state.focused = id`,
+                `state.activeTab[id] = "folder"`, then
+                `selectTaxon(id)`). Non-materialized rows do NOT
+                expose the action — the predicate stays intact
+                so the affordance only appears when the folder
+                is on disk, matching the legacy visibility rule. */}
             {isMaterialized ? (
               <button
                 type="button"
@@ -488,9 +501,7 @@ export default function TreeRow({
                 data-action="open-folder-tab"
                 data-taxon-id={taxonIdStr}
                 role="menuitem"
-                disabled
-                aria-disabled="true"
-                title="Open folder (deferred — Folder tab + desktop file endpoints lack React backing)"
+                title="Open folder"
                 onClick={(ev) => {
                   ev.stopPropagation();
                   onKebabAction(taxon.id, "open-folder-tab");

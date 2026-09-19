@@ -19,8 +19,12 @@ Port the native DetailPanel Synonyms tab to React, exposing canonical synonym re
 Backend/legacy changes; source filtering; client sorting/pagination; status UI; synonym linking; Folder/Distribution; production cutover.
 
 ## Tasks
-- [ ] ODD-TDSYN-001 Implement native Synonyms data contract and UI.
-- [ ] ODD-TDSYN-002 Verify and publish Synonyms slice.
+- [x] ODD-TDSYN-001 Implement native Synonyms data contract and UI.
+- [x] ODD-TDSYN-002 Verify and publish Synonyms slice.
 
 ## Progress
-Created after source mapping. No implementation is written yet.
+- ODD-TDSYN-001 is implemented on `develop`: `api.ts` validates and projects `SynonymName` records through `fetchSynonyms`; `TaxonomyTree.tsx` eagerly loads the source-agnostic per-taxon cache; `DetailPanel.tsx` enables and dispatches the tab; `SynonymTab.tsx` renders loading, empty, retryable error, and loaded states with rank, scientific-name, and authorship rows while preserving server ordering and not rendering wire `status`; `globals.css` supplies the scoped rank-chip cascade. Focused contract, UI, and style coverage lives in `tests/test_taxonomy_infra.py`, `tests/test_visible_taxonomy_tree.py`, and `tests/test_research_styles.py`.
+- ODD-TDSYN-002 was published through merged PRs #314–#316 (commits `1a07156`, `6747c65`, `ef145eb`, merged to `develop` via `61b710f`, `fd64fe2`, and `ea9bc09`). Independent read-only verification on current `develop` passed 18 synonym-focused tests and 421 related tests across the taxonomy contracts, UI, styles, module boundaries, domain purity, restricted imports, and app shell. The live API smoke and regenerated static export were not run during this reconciliation pass.
+
+## Next step
+Address the stale disabled tree kebab “Open folder” affordance as its own bounded behavior change, or reconcile the remaining historical taxonomy-detail trackers.

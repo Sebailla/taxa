@@ -22,9 +22,12 @@
  *     contract stays so the parent keeps routing through
  *     `handleSelect`), so the kebab item lands here: it just
  *     calls `handleSelect(id)` and closes the open kebab menu.
- *     The "Open folder" item stays disabled until the Folder tab
- *     + desktop file endpoints ship (detail-panel / desktop file
- *     actions still lack React backing). ODD-TDDISC-001 ALSO
+ *     The "Open folder" item (rendered only when
+ *     `hasMaterializedFolder(taxon)` is true) is enabled by
+ *     ODD-OPENFOLDER-001: the handler pins the per-taxon active
+ *     tab to "folder" before delegating to `handleSelect(id)`,
+ *     mirroring `web/nav.js::open-folder-tab` byte-for-byte.
+ *     ODD-TDDISC-001 ALSO
  *     adds a compact Material Symbols `visibility` icon control
  *     on every row (`data-action="open-details"`) that calls
  *     `onSelect(taxon.id)` directly — the discoverable
@@ -119,9 +122,11 @@
  *     ODD-TDDISC-001 for discoverability; the
  *     `data-action="open-searches"` contract stays) is wired in
  *     ODD-NTP-005 to call `handleSelect(id)`. "Open folder"
- *     stays disabled until the Folder tab + desktop file
- *     endpoints ship (detail-panel / desktop file actions still
- *     lack React backing).
+ *     (rendered only for materialized rows) is enabled by
+ *     ODD-OPENFOLDER-001: the handler routes through the
+ *     selection/focus primitive AND pins the per-taxon active
+ *     tab to "folder", mirroring `web/nav.js::open-folder-tab`
+ *     byte-for-byte.
  *
  * Base URL comes from `process.env.NEXT_PUBLIC_TAXA_API_ORIGIN`
  * (inlined at build time). The variable is unset for production
@@ -1196,9 +1201,18 @@ export default function TaxonomyTree(): React.ReactElement {
 
   // ODD-NTP-005 — kebab item action handler. With ODD-NTP-005 the
   // navigation slice genuinely backs `open-searches` (select the
-  // taxon). The "Open folder" item stays disabled until the Folder
-  // tab + desktop file endpoints ship (detail-panel / desktop file
-  // actions still lack React backing).
+  // taxon). ODD-OPENFOLDER-001 enables `open-folder-tab` for
+  // materialized rows: the handler pins the per-taxon active tab
+  // to "folder" BEFORE `handleSelect(id)` runs so the detail panel
+  // lands on the Folder tab on first render — matching the legacy
+  // `web/nav.js::open-folder-tab` byte-for-byte (which set
+  // `state.focused = id`, `state.activeTab[id] = "folder"`, then
+  // `selectTaxon(id)`). `handleSelect` closes the kebab as a side
+  // effect, so the menu dismissal contract stays intact. The
+  // kebab item is rendered only for materialized rows on the
+  // TreeRow side (`hasMaterializedFolder(taxon)` predicate stays
+  // intact), so this handler is safe to dispatch unconditionally
+  // on the action name.
   const handleKebabAction = useCallback(
     (
       id: number,
@@ -1211,6 +1225,22 @@ export default function TaxonomyTree(): React.ReactElement {
         handleSelect(id);
         return;
       }
+      if (action === "open-folder-tab") {
+        // ODD-OPENFOLDER-001 — pin the active tab to "folder"
+        // first (matches `state.activeTab[id] = "folder"` in
+        // `web/nav.js`), then select + focus the taxon via the
+        // navigation primitive. The functional updater keeps the
+        // per-taxon map immutable so React's render cycle stays
+        // pure; `handleSelect` closes the kebab as a side effect
+        // so the menu dismissal contract is preserved.
+        setPerTaxonActiveTab((prev) => {
+          const next = new Map(prev);
+          next.set(id, "folder");
+          return next;
+        });
+        handleSelect(id);
+        return;
+      }
       if (action === "view-on-worms") {
         // The anchor + target="_blank" already navigates; this
         // handler is the future hook for analytics / log lines.
@@ -1219,6 +1249,8 @@ export default function TaxonomyTree(): React.ReactElement {
     },
     // `handleSelect` is stable by useCallback identity; listing
     // it explicitly keeps the exhaustive-deps lint quiet.
+    // `setPerTaxonActiveTab` uses the functional updater form so
+    // the callback identity stays stable across cache mutations.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
