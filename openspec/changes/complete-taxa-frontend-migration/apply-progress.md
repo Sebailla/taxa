@@ -1,5 +1,13 @@
 # Apply Progress: complete-taxa-frontend-migration
 
+> **SUPERSEDED** — this OpenSpec change was **never executed as planned**.
+> The 16-child PR #143 chain stayed in draft and is **superseded by
+> direct-to-develop ODD deliveries**. This artifact is preserved as
+> planning history. See
+> [`SUPERSEDED.md`](./SUPERSEDED.md) for the delivered evidence and
+> the remaining production cutover gap. PR #143 will be closed without
+> merge after this documentation is published.
+
 > Hybrid-mode persistence artifact. Mirrors the structured
 > apply-progress in Engram (`topic_key` =
 > `sdd/complete-taxa-frontend-migration/apply-progress`).

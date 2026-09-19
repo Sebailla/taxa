@@ -29,11 +29,12 @@ Search is the next detail-panel slice after merged Overview. Folder, Vernaculars
   - Implementation: added typed server-link projection, pure native category bridge, enabled Search body, eager selection cache, retry/source-reset behavior, and secure external links.
   - Evidence: 309 focused tests, strict typecheck, and static build passed. Independent verification was interrupted by unrelated stale-stash pollution; the candidate was restored and the same checks passed again.
   - Delivery: ready to publish.
-- [ ] ODD-TDS-002 Verify and publish Search slice.
+- [x] ODD-TDS-002 Verify and publish Search slice.
   - Acceptance: focused tests, typecheck, static build, diff check, browser/API evidence, independent verification, conventional commit, and PR linked to issue #74 with exactly one `type:*` label.
+  - Delivery: PR #310 (`feat/taxonomy-detail-search` → `develop`) merged via commit `5e1a208`.
 
 ## Progress
-ODD-TDS-001 is verified and ready for PR delivery.
+ODD-TDS-001 and ODD-TDS-002 are merged to `develop` through PR #310 (commit `5e1a208`). The Search tab is server-composed and URL templates resolve through the canonical `SEARCH_ENGINES` literal; no client-side URL construction.
 
 ## Next step
-Commit, open a PR to `develop`, then wait for CI and explicit merge authorization.
+The ODD slice is closed. Read [`openspec/changes/complete-taxa-frontend-migration/SUPERSEDED.md`](../openspec/changes/complete-taxa-frontend-migration/SUPERSEDED.md) for the delivered-evidence summary and the remaining production cutover gap (`web/` to built `out/`, FastAPI mount, legacy removal, validation gates).

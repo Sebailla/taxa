@@ -49,13 +49,12 @@ feature-branch chain; two PRs, each targeting `develop` sequentially after prior
   - Delivery: ready to commit and publish.
 - [x] ODD-VTREE-003 Verify each delivered slice and record evidence.
   - Evidence: PR A independently approved and merged. PR B independently approved with 121 focused tests, strict typecheck, static build, CORS/API probes, and Chromium root-load/expansion evidence.
-- [ ] ODD-VTREE-004 Publish each completed slice.
-  - Foundation: PR #300 merged.
-  - Visible tree: committed as `feat(taxonomy): mount visible tree` and published as PR #301 (`feat/visible-taxonomy-tree` → `develop`).
-  - Evidence: PR #301 links approved issue #74 and has exactly `type:feature`; Smoke tests are pending; no automatic merge.
+- [x] ODD-VTREE-004 Publish each completed slice.
+  - Foundation: PR #300 (commit `871d6f7`) merged.
+  - Visible tree: PR #301 (commit `20a4bc3`) merged. PR #301 linked approved issue #74 with exactly `type:feature`; Smoke tests passed.
 
 ## Progress
-ODD-VTREE-001 merged as PR #300. ODD-VTREE-002 is independently verified and published as PR #301: local preview loads six collapsed real roots and expands Viruses through direct FastAPI CORS. No merge is authorized.
+ODD-VTREE-001 through ODD-VTREE-004 are merged into `develop` through PRs #300 (commit `871d6f7`) and #301 (commit `20a4bc3`). The local-preview contract (six collapsed real roots, Viruses expansion through direct FastAPI CORS, CORS preflight) was independently verified and survived the merge.
 
 ## Next step
-Wait for PR #301 Smoke tests and human merge. The next UI scope (detail panel, breadcrumb, tabs, or research) requires a fresh decision.
+The ODD slice is closed. Read [`openspec/changes/complete-taxa-frontend-migration/SUPERSEDED.md`](../openspec/changes/complete-taxa-frontend-migration/SUPERSEDED.md) for the delivered-evidence summary and the remaining production cutover gap (`web/` to built `out/`, FastAPI mount, legacy removal, validation gates).

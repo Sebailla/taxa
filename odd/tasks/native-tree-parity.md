@@ -56,11 +56,12 @@ feature-branch-chain (user selected). Forecast: roughly 1,400 authored lines acr
   - Implementation: source-aware selection/focus and clickable breadcrumbs now use CoL/Freshwater wire parent relations and WoRMS attached source-tree edges; source switching clears source-bound navigation; leaf selection and supported kebab navigation are wired.
   - Evidence: 202 focused navigation/tree/style tests, strict TypeScript, static build, and diff check passed. Local Python Playwright/Chrome availability was restored for browser evidence; user visually confirmed the React UI functions identically to legacy.
   - Delivery: ready to commit and open the final parity PR against `develop`.
-- [ ] ODD-NTP-006 Publish parity work units.
+- [x] ODD-NTP-006 Publish parity work units.
   - Acceptance: each coherent work unit has a Conventional Commit and PR linked to approved issue #74 with exactly one `type:*` label; no automatic merge.
+  - Delivery: ODD-NTP-001 → PR #302 (commit `346e641`); ODD-NTP-002 source-selector → PR #303 closed without merge (work carried forward); ODD-NTP-003 → PR #306 (commit `0503ffc`); ODD-NTP-004 → PR #307 (commit `3bcc0e4`); ODD-NTP-005 → PR #308 (commit `c8ff6ee`). All merged to `develop`.
 
 ## Progress
-ODD-NTP-001 through ODD-NTP-004 are merged into `develop`. ODD-NTP-005 is verified with checks and user-observed browser parity, and is ready for final PR delivery.
+ODD-NTP-001 through ODD-NTP-006 are merged into `develop` through PRs #302, #306, #307, and #308. PR #303 (the first source-selector) was closed without merge; the rebased structure chain (#306 / #307 / #308) carries its source-selector work forward.
 
 ## Next step
-Commit and publish the final parity PR against `develop`; do not merge automatically.
+The ODD slice is closed. Read [`openspec/changes/complete-taxa-frontend-migration/SUPERSEDED.md`](../openspec/changes/complete-taxa-frontend-migration/SUPERSEDED.md) for the delivered-evidence summary and the remaining production cutover gap (`web/` to built `out/`, FastAPI mount, legacy removal, validation gates).
