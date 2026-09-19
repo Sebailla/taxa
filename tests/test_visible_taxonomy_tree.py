@@ -32,6 +32,9 @@ TAXONOMY_BARREL = REPO_ROOT / "src" / "modules" / "taxonomy" / "index.ts"
 TAXONOMY_DOMAIN_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "domain" / "taxon.ts"
 TAXONOMY_INFRA_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "infrastructure" / "api.ts"
 TAXONOMY_GLOBALS_CSS = REPO_ROOT / "src" / "app" / "globals.css"
+VERNACULAR_TAB_FILE = (
+    REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "VernacularTab.tsx"
+)
 SRC_PAGE = REPO_ROOT / "src" / "app" / "page.tsx"
 SRC_LAYOUT = REPO_ROOT / "src" / "app" / "layout.tsx"
 OUT_DIR = REPO_ROOT / "out"
@@ -2539,12 +2542,440 @@ def test_out_index_html_has_search_tab_styles(static_export) -> None:
     css_body = "\n".join(
         c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks
     )
-    # The container + section + header + list + link selectors are
-    # already covered by the existing `.search-tab` cascade in
+    # The container + section + header + list + link selectors
+    # are already covered by the existing `.search-tab` cascade in
     # `src/app/globals.css` (PR 3c-c.4). The static export's CSS
     # must surface at least the top-level `.search-tab` rule plus
     # one descendant that matches the link card.
     for needle in (".search-tab", ".search-link"):
         assert needle in css_body, (
             f"ODD-TDS-001: static CSS must define the {needle} rule."
+        )
+
+
+# ---------------------------------------------------------------------------
+# ODD-TDV-001 — native Vernaculars tab data contract + UI.
+#
+#   - `fetchVernaculars` is the canonical typed projection for
+#     `/api/taxon/{id}/vernaculars?limit=200`; preserves the
+#     FastAPI nullability of `language` + `country` verbatim
+#     (never coerces `null → ""`).
+#   - `VernacularTab` is the native React renderer; renders the
+#     `Vernacular names` header + count badge + the per-row
+#     `.detail-item` list with verbatim ISO language / country
+#     chips + name span, plus loading / empty / error / retry
+#     states.
+#   - `TaxonomyTree` owns the per-taxon vernacular cache + the
+#     eager-fetch-on-selection contract so tab activation paints
+#     the rows instantly. The cache survives source switches
+#     (the endpoint is source-agnostic).
+#   - `DetailPanel` enables the Vernaculars tab (`available: true`)
+#     and dispatches on `activeTab === "vernaculars"` to render
+#     the VernacularTab body.
+# ---------------------------------------------------------------------------
+
+
+def test_vernacular_tab_file_exists() -> None:
+    """ODD-TDV-001: VernacularTab component must exist as a `.tsx`
+    file in the taxonomy presentation folder."""
+    assert VERNACULAR_TAB_FILE.is_file(), (
+        f"missing {VERNACULAR_TAB_FILE} \u2014 ODD-TDV-001 ships this Vernaculars "
+        f"tab body component."
+    )
+    assert VERNACULAR_TAB_FILE.suffix == ".tsx", (
+        "VernacularTab must be `.tsx` (JSX-rendered)."
+    )
+
+
+def test_vernacular_tab_is_a_client_component() -> None:
+    """ODD-TDV-001: VernacularTab mounts inside the React client
+    island (TaxonomyTree -> DetailPanel -> VernacularTab). The
+    component declares the client boundary via `"use client"` so
+    the Retry button + the per-row chip rendering stay interactive
+    after hydration."""
+    text = _read_text(VERNACULAR_TAB_FILE)
+    assert text.lstrip().startswith('"use client"') or text.lstrip().startswith("'use client'"), (
+        "VernacularTab.tsx must declare the client boundary via 'use client'"
+    )
+
+
+def test_vernacular_tab_consumes_canonical_projection() -> None:
+    """ODD-TDV-001: VernacularTab imports the canonical
+    `VernacularName` projection from the infrastructure layer.
+    spec.md rule 4 keeps the component pure of deep imports into
+    sibling presentation helpers (the SearchLink / VernacularName
+    projection is the only domain contract this component needs)."""
+    text = _read_text(VERNACULAR_TAB_FILE)
+    assert "VernacularName" in text, (
+        "VernacularTab.tsx must consume the canonical `VernacularName` projection."
+    )
+
+
+def test_vernacular_tab_renders_native_header_and_count() -> None:
+    """ODD-TDV-001: the rendered VernacularTab carries the canonical
+    `Vernacular names` header (matches the legacy
+    `web/detail.js::buildDetailSection("translate", "Vernacular names",
+    d.vernaculars.length, items)` byte-for-byte) and a count badge
+    stamped on a per-row data attribute (`data-vernacular-count`).
+    The `translate` material-symbol icon spans the section header
+    so the native visual identity survives the React cutover."""
+    text = _read_text(VERNACULAR_TAB_FILE)
+    assert "translate" in text, (
+        "VernacularTab.tsx must render the `translate` material-symbol icon "
+        "in the section header (legacy oracle parity)."
+    )
+    assert "Vernacular names" in text, (
+        "VernacularTab.tsx must render the canonical `Vernacular names` header copy."
+    )
+    assert "vernacular-section-header" in text, (
+        "VernacularTab.tsx must stamp .vernacular-section-header on the header element."
+    )
+    assert "vernacular-section-count" in text, (
+        "VernacularTab.tsx must stamp .vernacular-section-count on the count badge."
+    )
+    assert "data-vernacular-count" in text, (
+        "VernacularTab.tsx must stamp data-vernacular-count on the loaded body so "
+        "tests + tooling can observe the row count."
+    )
+
+
+def test_vernacular_tab_renders_per_row_chips_and_name() -> None:
+    """ODD-TDV-001: every loaded row renders as a `.detail-item`
+    carrying the optional `.lang` ISO language chip + the optional
+    `.country` ISO country chip + the name span. The chips are
+    rendered only when the corresponding nullable wire field is
+    non-null (the `language` and `country` data attributes
+    reflect the row's nullable state verbatim). The legacy
+    `web/detail.js::loadDetail` skips the chip when the row
+    carries `null`, so the React port must mirror that contract
+    byte-for-byte."""
+    text = _read_text(VERNACULAR_TAB_FILE)
+    # Container: `.detail-item` carries the chips + name span.
+    assert "detail-item" in text, (
+        "VernacularTab.tsx must render .detail-item rows."
+    )
+    # Language + country chips + name span are rendered.
+    assert '"lang"' in text or "'lang'" in text, (
+        "VernacularTab.tsx must render the .lang ISO language chip on every row "
+        "whose wire language is non-null."
+    )
+    assert '"country"' in text or "'country'" in text, (
+        "VernacularTab.tsx must render the .country ISO country chip on every row "
+        "whose wire country is non-null."
+    )
+    # The conditional chip rendering branches on the nullable
+    # wire field — a row with `language === null` MUST NOT carry
+    # the chip element. The pattern below matches the React
+    # conditional `{v.language ? (<span className="lang">) : null}`.
+    assert re.search(
+        r"v\.language\s*\?\s*\(",
+        text,
+    ), (
+        "VernacularTab.tsx must conditionally render the language chip on the "
+        "row's nullable language field."
+    )
+    assert re.search(
+        r"v\.country\s*\?\s*\(",
+        text,
+    ), (
+        "VernacularTab.tsx must conditionally render the country chip on the "
+        "row's nullable country field."
+    )
+    # Each row carries `data-vernacular-item-id` so the legacy
+    # selector + the future row-click handler can identify the
+    # row without reading the chip text.
+    assert "data-vernacular-item-id" in text, (
+        "VernacularTab.tsx must stamp data-vernacular-item-id on every row."
+    )
+
+
+def test_vernacular_tab_renders_loading_state() -> None:
+    """ODD-TDV-001: the loading branch renders a `role="status"`
+    element with the canonical `aria-busy="true"` flag so
+    assistive tech announces the loading state. Mirrors the
+    SearchTab loading contract byte-for-byte."""
+    text = _read_text(VERNACULAR_TAB_FILE)
+    assert 'role="status"' in text or "role='status'" in text, (
+        "VernacularTab.tsx must render a role=\"status\" element for the loading state."
+    )
+    assert "aria-busy" in text, (
+        "VernacularTab.tsx must set aria-busy on the loading state for a11y tooling."
+    )
+    assert "Loading vernacular names" in text, (
+        "VernacularTab.tsx must render the canonical loading copy."
+    )
+
+
+def test_vernacular_tab_renders_empty_state() -> None:
+    """ODD-TDV-001: the empty branch renders a user-visible
+    "No vernacular names available for this taxon." message so the
+    panel never lands on a blank body for taxa with no
+    vernaculars. The `vernacular-section-count` is stamped as `0`
+    so the header badge mirrors the loaded count without a fake
+    row."""
+    text = _read_text(VERNACULAR_TAB_FILE)
+    assert "No vernacular names available for this taxon." in text, (
+        "VernacularTab.tsx must render the canonical empty copy."
+    )
+
+
+def test_vernacular_tab_renders_error_and_retry_state() -> None:
+    """ODD-TDV-001: the error branch renders a `role="alert"`
+    element + the failure message + a Retry button (carrying
+    `data-action="retry-vernaculars"` so the parent can route the
+    click through a delegated handler). The Retry button calls
+    the `onRetry` prop callback so the failure is recoverable
+    without a fresh taxon selection."""
+    text = _read_text(VERNACULAR_TAB_FILE)
+    assert 'role="alert"' in text or "role='alert'" in text, (
+        "VernacularTab.tsx must render a role=\"alert\" element for the error state."
+    )
+    assert "Could not load vernacular names." in text, (
+        "VernacularTab.tsx must render the canonical error copy."
+    )
+    assert "Retry" in text, (
+        "VernacularTab.tsx must render a Retry button."
+    )
+    assert 'data-action="retry-vernaculars"' in text, (
+        "VernacularTab.tsx must stamp data-action=\"retry-vernaculars\" on the Retry button."
+    )
+    assert "onRetry" in text, (
+        "VernacularTab.tsx must invoke the onRetry prop on Retry click."
+    )
+
+
+def test_detail_panel_enables_vernaculars_tab() -> None:
+    """ODD-TDV-001: the Vernaculars tab is ENABLED
+    (`available: true`). The legacy `web/detail.js::tabs` array
+    always pushed the Vernaculars tab when `hasVern` was true;
+    the React port's first slice shipped Overview + Search and
+    marked the rest as `available: false` per the
+    "visibly mark unavailable later tabs without fake actions"
+    policy. ODD-TDV-001 flips the Vernaculars entry to `true`
+    so the user can click into the native Vernacular names grid."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    # The DETAIL_TABS array must contain a `Vernaculars` entry
+    # whose `available` flag is `true`. The pattern below accepts
+    # either source-form (`available: true`) or a multi-line layout.
+    assert re.search(
+        r"key\s*:\s*[\"\']vernaculars[\"\']\s*,\s*label\s*:\s*[\"\']Vernaculars[\"\']"
+        r"[\s\S]{0,200}?available\s*:\s*true",
+        text,
+    ), (
+        "DetailPanel.tsx must declare the Vernaculars tab with `available: true` "
+        "(ODD-TDV-001 enables the Vernaculars tab body)."
+    )
+
+
+def test_detail_panel_renders_vernacular_tab_when_active() -> None:
+    """ODD-TDV-001: when `activeTab === "vernaculars"`, the panel
+    body renders `<VernacularTab>` instead of the Overview body.
+    The body slot must consume the canonical `VernacularTabStatus`
+    discriminated-union + the `onRetryVernaculars` callback so
+    the loading / empty / error / loaded states all render
+    correctly."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert "VernacularTab" in text, (
+        "DetailPanel.tsx must import the canonical VernacularTab component."
+    )
+    assert "VernacularTabStatus" in text, (
+        "DetailPanel.tsx must consume the VernacularTabStatus type for the "
+        "vernacularStatus prop."
+    )
+    # Body slot must dispatch on activeTab === "vernaculars" to
+    # render VernacularTab. The dispatch must branch BEFORE the
+    # Overview fallback.
+    assert re.search(
+        r"activeTab\s*===\s*[\"\']vernaculars[\"\']",
+        text,
+    ), (
+        "DetailPanel.tsx body must dispatch on activeTab === \"vernaculars\" "
+        "to render the VernacularTab."
+    )
+    assert re.search(
+        r"activeTab\s*===\s*[\"\']vernaculars[\"\'][\s\S]{0,200}?<VernacularTab",
+        text,
+    ), (
+        "DetailPanel.tsx must render <VernacularTab> when activeTab === \"vernaculars\"."
+    )
+    # onRetryVernaculars callback must be threaded through to the VernacularTab.
+    assert "onRetryVernaculars" in text, (
+        "DetailPanel.tsx must thread onRetryVernaculars through to VernacularTab."
+    )
+
+
+def test_taxonomy_tree_eager_fetches_vernaculars_on_selection() -> None:
+    """ODD-TDV-001: TaxonomyTree fires the canonical
+    `fetchVernaculars(id, { limit: 200 })` round trip the moment
+    a taxon becomes the active selection. The eager-fetch
+    contract pins the `useEffect` so re-selecting a previously
+    selected taxon lands on the cached result without a round
+    trip. The legacy `/api/taxon/{id}/vernaculars?limit=200`
+    request shape is preserved byte-identically."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "fetchVernaculars" in text, (
+        "TaxonomyTree.tsx must call the canonical fetchVernaculars helper."
+    )
+    assert "loadVernaculars" in text, (
+        "TaxonomyTree.tsx must declare a loadVernaculars callback."
+    )
+    assert "limit: 200" in text or "limit:200" in text, (
+        "TaxonomyTree.tsx must forward `limit: 200` to fetchVernaculars so the "
+        "request shape stays byte-identical to the legacy oracle."
+    )
+    # Eager-fetch effect must fire on `selected` change.
+    assert re.search(
+        r"useEffect\s*\(\s*\(\s*\)\s*=>\s*\{[^}]*selected[^}]*loadVernaculars",
+        text,
+        re.DOTALL,
+    ), (
+        "TaxonomyTree.tsx must declare a useEffect that calls "
+        "loadVernaculars when `selected` changes (ODD-TDV-001 eager-fetch contract)."
+    )
+
+
+def test_taxonomy_tree_owns_vernacular_cache() -> None:
+    """ODD-TDV-001: TaxonomyTree owns the per-taxon vernacular
+    cache as a `Map<number, VernacularTabStatus>`. The cache
+    survives across deselects so re-selecting a previously
+    selected taxon is also instant (mirrors how
+    `perTaxonActiveTab` memory + `searchesByTaxonId` cache
+    survive across deselects)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "vernacularsByTaxonId" in text, (
+        "TaxonomyTree.tsx must own a vernacularsByTaxonId cache."
+    )
+    assert re.search(
+        r"Map\s*<\s*number\s*,\s*VernacularTabStatus\s*>",
+        text,
+    ), (
+        "TaxonomyTree.tsx must own a Map<number, VernacularTabStatus> for "
+        "the per-taxon vernacular cache."
+    )
+
+
+def test_taxonomy_tree_keeps_vernacular_cache_across_source_switch() -> None:
+    """ODD-TDV-001: a source switch MUST NOT clear the per-taxon
+    vernacular cache (the `/api/taxon/{id}/vernaculars` endpoint
+    is source-agnostic, so a previously cached payload stays
+    valid under the new active source). The cached payload
+    survives `handleSourceChange` so re-selecting the same taxon
+    after a source switch is also instant (mirrors how
+    `perTaxonActiveTab` memory survives deselects). The
+    regression guard pins the contract so a future PR cannot
+    silently break the source-switch retention."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    handle_idx = text.find("const handleSourceChange")
+    assert handle_idx != -1, (
+        "TaxonomyTree.tsx must declare handleSourceChange."
+    )
+    body = text[handle_idx:handle_idx + 1200]
+    # The search-link cache IS cleared (ODD-TDS-001 contract).
+    assert "setSearchesByTaxonId" in body, (
+        "ODD-TDS-001: handleSourceChange must clear the per-taxon "
+        "search-link cache alongside the other source-bound resets."
+    )
+    # The vernacular cache MUST NOT be cleared (ODD-TDV-001
+    # contract). The function body must NOT carry a
+    # `setVernacularsByTaxonId(new Map())` call. Reading the
+    # source surface as text proves the contract; any future PR
+    # that adds the clear-call must also update the test.
+    assert "setVernacularsByTaxonId" not in body, (
+        "ODD-TDV-001: handleSourceChange MUST NOT clear the per-taxon "
+        "vernacular cache (the vernacular endpoint is source-agnostic)."
+    )
+
+
+def test_taxonomy_tree_passes_vernacular_props_to_detail_panel() -> None:
+    """ODD-TDV-001: TaxonomyTree threads `vernacularStatus` + the
+    retry callback through to the DetailPanel so the VernacularTab
+    body can render the loading / empty / error / loaded states.
+    The retry callback re-issues the `fetchVernaculars` request
+    through the same callback the eager-fetch effect uses."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "vernacularStatus" in text, (
+        "TaxonomyTree.tsx must thread vernacularStatus to DetailPanel."
+    )
+    assert "onRetryVernaculars" in text, (
+        "TaxonomyTree.tsx must thread onRetryVernaculars to DetailPanel."
+    )
+    # The retry callback must re-issue loadVernaculars for the
+    # currently selected taxon (mirrors the eager-fetch path).
+    assert re.search(
+        r"onRetryVernaculars\s*=\s*\{[^}]*loadVernaculars",
+        text,
+        re.DOTALL,
+    ), (
+        "TaxonomyTree.tsx must map onRetryVernaculars to a loadVernaculars call."
+    )
+
+
+def test_barrel_reexports_vernacular_contract() -> None:
+    """ODD-TDV-001: the taxonomy barrel must re-export the public
+    vernacular data contract so cross-module consumers can type
+    the payload + call the helper without a deep import
+    (spec.md rule 5)."""
+    text = _read_text(TAXONOMY_BARREL)
+    for name in (
+        "fetchVernaculars",
+        "FetchVernacularsOptions",
+        "VernacularName",
+    ):
+        assert name in text, (
+            f"taxonomy barrel must re-export `{name}` (ODD-TDV-001)."
+        )
+
+
+def test_globals_css_declares_vernacular_tab_selectors() -> None:
+    """ODD-TDV-001: `src/app/globals.css` must declare the new
+    `.vernacular-tab` cascade so the per-row `.detail-item` rows
+    + the verbatim ISO language / country chips + the section
+    header + count badge all render identically to the legacy
+    oracle. The selectors live under `@layer components` and are
+    in alphabetical order so the chain-topology guard in
+    `tests/test_research_styles.py` keeps whitelisting them."""
+    text = _read_text(TAXONOMY_GLOBALS_CSS)
+    layer = re.search(r"@layer\s+components\s*\{", text)
+    assert layer, "@layer components must exist in globals.css"
+    body = text[layer.end():]
+    layer_end = body.find("\n}\n")
+    if layer_end == -1:
+        layer_end = body.find("}")
+    body = body[:layer_end]
+    # Every selector must appear in the source. The minifier
+    # may strip whitespace / quotes, so we accept the bare class
+    # names without descendants.
+    for needle in (
+        ".vernacular-tab",
+        ".vernacular-tab > .vernacular-list",
+        ".vernacular-tab > .vernacular-list > .detail-item",
+        ".vernacular-tab > .vernacular-list > .detail-item > .lang",
+        ".vernacular-tab > .vernacular-list > .detail-item > .country",
+        ".vernacular-tab > .vernacular-section-header",
+        ".vernacular-tab > .vernacular-section-count",
+    ):
+        assert needle in body, (
+            f"globals.css @layer components must declare {needle}."
+        )
+
+
+def test_out_index_html_has_vernacular_tab_styles(static_export) -> None:
+    """ODD-TDV-001: the static export's CSS must define the
+    VernacularTab selectors introduced by the React cutover so
+    the native-style Vernacular names grid renders identically to
+    the legacy oracle. The selectors live under the whitelisted
+    `.vernacular-tab` base class so the chain-topology guard in
+    `tests/test_research_styles.py` keeps whitelisting them."""
+    css_chunks = sorted((REPO_ROOT / "out" / "_next" / "static" / "chunks").glob("*.css"))
+    css_body = "\n".join(
+        c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks
+    )
+    # The container + list + row + chip selectors are covered by
+    # the `.vernacular-tab` cascade in `src/app/globals.css`. The
+    # static export's CSS must surface at least the top-level
+    # `.vernacular-tab` rule plus the per-row `.detail-item`
+    # rule (so the legacy `web/detail.js` chip rendering matches).
+    for needle in (".vernacular-tab", ".detail-item"):
+        assert needle in css_body, (
+            f"ODD-TDV-001: static CSS must define the {needle} rule."
         )
