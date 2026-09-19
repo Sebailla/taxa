@@ -465,3 +465,133 @@ export async function fetchVernaculars(
   }
   return fromWireVernacularList(await readJson(r), `/api/taxon/${id}/vernaculars`);
 }
+
+/** ODD-TDSYN-001 — wire → domain projection for
+ *  `/api/taxon/{id}/synonyms`. Mirrors the FastAPI
+ *  `api/server.py::Synonym` Pydantic model field-for-field:
+ *  `id`, `rank`, `scientific_name`, nullable `authorship`,
+ *  `status`. The server preserves FastAPI nullability for the
+ *  authorship column (CoL/TextTree rows can carry `null`
+ *  authorship) and exposes `status` as a non-nullable string
+ *  because the SQL pre-filters to rows where
+ *  `status != 'accepted'` (`api/server.py::get_synonyms`). The
+ *  React port preserves the wire rank / name / authorship /
+ *  status values verbatim (the UI does NOT render the
+ *  status field — see `presentation/SynonymTab.tsx` — but the
+ *  projection MUST carry it so a future server-composed
+ *  status-derived affordance does not need a coordinated React
+ *  update). Ordering is server-driven (`ORDER BY rank,
+ *  scientific_name`) — the React port's render loop is a
+ *  for-each over the response array and never sorts / paginates
+ *  the wire payload client-side. */
+export interface SynonymName {
+  readonly id: number;
+  readonly rank: string;
+  readonly scientific_name: string;
+  readonly authorship: string | null;
+  readonly status: string;
+}
+
+/** Per-row validator. Every required field must be present with
+ *  the right type and a non-empty string content for `rank` and
+ *  `scientific_name`. `status` is server-guaranteed non-null
+ *  (the SQL pre-filter rejects accepted rows) and must be a
+ *  non-empty string. The nullable `authorship` MUST be either a
+ *  string (verbatim — the server passes CoL / TextTree through
+ *  untouched) or `null` (the wire-side "no value"). Any wire
+ *  mismatch (missing field, wrong type, empty rank / name /
+ *  status) surfaces as `TaxonomyApiError` so a per-element
+ *  shape drift cannot slip past the projection layer. */
+function isValidSynonym(value: unknown): value is SynonymName {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.id === "number" && Number.isInteger(v.id) &&
+    typeof v.rank === "string" && v.rank.length > 0 &&
+    typeof v.scientific_name === "string" && v.scientific_name.length > 0 &&
+    (v.authorship === null || typeof v.authorship === "string") &&
+    typeof v.status === "string" && v.status.length > 0
+  );
+}
+
+/** ODD-TDSYN-001 — wire → domain projection for the synonyms
+ *  payload. Reads the JSON array and validates each element
+ *  through `isValidSynonym`. A non-array payload or a
+ *  per-element shape mismatch surfaces as `TaxonomyApiError`
+ *  so the SynonymTab render loop can branch on a single
+ *  instance / name check. Mirrors `fromWireSearchList` and
+ *  `fromWireVernacularList` byte-for-byte: the caller-supplied
+ *  `context` is interpolated into every error message so log
+ *  lines can attribute the failure to the right endpoint. */
+function fromWireSynonymList(
+  payload: unknown,
+  context: string,
+): readonly SynonymName[] {
+  if (!Array.isArray(payload)) {
+    throw new TaxonomyApiError(
+      `taxonomy API ${context} returned a non-array payload: ` + typeof payload,
+    );
+  }
+  const out: SynonymName[] = [];
+  for (let i = 0; i < payload.length; i++) {
+    if (!isValidSynonym(payload[i])) {
+      throw new TaxonomyApiError(
+        `taxonomy API ${context} returned an invalid SynonymName at index ${i}: domain contract violated`,
+      );
+    }
+    out.push(payload[i] as SynonymName);
+  }
+  return out;
+}
+
+/** Public options surface for `fetchSynonyms`. Mirrors the
+ *  `FetchOptions` interface (transport-level `fetch` + `baseUrl`)
+ *  so the React port can drive the request with a stubbed fetch
+ *  under test. `limit` is forwarded verbatim as `?limit=N`; the
+ *  legacy `/api/taxon/{id}/synonyms?limit=200` request
+ *  (`web/detail.js::loadDetail`) is the byte-identical default,
+ *  so omitting the option keeps the React cutover's request
+ *  shape aligned with the legacy oracle. The FastAPI endpoint
+ *  clamps the limit server-side (`ge=1, le=1000`); the React
+ *  port does not re-validate the clamp because the server is
+ *  the source of truth for HTTP error semantics. */
+export interface FetchSynonymsOptions extends FetchOptions {
+  readonly limit?: number;
+}
+
+/** ODD-TDSYN-001 — fetch the synonym (historical name) rows for
+ *  a single taxon. Mirrors `fetchTaxon` + `fetchChildren` +
+ *  `fetchSearches` + `fetchVernaculars` in transport shape: id
+ *  validation → fetch + status guard → JSON parsing → wire →
+ *  domain projection. The wire shape is a JSON array of
+ *  `SynonymName` objects (`id`, `rank`, `scientific_name`,
+ *  nullable `authorship`, `status`); each row preserves the
+ *  verbatim rank / scientific_name / authorship / status values
+ *  the server composes. The endpoint is source-AGNOSTIC
+ *  (mirrors the legacy `web/detail.js::loadDetail` payload which
+ *  is also source-agnostic — the legacy oracle only changes the
+ *  selected taxon), so the React port's per-taxon cache
+ *  survives source switches (the contract mirrors the
+ *  `fetchVernaculars` source-agnostic retention). The wire
+ *  ordering (`ORDER BY rank, scientific_name`) is preserved
+ *  verbatim — the React port's render loop is a for-each over
+ *  the response array and never sorts / paginates client-side. */
+export async function fetchSynonyms(
+  id: number,
+  opts: FetchSynonymsOptions = {},
+): Promise<readonly SynonymName[]> {
+  if (!Number.isInteger(id) || id < 0) {
+    throw new TaxonomyApiError(`fetchSynonyms: id must be a non-negative integer; got ${id}`);
+  }
+  const f = opts.fetch ?? defaultFetch();
+  const limit = opts.limit ?? 200;
+  const query = `?limit=${encodeURIComponent(String(limit))}`;
+  const r = await f(url(opts.baseUrl ?? "", `/api/taxon/${id}/synonyms${query}`));
+  if (!r.ok) {
+    throw new TaxonomyApiError(
+      `taxonomy API GET /api/taxon/${id}/synonyms failed: ${r.status} ${r.statusText}`,
+      { status: r.status },
+    );
+  }
+  return fromWireSynonymList(await readJson(r), `/api/taxon/${id}/synonyms`);
+}

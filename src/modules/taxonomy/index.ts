@@ -23,6 +23,7 @@ export {
   fetchDomains,
   fetchSearches,
   fetchVernaculars,
+  fetchSynonyms,
   TaxonomyApiError,
 } from "./infrastructure/api";
 export type {
@@ -31,7 +32,9 @@ export type {
   FetchDomainsOptions,
   FetchSearchesOptions,
   FetchVernacularsOptions,
+  FetchSynonymsOptions,
   SearchLink,
+  SynonymName,
   TaxonomySource,
   VernacularName,
 } from "./infrastructure/api";
