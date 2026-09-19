@@ -88,8 +88,10 @@ def _block(text: str, opener: str, *, keep_comments: bool = False) -> str:
         return ""
     depth, cursor = 1, m.end()
     while cursor < len(stripped) and depth > 0:
-        if stripped[cursor] == "{": depth += 1
-        elif stripped[cursor] == "}": depth -= 1
+        if stripped[cursor] == "{":
+            depth += 1
+        elif stripped[cursor] == "}":
+            depth -= 1
         cursor += 1
     return stripped[m.end():cursor - 1] if depth == 0 else ""
 
@@ -101,7 +103,8 @@ def _rule(body: str, sel: str) -> str:
     if not m:
         return ""
     cursor = m.end()
-    while cursor < len(body) and body[cursor] != "{": cursor += 1
+    while cursor < len(body) and body[cursor] != "{":
+        cursor += 1
     if cursor >= len(body):
         return ""
     depth, end = 1, cursor + 1
@@ -122,11 +125,16 @@ def _top_level(body: str) -> list[str]:
                 head = re.sub(r"[:].*$", "", body[start:cursor].strip().split(",", 1)[0]).strip()
                 if head.startswith("."):
                     heads.append(head)
-            depth += 1; cursor += 1; start = cursor
+            depth += 1
+            cursor += 1
+            start = cursor
         elif ch == "}":
-            depth -= 1; cursor += 1; start = cursor
+            depth -= 1
+            cursor += 1
+            start = cursor
         else:
-            if ch == ";" and depth == 0: start = cursor + 1
+            if ch == ";" and depth == 0:
+                start = cursor + 1
             cursor += 1
     return heads
 
@@ -172,7 +180,7 @@ def test_layer_components_research_chrome_block_does_not_leak_taxonomy():
     body = _block(_read(GLOBALS_CSS), "@layer components")
     allowed = set(TAXONOMY_OWNED_BY_3C_B) | set(UTILITY_CLASSES_OWNED_BY_3C_E2) | {
         ".folder-tab", ".header-browser-tab", ".research-explorer", ".search-tab",
-        ".vernacular-tab",
+        ".synonym-tab", ".vernacular-tab",
     }
     for head in _top_level(body):
         m = re.match(r"^\.([^\s:>+~\.\[]+)", head)
