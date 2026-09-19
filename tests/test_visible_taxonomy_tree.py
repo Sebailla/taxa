@@ -3462,3 +3462,468 @@ def test_out_index_html_has_synonym_tab_styles(static_export) -> None:
         assert needle in css_body, (
             f"ODD-TDSYN-001: static CSS must define the {needle} rule."
         )
+
+
+# ---------------------------------------------------------------------------
+# ODD-TDDIST-001 — Distribution tab UI contract (native DetailPanel
+# Distribution tab body + per-taxon cache + eager-fetch on selection
+# + globals.css cascade + static-export CSS).
+# ---------------------------------------------------------------------------
+DISTRIBUTION_TAB_FILE = (
+    REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "DistributionTab.tsx"
+)
+
+
+def test_distribution_tab_file_exists() -> None:
+    """ODD-TDDIST-001: DistributionTab component must exist as a
+    `.tsx` file under the taxonomy presentation folder (mirrors
+    the ODD-TDSYN-001 / ODD-TDV-001 component files). The
+    suffix is `.tsx` because the file declares a JSX-rendered
+    React component (the `react-jsx` runtime requires
+    TypeScript's JSX checker, not plain `.ts`)."""
+    assert DISTRIBUTION_TAB_FILE.is_file(), (
+        f"missing {DISTRIBUTION_TAB_FILE} \u2014 ODD-TDDIST-001 ships this "
+        "Distribution tab component."
+    )
+    assert DISTRIBUTION_TAB_FILE.suffix == ".tsx", "DistributionTab must be `.tsx` (JSX-rendered)."
+
+
+def test_distribution_tab_is_a_client_component() -> None:
+    """ODD-TDDIST-001: DistributionTab mounts inside the React
+    client island (TaxonomyTree -> DetailPanel -> DistributionTab).
+    The component declares the client boundary via the
+    `"use client"` directive at the top of the file so the
+    React server / client boundary keeps the chip rendering +
+    the Retry button interactive (mirrors the ODD-TDS-001 +
+    ODD-TDV-001 + ODD-TDSYN-001 contracts)."""
+    text = _read_text(DISTRIBUTION_TAB_FILE)
+    assert '"use client"' in text or "'use client'" in text, (
+        "DistributionTab.tsx must declare the client boundary via 'use client'"
+    )
+
+
+def test_distribution_tab_consumes_canonical_projection() -> None:
+    """ODD-TDDIST-001: DistributionTab imports the canonical
+    `DistributionEntry` projection from the infrastructure layer.
+    A deep import would leak server composition concerns into
+    the client contract; a missing import would force the
+    component to type the rows inline (bypassing the canonical
+    projection)."""
+    text = _read_text(DISTRIBUTION_TAB_FILE)
+    assert "DistributionEntry" in text, (
+        "DistributionTab.tsx must consume the canonical `DistributionEntry` projection."
+    )
+    assert "from \"../infrastructure/api\"" in text, (
+        "DistributionTab.tsx must import the canonical projection from "
+        "../infrastructure/api (spec.md rule 4)."
+    )
+
+
+def test_distribution_tab_renders_native_header_and_count() -> None:
+    """ODD-TDDIST-001: the rendered DistributionTab carries the
+    canonical `Distribution` header (matches the legacy
+    `web/detail.js::buildDetailSection("public", "Distribution",
+    d.distribution.length, items)` byte-for-byte) and a count
+    badge stamped on a per-row data attribute
+    (`data-distribution-count`)."""
+    text = _read_text(DISTRIBUTION_TAB_FILE)
+    assert "public" in text, (
+        "DistributionTab.tsx must render the `public` material-symbol icon "
+        "(mirrors the legacy buildDetailSection icon)."
+    )
+    assert "Distribution" in text, (
+        "DistributionTab.tsx must render the canonical `Distribution` header copy."
+    )
+    assert "distribution-section-header" in text, (
+        "DistributionTab.tsx must stamp .distribution-section-header on the header element."
+    )
+    assert "distribution-section-count" in text, (
+        "DistributionTab.tsx must stamp .distribution-section-count on the count badge."
+    )
+    assert "data-distribution-count" in text, (
+        "DistributionTab.tsx must stamp data-distribution-count on the loaded body so "
+        "tests can pin the count without a deep class-name scrape."
+    )
+
+
+def test_distribution_tab_renders_per_row_chip_and_area() -> None:
+    """ODD-TDDIST-001: each row carries a `.means` chip (with a
+    per-value modifier class) + the area text. The chip +
+    area are the only two UI surfaces (the ODD-TDDIST-001
+    user constraint forbids rendering gazetteer / degree).
+    The chip must use the legacy `means-${means}` class
+    pattern so the existing CSS palette (`.means-native`,
+    `.means-introduced`, `.means-uncertain`,
+    `.means-unknown`) renders identically to the legacy
+    oracle."""
+    text = _read_text(DISTRIBUTION_TAB_FILE)
+    assert ".means" in text, (
+        "DistributionTab.tsx must render .means chip elements on every row."
+    )
+    assert "means-${means}" in text or 'means-${means}' in text or "means-" in text, (
+        "DistributionTab.tsx must render the .means-{means} per-value modifier "
+        "class so the CSS palette (.means-native / .means-introduced / "
+        ".means-uncertain / .means-unknown) applies correctly."
+    )
+    assert "distribution-area" in text, (
+        "DistributionTab.tsx must render the .distribution-area span for the area text."
+    )
+    # Each row carries `data-distribution-item-id` so the legacy
+    # `data-action` selector pattern keeps working + the
+    # means chip carries `data-distribution-item-means` so
+    # tests can pin the chip text without a deep class-name
+    # scrape.
+    assert "data-distribution-item-id" in text, (
+        "DistributionTab.tsx must stamp data-distribution-item-id on every row."
+    )
+    assert "data-distribution-item-means" in text, (
+        "DistributionTab.tsx must stamp data-distribution-item-means on every row."
+    )
+    assert "data-distribution-item-area" in text, (
+        "DistributionTab.tsx must stamp data-distribution-item-area on every row."
+    )
+
+
+def test_distribution_tab_renders_loading_state() -> None:
+    """ODD-TDDIST-001: the loading branch renders a
+    `role="status"` element with `aria-busy="true"` + the
+    canonical loading copy "Loading distribution…". Mirrors
+    the SearchTab + VernacularTab + SynonymTab loading
+    contracts byte-for-byte."""
+    text = _read_text(DISTRIBUTION_TAB_FILE)
+    assert 'role="status"' in text or "role='status'" in text, (
+        "DistributionTab.tsx must render a role=\"status\" element for the loading state."
+    )
+    assert "aria-busy" in text, (
+        "DistributionTab.tsx must set aria-busy on the loading state for a11y tooling."
+    )
+    assert "Loading distribution" in text, (
+        "DistributionTab.tsx must render the canonical loading copy."
+    )
+
+
+def test_distribution_tab_renders_empty_state() -> None:
+    """ODD-TDDIST-001: the empty branch renders a user-visible
+    "No distribution data available for this taxon."
+    message so the panel never lands on a blank body for taxa
+    with no distribution data. The `distribution-section-count`
+    is stamped as `0` so the header badge mirrors the loaded
+    count without a fake row."""
+    text = _read_text(DISTRIBUTION_TAB_FILE)
+    assert "No distribution data available for this taxon." in text, (
+        "DistributionTab.tsx must render the canonical empty copy."
+    )
+
+
+def test_distribution_tab_renders_error_and_retry_state() -> None:
+    """ODD-TDDIST-001: the error branch renders a `role="alert"`
+    element + the failure message + a Retry button (carrying
+    `data-action="retry-distribution"` so the parent can route
+    the click through a delegated handler). The Retry button
+    calls the `onRetry` prop callback so the failure is
+    recoverable without a fresh taxon selection."""
+    text = _read_text(DISTRIBUTION_TAB_FILE)
+    assert 'role="alert"' in text or "role='alert'" in text, (
+        "DistributionTab.tsx must render a role=\"alert\" element for the error state."
+    )
+    assert "Could not load distribution." in text, (
+        "DistributionTab.tsx must render the canonical error copy."
+    )
+    assert "Retry" in text, (
+        "DistributionTab.tsx must render a Retry button."
+    )
+    assert 'data-action="retry-distribution"' in text, (
+        "DistributionTab.tsx must stamp data-action=\"retry-distribution\" on the Retry button."
+    )
+    assert "onRetry" in text, (
+        "DistributionTab.tsx must invoke the onRetry prop on Retry click."
+    )
+
+
+def test_distribution_tab_renders_unknown_fallback_for_null_means() -> None:
+    """ODD-TDDIST-001: when the wire payload carries
+    `establishment_means: null`, the renderer substitutes the
+    `unknown` literal at render time only. Mirrors the legacy
+    `web/detail.js::buildDetailSection` `x.establishment_means
+    || "unknown"` fallback so the React port renders
+    identically when the wire carries `null`. The chip text
+    + the `.means-unknown` styling both apply so the chip
+    palette (`web/index.html::.means-unknown`) stays
+    consistent. The canonical projection keeps
+    `establishment_means: string | null` (no client
+    coercion) so the substitution happens in the renderer
+    only — mirroring how `VernacularName.language: null`
+    stays `null` and the chip is omitted at the renderer
+    (ODD-TDV-001)."""
+    text = _read_text(DISTRIBUTION_TAB_FILE)
+    assert "unknown" in text, (
+        "DistributionTab.tsx must render the `unknown` fallback for null "
+        "establishment_means values (mirrors the legacy `|| \"unknown\"` fallback)."
+    )
+    # The fallback must apply at the renderer (NOT in the
+    # projection layer). A projection-side `?? "unknown"`
+    # would coerce `null → "unknown"` on every read, losing
+    # the FastAPI nullability contract. The renderer-only
+    # application uses `entry.establishment_means ?? "unknown"`
+    # so the wire value round-trips verbatim and the fallback
+    # applies at paint time only.
+    assert "??" in text or "||" in text, (
+        "DistributionTab.tsx must apply the unknown fallback via `??` or `||` "
+        "at the renderer (not in the canonical projection)."
+    )
+
+
+def test_detail_panel_enables_distribution_tab() -> None:
+    """ODD-TDDIST-001: the Distribution tab is ENABLED
+    (`available: true`). The React port's earlier slice marked
+    Distribution as `available: false` per the "visibly mark
+    unavailable later tabs without fake actions" policy.
+    ODD-TDDIST-001 flips the Distribution entry to `true` so
+    the user can click into the native Distribution row list.
+    Folder stays `available: false` until its backing React
+    slice ships."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert re.search(
+        r"key\s*:\s*[\"\']distribution[\"\']\s*,\s*label\s*:\s*[\"\']Distribution[\"\']"
+        r"[\s\S]{0,200}?available\s*:\s*true",
+        text,
+    ), (
+        "DetailPanel.tsx must declare the Distribution tab with `available: true` "
+        "(ODD-TDDIST-001 enables the Distribution tab body)."
+    )
+
+
+def test_detail_panel_renders_distribution_tab_when_active() -> None:
+    """ODD-TDDIST-001: when `activeTab === "distribution"`, the
+    panel body renders `<DistributionTab>` instead of the
+    Overview body. The body slot must consume the canonical
+    `DistributionTabStatus` discriminated-union + the
+    `onRetryDistribution` callback so the loading / empty /
+    error / loaded states all render correctly."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert "DistributionTab" in text, (
+        "DetailPanel.tsx must import the canonical DistributionTab component."
+    )
+    assert "DistributionTabStatus" in text, (
+        "DetailPanel.tsx must consume the DistributionTabStatus type for the "
+        "distributionStatus prop."
+    )
+    # Body slot must dispatch on activeTab === "distribution" to
+    # render DistributionTab. The dispatch must branch BEFORE
+    # the Overview fallback.
+    assert re.search(
+        r"activeTab\s*===\s*[\"\']distribution[\"\']",
+        text,
+    ), (
+        "DetailPanel.tsx body must dispatch on activeTab === \"distribution\" "
+        "to render the DistributionTab."
+    )
+    assert re.search(
+        r"activeTab\s*===\s*[\"\']distribution[\"\'][\s\S]{0,200}?<DistributionTab",
+        text,
+    ), (
+        "DetailPanel.tsx must render <DistributionTab> when activeTab === \"distribution\"."
+    )
+    # onRetryDistribution callback must be threaded through to
+    # the DistributionTab.
+    assert "onRetryDistribution" in text, (
+        "DetailPanel.tsx must thread onRetryDistribution through to DistributionTab."
+    )
+
+
+def test_taxonomy_tree_eager_fetches_distribution_on_selection() -> None:
+    """ODD-TDDIST-001: TaxonomyTree fires the canonical
+    `fetchDistribution(id, { limit: 200 })` round trip the
+    moment a taxon becomes the active selection. The
+    eager-fetch contract pins the `useEffect` so re-selecting
+    a previously selected taxon lands on the cached result
+    without a round trip. The legacy
+    `/api/taxon/{id}/distribution?limit=200` request shape is
+    preserved byte-identically."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "fetchDistribution" in text, (
+        "TaxonomyTree.tsx must call the canonical fetchDistribution helper."
+    )
+    assert "loadDistribution" in text, (
+        "TaxonomyTree.tsx must declare a loadDistribution callback."
+    )
+    assert "limit: 200" in text or "limit:200" in text, (
+        "TaxonomyTree.tsx must forward `limit: 200` to fetchDistribution so the "
+        "request shape stays byte-identical to the legacy oracle."
+    )
+    # Eager-fetch effect must fire on `selected` change.
+    assert re.search(
+        r"useEffect\s*\(\s*\(\s*\)\s*=>\s*\{[^}]*selected[^}]*loadDistribution",
+        text,
+        re.DOTALL,
+    ), (
+        "TaxonomyTree.tsx must declare a useEffect that calls "
+        "loadDistribution when `selected` changes (ODD-TDDIST-001 eager-fetch contract)."
+    )
+
+
+def test_taxonomy_tree_owns_distribution_cache() -> None:
+    """ODD-TDDIST-001: TaxonomyTree owns the per-taxon
+    distribution cache as a `Map<number, DistributionTabStatus>`.
+    The cache survives across deselects so re-selecting a
+    previously selected taxon is also instant (mirrors how
+    `perTaxonActiveTab` memory + `searchesByTaxonId` +
+    `vernacularsByTaxonId` + `synonymsByTaxonId` caches
+    survive across deselects)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "distributionByTaxonId" in text, (
+        "TaxonomyTree.tsx must own a distributionByTaxonId cache."
+    )
+    assert re.search(
+        r"Map\s*<\s*number\s*,\s*DistributionTabStatus\s*>",
+        text,
+    ), (
+        "TaxonomyTree.tsx must own a Map<number, DistributionTabStatus> for "
+        "the per-taxon distribution cache."
+    )
+
+
+def test_taxonomy_tree_keeps_distribution_cache_across_source_switch() -> None:
+    """ODD-TDDIST-001: a source switch MUST NOT clear the
+    per-taxon distribution cache (the
+    `/api/taxon/{id}/distribution` endpoint is
+    source-agnostic — the FastAPI SQL filters by
+    `taxon_id = ?` regardless of the active tree source — so
+    a previously cached payload stays valid under the new
+    active source). The cached payload survives
+    `handleSourceChange` so re-selecting the same taxon after
+    a source switch is also instant (mirrors how
+    `vernacularsByTaxonId` + `synonymsByTaxonId` survive
+    source switches — the source-agnostic retention
+    contract)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    handle_idx = text.find("const handleSourceChange")
+    assert handle_idx != -1, (
+        "TaxonomyTree.tsx must declare handleSourceChange."
+    )
+    body = text[handle_idx:handle_idx + 1400]
+    # The search-link cache IS cleared (ODD-TDS-001 contract).
+    assert "setSearchesByTaxonId" in body, (
+        "ODD-TDS-001: handleSourceChange must clear the per-taxon "
+        "search-link cache alongside the other source-bound resets."
+    )
+    # The vernacular cache MUST NOT be cleared (ODD-TDV-001
+    # contract).
+    assert "setVernacularsByTaxonId" not in body, (
+        "ODD-TDV-001: handleSourceChange MUST NOT clear the per-taxon "
+        "vernacular cache (the vernacular endpoint is source-agnostic)."
+    )
+    # The synonym cache MUST NOT be cleared (ODD-TDSYN-001
+    # contract).
+    assert "setSynonymsByTaxonId" not in body, (
+        "ODD-TDSYN-001: handleSourceChange MUST NOT clear the per-taxon "
+        "synonym cache (the synonym endpoint is source-agnostic)."
+    )
+    # The distribution cache MUST NOT be cleared
+    # (ODD-TDDIST-001 contract). The function body must NOT
+    # carry a `setDistributionByTaxonId(new Map())` call.
+    # The regression guard pins the contract so a future PR
+    # cannot silently break the source-switch retention.
+    assert "setDistributionByTaxonId" not in body, (
+        "ODD-TDDIST-001: handleSourceChange MUST NOT clear the per-taxon "
+        "distribution cache (the distribution endpoint is source-agnostic)."
+    )
+
+
+def test_taxonomy_tree_passes_distribution_props_to_detail_panel() -> None:
+    """ODD-TDDIST-001: TaxonomyTree threads `distributionStatus` +
+    the retry callback through to the DetailPanel so the
+    DistributionTab body can render the loading / empty / error
+    / loaded states. The retry callback re-issues the
+    `fetchDistribution` request through the same callback the
+    eager-fetch effect uses."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "distributionStatus" in text, (
+        "TaxonomyTree.tsx must thread distributionStatus to DetailPanel."
+    )
+    assert "onRetryDistribution" in text, (
+        "TaxonomyTree.tsx must thread onRetryDistribution to DetailPanel."
+    )
+    # The retry callback must re-issue loadDistribution for the
+    # currently selected taxon (mirrors the eager-fetch path).
+    assert re.search(
+        r"onRetryDistribution\s*=\s*\{[^}]*loadDistribution",
+        text,
+        re.DOTALL,
+    ), (
+        "TaxonomyTree.tsx must map onRetryDistribution to a loadDistribution call."
+    )
+
+
+def test_barrel_reexports_distribution_contract() -> None:
+    """ODD-TDDIST-001: the taxonomy barrel must re-export the
+    public distribution data contract so cross-module consumers
+    can type the payload + call the helper without a deep
+    import (spec.md rule 5)."""
+    text = _read_text(TAXONOMY_BARREL)
+    for name in (
+        "fetchDistribution",
+        "FetchDistributionOptions",
+        "DistributionEntry",
+    ):
+        assert name in text, (
+            f"taxonomy barrel must re-export `{name}` (ODD-TDDIST-001)."
+        )
+
+
+def test_globals_css_declares_distribution_tab_selectors() -> None:
+    """ODD-TDDIST-001: `src/app/globals.css` must declare the
+    new `.distribution-tab` cascade so the per-row `.detail-item`
+    rows + the establishment-means chip + the area text + the
+    section header + count badge all render identically to the
+    legacy oracle. The selectors live under `@layer components`
+    and are in alphabetical order so the chain-topology guard
+    in `tests/test_research_styles.py` keeps whitelisting them."""
+    text = _read_text(TAXONOMY_GLOBALS_CSS)
+    layer = re.search(r"@layer\s+components\s*\{", text)
+    assert layer, "@layer components must exist in globals.css"
+    body = text[layer.end():]
+    layer_end = body.find("\n}\n")
+    if layer_end == -1:
+        layer_end = body.find("}")
+    body = body[:layer_end]
+    # Every selector must appear in the source. The minifier
+    # may strip whitespace / quotes, so we accept the bare
+    # class names without descendants.
+    for needle in (
+        ".distribution-tab",
+        ".distribution-tab > .distribution-list",
+        ".distribution-tab > .distribution-list > .detail-item",
+        ".distribution-tab > .distribution-list > .detail-item > .means",
+        ".distribution-tab > .distribution-list > .detail-item > .means-unknown",
+        ".distribution-tab > .distribution-list > .detail-item > .distribution-area",
+        ".distribution-tab > .distribution-section-header",
+        ".distribution-tab > .distribution-section-count",
+    ):
+        assert needle in body, (
+            f"globals.css @layer components must declare {needle}."
+        )
+
+
+def test_out_index_html_has_distribution_tab_styles(static_export) -> None:
+    """ODD-TDDIST-001: the static export's CSS must define the
+    DistributionTab selectors introduced by the React cutover
+    so the native-style Distribution row list renders
+    identically to the legacy oracle. The selectors live
+    under the whitelisted `.distribution-tab` base class so
+    the chain-topology guard in
+    `tests/test_research_styles.py` keeps whitelisting them."""
+    css_chunks = sorted((REPO_ROOT / "out" / "_next" / "static" / "chunks").glob("*.css"))
+    css_body = "\n".join(
+        c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks
+    )
+    # The container + list + row + chip selectors are covered
+    # by the `.distribution-tab` cascade in `src/app/globals.css`.
+    # The static export's CSS must surface at least the
+    # top-level `.distribution-tab` rule plus the per-row
+    # `.means` rule (so the establishment-means chip + area
+    # rendering matches the legacy oracle).
+    for needle in (".distribution-tab", ".means"):
+        assert needle in css_body, (
+            f"ODD-TDDIST-001: static CSS must define the {needle} rule."
+        )

@@ -29,6 +29,23 @@
 // `/api/domains` and `/api/taxon/{id}/children`. The parameter is
 // omitted when no source is supplied so the default CoL request
 // shape is byte-identical to the pre-ODD-NTP-001 contract.
+//
+// ODD-TDDIST-001 — distribution wire → domain projection. Every
+// legacy distribution field exposed on the FastAPI wire survives
+// the projection: `id`, `area`, nullable `gazetteer`, nullable
+// `establishment_means`, nullable `degree_of_establishment`. The
+// UI only renders `establishment_means` + `area` (per the
+// ODD-TDDIST-001 user constraint: "do not render gazetteer or
+// degree") but the canonical projection MUST carry every wire
+// field so a future server-composed gazetteer tooltip /
+// degree-derived affordance does not require a coordinated React
+// update — mirroring how `SynonymName.status` survives even
+// though `SynonymTab` does not render it (ODD-TDSYN-001). Wire
+// ordering (`ORDER BY establishment_means, area`) is preserved
+// verbatim — the React port's render loop is a for-each over the
+// response array and never sorts / groups / filters / paginates
+// client-side (per the ODD-TDDIST-001 user constraint: "do not
+// group/filter/sort").
 
 import { isValidTaxon } from "../domain/taxon";
 import type { Taxon } from "../domain/taxon";
@@ -594,4 +611,154 @@ export async function fetchSynonyms(
     );
   }
   return fromWireSynonymList(await readJson(r), `/api/taxon/${id}/synonyms`);
+}
+
+/** ODD-TDDIST-001 — wire → domain projection for
+ *  `/api/taxon/{id}/distribution`. Mirrors the FastAPI
+ *  `api/server.py::DistributionEntry` Pydantic model field-for-
+ *  field: `id`, `area`, nullable `gazetteer`, nullable
+ *  `establishment_means`, nullable `degree_of_establishment`.
+ *  The server preserves FastAPI nullability for the three
+ *  nullable columns (CoL distribution rows may carry `null`
+ *  gazetteer + `null` establishment_means + `null`
+ *  degree_of_establishment). The `area` column is server-
+ *  guaranteed non-null + non-empty (CoL NOT NULL constraint +
+ *  the SQL only returns rows where `area IS NOT NULL AND
+ *  area != ''`). The React port preserves every wire field
+ *  verbatim — the UI only renders `establishment_means` +
+ *  `area` (per the ODD-TDDIST-001 user constraint: "do not
+ *  render gazetteer/degree or group/filter/sort") but the
+ *  canonical projection MUST carry every wire field so a
+ *  future server-composed gazetteer tooltip or
+ *  degree-derived affordance does not require a coordinated
+ *  React update — mirroring how `SynonymName.status`
+ *  survives even though `SynonymTab` does not render it
+ *  (ODD-TDSYN-001). Wire ordering
+ *  (`ORDER BY establishment_means, area`) is preserved
+ *  verbatim — the React port's render loop is a for-each
+ *  over the response array and never sorts / groups /
+ *  filters / paginates client-side (per the
+ *  ODD-TDDIST-001 user constraint). */
+export interface DistributionEntry {
+  readonly id: number;
+  readonly area: string;
+  readonly gazetteer: string | null;
+  readonly establishment_means: string | null;
+  readonly degree_of_establishment: string | null;
+}
+
+/** Per-row validator. Every required field must be present
+ *  with the right type and a non-empty string content for
+ *  `area`. The three nullable fields (`gazetteer`,
+ *  `establishment_means`, `degree_of_establishment`) MUST be
+ *  either a string (verbatim — the server preserves CoL's
+ *  nullable columns untouched) or `null` (the wire-side "no
+ *  value"). Any wire mismatch (missing field, wrong type,
+ *  empty `area`) surfaces as `TaxonomyApiError` so a
+ *  per-element shape drift cannot slip past the projection
+ *  layer. */
+function isValidDistribution(value: unknown): value is DistributionEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.id === "number" && Number.isInteger(v.id) &&
+    typeof v.area === "string" && v.area.length > 0 &&
+    (v.gazetteer === null || typeof v.gazetteer === "string") &&
+    (v.establishment_means === null || typeof v.establishment_means === "string") &&
+    (v.degree_of_establishment === null ||
+      typeof v.degree_of_establishment === "string")
+  );
+}
+
+/** ODD-TDDIST-001 — wire → domain projection for the
+ *  distribution payload. Reads the JSON array and validates
+ *  each element through `isValidDistribution`. A non-array
+ *  payload or a per-element shape mismatch surfaces as
+ *  `TaxonomyApiError` so the DistributionTab render loop can
+ *  branch on a single instance/name check. Mirrors
+ *  `fromWireSearchList`, `fromWireVernacularList`, and
+ *  `fromWireSynonymList` byte-for-byte: the caller-supplied
+ *  `context` is interpolated into every error message so
+ *  log lines can attribute the failure to the right
+ *  endpoint. */
+function fromWireDistributionList(
+  payload: unknown,
+  context: string,
+): readonly DistributionEntry[] {
+  if (!Array.isArray(payload)) {
+    throw new TaxonomyApiError(
+      `taxonomy API ${context} returned a non-array payload: ` + typeof payload,
+    );
+  }
+  const out: DistributionEntry[] = [];
+  for (let i = 0; i < payload.length; i++) {
+    if (!isValidDistribution(payload[i])) {
+      throw new TaxonomyApiError(
+        `taxonomy API ${context} returned an invalid DistributionEntry at index ${i}: domain contract violated`,
+      );
+    }
+    out.push(payload[i] as DistributionEntry);
+  }
+  return out;
+}
+
+/** Public options surface for `fetchDistribution`. Mirrors the
+ *  `FetchOptions` interface (transport-level `fetch` + `baseUrl`)
+ *  so the React port can drive the request with a stubbed fetch
+ *  under test. `limit` is forwarded verbatim as `?limit=N`; the
+ *  legacy `/api/taxon/{id}/distribution?limit=200` request
+ *  (`web/detail.js::loadDetail`) is the byte-identical default,
+ *  so omitting the option keeps the React cutover's request
+ *  shape aligned with the legacy oracle. The FastAPI endpoint
+ *  clamps the limit server-side (`ge=1, le=1000`); the React
+ *  port does not re-validate the clamp because the server is
+ *  the source of truth for HTTP error semantics. */
+export interface FetchDistributionOptions extends FetchOptions {
+  readonly limit?: number;
+}
+
+/** ODD-TDDIST-001 — fetch the distribution (geographic range)
+ *  rows for a single taxon. Mirrors `fetchTaxon` +
+ *  `fetchChildren` + `fetchSearches` + `fetchVernaculars` +
+ *  `fetchSynonyms` in transport shape: id validation → fetch +
+ *  status guard → JSON parsing → wire → domain projection. The
+ *  wire shape is a JSON array of `DistributionEntry` objects
+ *  (`id`, `area`, nullable `gazetteer`, nullable
+ *  `establishment_means`, nullable `degree_of_establishment`);
+ *  each row preserves the verbatim CoL nullable columns the
+ *  server passes through. The endpoint is source-AGNOSTIC
+ *  (mirrors the legacy `web/detail.js::loadDetail` payload
+ *  which is also source-agnostic — the legacy oracle only
+ *  changes the selected taxon), so the React port's per-taxon
+ *  cache survives source switches (the contract mirrors the
+ *  `fetchVernaculars` + `fetchSynonyms` source-agnostic
+ *  retention). The wire ordering
+ *  (`ORDER BY establishment_means, area`) is preserved
+ *  verbatim — the React port's render loop is a for-each over
+ *  the response array and never sorts / groups / filters /
+ *  paginates client-side (per the ODD-TDDIST-001 user
+ *  constraint). The UI does NOT render the wire `gazetteer` or
+ *  `degree_of_establishment` fields (per the ODD-TDDIST-001
+ *  user constraint: "do not render gazetteer/degree or
+ *  group/filter/sort"), but the canonical projection carries
+ *  them so a future server-composed affordance does not
+ *  require a coordinated React update. */
+export async function fetchDistribution(
+  id: number,
+  opts: FetchDistributionOptions = {},
+): Promise<readonly DistributionEntry[]> {
+  if (!Number.isInteger(id) || id < 0) {
+    throw new TaxonomyApiError(`fetchDistribution: id must be a non-negative integer; got ${id}`);
+  }
+  const f = opts.fetch ?? defaultFetch();
+  const limit = opts.limit ?? 200;
+  const query = `?limit=${encodeURIComponent(String(limit))}`;
+  const r = await f(url(opts.baseUrl ?? "", `/api/taxon/${id}/distribution${query}`));
+  if (!r.ok) {
+    throw new TaxonomyApiError(
+      `taxonomy API GET /api/taxon/${id}/distribution failed: ${r.status} ${r.statusText}`,
+      { status: r.status },
+    );
+  }
+  return fromWireDistributionList(await readJson(r), `/api/taxon/${id}/distribution`);
 }
