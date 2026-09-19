@@ -20,8 +20,12 @@ Port the native DetailPanel Folder tab to React, including safe preview, materia
 Backend/legacy changes, Browser tab refresh, tree kebab action, new toast dependency, folder filters, and production cutover.
 
 ## Tasks
-- [ ] ODD-TDFOLDER-001 Implement native Folder contract and UI.
-- [ ] ODD-TDFOLDER-002 Verify and publish Folder slice.
+- [x] ODD-TDFOLDER-001 Implement native Folder contract and UI.
+- [x] ODD-TDFOLDER-002 Verify and publish Folder slice.
 
 ## Progress
-Created after legacy/API mapping and explicit filesystem UX decisions.
+- ODD-TDFOLDER-001 is implemented on `develop`: `api.ts` defines validated preview/materialize/open contracts; `TaxonomyTree.tsx` owns the source-aware preview and side-effect state; `DetailPanel.tsx` enables and wires the tab; `FolderTab.tsx` renders loading, retryable error, preview, confirmation, create, open, copy, and accumulated-path states; `globals.css` supplies the scoped presentation styles. Focused contracts and UI coverage are included in `tests/test_taxonomy_infra.py` and `tests/test_visible_taxonomy_tree.py`.
+- ODD-TDFOLDER-002 was published through the merged tracker/contracts/UI PR chain (#319–#321; commits `f4f1c07`, `bb38615`, `9fc5b37`, merged to `develop` via `ed9184e`, `c4428d9`, and `32ec9a3`). Independent read-only verification on current `develop` passed 260 focused tests and 168 module-boundary tests. The optional API smoke, parity harness, and Next static build were not run in this reconciliation pass.
+
+## Next step
+Choose the next unimplemented taxonomy-detail slice or reconcile the remaining historical ODD trackers before starting new implementation.
