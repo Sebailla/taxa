@@ -521,3 +521,292 @@ def test_barrel_exports_typed_surface() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Compile + runtime contract — strict mode, ES2022 + DOM libs (the
+# typed store needs `window.localStorage` and `useSyncExternalStore`
+# is a React API). Runtime harness exercises every observable surface.
+# ---------------------------------------------------------------------------
+def _tsc_inputs() -> list[Path]:
+    """Files to feed tsc: keys.ts, defaults.ts, store.ts, and the
+    application hook. The hook imports React; we keep the libs
+    ES2022 + DOM so the React global is visible.
+    """
+    return [
+        p for p in (
+            DOMAIN_KEYS_FILE,
+            DOMAIN_DEFAULTS_FILE,
+            INFRA_STORE_FILE,
+            APP_HOOK_FILE,
+        ) if p.is_file()
+    ]
+
+
+def _run_tsc(out_dir: Path, *extra: str) -> subprocess.CompletedProcess:
+    sources = [str(p) for p in _tsc_inputs()]
+    if len(sources) < 4:
+        pytest.skip("required source files missing")
+    return subprocess.run(
+        [
+            "npx", "--yes", "-p", "typescript@5.7", "tsc",
+            "--strict", "--target", "ES2022",
+            "--module", "commonjs",
+            "--lib", "ES2022,DOM",
+            "--jsx", "react-jsx",
+            "--skipLibCheck",
+            "--esModuleInterop",
+            "--types", "react",
+            "--rootDir", "src/modules/browser-state",
+            "--outDir", str(out_dir),
+            *sources,
+            *extra,
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+# Runtime harness — exercises every observable surface without
+# booting a real React renderer. The hook is tested through its
+# underlying read/write/subscribe API because `useSyncExternalStore`
+# requires a React renderer (PR 4b owns the React integration test).
+# The contract we lock here is the typed-store surface; the
+# `useSyncExternalStore` wiring is exercised separately by
+# `tests/test_browser_state_hydration_guard.py`.
+_RUNTIME_HARNESS = r"""
+const path = require("path");
+const fs = require("fs");
+
+// jsdom-free harness: the typed store is the only React-free
+// surface; we exercise it directly. A minimal `window` /
+// `localStorage` polyfill is enough to drive the contract — the
+// store falls back to defaults when storage is missing.
+const makeStorage = (initial) => {
+  const map = new Map(Object.entries(initial || {}));
+  return {
+    getItem: (k) => (map.has(k) ? map.get(k) : null),
+    setItem: (k, v) => { map.set(k, String(v)); },
+    removeItem: (k) => { map.delete(k); },
+    _store: map,
+  };
+};
+
+function withWindow(storage, fn) {
+  const prevWindow = globalThis.window;
+  const prevLS = globalThis.localStorage;
+  globalThis.window = { localStorage: storage };
+  globalThis.localStorage = storage;
+  try {
+    return fn();
+  } finally {
+    if (prevWindow === undefined) delete globalThis.window;
+    else globalThis.window = prevWindow;
+    if (prevLS === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = prevLS;
+  }
+}
+
+const fail = (label) => {
+  process.stderr.write("FAIL " + label + "\n");
+  process.exit(1);
+};
+const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+const mod = require(path.resolve(process.argv[2]));
+// tsc preserves the layer folder structure (--rootDir +
+// per-source relative paths), so the compiled `store.js` lives
+// under `out/infrastructure/` and `defaults.js` lives under
+// `out/domain/`. Resolve defaults via `path.relative` from
+// `store.js`'s directory.
+const storeDir = path.dirname(path.resolve(process.argv[2]));
+const defaults = require(path.resolve(storeDir, "../domain/defaults.js"));
+const {
+  readTheme, writeTheme, subscribeTheme,
+  readTreeSource, writeTreeSource, subscribeTreeSource,
+  readLastTaxonId, writeLastTaxonId, subscribeLastTaxonId,
+  readKebabOpenId, writeKebabOpenId, subscribeKebabOpenId,
+  reset,
+  __resetForTests,
+} = mod;
+const {
+  DEFAULT_THEME, DEFAULT_TREE_SOURCE,
+  DEFAULT_LAST_TAXON_ID, DEFAULT_KEBAB_OPEN_ID,
+} = defaults;
+
+// 1. Defaults before any storage / hydration.
+__resetForTests();
+withWindow(makeStorage(), () => {
+  __resetForTests();
+  if (readTheme() !== DEFAULT_THEME) fail("theme_default");
+  if (readTheme() !== "light") fail("theme_default_light");
+  if (readTreeSource() !== DEFAULT_TREE_SOURCE) fail("tree_source_default");
+  if (readTreeSource() !== "col") fail("tree_source_default_col");
+  if (readLastTaxonId() !== null) fail("last_taxon_id_default");
+  if (readKebabOpenId() !== null) fail("kebab_open_id_default");
+});
+
+// 2. Read from a populated storage and re-read after reset.
+withWindow(
+  makeStorage({
+    "taxa.settings.theme": "dark",
+    "taxa.tree.source": "worms",
+    "taxa.tree.lastTaxonId": "42",
+    "taxa.tree.kebabOpenId": "7",
+  }),
+  () => {
+    __resetForTests();
+    if (readTheme() !== "dark") fail("theme_hydrate_dark");
+    if (readTreeSource() !== "worms") fail("tree_source_hydrate_worms");
+    if (readLastTaxonId() !== 42) fail("last_taxon_id_hydrate_42");
+    if (readKebabOpenId() !== 7) fail("kebab_open_id_hydrate_7");
+  },
+);
+
+// 3. Round-trip: writeTheme → readTheme → subscriber fires.
+withWindow(makeStorage(), () => {
+  __resetForTests();
+  let fired = null;
+  const unsub = subscribeTheme((v) => { fired = v; });
+  writeTheme("dark");
+  if (fired !== "dark") fail("theme_subscribe_dark");
+  if (readTheme() !== "dark") fail("theme_after_write_dark");
+  unsub();
+  writeTheme("light");
+  if (fired !== "dark") fail("theme_subscribe_unsub_no_fire");
+});
+
+// 4. Reset clears every key + every cache.
+withWindow(
+  makeStorage({
+    "taxa.settings.theme": "dark",
+    "taxa.tree.source": "freshwater",
+    "taxa.tree.lastTaxonId": "100",
+    "taxa.tree.kebabOpenId": "9",
+  }),
+  () => {
+    __resetForTests();
+    // Hydrate the cache.
+    readTheme(); readTreeSource(); readLastTaxonId(); readKebabOpenId();
+    let themeFired = null;
+    let treeFired = null;
+    let lastFired = null;
+    let kebabFired = null;
+    subscribeTheme((v) => { themeFired = v; });
+    subscribeTreeSource((v) => { treeFired = v; });
+    subscribeLastTaxonId((v) => { lastFired = v; });
+    subscribeKebabOpenId((v) => { kebabFired = v; });
+    reset();
+    if (readTheme() !== DEFAULT_THEME) fail("reset_theme_default");
+    if (readTreeSource() !== DEFAULT_TREE_SOURCE) fail("reset_tree_source_default");
+    if (readLastTaxonId() !== DEFAULT_LAST_TAXON_ID) fail("reset_last_taxon_id_default");
+    if (readKebabOpenId() !== DEFAULT_KEBAB_OPEN_ID) fail("reset_kebab_open_id_default");
+    if (themeFired !== DEFAULT_THEME) fail("reset_theme_listener");
+    if (treeFired !== DEFAULT_TREE_SOURCE) fail("reset_tree_source_listener");
+    if (lastFired !== DEFAULT_LAST_TAXON_ID) fail("reset_last_taxon_listener");
+    if (kebabFired !== DEFAULT_KEBAB_OPEN_ID) fail("reset_kebab_listener");
+  },
+);
+
+// 5. Storage failures (private mode / quota exceeded) do NOT crash
+// the read/write path; the typed default is returned.
+withWindow({
+  get localStorage() {
+    return {
+      getItem: () => { throw new Error("private mode"); },
+      setItem: () => { throw new Error("quota exceeded"); },
+      removeItem: () => { throw new Error("private mode"); },
+    };
+  },
+}, () => {
+  __resetForTests();
+  if (readTheme() !== DEFAULT_THEME) fail("fail_read_default");
+  // No throw → pass.
+  writeTheme("dark");
+  if (readTheme() !== "dark") fail("fail_write_in_memory_updates");
+  // The persistent write failed; the in-memory state still reflects
+  // the user's choice so the UI updates for the current session.
+  reset(); // also must not throw.
+});
+
+// 6. SSR (no `window`) returns the typed default.
+const prevWindow = globalThis.window;
+delete globalThis.window;
+try {
+  __resetForTests();
+  if (readTheme() !== DEFAULT_THEME) fail("ssr_theme_default");
+  if (readLastTaxonId() !== null) fail("ssr_last_taxon_id_default");
+  // Writes must also be no-ops in SSR.
+  writeTheme("dark");
+} finally {
+  if (prevWindow !== undefined) globalThis.window = prevWindow;
+}
+
+// 7. Garbage values fall back to the typed default.
+withWindow(
+  makeStorage({
+    "taxa.settings.theme": "fuchsia",
+    "taxa.tree.source": "bogus",
+    "taxa.tree.lastTaxonId": "not-a-number",
+    "taxa.tree.kebabOpenId": "3.14",
+  }),
+  () => {
+    __resetForTests();
+    if (readTheme() !== "light") fail("garbage_theme");
+    if (readTreeSource() !== "col") fail("garbage_tree_source");
+    if (readLastTaxonId() !== null) fail("garbage_last_taxon_id");
+    if (readKebabOpenId() !== null) fail("garbage_kebab_open_id");
+  },
+);
+
+process.stdout.write("PASS\n");
+"""
+
+
+def test_compiled_browser_state_passes_runtime_contract(
+    tmp_path, require_toolchain: None,
+) -> None:
+    """Compile `keys.ts`, `defaults.ts`, `store.ts`, and the hook in
+    strict mode (ES2022 + DOM) and run the runtime harness under
+    Node. The harness covers defaults, hydration, round-trip,
+    subscribers, reset, storage-failure safety, SSR safety, and
+    garbage-value fallbacks.
+    """
+    out_dir = tmp_path / "bs-out"
+    result = _run_tsc(out_dir)
+    assert result.returncode == 0, (
+        f"tsc failed (exit {result.returncode}).\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    # The hook is a React-bound module that imports `react`. We do
+    # not exercise the hook at runtime here — that contract lives in
+    # `tests/test_browser_state_hydration_guard.py`. We exercise the
+    # typed-store surface (`store.ts`) directly by pointing the
+    # harness at the compiled `store.js`. tsc preserves the layer
+    # folder structure (--rootDir + per-source relative paths), so
+    # the compiled file lands under `out_dir/infrastructure/store.js`.
+    compiled = out_dir / "infrastructure" / "store.js"
+    if not compiled.is_file():
+        found = sorted(p.name for p in out_dir.rglob("*.js")) if out_dir.exists() else []
+        pytest.fail(
+            f"expected compiled store.js at {compiled}; "
+            f"found compiled files: {found}"
+        )
+    # Write the harness in a sibling dir so tsc doesn't try to type-
+    # check it.
+    harness_file = tmp_path / "harness.js"
+    harness_file.write_text(_RUNTIME_HARNESS, encoding="utf-8")
+    node = subprocess.run(
+        ["node", str(harness_file), str(compiled)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert node.returncode == 0, (
+        f"runtime harness failed (exit {node.returncode}).\n"
+        f"stdout: {node.stdout}\nstderr: {node.stderr}"
+    )
+    assert "PASS" in node.stdout, (
+        f"runtime harness did not emit PASS; stdout={node.stdout!r}"
+    )
