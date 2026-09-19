@@ -27,9 +27,11 @@ APP_SHELL_BARREL = REPO_ROOT / "src" / "modules" / "app-shell" / "index.ts"
 TAXONOMY_TREE_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "TaxonomyTree.tsx"
 TAXONOMY_TREE_ROW_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "TreeRow.tsx"
 TAXONOMY_TREE_STATE_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "tree-state.ts"
+TAXONOMY_DETAIL_PANEL_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "DetailPanel.tsx"
 TAXONOMY_BARREL = REPO_ROOT / "src" / "modules" / "taxonomy" / "index.ts"
 TAXONOMY_DOMAIN_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "domain" / "taxon.ts"
 TAXONOMY_INFRA_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "infrastructure" / "api.ts"
+TAXONOMY_GLOBALS_CSS = REPO_ROOT / "src" / "app" / "globals.css"
 SRC_PAGE = REPO_ROOT / "src" / "app" / "page.tsx"
 SRC_LAYOUT = REPO_ROOT / "src" / "app" / "layout.tsx"
 OUT_DIR = REPO_ROOT / "out"
@@ -1624,3 +1626,390 @@ def test_out_index_html_has_breadcrumb_and_row_affordance_styles(static_export) 
         "ODD-NTP-005: static CSS must define the "
         ".tree-row[data-pulse-nonce] pulse animation."
     )
+
+
+# ---------------------------------------------------------------------------
+# ODD-TDO-001 — native selected-taxon detail panel.
+#
+#   - `DetailPanel` component lives in
+#     `src/modules/taxonomy/presentation/DetailPanel.tsx` and renders
+#     the Overview tab from the canonical `Taxon` + row-format
+#     helpers.
+#   - The TaxonomyTree component mounts the DetailPanel next to the
+#     tree rows whenever `selected !== null`. Source switches clear
+#     the selection, which closes the panel.
+#   - The Overview body carries the native identity (rank / name /
+#     status / authorship / species count / source-aware parent
+#     chain) and source affordances (CoL-only badge + WoRMS
+#     cross-link). The realm tint cascade reaches the scientific
+#     name via the `.detail-panel[data-realm="X"] .scientific-name`
+#     rules added in `globals.css`.
+#   - Per-taxon active-tab memory lives at the `TaxonomyTree`
+#     level (a `Map<number, DetailTabKey>`); `DetailPanel` is the
+#     pure renderer that reads + writes via the callback.
+#   - The static export must carry the new CSS so the panel renders
+#     identically to the legacy oracle on CoL / WoRMS / Freshwater.
+# ---------------------------------------------------------------------------
+
+def test_detail_panel_file_exists() -> None:
+    """ODD-TDO-001: DetailPanel component must exist as a `.tsx` file
+    in the taxonomy presentation folder."""
+    assert TAXONOMY_DETAIL_PANEL_FILE.is_file(), (
+        f"missing {TAXONOMY_DETAIL_PANEL_FILE} — ODD-TDO-001 ships this "
+        f"selected-taxon detail panel component."
+    )
+    assert TAXONOMY_DETAIL_PANEL_FILE.suffix == ".tsx", (
+        "DetailPanel must be `.tsx` (JSX-rendered)."
+    )
+
+
+def test_detail_panel_is_a_client_component() -> None:
+    """ODD-TDO-001: DetailPanel mounts inside the existing client
+    island (`TaxonomyTree`) and carries its own client boundary so
+    the tab strip + parent-chain clicks stay interactive. The
+    component declares the boundary via the `"use client"`
+    directive at the top of the file."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert text.lstrip().startswith('"use client"') or text.lstrip().startswith("'use client'"), (
+        "DetailPanel.tsx must declare the client boundary via 'use client'"
+    )
+
+
+def test_detail_panel_uses_canonical_helpers() -> None:
+    """ODD-TDO-001: DetailPanel composes the canonical row-format +
+    breadcrumb helpers — never invents its own wire mapping, italic
+    predicate, or species-count formatter. spec.md rule 4 keeps
+    presentation pure; rule 5 blocks deep imports via the
+    `no-restricted-imports` ESLint guard."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    for helper in (
+        "rankLabel",
+        "scientificNameClass",
+        "speciesCountBadge",
+        "statusDotDescriptor",
+        "realmForPath",
+        "walkBreadcrumbForSource",
+    ):
+        assert helper in text, (
+            f"DetailPanel.tsx must consume the canonical `{helper}` helper "
+            f"(spec.md rule 4 / ODD-TDO-001 contract)."
+        )
+
+
+def test_detail_panel_emits_native_overview_identity() -> None:
+    """ODD-TDO-001: the Overview body must render the canonical
+    label/value rows (Scientific name / Status / Authorship /
+    Species count / Parent chain). Mirrors the legacy
+    `web/detail.js::renderOverview` byte-for-byte so the React
+    cutover's identity block matches the native oracle."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    # Each label is unique; presence in the source proves the row
+    # is rendered (the JSX literal appears once per Overview).
+    for label in (
+        "Scientific name:",
+        "Status:",
+        "Authorship:",
+        "Species count:",
+        "Parent chain:",
+    ):
+        assert label in text, (
+            f"DetailPanel.tsx must render the `{label}` Overview label."
+        )
+
+
+def test_detail_panel_emits_native_source_affordances() -> None:
+    """ODD-TDO-001: the header badges include the CoL-only badge
+    (`coldp_id && !worms_id` in CoL view) and the WoRMS cross-link
+    badge (`worms_id && source !== "col"`). Mirrors the legacy
+    `web/detail.js::renderDetailPanel` byte-for-byte."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert "coldp_id" in text and "worms_id" in text, (
+        "DetailPanel.tsx must consume the canonical coldp_id + worms_id "
+        "fields for the source affordance branches."
+    )
+    # CoL-only badge.
+    assert "CoL-only" in text or "CoL \u00b7" in text, (
+        "DetailPanel.tsx must render the CoL-only badge copy."
+    )
+    # WoRMS cross-link bracket.
+    assert "WoRMS \u00b7" in text, (
+        "DetailPanel.tsx must render the WoRMS cross-link badge copy."
+    )
+
+
+def test_detail_panel_emits_extinct_treatment() -> None:
+    """ODD-TDO-001: when `taxon.is_extinct` is truthy, the panel
+    applies the canonical `line-through opacity-70` treatment so
+    the extinct taxon reads as struck through + faded — matching
+    the legacy `web/detail.js::renderDetailPanel::extinctCls`."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert "is_extinct" in text, (
+        "DetailPanel.tsx must consume the canonical is_extinct field."
+    )
+    assert "line-through" in text and "opacity-70" in text, (
+        "DetailPanel.tsx must apply the line-through opacity-70 "
+        "extinct treatment to match the legacy oracle."
+    )
+
+
+def test_detail_panel_stamps_data_realm_attribute() -> None:
+    """ODD-TDO-001: the panel host carries `data-realm` (derived
+    from `taxon.path` via `realmForPath`) so the realm-tint cascade
+    in `globals.css` can color the scientific-name span per domain
+    / kingdom. Mirrors the legacy `web/tree.js::realm` contract on
+    the Overview body."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert "data-realm" in text, (
+        "DetailPanel.tsx must stamp data-realm on the panel host."
+    )
+    assert "realmForPath" in text, (
+        "DetailPanel.tsx must compute the realm via realmForPath."
+    )
+
+
+def test_detail_panel_emits_tab_strip_with_six_tabs() -> None:
+    """ODD-TDO-001: the tab strip carries every legacy tab (Overview
+    / Search / Folder / Vernaculars / Synonyms / Distribution) so
+    the React cutover's surface matches the native oracle. Only
+    Overview is fully rendered in this slice; the other tabs
+    render as `disabled` + `aria-disabled="true"` buttons with no
+    fake actions (per the user-selected "visibly mark unavailable
+    later tabs without fake actions" policy)."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    for tab in ("Overview", "Search", "Folder",
+                "Vernaculars", "Synonyms", "Distribution"):
+        assert tab in text, (
+            f"DetailPanel.tsx must declare the {tab!r} tab in the strip."
+        )
+
+
+def test_detail_panel_disables_unavailable_tabs() -> None:
+    """ODD-TDO-001: non-Overview tabs render with `disabled` +
+    `aria-disabled="true"` so the user sees them as clearly
+    unavailable rather than silently wired to a placeholder. The
+    Overview tab is the only fully rendered tab in this slice —
+    every other tab carries a `data-tab-available="false"`
+    attribute so tests + tooling can observe the deferred state."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert "data-tab-available" in text, (
+        "DetailPanel.tsx must stamp data-tab-available on each tab button."
+    )
+    assert "available" in text, (
+        "DetailPanel.tsx must carry an availability flag on every tab."
+    )
+    assert "aria-disabled" in text, (
+        "DetailPanel.tsx must stamp aria-disabled on unavailable tabs."
+    )
+
+
+def test_detail_panel_renders_close_button() -> None:
+    """ODD-TDO-001: the panel carries a Close button with
+    `data-action="close-detail"` so the legacy selector +
+    `data-action` delegation contract survives the React cutover.
+    The click handler calls `onClose()` which the parent maps to
+    `setSelected(null)`."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert re.search(r'data-action\s*=\s*["\']close-detail["\']', text), (
+        "DetailPanel.tsx must stamp data-action=\"close-detail\" "
+        "on the close button."
+    )
+    assert "onClose" in text, (
+        "DetailPanel.tsx must consume the onClose callback prop."
+    )
+
+
+def test_detail_panel_chain_segment_routes_to_breadcrumb_handler() -> None:
+    """ODD-TDO-001: the parent-chain segments render as buttons
+    with `data-action="focus-segment"` + `data-taxon-id` so the
+    legacy source-aware breadcrumb handler stays compatible. The
+    click handler routes through the `onFocusSegment` callback so
+    the Overview chain shares the canonical `handleFocusSegment`
+    primitive the visible breadcrumb uses."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert re.search(r'data-action\s*=\s*["\']focus-segment["\']', text), (
+        "DetailPanel.tsx must stamp data-action=\"focus-segment\" "
+        "on every parent-chain segment button."
+    )
+    assert "onFocusSegment" in text, (
+        "DetailPanel.tsx must consume the onFocusSegment callback prop."
+    )
+
+
+def test_taxonomy_tree_mounts_detail_panel_when_selected() -> None:
+    """ODD-TDO-001: TaxonomyTree mounts the DetailPanel next to the
+    tree rows whenever `selected !== null`. The parent passes
+    `taxon`, `state`, `activeSource`, `activeTab`, the tab-change
+    callback, the focus-segment callback, and the close callback."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert re.search(r"<\s*DetailPanel\b", text), (
+        "TaxonomyTree.tsx must render a <DetailPanel> component."
+    )
+
+
+def test_taxonomy_tree_handles_per_taxon_active_tab_memory() -> None:
+    """ODD-TDO-001: TaxonomyTree owns the per-taxon active-tab
+    memory as a `Map<number, DetailTabKey>`. Re-selecting a
+    previously selected taxon lands the user on the last tab they
+    used for it (or the default for new taxa). The state is read
+    via `getActiveTabFor(id)` and written via `handleTabChange(id,
+    tab)`."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "Map<number, DetailTabKey>" in text or "Map<number," in text, (
+        "TaxonomyTree.tsx must own a Map<number, DetailTabKey> for "
+        "per-taxon active-tab memory."
+    )
+    # The memory map keys (and is keyed) by taxon id.
+    assert "getActiveTabFor" in text or ".get(taxonId)" in text, (
+        "TaxonomyTree.tsx must read the per-taxon tab via Map.get(taxonId)."
+    )
+    assert "handleTabChange" in text or "setPerTaxonActiveTab" in text, (
+        "TaxonomyTree.tsx must declare a handleTabChange handler that "
+        "writes to the per-taxon active-tab map."
+    )
+
+
+def test_taxonomy_tree_close_detail_clears_selection() -> None:
+    """ODD-TDO-001: the close handler on the DetailPanel maps to
+    `setSelected(null)` so the panel unmounts on the next render.
+    The focused + kebab + per-taxon tab memory are NOT cleared
+    (the legacy oracle keeps them too — selection is independent
+    of expansion + memory)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    handle_idx = text.find("handleCloseDetail")
+    assert handle_idx != -1, (
+        "TaxonomyTree.tsx must declare a handleCloseDetail handler."
+    )
+    body = text[handle_idx:handle_idx + 400]
+    assert "setSelected(null)" in body, (
+        "handleCloseDetail must call setSelected(null) so the panel "
+        "unmounts on the next render."
+    )
+
+
+def test_taxonomy_tree_source_switch_clears_panel() -> None:
+    """ODD-TDO-001: a source switch clears `selected` (already in
+    the ODD-NTP-005 source-switch reset), which collapses the
+    DetailPanel. The existing `handleSourceChange` already calls
+    `setSelected(null)`; the regression test pins the contract so
+    a future PR cannot silently break the panel-close-on-source-
+    switch behaviour."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    handle_idx = text.find("const handleSourceChange")
+    assert handle_idx != -1, (
+        "TaxonomyTree.tsx must declare handleSourceChange."
+    )
+    body = text[handle_idx:handle_idx + 800]
+    assert "setSelected(null)" in body, (
+        "ODD-TDO-001: handleSourceChange must call setSelected(null) "
+        "so the DetailPanel unmounts when the user switches sources."
+    )
+
+
+def test_out_index_html_has_detail_panel_overview_styles(static_export) -> None:
+    """ODD-TDO-001: the static export's CSS must define every
+    Overview descendant rule (`.detail-panel .detail-card` /
+    `.detail-header` / `.detail-section`, `.overview-tab .overview-grid`
+    / `.overview-row` / `.overview-label` / `.overview-value` /
+    `.overview-chain` / `.overview-chain-segment`, plus the
+    `.detail-panel[data-realm="X"] .scientific-name` realm tint
+    cascade). The selectors are nested under the whitelisted
+    `.detail-panel` / `.overview-tab` base classes so the
+    chain-topology guard in `tests/test_research_styles.py` keeps
+    whitelisting them under the 3c-b taxonomy surface."""
+    css_chunks = sorted((REPO_ROOT / "out" / "_next" / "static" / "chunks").glob("*.css"))
+    css_body = "\n".join(
+        c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks
+    )
+    # Detail-panel inner structure.
+    for needle in (
+        ".detail-panel .detail-card",
+        ".detail-panel .detail-header",
+        ".detail-panel .detail-section",
+        ".detail-panel .detail-header-title",
+    ):
+        assert needle in css_body, (
+            f"ODD-TDO-001: static CSS must define the {needle} rule."
+        )
+    # Overview tab inner structure.
+    for needle in (
+        ".overview-tab .overview-grid",
+        ".overview-tab .overview-row",
+        ".overview-tab .overview-label",
+        ".overview-tab .overview-value",
+        ".overview-tab .overview-chain",
+        ".overview-tab .overview-chain-segment",
+        ".overview-tab .overview-rank",
+    ):
+        assert needle in css_body, (
+            f"ODD-TDO-001: static CSS must define the {needle} rule."
+        )
+    # Realm tint cascade — mirrors `.tree-row[data-realm="X"]
+    # .scientific-name` so the Overview scientific name picks up
+    # the same hue the tree rows paint. The minifier strips the
+    # quotes around valid-identifier attribute values, so accept
+    # either `data-realm=animalia` (minified) or `data-realm="animalia"`
+    # (source form) in the static export.
+    for realm in ("animalia", "archaea", "bacteria", "chromista",
+                  "fungi", "plantae", "viruses"):
+        quoted = f'.detail-panel[data-realm="{realm}"]'
+        unquoted = f'.detail-panel[data-realm={realm}]'
+        assert quoted in css_body or unquoted in css_body, (
+            f"ODD-TDO-001: static CSS must define the "
+            f"`.detail-panel[data-realm=\"{realm}\"] .scientific-name` "
+            f"realm tint rule (found neither {quoted!r} nor {unquoted!r})."
+        )
+
+
+def test_globals_css_declares_detail_panel_overview_selectors() -> None:
+    """ODD-TDO-001: `src/app/globals.css` must declare every new
+    detail-panel + overview inner selector. The locales live
+    under `@layer components` so the chain-topology guard keeps
+    the alphabetic contract."""
+    text = _read_text(TAXONOMY_GLOBALS_CSS)
+    layer = re.search(r"@layer\s+components\s*\{", text)
+    assert layer, "@layer components must exist in globals.css"
+    body = text[layer.end():]
+    # Each selector must appear in the source. The closing brace of
+    # the @layer components block ends the searchable region.
+    layer_end = body.find("\n}\n")
+    if layer_end == -1:
+        layer_end = body.find("}")
+    body = body[:layer_end]
+    for needle in (
+        ".detail-panel .detail-card",
+        ".detail-panel .detail-header",
+        ".detail-panel .detail-header-title",
+        ".detail-panel .detail-section",
+        ".detail-panel[data-realm=\"animalia\"] .scientific-name",
+        ".detail-panel[data-realm=\"archaea\"] .scientific-name",
+        ".detail-panel[data-realm=\"bacteria\"] .scientific-name",
+        ".detail-panel[data-realm=\"chromista\"] .scientific-name",
+        ".detail-panel[data-realm=\"fungi\"] .scientific-name",
+        ".detail-panel[data-realm=\"plantae\"] .scientific-name",
+        ".detail-panel[data-realm=\"viruses\"] .scientific-name",
+        ".detail-panel[data-realm] .scientific-name",
+        ".overview-tab .overview-grid",
+        ".overview-tab .overview-row",
+        ".overview-tab .overview-label",
+        ".overview-tab .overview-value",
+        ".overview-tab .overview-chain",
+        ".overview-tab .overview-chain-segment",
+        ".overview-tab .overview-rank",
+        ".overview-tab .overview-tab-heading",
+    ):
+        assert needle in body, (
+            f"globals.css @layer components must declare {needle}."
+        )
+
+
+def test_barrel_reexports_detail_panel_contract() -> None:
+    """ODD-TDO-001: the taxonomy barrel must re-export the public
+    DetailPanel contract — the `DetailTabKey` + `DetailTabDef`
+    types + the `DETAIL_TABS` + `DEFAULT_DETAIL_TAB` constants.
+    The component itself stays internal (mounted by TaxonomyTree)."""
+    text = _read_text(TAXONOMY_BARREL)
+    for name in ("DetailTabKey", "DetailTabDef",
+                 "DETAIL_TABS", "DEFAULT_DETAIL_TAB"):
+        assert name in text, (
+            f"taxonomy barrel must re-export `{name}`."
+        )

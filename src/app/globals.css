@@ -355,6 +355,90 @@
     overflow-y: auto;
   }
 
+  /* Detail panel — inner card + sticky header + section padding.
+     ODD-TDO-001: the React `<DetailPanel>` renders `<aside.detail-panel>`
+     + `<div.detail-card>` + `<div.detail-header>` + `<div.detail-section
+     class="overview-tab">`. The legacy oracle uses a flat
+     `<div id="detail-panel" class="detail-card">` so the React port
+     nests `.detail-card` + `.detail-header` + `.detail-section`
+     under `.detail-panel` to keep the alphabetic contract
+     (chain-topology guard in `tests/test_research_styles.py` whitelists
+     only the `.detail-panel` base; every descendant is reachable via
+     the descendant selector head). The selectors are written
+     alphabetically (`.detail-panel .detail-card` <
+     `.detail-panel .detail-header` < `.detail-panel .detail-section`)
+     so the alphabetic ordering test in `test_research_styles.py`
+     keeps passing. */
+  .detail-panel .detail-card {
+    background: var(--surface);
+    border-radius: 16px;
+    overflow: hidden;
+    height: auto;
+    max-height: calc(90vh - 2px);
+  }
+  .detail-panel .detail-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--surface-container);
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--surface);
+  }
+  .detail-panel .detail-header-title {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    line-height: 1.2;
+    margin-top: 4px;
+  }
+  .detail-panel .detail-section {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--surface-container);
+  }
+  .detail-panel .detail-section:last-child {
+    border-bottom: 0;
+  }
+
+  /* Detail panel realm tint — mirrors the legacy
+     `.tree-row[data-realm="X"] .scientific-name` cascade for the
+     Overview body. The `data-realm` attribute on `.detail-panel`
+     (`bacteria` / `archaea` / `viruses` / `animalia` / `fungi` /
+     `plantae` / `chromista` / `other`) drives the hue; the rule
+     targets the `.scientific-name` span inside the panel so the
+     italic Latin binomial picks up the same realm hue the tree
+     rows paint. Ordered alphabetically before `.folder-tab` (the
+     alphabetic contract: `.detail-panel ` (space, 0x20) sorts
+     before `.detail-panel[` (bracket, 0x5B) which sorts before
+     `.folder-tab` (next family)). */
+  .detail-panel[data-realm="animalia"] .scientific-name {
+    color: var(--realm-animalia);
+  }
+  .detail-panel[data-realm="archaea"] .scientific-name {
+    color: var(--realm-archaea);
+  }
+  .detail-panel[data-realm="bacteria"] .scientific-name {
+    color: var(--realm-bacteria);
+  }
+  .detail-panel[data-realm="chromista"] .scientific-name {
+    color: var(--realm-chromista);
+  }
+  .detail-panel[data-realm="fungi"] .scientific-name {
+    color: var(--realm-fungi);
+  }
+  .detail-panel[data-realm="plantae"] .scientific-name {
+    color: var(--realm-plantae);
+  }
+  .detail-panel[data-realm="viruses"] .scientific-name {
+    color: var(--realm-viruses);
+  }
+  .detail-panel[data-realm] .scientific-name {
+    color: var(--realm-other);
+  }
+
   /* Folder tab body (PR 3c-c) — per-taxon materialize indicator
      (separate top-level from .search-tab). */
   .folder-tab {
@@ -537,6 +621,89 @@
     flex-direction: column;
     gap: 12px;
     padding: 16px 24px;
+  }
+
+  /* Overview — inner structure (rank badge container + label/value
+     grid + parent chain). ODD-TDO-001: the React `<DetailPanel>`
+     renders the Overview body inside `<div.overview-tab>` using
+     `<dl.overview-grid>` + `<dt.overview-label>` + `<dd.overview-value>`,
+     a `<div.overview-rank>` for the rank badge anchor, and a
+     `<div.overview-chain>` flex of `<button.overview-chain-segment>`
+     buttons for the source-aware parent chain. Every descendant is
+     scoped under `.overview-tab` so the chain-topology guard in
+     `tests/test_research_styles.py` keeps whitelisting them under
+     the existing `.overview-tab` base. Selectors are sorted
+     alphabetically so the alphabetic contract keeps passing.
+     Visual cascade mirrors `web/index.html::.overview-section` +
+     `.overview-rank` + `.overview-grid` + `.overview-row` +
+     `.overview-label` + `.overview-value` + `.overview-chain` +
+     `.overview-chain-segment` byte-for-byte. */
+  .overview-tab .overview-chain {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+  }
+  .overview-tab .overview-chain-segment {
+    background: transparent;
+    border: 0;
+    padding: 2px 4px;
+    margin: 0;
+    border-radius: 4px;
+    font-family: "Raleway", sans-serif;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--on-surface);
+    cursor: pointer;
+    transition:
+      background-color 120ms ease-out,
+      color 120ms ease-out;
+  }
+  .overview-tab .overview-chain-segment:hover {
+    background-color: var(--surface-container-low);
+    color: var(--primary);
+  }
+  .overview-tab .overview-grid {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    column-gap: 20px;
+    row-gap: 10px;
+    margin: 0;
+  }
+  .overview-tab .overview-label {
+    color: var(--on-surface-variant);
+    font-family: "Raleway", sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+  .overview-tab .overview-rank {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .overview-tab .overview-row {
+    display: contents;
+  }
+  .overview-tab .overview-tab-heading {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--on-surface-variant);
+    margin: 0 0 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .overview-tab .overview-value {
+    color: var(--on-surface);
+    font-family: "Raleway", sans-serif;
+    font-size: 13px;
+    line-height: 1.4;
+    margin: 0;
+    word-break: break-word;
   }
 
   /* Rank badge (ODD-NTP-003) — Raleway, 13px, 600, 1px tracking
