@@ -89,11 +89,16 @@ def test_infra_file_has_no_framework_imports() -> None:
 
 
 def test_infra_file_exports_named_fns() -> None:
-    """PR 5a commits to two named exports: `fetchTaxon` and `fetchChildren`. ODD-VTREE-001 adds `fetchDomains`. ODD-TDS-001 adds `fetchSearches`. ODD-TDV-001 adds `fetchVernaculars`. ODD-TDSYN-001 adds `fetchSynonyms`. ODD-TDDIST-001 adds `fetchDistribution`. The barrel re-export breaks on a default export."""
+    """PR 5a commits to two named exports: `fetchTaxon` and `fetchChildren`. ODD-VTREE-001 adds `fetchDomains`. ODD-TDS-001 adds `fetchSearches`. ODD-TDV-001 adds `fetchVernaculars`. ODD-TDSYN-001 adds `fetchSynonyms`. ODD-TDDIST-001 adds `fetchDistribution`. ODD-TDFOLDER-001 adds `previewMaterialize`, `materializeResearch`, `openFolder`. The barrel re-export breaks on a default export."""
     if not INFRA_FILE.exists():
         pytest.skip("infra file not present yet")
     text = INFRA_FILE.read_text()
-    for name in ("fetchTaxon", "fetchChildren", "fetchDomains", "fetchSearches", "fetchVernaculars", "fetchSynonyms", "fetchDistribution"):
+    for name in (
+        "fetchTaxon", "fetchChildren", "fetchDomains",
+        "fetchSearches", "fetchVernaculars", "fetchSynonyms",
+        "fetchDistribution",
+        "previewMaterialize", "materializeResearch", "openFolder",
+    ):
         pattern = rf"export\s+(?:async\s+)?function\s+{name}\b|export\s+const\s+{name}\b"
         assert re.search(pattern, text), (
             f"infra/api.ts must export `{name}` as a named function or const."
@@ -322,6 +327,163 @@ def test_infra_file_exports_synonym_type_and_options() -> None:
         "fetchSynonyms must read `opts.limit` so React callers can override "
         "the legacy byte-identical `limit=200` default."
     )
+
+
+def test_infra_file_exports_folder_types_and_options() -> None:
+    """ODD-TDFOLDER-001: the public `MaterializePreview`,
+    `MaterializePreviewSegment`, `MaterializeResult`,
+    `OpenFolderResult` types + the
+    `FetchMaterializePreviewOptions`, `FetchMaterializeOptions`,
+    `FetchOpenFolderOptions` interfaces are exported from
+    `infra/api.ts` so React callers can type the preview /
+    materialize / open-folder payloads without a deep import.
+    The runtime helpers `previewMaterialize` (GET),
+    `materializeResearch` (POST), `openFolder` (POST) mirror
+    the FastAPI `api/server.py::materialize_research_folder_preview`,
+    `::materialize_research_folder`, `::open_research_folder`
+    endpoints byte-for-byte: the cumulative `research_dir` /
+    `relative_path` / `absolute_path` fields are server-composed
+    and must NEVER be joined / sanitised client-side, and the
+    runtime helpers use POST explicitly for the two
+    side-effecting endpoints (mkdir + subprocess.Popen).
+    A future PR that drops any export breaks the React cutover's
+    typed FolderTab wiring."""
+    if not INFRA_FILE.exists():
+        pytest.skip("infra file not present yet")
+    text = INFRA_FILE.read_text()
+    for name in (
+        "MaterializePreview",
+        "MaterializePreviewSegment",
+        "MaterializeResult",
+        "OpenFolderResult",
+        "FetchMaterializePreviewOptions",
+        "FetchMaterializeOptions",
+        "FetchOpenFolderOptions",
+    ):
+        pattern = rf"export\s+(?:interface|type)\s+{name}\b"
+        assert re.search(pattern, text), (
+            f"infra/api.ts must export `{name}` as a public interface/type."
+        )
+    # The MaterializePreviewSegment interface must carry exactly
+    # `name` + `exists` + `is_dir` + `is_new` — the FastAPI wire
+    # shape. A future PR that adds a client-side `cumulative` or
+    # `marker` field would leak server-composed concerns into
+    # the client contract (the server already composes the
+    # cumulative path on `relative_path` + `absolute_path`).
+    assert re.search(
+        r"interface\s+MaterializePreviewSegment\b[^}]*readonly\s+name\s*:\s*string",
+        text,
+    ), "MaterializePreviewSegment must carry `readonly name: string`."
+    assert re.search(
+        r"interface\s+MaterializePreviewSegment\b[^}]*readonly\s+exists\s*:\s*boolean",
+        text,
+    ), "MaterializePreviewSegment must carry `readonly exists: boolean`."
+    assert re.search(
+        r"interface\s+MaterializePreviewSegment\b[^}]*readonly\s+is_dir\s*:\s*boolean",
+        text,
+    ), "MaterializePreviewSegment must carry `readonly is_dir: boolean`."
+    assert re.search(
+        r"interface\s+MaterializePreviewSegment\b[^}]*readonly\s+is_new\s*:\s*boolean",
+        text,
+    ), "MaterializePreviewSegment must carry `readonly is_new: boolean`."
+    seg_block = re.search(
+        r"interface\s+MaterializePreviewSegment\b[^}]*\}",
+        text,
+        re.DOTALL,
+    )
+    assert seg_block, "MaterializePreviewSegment interface must be syntactically well-formed."
+    seg_props = re.findall(r"readonly\s+(\w+)\s*:", seg_block.group(0))
+    assert sorted(seg_props) == sorted(["name", "exists", "is_dir", "is_new"]), (
+        "ODD-TDFOLDER-001: canonical MaterializePreviewSegment must carry exactly "
+        "{name, exists, is_dir, is_new}; got " + str(seg_props)
+    )
+    # The MaterializePreview interface must carry every
+    # server-returned field verbatim. The structural regression
+    # blocks any invented field beyond the FastAPI wire shape.
+    preview_block = re.search(
+        r"interface\s+MaterializePreview\b[^}]*\}",
+        text,
+        re.DOTALL,
+    )
+    assert preview_block, "MaterializePreview interface must be syntactically well-formed."
+    preview_props = re.findall(r"readonly\s+(\w+)\s*:", preview_block.group(0))
+    assert sorted(preview_props) == sorted([
+        "ok", "taxon_id", "scientific_name", "research_dir",
+        "relative_path", "absolute_path", "segments",
+        "new_count", "existing_count", "all_exist",
+    ]), (
+        "ODD-TDFOLDER-001: canonical MaterializePreview must carry exactly "
+        "{ok, taxon_id, scientific_name, research_dir, relative_path, "
+        "absolute_path, segments, new_count, existing_count, all_exist}; got "
+        + str(preview_props)
+    )
+    # The MaterializeResult interface must carry exactly
+    # `ok` + `absolute_path` + `relative_path` + `folders_created`
+    # + `folders_existed` + `segments`. The segments field is
+    # `readonly string[]` (NOT the per-segment object shape used
+    # by the preview endpoint).
+    mat_block = re.search(
+        r"interface\s+MaterializeResult\b[^}]*\}",
+        text,
+        re.DOTALL,
+    )
+    assert mat_block, "MaterializeResult interface must be syntactically well-formed."
+    mat_props = re.findall(r"readonly\s+(\w+)\s*:", mat_block.group(0))
+    assert sorted(mat_props) == sorted([
+        "ok", "absolute_path", "relative_path",
+        "folders_created", "folders_existed", "segments",
+    ]), (
+        "ODD-TDFOLDER-001: canonical MaterializeResult must carry exactly "
+        "{ok, absolute_path, relative_path, folders_created, "
+        "folders_existed, segments}; got " + str(mat_props)
+    )
+    # The OpenFolderResult interface must carry exactly
+    # `ok` + `absolute_path` + `relative_path` + `opened_with`.
+    # The `opened_with` field is the OS-binary name the server
+    # actually invoked.
+    open_block = re.search(
+        r"interface\s+OpenFolderResult\b[^}]*\}",
+        text,
+        re.DOTALL,
+    )
+    assert open_block, "OpenFolderResult interface must be syntactically well-formed."
+    open_props = re.findall(r"readonly\s+(\w+)\s*:", open_block.group(0))
+    assert sorted(open_props) == sorted([
+        "ok", "absolute_path", "relative_path", "opened_with",
+    ]), (
+        "ODD-TDFOLDER-001: canonical OpenFolderResult must carry exactly "
+        "{ok, absolute_path, relative_path, opened_with}; got " + str(open_props)
+    )
+    # The `previewMaterialize` runtime helper MUST use GET (no
+    # `method: "POST"` init). The `materializeResearch` and
+    # `openFolder` helpers MUST use POST explicitly — the two
+    # side-effecting endpoints (mkdir + subprocess.Popen) need
+    # to advertise their filesystem impact.
+    for fn_name, expected_method in (
+        ("previewMaterialize", None),
+        ("materializeResearch", "POST"),
+        ("openFolder", "POST"),
+    ):
+        fetch_block = re.search(
+            rf"export\s+async\s+function\s+{fn_name}\b.*?^}}",
+            text,
+            re.DOTALL | re.MULTILINE,
+        )
+        assert fetch_block, f"infra/api.ts must declare the {fn_name} async function."
+        body = fetch_block.group(0)
+        if expected_method is None:
+            assert 'method: "POST"' not in body and "method: 'POST'" not in body, (
+                f"{fn_name} must NOT use POST (the preview is informational — no side "
+                f"effects on the server filesystem)."
+            )
+        else:
+            assert (
+                f'method: "{expected_method}"' in body
+                or f"method: '{expected_method}'" in body
+            ), (
+                f"{fn_name} must use {expected_method} (the endpoint mutates the "
+                f"filesystem / spawns the OS file manager)."
+            )
 
 
 def test_infra_file_exports_distribution_type_and_options() -> None:
@@ -1608,6 +1770,405 @@ const REAL_WORMS_CHILD = {
     () => api.fetchDistribution(100, { fetch: DistJsonFail, baseUrl: "http://x" }),
     (err) => /json|JSON/i.test(String(err && err.message || err)),
     "fetchDistribution must reject malformed JSON",
+  );
+
+  // ---- ODD-TDFOLDER-001 — previewMaterialize wire → domain projection ----
+  // The server returns a single `MaterializePreview` object
+  // carrying `ok`, `taxon_id`, `scientific_name`,
+  // `research_dir`, `relative_path`, `absolute_path`,
+  // `segments[]`, `new_count`, `existing_count`, `all_exist`.
+  // The React port preserves every wire field verbatim (the
+  // cumulative `relative_path` + `absolute_path` are
+  // server-composed; the segments are the sanitized ancestor
+  // chain + the taxon's own name) so the renderer never joins
+  // or sanitises paths client-side.
+  const PreviewFresh = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: {
+      ok: true,
+      taxon_id: 100,
+      scientific_name: "Freshwater Fishes",
+      research_dir: "/Users/sebailla/Research",
+      relative_path: "Freshwater Fishes",
+      absolute_path: "/Users/sebailla/Research/Freshwater Fishes",
+      segments: [
+        { name: "Freshwater Fishes", exists: true, is_dir: true, is_new: false },
+      ],
+      new_count: 0,
+      existing_count: 1,
+      all_exist: true,
+    } },
+  ]);
+  const preview = await api.previewMaterialize(100, { fetch: PreviewFresh, baseUrl: "http://x" });
+  assert.strictEqual(PreviewFresh.calls.length, 1);
+  assert.strictEqual(PreviewFresh.calls[0].input, "http://x/api/taxon/100/materialize-preview",
+    "previewMaterialize must build the canonical legacy /api/taxon/{id}/materialize-preview URL by default");
+  // The runtime helper uses GET (no init) — the preview is
+  // informational only (no side effects on disk).
+  assert.strictEqual(PreviewFresh.calls[0].init, undefined,
+    "previewMaterialize must use GET (no method= init) because the preview is informational");
+  assert.strictEqual(preview.ok, true);
+  assert.strictEqual(preview.taxon_id, 100);
+  assert.strictEqual(preview.scientific_name, "Freshwater Fishes");
+  // Cumulative path fields must round-trip verbatim — the
+  // React port NEVER joins or sanitises paths client-side.
+  assert.strictEqual(preview.research_dir, "/Users/sebailla/Research",
+    "ODD-TDFOLDER-001: research_dir must round-trip verbatim (server-composed path)");
+  assert.strictEqual(preview.relative_path, "Freshwater Fishes",
+    "ODD-TDFOLDER-001: relative_path must round-trip verbatim (server-composed path)");
+  assert.strictEqual(preview.absolute_path, "/Users/sebailla/Research/Freshwater Fishes",
+    "ODD-TDFOLDER-001: absolute_path must round-trip verbatim (server-composed path)");
+  assert.strictEqual(preview.new_count, 0);
+  assert.strictEqual(preview.existing_count, 1);
+  assert.strictEqual(preview.all_exist, true);
+  // Segments must round-trip verbatim — every flag carries the
+  // server-preserved boolean, the name carries the sanitized
+  // label verbatim.
+  assert.strictEqual(preview.segments.length, 1);
+  assert.strictEqual(preview.segments[0].name, "Freshwater Fishes");
+  assert.strictEqual(preview.segments[0].exists, true);
+  assert.strictEqual(preview.segments[0].is_dir, true);
+  assert.strictEqual(preview.segments[0].is_new, false);
+  for (const seg of preview.segments) {
+    const props = Object.keys(seg).sort();
+    assert.deepStrictEqual(props, ["exists", "is_dir", "is_new", "name"],
+      "ODD-TDFOLDER-001: canonical MaterializePreviewSegment must carry exactly "
+      + "{name, exists, is_dir, is_new}; got " + JSON.stringify(props));
+  }
+  // The top-level projection must NOT carry any invented
+  // field beyond the FastAPI wire shape.
+  const previewKeys = Object.keys(preview).sort();
+  assert.deepStrictEqual(previewKeys,
+    ["absolute_path", "all_exist", "existing_count", "new_count",
+     "ok", "relative_path", "research_dir", "scientific_name",
+     "segments", "taxon_id"],
+    "ODD-TDFOLDER-001: canonical MaterializePreview must carry exactly "
+    + "{ok, taxon_id, scientific_name, research_dir, relative_path, "
+    + "absolute_path, segments, new_count, existing_count, all_exist}; got "
+    + JSON.stringify(previewKeys));
+
+  // previewMaterialize — mixed new + existing segments. The
+  // server's `new_count` + `existing_count` are surface
+  // values; the renderer must NOT recompute them client-side.
+  const PreviewMixed = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: {
+      ok: true,
+      taxon_id: 100,
+      scientific_name: "Cichlidae",
+      research_dir: "/Users/sebailla/Research",
+      relative_path: "Eukaryota/Animalia/Chordata/Cichlidae",
+      absolute_path: "/Users/sebailla/Research/Eukaryota/Animalia/Chordata/Cichlidae",
+      segments: [
+        { name: "Eukaryota", exists: true, is_dir: true, is_new: false },
+        { name: "Animalia",  exists: true, is_dir: true, is_new: false },
+        { name: "Chordata",  exists: false, is_dir: false, is_new: true },
+        { name: "Cichlidae", exists: false, is_dir: false, is_new: true },
+      ],
+      new_count: 2,
+      existing_count: 2,
+      all_exist: false,
+    } },
+  ]);
+  const previewMixed = await api.previewMaterialize(100, { fetch: PreviewMixed, baseUrl: "http://x" });
+  assert.strictEqual(previewMixed.segments.length, 4);
+  assert.strictEqual(previewMixed.segments[0].name, "Eukaryota");
+  assert.strictEqual(previewMixed.segments[0].exists, true);
+  assert.strictEqual(previewMixed.segments[2].name, "Chordata");
+  assert.strictEqual(previewMixed.segments[2].exists, false);
+  assert.strictEqual(previewMixed.segments[2].is_new, true);
+  assert.strictEqual(previewMixed.new_count, 2);
+  assert.strictEqual(previewMixed.existing_count, 2);
+  assert.strictEqual(previewMixed.all_exist, false);
+
+  // previewMaterialize ?source=col|worms|freshwater — query
+  // forwarded verbatim. The FastAPI endpoint accepts the
+  // same `source` query parameter as
+  // `/api/taxon/{id}/children`, selecting which hierarchy to
+  // walk.
+  const PreviewSrcWorms = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: { ok: true, taxon_id: 1, scientific_name: "Animalia",
+      research_dir: "/r", relative_path: "Animalia", absolute_path: "/r/Animalia",
+      segments: [{ name: "Animalia", exists: true, is_dir: true, is_new: false }],
+      new_count: 0, existing_count: 1, all_exist: true } }]);
+  await api.previewMaterialize(1, { fetch: PreviewSrcWorms, baseUrl: "http://x", source: "worms" });
+  assert.strictEqual(PreviewSrcWorms.calls[0].input, "http://x/api/taxon/1/materialize-preview?source=worms",
+    "previewMaterialize must forward ?source=worms verbatim: " + PreviewSrcWorms.calls[0].input);
+  const PreviewSrcFw = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: { ok: true, taxon_id: 1, scientific_name: "Animalia",
+      research_dir: "/r", relative_path: "Animalia", absolute_path: "/r/Animalia",
+      segments: [{ name: "Animalia", exists: true, is_dir: true, is_new: false }],
+      new_count: 0, existing_count: 1, all_exist: true } }]);
+  await api.previewMaterialize(1, { fetch: PreviewSrcFw, baseUrl: "http://x", source: "freshwater" });
+  assert.strictEqual(PreviewSrcFw.calls[0].input, "http://x/api/taxon/1/materialize-preview?source=freshwater",
+    "previewMaterialize must forward ?source=freshwater verbatim: " + PreviewSrcFw.calls[0].input);
+
+  // previewMaterialize HTTP non-OK — status code in message.
+  const PreviewBad = makeFetch([{ ok: false, status: 503, statusText: "Service Unavailable", json: { detail: "DB down" } }]);
+  await assert.rejects(
+    () => api.previewMaterialize(100, { fetch: PreviewBad, baseUrl: "http://x" }),
+    (err) => /503/.test(String(err && err.message || err)),
+    "previewMaterialize must reject on non-OK with the status code in the message",
+  );
+
+  // previewMaterialize schema-invalid top-level payload — rejects.
+  const PreviewWrongShape = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: { detail: "wrong shape" } }]);
+  await assert.rejects(
+    () => api.previewMaterialize(100, { fetch: PreviewWrongShape, baseUrl: "http://x" }),
+    (err) => /invalid|materialize/i.test(String(err && err.message || err)),
+    "previewMaterialize must reject non-object payloads",
+  );
+
+  // previewMaterialize schema-invalid segment — rejects.
+  const PreviewBadSeg = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: { ok: true, taxon_id: 1, scientific_name: "X", research_dir: "/r",
+      relative_path: "X", absolute_path: "/r/X",
+      segments: [{ name: "X" /* exists/is_dir/is_new missing */ }],
+      new_count: 0, existing_count: 1, all_exist: true } }]);
+  await assert.rejects(
+    () => api.previewMaterialize(1, { fetch: PreviewBadSeg, baseUrl: "http://x" }),
+    (err) => /invalid|materialize/i.test(String(err && err.message || err)),
+    "previewMaterialize must reject per-segment shape mismatches",
+  );
+
+  // previewMaterialize wrong type on `ok` — rejects (string
+  // instead of boolean).
+  const PreviewBadOk = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: { ok: "true", taxon_id: 1, scientific_name: "X",
+      research_dir: "/r", relative_path: "X", absolute_path: "/r/X",
+      segments: [{ name: "X", exists: true, is_dir: true, is_new: false }],
+      new_count: 0, existing_count: 1, all_exist: true } }]);
+  await assert.rejects(
+    () => api.previewMaterialize(1, { fetch: PreviewBadOk, baseUrl: "http://x" }),
+    (err) => /invalid|materialize/i.test(String(err && err.message || err)),
+    "previewMaterialize must reject non-boolean `ok` values",
+  );
+
+  // previewMaterialize negative id — id validation rejects.
+  await assert.rejects(
+    () => api.previewMaterialize(-1, { fetch: makeFetch([]), baseUrl: "http://x" }),
+    (err) => /non-negative integer/i.test(String(err && err.message || err)),
+    "previewMaterialize must reject negative ids",
+  );
+
+  // previewMaterialize malformed JSON — throws.
+  const PreviewJsonFail = makeFetch([{ ok: true, status: 200, statusText: "OK", json: Promise.reject(new SyntaxError("Unexpected token < in JSON")) }]);
+  await assert.rejects(
+    () => api.previewMaterialize(100, { fetch: PreviewJsonFail, baseUrl: "http://x" }),
+    (err) => /json|JSON/i.test(String(err && err.message || err)),
+    "previewMaterialize must reject malformed JSON",
+  );
+
+  // ---- ODD-TDFOLDER-001 — materializeResearch wire → domain projection ----
+  // The server returns a single `MaterializeResult` object
+  // carrying `ok`, `absolute_path`, `relative_path`,
+  // `folders_created`, `folders_existed`, `segments[]`. The
+  // segments array is a list of sanitized string names
+  // (different shape from the preview's per-segment objects).
+  // The runtime helper uses POST explicitly (the endpoint
+  // mutates the server filesystem via `mkdir`).
+  const MatFresh = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: {
+      ok: true,
+      absolute_path: "/Users/sebailla/Research/Eukaryota/Animalia/Chordata/Cichlidae",
+      relative_path: "Eukaryota/Animalia/Chordata/Cichlidae",
+      folders_created: 2,
+      folders_existed: 2,
+      segments: ["Eukaryota", "Animalia", "Chordata", "Cichlidae"],
+    } },
+  ]);
+  const mat = await api.materializeResearch(100, { fetch: MatFresh, baseUrl: "http://x" });
+  assert.strictEqual(MatFresh.calls.length, 1);
+  assert.strictEqual(MatFresh.calls[0].input, "http://x/api/taxon/100/materialize",
+    "materializeResearch must build the canonical legacy /api/taxon/{id}/materialize URL by default");
+  assert.deepStrictEqual(MatFresh.calls[0].init, { method: "POST" },
+    "materializeResearch must use POST (the endpoint mutates the filesystem)");
+  assert.strictEqual(mat.ok, true);
+  assert.strictEqual(mat.absolute_path, "/Users/sebailla/Research/Eukaryota/Animalia/Chordata/Cichlidae",
+    "ODD-TDFOLDER-001: absolute_path must round-trip verbatim (server-composed path)");
+  assert.strictEqual(mat.relative_path, "Eukaryota/Animalia/Chordata/Cichlidae",
+    "ODD-TDFOLDER-001: relative_path must round-trip verbatim (server-composed path)");
+  assert.strictEqual(mat.folders_created, 2);
+  assert.strictEqual(mat.folders_existed, 2);
+  assert.deepStrictEqual(mat.segments,
+    ["Eukaryota", "Animalia", "Chordata", "Cichlidae"],
+    "ODD-TDFOLDER-001: segments must round-trip verbatim as a string[]");
+  // The MaterializeResult projection must NOT carry any
+  // invented field beyond the FastAPI wire shape.
+  const matKeys = Object.keys(mat).sort();
+  assert.deepStrictEqual(matKeys,
+    ["absolute_path", "folders_created", "folders_existed", "ok",
+     "relative_path", "segments"],
+    "ODD-TDFOLDER-001: canonical MaterializeResult must carry exactly "
+    + "{ok, absolute_path, relative_path, folders_created, "
+    + "folders_existed, segments}; got " + JSON.stringify(matKeys));
+
+  // materializeResearch ?source=col|worms|freshwater — query
+  // forwarded verbatim.
+  const MatSrcWorms = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: { ok: true, absolute_path: "/r/A", relative_path: "A",
+      folders_created: 1, folders_existed: 0, segments: ["A"] } }]);
+  await api.materializeResearch(1, { fetch: MatSrcWorms, baseUrl: "http://x", source: "worms" });
+  assert.strictEqual(MatSrcWorms.calls[0].input, "http://x/api/taxon/1/materialize?source=worms",
+    "materializeResearch must forward ?source=worms verbatim: " + MatSrcWorms.calls[0].input);
+
+  // materializeResearch HTTP non-OK — status code in message.
+  const MatBad = makeFetch([{ ok: false, status: 409, statusText: "Conflict",
+    json: { detail: "path conflict at /r/A: not a directory" } }]);
+  await assert.rejects(
+    () => api.materializeResearch(100, { fetch: MatBad, baseUrl: "http://x" }),
+    (err) => /409/.test(String(err && err.message || err)),
+    "materializeResearch must reject on non-OK with the status code in the message",
+  );
+
+  // materializeResearch schema-invalid payload — rejects.
+  const MatWrongShape = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: { detail: "wrong shape" } }]);
+  await assert.rejects(
+    () => api.materializeResearch(100, { fetch: MatWrongShape, baseUrl: "http://x" }),
+    (err) => /invalid|materialize/i.test(String(err && err.message || err)),
+    "materializeResearch must reject non-object payloads",
+  );
+
+  // materializeResearch empty segments — rejects (the server
+  // always returns the sanitized ancestor chain + the taxon's
+  // own scientific_name).
+  const MatEmptySegs = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: { ok: true, absolute_path: "/r/A", relative_path: "A",
+      folders_created: 1, folders_existed: 0, segments: [] } }]);
+  await assert.rejects(
+    () => api.materializeResearch(100, { fetch: MatEmptySegs, baseUrl: "http://x" }),
+    (err) => /invalid|materialize/i.test(String(err && err.message || err)),
+    "materializeResearch must reject empty segments arrays",
+  );
+
+  // materializeResearch negative folders_created — rejects.
+  const MatNegCreated = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: { ok: true, absolute_path: "/r/A", relative_path: "A",
+      folders_created: -1, folders_existed: 0, segments: ["A"] } }]);
+  await assert.rejects(
+    () => api.materializeResearch(100, { fetch: MatNegCreated, baseUrl: "http://x" }),
+    (err) => /invalid|materialize/i.test(String(err && err.message || err)),
+    "materializeResearch must reject negative folders_created values",
+  );
+
+  // materializeResearch negative id — id validation rejects.
+  await assert.rejects(
+    () => api.materializeResearch(-1, { fetch: makeFetch([]), baseUrl: "http://x" }),
+    (err) => /non-negative integer/i.test(String(err && err.message || err)),
+    "materializeResearch must reject negative ids",
+  );
+
+  // materializeResearch malformed JSON — throws.
+  const MatJsonFail = makeFetch([{ ok: true, status: 200, statusText: "OK", json: Promise.reject(new SyntaxError("Unexpected token < in JSON")) }]);
+  await assert.rejects(
+    () => api.materializeResearch(100, { fetch: MatJsonFail, baseUrl: "http://x" }),
+    (err) => /json|JSON/i.test(String(err && err.message || err)),
+    "materializeResearch must reject malformed JSON",
+  );
+
+  // ---- ODD-TDFOLDER-001 — openFolder wire → domain projection ----
+  // The server returns a single `OpenFolderResult` object
+  // carrying `ok`, `absolute_path`, `relative_path`,
+  // `opened_with`. The `opened_with` field is the OS-binary
+  // name the server actually invoked.
+  const OpenFresh = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: {
+      ok: true,
+      absolute_path: "/Users/sebailla/Research/Freshwater Fishes",
+      relative_path: "Freshwater Fishes",
+      opened_with: "open",
+    } },
+  ]);
+  const open = await api.openFolder(100, { fetch: OpenFresh, baseUrl: "http://x" });
+  assert.strictEqual(OpenFresh.calls.length, 1);
+  assert.strictEqual(OpenFresh.calls[0].input, "http://x/api/taxon/100/open-folder",
+    "openFolder must build the canonical legacy /api/taxon/{id}/open-folder URL by default");
+  assert.deepStrictEqual(OpenFresh.calls[0].init, { method: "POST" },
+    "openFolder must use POST (the endpoint spawns the OS file manager)");
+  assert.strictEqual(open.ok, true);
+  assert.strictEqual(open.absolute_path, "/Users/sebailla/Research/Freshwater Fishes",
+    "ODD-TDFOLDER-001: absolute_path must round-trip verbatim (server-composed path)");
+  assert.strictEqual(open.relative_path, "Freshwater Fishes",
+    "ODD-TDFOLDER-001: relative_path must round-trip verbatim (server-composed path)");
+  assert.strictEqual(open.opened_with, "open",
+    "ODD-TDFOLDER-001: opened_with must round-trip verbatim (server-preserved binary name)");
+  // The OpenFolderResult projection must NOT carry any
+  // invented field beyond the FastAPI wire shape.
+  const openKeys = Object.keys(open).sort();
+  assert.deepStrictEqual(openKeys,
+    ["absolute_path", "ok", "opened_with", "relative_path"],
+    "ODD-TDFOLDER-001: canonical OpenFolderResult must carry exactly "
+    + "{ok, absolute_path, relative_path, opened_with}; got " + JSON.stringify(openKeys));
+
+  // openFolder ?source=col|worms|freshwater — query forwarded verbatim.
+  const OpenSrcFw = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: { ok: true, absolute_path: "/r/A", relative_path: "A", opened_with: "open" } }]);
+  await api.openFolder(1, { fetch: OpenSrcFw, baseUrl: "http://x", source: "freshwater" });
+  assert.strictEqual(OpenSrcFw.calls[0].input, "http://x/api/taxon/1/open-folder?source=freshwater",
+    "openFolder must forward ?source=freshwater verbatim: " + OpenSrcFw.calls[0].input);
+
+  // openFolder HTTP non-OK — 404 when the folder has not
+  // been materialized yet. The renderer hides the
+  // path-actions row when `all_exist === false`, but a
+  // defensive error path must still surface the status in
+  // the message.
+  const OpenNotFound = makeFetch([{ ok: false, status: 404, statusText: "Not Found",
+    json: { detail: "folder does not exist on disk: /r/A" } }]);
+  await assert.rejects(
+    () => api.openFolder(100, { fetch: OpenNotFound, baseUrl: "http://x" }),
+    (err) => /404/.test(String(err && err.message || err)),
+    "openFolder must reject on non-OK with the status code in the message",
+  );
+
+  // openFolder schema-invalid payload — rejects.
+  const OpenWrongShape = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: { detail: "wrong shape" } }]);
+  await assert.rejects(
+    () => api.openFolder(100, { fetch: OpenWrongShape, baseUrl: "http://x" }),
+    (err) => /invalid|open-folder/i.test(String(err && err.message || err)),
+    "openFolder must reject non-object payloads",
+  );
+
+  // openFolder empty opened_with — rejects (the server
+  // always returns the chosen binary name verbatim).
+  const OpenEmptyBin = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: { ok: true, absolute_path: "/r/A", relative_path: "A", opened_with: "" } }]);
+  await assert.rejects(
+    () => api.openFolder(100, { fetch: OpenEmptyBin, baseUrl: "http://x" }),
+    (err) => /invalid|open-folder/i.test(String(err && err.message || err)),
+    "openFolder must reject empty opened_with values",
+  );
+
+  // openFolder wrong type on `ok` — rejects (string instead
+  // of boolean).
+  const OpenBadOk = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: { ok: "true", absolute_path: "/r/A", relative_path: "A", opened_with: "open" } }]);
+  await assert.rejects(
+    () => api.openFolder(100, { fetch: OpenBadOk, baseUrl: "http://x" }),
+    (err) => /invalid|open-folder/i.test(String(err && err.message || err)),
+    "openFolder must reject non-boolean `ok` values",
+  );
+
+  // openFolder negative id — id validation rejects.
+  await assert.rejects(
+    () => api.openFolder(-1, { fetch: makeFetch([]), baseUrl: "http://x" }),
+    (err) => /non-negative integer/i.test(String(err && err.message || err)),
+    "openFolder must reject negative ids",
+  );
+
+  // openFolder non-integer id — id validation rejects.
+  await assert.rejects(
+    () => api.openFolder(1.5, { fetch: makeFetch([]), baseUrl: "http://x" }),
+    (err) => /non-negative integer/i.test(String(err && err.message || err)),
+    "openFolder must reject non-integer ids",
+  );
+
+  // openFolder malformed JSON — throws.
+  const OpenJsonFail = makeFetch([{ ok: true, status: 200, statusText: "OK", json: Promise.reject(new SyntaxError("Unexpected token < in JSON")) }]);
+  await assert.rejects(
+    () => api.openFolder(100, { fetch: OpenJsonFail, baseUrl: "http://x" }),
+    (err) => /json|JSON/i.test(String(err && err.message || err)),
+    "openFolder must reject malformed JSON",
   );
 
   process.stdout.write("PASS\n");

@@ -25,6 +25,9 @@ export {
   fetchVernaculars,
   fetchSynonyms,
   fetchDistribution,
+  previewMaterialize,
+  materializeResearch,
+  openFolder,
   TaxonomyApiError,
 } from "./infrastructure/api";
 export type {
@@ -35,11 +38,18 @@ export type {
   FetchVernacularsOptions,
   FetchSynonymsOptions,
   FetchDistributionOptions,
+  FetchMaterializePreviewOptions,
+  FetchMaterializeOptions,
+  FetchOpenFolderOptions,
   DistributionEntry,
   SearchLink,
   SynonymName,
   TaxonomySource,
   VernacularName,
+  MaterializePreview,
+  MaterializePreviewSegment,
+  MaterializeResult,
+  OpenFolderResult,
 } from "./infrastructure/api";
 
 // Application layer — typed port + readonly view-models.

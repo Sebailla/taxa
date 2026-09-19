@@ -30,6 +30,30 @@
 // omitted when no source is supplied so the default CoL request
 // shape is byte-identical to the pre-ODD-NTP-001 contract.
 //
+// ODD-TDFOLDER-001 — preview / materialize / open-folder typed
+// contracts. The FastAPI server exposes three materialize-related
+// endpoints (`api/server.py::materialize_research_folder_preview`,
+// `::materialize_research_folder`, `::open_research_folder`); the
+// React port projects each response through the canonical
+// `MaterializePreview` / `MaterializeResult` / `OpenFolderResult`
+// interfaces so the Folder tab UI never reconstructs / sanitises
+// paths client-side (the server is the source of truth for the
+// `research_dir`, `relative_path`, `absolute_path`, and per-
+// segment `exists`/`is_dir`/`is_new` flags). The React port
+// forwards the `source` query parameter verbatim so Freshwater /
+// WoRMS hierarchies walk the right parent column, and uses POST
+// for the two side-effecting endpoints (materialize + open-folder)
+// so the server-side `mkdir` / `subprocess.Popen` calls are
+// explicit about their filesystem impact. The wire `segments`
+// payload is preserved verbatim — the React renderer is a
+// for-each over the response array (no client-side grouping /
+// filtering / pagination), mirroring how `SynonymName` /
+// `DistributionEntry` already preserve their server ordering
+// (ODD-TDSYN-001 + ODD-TDDIST-001). The materialize preview
+// response carries `all_exist` so the React port can branch on a
+// single instance-of check (no client-side recomputation of the
+// new-vs-existing segment counts).
+//
 // ODD-TDDIST-001 — distribution wire → domain projection. Every
 // legacy distribution field exposed on the FastAPI wire survives
 // the projection: `id`, `area`, nullable `gazetteer`, nullable
@@ -761,4 +785,386 @@ export async function fetchDistribution(
     );
   }
   return fromWireDistributionList(await readJson(r), `/api/taxon/${id}/distribution`);
+}
+
+/** ODD-TDFOLDER-001 — wire → domain projection for a single
+ *  `materialize-preview` segment. Mirrors the FastAPI
+ *  `api/server.py::materialize_research_folder_preview` per-segment
+ *  payload field-for-field: `name`, `exists`, `is_dir`, `is_new`.
+ *  The server preserves FastAPI nullability for every field; the
+ *  React port preserves it too (no client-side coercion) so the
+ *  renderer can branch on each flag's nullability independently.
+ *  The cumulative path is NOT projected on the segment (the
+ *  server builds it inside `_build_segments` + the `RESEARCH_DIR`
+ *  join — the React port lets `MaterializePreview.research_dir` +
+ *  `MaterializePreview.relative_path` carry the cumulative
+ *  projection instead so the renderer does not reconstruct paths
+ *  client-side). */
+export interface MaterializePreviewSegment {
+  readonly name: string;
+  readonly exists: boolean;
+  readonly is_dir: boolean;
+  readonly is_new: boolean;
+}
+
+/** Per-segment validator. Every required field must be present with
+ *  the right type and a non-empty string content for `name`. The
+ *  three boolean fields MUST be booleans (the server preserves the
+ *  Python `bool`/`is_dir()` result verbatim). Any wire mismatch
+ *  surfaces as `TaxonomyApiError` so a per-element shape drift
+ *  cannot slip past the projection layer. */
+function isValidMaterializePreviewSegment(
+  value: unknown,
+): value is MaterializePreviewSegment {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.name === "string" && v.name.length > 0 &&
+    typeof v.exists === "boolean" &&
+    typeof v.is_dir === "boolean" &&
+    typeof v.is_new === "boolean"
+  );
+}
+
+/** ODD-TDFOLDER-001 — wire → domain projection for
+ *  `/api/taxon/{id}/materialize-preview`. Mirrors the FastAPI
+ *  `api/server.py::materialize_research_folder_preview` response
+ *  field-for-field: `ok`, `taxon_id`, `scientific_name`,
+ *  `research_dir`, `relative_path`, `absolute_path`, `segments[]`,
+ *  `new_count`, `existing_count`, `all_exist`. The server is the
+ *  source of truth for the `research_dir` absolute path + the
+ *  `relative_path` + the `absolute_path` join — the React port
+ *  preserves all three verbatim and never joins / sanitises /
+ *  reconstructs paths client-side (the legacy
+ *  `web/detail.js::renderFolderTab` likewise read `acc` straight
+ *  from the wire `research_dir` + `seg.name`, but the React port
+ *  delegates the cumulative-path join to the server via
+ *  `relative_path` / `absolute_path` so the renderer never
+ *  carries path-join logic). `all_exist` is server-computed
+ *  (`new_count === 0`); the React renderer branches on the wire
+ *  value verbatim. The `segments[]` payload preserves the server-
+ *  side ordering (ancestor → focused taxon) — the renderer is a
+ *  for-each over the response array and never sorts / groups /
+ *  paginates client-side. */
+export interface MaterializePreview {
+  readonly ok: boolean;
+  readonly taxon_id: number;
+  readonly scientific_name: string;
+  readonly research_dir: string;
+  readonly relative_path: string;
+  readonly absolute_path: string;
+  readonly segments: readonly MaterializePreviewSegment[];
+  readonly new_count: number;
+  readonly existing_count: number;
+  readonly all_exist: boolean;
+}
+
+/** Top-level preview validator. Every required field must be
+ *  present with the right type. `ok` MUST be a boolean (the
+ *  server is the source of truth for the response shape — a
+ *  string `"true"` would be rejected here so the React port
+ *  cannot silently bypass the projection). `taxon_id`,
+ *  `new_count`, `existing_count` are non-negative integers;
+ *  `scientific_name`, `research_dir`, `relative_path`,
+ *  `absolute_path` are non-empty strings; `segments` is an array
+ *  validated element-by-element through
+ *  `isValidMaterializePreviewSegment`; `all_exist` is a boolean.
+ *  Any wire mismatch surfaces as `TaxonomyApiError` so a
+ *  per-field shape drift cannot slip past the projection layer. */
+function isValidMaterializePreview(value: unknown): value is MaterializePreview {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.ok === "boolean" &&
+    typeof v.taxon_id === "number" && Number.isInteger(v.taxon_id) && v.taxon_id >= 0 &&
+    typeof v.scientific_name === "string" && v.scientific_name.length > 0 &&
+    typeof v.research_dir === "string" && v.research_dir.length > 0 &&
+    typeof v.relative_path === "string" && v.relative_path.length > 0 &&
+    typeof v.absolute_path === "string" && v.absolute_path.length > 0 &&
+    Array.isArray(v.segments) &&
+    typeof v.new_count === "number" && Number.isInteger(v.new_count) && v.new_count >= 0 &&
+    typeof v.existing_count === "number" && Number.isInteger(v.existing_count) && v.existing_count >= 0 &&
+    typeof v.all_exist === "boolean"
+  );
+}
+
+/** ODD-TDFOLDER-001 — wire → domain projection for the
+ *  materialize-preview payload. Validates the top-level shape via
+ *  `isValidMaterializePreview`, then validates each segment via
+ *  `isValidMaterializePreviewSegment`. A non-object payload, a
+ *  top-level shape mismatch, or a per-segment shape mismatch
+ *  surfaces as `TaxonomyApiError` so the FolderTab render loop can
+ *  branch on a single instance / name check. The caller-supplied
+ *  `context` is interpolated into every error message so log
+ *  lines can attribute the failure to the right endpoint (mirrors
+ *  `fromWireDistributionList` / `fromWireSearchList` byte-for-
+ *  byte). */
+function fromWireMaterializePreview(
+  payload: unknown,
+  context: string,
+): MaterializePreview {
+  if (!isValidMaterializePreview(payload)) {
+    throw new TaxonomyApiError(
+      `taxonomy API ${context} returned an invalid MaterializePreview: domain contract violated`,
+    );
+  }
+  const out: MaterializePreviewSegment[] = [];
+  for (let i = 0; i < payload.segments.length; i++) {
+    if (!isValidMaterializePreviewSegment(payload.segments[i])) {
+      throw new TaxonomyApiError(
+        `taxonomy API ${context} returned an invalid MaterializePreviewSegment at index ${i}: domain contract violated`,
+      );
+    }
+    out.push(payload.segments[i] as MaterializePreviewSegment);
+  }
+  return { ...payload, segments: out };
+}
+
+/** ODD-TDFOLDER-001 — public options surface for
+ *  `previewMaterialize`. Mirrors `FetchChildrenOptions` (transport-
+ *  level `fetch` + `baseUrl` + optional `source`). The source
+ *  selector selects which hierarchy to walk: "col" reads
+ *  `parent_id`, "worms" reads `worms_parent_id`, "freshwater"
+ *  reads `freshwater_parent_id`. Omitting the option keeps the
+ *  default CoL request byte-identical to the legacy oracle (the
+ *  FastAPI server's `source` query param defaults to "col" via
+ *  `Query(default="col", pattern="^(col|worms|freshwater)$")`). */
+export interface FetchMaterializePreviewOptions extends FetchOptions {
+  source?: TaxonomySource;
+}
+
+/** ODD-TDFOLDER-001 — GET the materialize-preview payload for a
+ *  single taxon. Mirrors the canonical GET-shape pattern used by
+ *  `fetchDomains` / `fetchChildren` / `fetchSearches`: id
+ *  validation → fetch + status guard → JSON parsing → wire →
+ *  domain projection. The endpoint does NOT mutate the server
+ *  filesystem (`api/server.py::materialize_research_folder_preview`
+ *  builds the cumulative paths and reads `.exists()`/`.is_dir()`
+ *  without `mkdir`); the React port forwards GET because the
+ *  preview is purely informational (the user must confirm
+ *  separately via `materializeResearch`). The wire `ok` field is
+ *  preserved verbatim on the canonical `MaterializePreview`
+ *  projection (the server is the source of truth for the
+ *  response shape — the renderer does not branch on `ok` because
+ *  a non-OK would surface as HTTP 5xx + `TaxonomyApiError`
+ *  before reaching the projection layer). */
+export async function previewMaterialize(
+  id: number,
+  opts: FetchMaterializePreviewOptions = {},
+): Promise<MaterializePreview> {
+  if (!Number.isInteger(id) || id < 0) {
+    throw new TaxonomyApiError(
+      `previewMaterialize: id must be a non-negative integer; got ${id}`,
+    );
+  }
+  const f = opts.fetch ?? defaultFetch();
+  const q = sourceQuery(opts.source);
+  const r = await f(url(opts.baseUrl ?? "", `/api/taxon/${id}/materialize-preview${q}`));
+  if (!r.ok) {
+    throw new TaxonomyApiError(
+      `taxonomy API GET /api/taxon/${id}/materialize-preview failed: ${r.status} ${r.statusText}`,
+      { status: r.status },
+    );
+  }
+  return fromWireMaterializePreview(
+    await readJson(r),
+    `/api/taxon/${id}/materialize-preview`,
+  );
+}
+
+/** ODD-TDFOLDER-001 — wire → domain projection for the
+ *  materialize POST response. Mirrors the FastAPI
+ *  `api/server.py::materialize_research_folder` response field-
+ *  for-field: `ok`, `absolute_path`, `relative_path`,
+ *  `folders_created`, `folders_existed`, `segments[]`. The server
+ *  pre-splits the per-segment `segments[]` payload into a `string[]`
+ *  (the FastAPI endpoint returns the sanitized list directly,
+ *  NOT a list of objects like the preview endpoint does), so the
+ *  projection surfaces it as `readonly segments: readonly string[]`
+ *  — the renderer iterates the array verbatim, never joins
+ *  paths client-side (mirrors how the preview's `relative_path`
+ *  is the canonical join). `ok` is preserved verbatim; the
+ *  React port does not branch on it because a non-OK would
+ *  surface as HTTP non-2xx + `TaxonomyApiError`. */
+export interface MaterializeResult {
+  readonly ok: boolean;
+  readonly absolute_path: string;
+  readonly relative_path: string;
+  readonly folders_created: number;
+  readonly folders_existed: number;
+  readonly segments: readonly string[];
+}
+
+/** Top-level materialize validator. Every required field must be
+ *  present with the right type. `ok` MUST be a boolean;
+ *  `folders_created` + `folders_existed` are non-negative integers
+ *  (the server counts via `mkdir(parents=True, exist_ok=True)` +
+ *  a `not d.exists()` pre-check); `absolute_path` + `relative_path`
+ *  are non-empty strings (the server `.resolve()`s the target);
+ *  `segments` is a non-empty array of non-empty strings (the
+ *  FastAPI endpoint returns the sanitized ancestor chain + the
+ *  taxon's own scientific_name). Any wire mismatch surfaces as
+ *  `TaxonomyApiError` so a per-field shape drift cannot slip
+ *  past the projection layer. */
+function isValidMaterializeResult(value: unknown): value is MaterializeResult {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (
+    typeof v.ok !== "boolean" ||
+    typeof v.absolute_path !== "string" || v.absolute_path.length === 0 ||
+    typeof v.relative_path !== "string" || v.relative_path.length === 0 ||
+    typeof v.folders_created !== "number" ||
+    !Number.isInteger(v.folders_created) || v.folders_created < 0 ||
+    typeof v.folders_existed !== "number" ||
+    !Number.isInteger(v.folders_existed) || v.folders_existed < 0
+  ) return false;
+  if (!Array.isArray(v.segments) || v.segments.length === 0) return false;
+  for (const seg of v.segments) {
+    if (typeof seg !== "string" || seg.length === 0) return false;
+  }
+  return true;
+}
+
+/** ODD-TDFOLDER-001 — public options surface for
+ *  `materializeResearch`. Mirrors `FetchMaterializePreviewOptions`
+ *  (the same source-aware forwarding contract). The endpoint is
+ *  side-effecting (it creates folders under `RESEARCH_DIR`); the
+ *  helper uses POST explicitly so the server's `mkdir` is
+ *  advertised as a state change, not a read. */
+export interface FetchMaterializeOptions extends FetchOptions {
+  source?: TaxonomySource;
+}
+
+/** ODD-TDFOLDER-001 — POST the materialize request to create the
+ *  root→taxon folder structure under `RESEARCH_DIR`. The endpoint
+ *  is idempotent (`mkdir(parents=True, exist_ok=True)`); the
+ *  React port treats a successful response as "folders were
+ *  ensured on disk" without a follow-up GET. The wire response
+ *  carries `folders_created` + `folders_existed` counts so the
+ *  renderer can show "Created N / already existed M" inline copy
+ *  without client-side counting. The method is forwarded as
+ *  `POST` verbatim (mirrors the legacy
+ *  `web/api.js::materializeResearch` `method: "POST"`); the
+ *  React port does not retry on failure — the user must click
+ *  the in-tab confirm button again. */
+export async function materializeResearch(
+  id: number,
+  opts: FetchMaterializeOptions = {},
+): Promise<MaterializeResult> {
+  if (!Number.isInteger(id) || id < 0) {
+    throw new TaxonomyApiError(
+      `materializeResearch: id must be a non-negative integer; got ${id}`,
+    );
+  }
+  const f = opts.fetch ?? defaultFetch();
+  const q = sourceQuery(opts.source);
+  const r = await f(url(opts.baseUrl ?? "", `/api/taxon/${id}/materialize${q}`), {
+    method: "POST",
+  });
+  if (!r.ok) {
+    throw new TaxonomyApiError(
+      `taxonomy API POST /api/taxon/${id}/materialize failed: ${r.status} ${r.statusText}`,
+      { status: r.status },
+    );
+  }
+  const payload = await readJson(r);
+  if (!isValidMaterializeResult(payload)) {
+    throw new TaxonomyApiError(
+      `taxonomy API POST /api/taxon/${id}/materialize returned an invalid MaterializeResult: domain contract violated`,
+    );
+  }
+  return payload;
+}
+
+/** ODD-TDFOLDER-001 — wire → domain projection for the
+ *  open-folder POST response. Mirrors the FastAPI
+ *  `api/server.py::open_research_folder` response field-for-
+ *  field: `ok`, `absolute_path`, `relative_path`, `opened_with`.
+ *  `opened_with` is the OS-binary name the server actually
+ *  invoked (`"open"` on macOS, `"xdg-open"` on Linux,
+ *  `"explorer"` on Windows — `api/server.py::_os_open_folder`
+ *  returns the chosen binary verbatim). The React port surfaces
+ *  it on the projection so a future server-composed affordance
+ *  ("Opened with `open`" inline copy) can land without a
+ *  coordinated client update. The `ok` field is preserved
+ *  verbatim; the React port does not branch on it because a
+ *  non-OK would surface as HTTP non-2xx + `TaxonomyApiError`. */
+export interface OpenFolderResult {
+  readonly ok: boolean;
+  readonly absolute_path: string;
+  readonly relative_path: string;
+  readonly opened_with: string;
+}
+
+/** Top-level open-folder validator. Every required field must be
+ *  present with the right type. `ok` MUST be a boolean;
+ *  `absolute_path` + `relative_path` are non-empty strings (the
+ *  server `.resolve()`s the target); `opened_with` is a non-empty
+ *  string (the server returns `"open"` / `"xdg-open"` /
+ *  `"explorer"` verbatim, so a wire `""` would be rejected here
+ *  to keep the projection canonical). Any wire mismatch surfaces
+ *  as `TaxonomyApiError` so a per-field shape drift cannot slip
+ *  past the projection layer. */
+function isValidOpenFolderResult(value: unknown): value is OpenFolderResult {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.ok === "boolean" &&
+    typeof v.absolute_path === "string" && v.absolute_path.length > 0 &&
+    typeof v.relative_path === "string" && v.relative_path.length > 0 &&
+    typeof v.opened_with === "string" && v.opened_with.length > 0
+  );
+}
+
+/** ODD-TDFOLDER-001 — public options surface for `openFolder`.
+ *  Mirrors `FetchMaterializeOptions` (the same source-aware
+ *  forwarding contract — the opened path differs across sources
+ *  because the segment walk picks the right parent column). The
+ *  endpoint is side-effecting (it `subprocess.Popen`s the OS
+ *  file-manager binary); the helper uses POST explicitly so the
+ *  spawn is advertised as a state change, not a read. */
+export interface FetchOpenFolderOptions extends FetchOptions {
+  source?: TaxonomySource;
+}
+
+/** ODD-TDFOLDER-001 — POST the open-folder request to launch the
+ *  OS file manager (`open` / `xdg-open` / `explorer`) pointed at
+ *  the materialized Research folder. The server spawns the
+ *  subprocess detached from the API process
+ *  (`api/server.py::_os_open_folder::start_new_session=True`)
+ *  so closing the API does not close the file manager. The wire
+ *  response carries `absolute_path` + `relative_path` + the
+ *  `opened_with` binary name so the React port can render inline
+ *  "Opened with `open`: <relative_path>" copy without a second
+ *  round trip. A 404 surfaces as `TaxonomyApiError` so the
+ *  FolderTab renderer shows the inline error copy + a Retry
+ *  button (re-clicking triggers a fresh preview fetch first to
+ *  guard against a stale all_exist=true preview). */
+export async function openFolder(
+  id: number,
+  opts: FetchOpenFolderOptions = {},
+): Promise<OpenFolderResult> {
+  if (!Number.isInteger(id) || id < 0) {
+    throw new TaxonomyApiError(
+      `openFolder: id must be a non-negative integer; got ${id}`,
+    );
+  }
+  const f = opts.fetch ?? defaultFetch();
+  const q = sourceQuery(opts.source);
+  const r = await f(url(opts.baseUrl ?? "", `/api/taxon/${id}/open-folder${q}`), {
+    method: "POST",
+  });
+  if (!r.ok) {
+    throw new TaxonomyApiError(
+      `taxonomy API POST /api/taxon/${id}/open-folder failed: ${r.status} ${r.statusText}`,
+      { status: r.status },
+    );
+  }
+  const payload = await readJson(r);
+  if (!isValidOpenFolderResult(payload)) {
+    throw new TaxonomyApiError(
+      `taxonomy API POST /api/taxon/${id}/open-folder returned an invalid OpenFolderResult: domain contract violated`,
+    );
+  }
+  return payload;
 }
