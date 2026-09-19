@@ -114,3 +114,14 @@ export type { StatusDotDescriptor } from "./presentation/row-format";
 // tree without a deep import. `TreeRow` stays internal to the
 // presentation folder — it is not part of the public barrel.
 export { default as TaxonomyTree } from "./presentation/TaxonomyTree";
+
+// ODD-TDO-001 — native selected-taxon detail panel. Renders the
+// native Overview tab inside the existing React tree client island
+// and integrates with the canonical `selected` + breadcrumb
+// handlers. `DetailPanel` itself stays internal to the folder
+// (mounted by `TaxonomyTree`) so the public barrel re-exports
+// only the tab-key types + the default tab constant. Future slices
+// (Search / Folder / Vernaculars / Synonyms / Distribution) will
+// extend the tab list without restructuring the consumer contract.
+export type { DetailTabKey, DetailTabDef } from "./presentation/DetailPanel";
+export { DETAIL_TABS, DEFAULT_DETAIL_TAB } from "./presentation/DetailPanel";

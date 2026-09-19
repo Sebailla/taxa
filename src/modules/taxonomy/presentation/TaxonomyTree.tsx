@@ -155,6 +155,10 @@ import {
 import type { TaxonomySource } from "@taxa/taxonomy";
 import type { BreadcrumbSegment } from "./breadcrumb-path";
 import type { Rank, Taxon } from "../domain/taxon";
+import DetailPanel, {
+  DEFAULT_DETAIL_TAB,
+} from "./DetailPanel";
+import type { DetailTabKey } from "./DetailPanel";
 import {
   EMPTY_TREE_STATE,
   attachChildrenForSource,
@@ -250,6 +254,17 @@ export default function TaxonomyTree(): React.ReactElement {
   // the focused / selected row affordances).
   const [focused, setFocused] = useState<number | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
+  // ODD-TDO-001 — per-taxon active-tab memory. The legacy
+  // `web/state.js::activeTab` is a `{[taxonId]: tabKey}` map; the
+  // React port mirrors the same shape so the user lands on the
+  // last-tab-they-used when re-selecting a previously selected
+  // taxon. The default is `DEFAULT_DETAIL_TAB` (`"overview"`) for
+  // any newly selected taxon; the map is reset whenever the
+  // source switches (a stale tab key from the previous source's
+  // cache has no meaning under the new one).
+  const [perTaxonActiveTab, setPerTaxonActiveTab] = useState<
+    Map<number, DetailTabKey>
+  >(() => new Map());
   // ODD-NTP-005 — ref to the most recently selected row so the
   // scroll-into-view call after `select` lands on the right DOM
   // node even when the same id was already focused. The ref is
@@ -431,6 +446,41 @@ export default function TaxonomyTree(): React.ReactElement {
   // ODD-NTP-005 — kebab trigger handler.
   const handleToggleKebab = useCallback((id: number) => {
     setKebabOpenId((prev) => (prev === id ? null : id));
+  }, []);
+
+  // ODD-TDO-001 — per-taxon active-tab memory primitives. The legacy
+  // `web/state.js::activeTab` map survives every selection;
+  // re-selecting a taxon lands the user on the last tab they used
+  // for it (or the default for new taxa). The React port mirrors
+  // the same shape. Reads always default to `DEFAULT_DETAIL_TAB`
+  // so a freshly selected taxon lands on Overview.
+  const getActiveTabFor = useCallback(
+    (taxonId: number): DetailTabKey => {
+      return perTaxonActiveTab.get(taxonId) ?? DEFAULT_DETAIL_TAB;
+    },
+    [perTaxonActiveTab],
+  );
+
+  const handleTabChange = useCallback(
+    (taxonId: number, tab: DetailTabKey) => {
+      setPerTaxonActiveTab((prev) => {
+        const current = prev.get(taxonId);
+        if (current === tab) return prev;
+        const next = new Map(prev);
+        next.set(taxonId, tab);
+        return next;
+      });
+    },
+    [],
+  );
+
+  // ODD-TDO-001 — close handler. Mirrors the legacy
+  // `web/nav.js::close-detail` action: clears the selection so the
+  // detail panel unmounts on the next render. The kebab + focused
+  // states are NOT cleared (they belong to the tree surface, not
+  // the detail surface; the legacy oracle keeps them too).
+  const handleCloseDetail = useCallback(() => {
+    setSelected(null);
   }, []);
 
   // ODD-NTP-005 — kebab item action handler. With ODD-NTP-005 the
@@ -950,7 +1000,35 @@ export default function TaxonomyTree(): React.ReactElement {
               {renderSourceSelector()}
               {renderCollapseAllInline()}
             </div>
-            {renderRows(state, null, 0)}
+            <div
+              className="taxa-tree-with-detail grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-4 items-start"
+              data-tree-with-detail=""
+              data-has-selection={selected !== null ? "true" : "false"}
+            >
+              <div
+                className="taxa-tree-rows min-w-0"
+                data-tree-rows=""
+              >
+                {renderRows(state, null, 0)}
+              </div>
+              {(() => {
+                if (selected === null) return null;
+                const taxon = state.nodes.get(selected);
+                if (!taxon) return null;
+                const activeTab = getActiveTabFor(selected);
+                return (
+                  <DetailPanel
+                    taxon={taxon}
+                    state={state}
+                    activeSource={activeSource}
+                    activeTab={activeTab}
+                    onTabChange={(tab) => handleTabChange(selected, tab)}
+                    onFocusSegment={handleFocusSegment}
+                    onClose={handleCloseDetail}
+                  />
+                );
+              })()}
+            </div>
           </>
         )}
       {root.status === "loaded" && root.message && (
