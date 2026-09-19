@@ -79,6 +79,11 @@ parity-reports/
 # artifact.
 docs/baselines/
 
+# Reproducible local evidence from the static-export verifier and dry-run
+# cutover rehearsal. These are generated outputs, not planning artifacts.
+build.log
+docs/g6/
+
 # Next.js / agent generated state — local-only build + index artifacts.
 # `.next/` is the Next.js build/cache directory; root `out/` is the
 # static-export target (`next export`); `.codegraph/` is the read-only
