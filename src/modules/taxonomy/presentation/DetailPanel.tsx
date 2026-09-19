@@ -60,6 +60,13 @@ import VernacularTab from "./VernacularTab";
 import type { VernacularTabStatus } from "./VernacularTab";
 import DistributionTab from "./DistributionTab";
 import type { DistributionTabStatus } from "./DistributionTab";
+import FolderTab from "./FolderTab";
+import type {
+  FolderCopyStatus,
+  FolderCreateStatus,
+  FolderOpenStatus,
+  FolderTabStatus,
+} from "./FolderTab";
 import { walkBreadcrumbForSource } from "./breadcrumb-path";
 import type { BreadcrumbSegment } from "./breadcrumb-path";
 import type { TreeSource, TreeState } from "./tree-state";
@@ -101,12 +108,18 @@ export interface DetailTabDef {
  *  ODD-TDDIST-001 enables `distribution` — the canonical Distribution
  *  tab body renders the server-composed geographic-range rows
  *  (establishment-means chip + area) under the native "Distribution"
- *  header. Folder stays as a disabled affordance until its backing
- *  React slice ships. */
+ *  header. ODD-TDFOLDER-001 enables `folder` — the canonical
+ *  Folder tab body renders the server-composed materialize-
+ *  preview payload (line-by-line segment list with ✓ / +
+ *  markers, count summary, info banner, conditional Create
+ *  row with explicit in-tab confirmation gate, conditional
+ *  Open + Copy path-actions row, and inline success / error
+ *  states — all wired through the canonical FolderTab
+ *  presentation component). */
 export const DETAIL_TABS: readonly DetailTabDef[] = [
   { key: "overview", label: "Overview", icon: "info", available: true },
   { key: "searches", label: "Search", icon: "travel_explore", available: true },
-  { key: "folder", label: "Folder", icon: "create_new_folder", available: false },
+  { key: "folder", label: "Folder", icon: "create_new_folder", available: true },
   { key: "vernaculars", label: "Vernaculars", icon: "translate", available: true },
   { key: "synonyms", label: "Synonyms", icon: "history", available: true },
   { key: "distribution", label: "Distribution", icon: "public", available: true },
@@ -187,6 +200,36 @@ export interface DetailPanelProps {
    *  re-runs through the same status pipeline. */
   readonly distributionStatus: DistributionTabStatus;
   readonly onRetryDistribution: () => void;
+  /** ODD-TDFOLDER-001 — per-taxon folder status + retry /
+   *  create / open / copy callbacks. Mirrors the search-link +
+   *  vernaculars + synonyms + distribution wiring byte-for-
+   *  byte: the parent (`TaxonomyTree`) owns the cache so re-
+   *  selecting a previously selected taxon lands on the cached
+   *  result without a round trip; the eager-fetch-on-selection
+   *  contract fires the request the moment a taxon becomes the
+   *  active selection. Unlike the other tabs the preview cache
+   *  is source-AWARE (the materialize-preview endpoint walks
+   *  the active source's parent column) so a source switch
+   *  INVALIDATES the cache (`handleSourceChange` clears the
+   *  `folderByTaxonId` map alongside the other source-bound
+   *  resets). The retry callback re-issues the preview request;
+   *  the create / open / copy callbacks drive the POST + open +
+   *  clipboard actions. The `createArmed` gate enforces the
+   *  explicit in-tab confirmation before POST materialize (per
+   *  the ODD-TDFOLDER-001 user constraint: "Require an explicit
+   *  confirmation before creating folders, intentionally safer
+   *  than legacy"). */
+  readonly folderStatus: FolderTabStatus;
+  readonly onRetryFolderPreview: () => void;
+  readonly onArmCreate: () => void;
+  readonly onDisarmCreate: () => void;
+  readonly onCreateResearchFolders: () => void;
+  readonly onOpenResearchFolder: () => void;
+  readonly onCopyResearchPath: () => void;
+  readonly folderCreateStatus: FolderCreateStatus;
+  readonly folderOpenStatus: FolderOpenStatus;
+  readonly folderCopyStatus: FolderCopyStatus;
+  readonly folderCreateArmed: boolean;
 }
 
 export default function DetailPanel({
@@ -205,6 +248,17 @@ export default function DetailPanel({
   onRetrySynonyms,
   distributionStatus,
   onRetryDistribution,
+  folderStatus,
+  onRetryFolderPreview,
+  onArmCreate,
+  onDisarmCreate,
+  onCreateResearchFolders,
+  onOpenResearchFolder,
+  onCopyResearchPath,
+  folderCreateStatus,
+  folderOpenStatus,
+  folderCopyStatus,
+  folderCreateArmed,
 }: DetailPanelProps): React.ReactElement {
   const realm = realmForPath(taxon.path);
   const extinctCls = taxon.is_extinct ? "line-through opacity-70" : "";
@@ -347,11 +401,25 @@ export default function DetailPanel({
           })}
         </div>
         <div
-          className={`detail-section ${activeTab === "searches" ? "searches-tab" : activeTab === "vernaculars" ? "vernaculars-tab" : activeTab === "synonyms" ? "synonyms-tab" : activeTab === "distribution" ? "distribution-tab" : "overview-tab"}`}
+          className={`detail-section ${activeTab === "searches" ? "searches-tab" : activeTab === "folder" ? "folder-tab" : activeTab === "vernaculars" ? "vernaculars-tab" : activeTab === "synonyms" ? "synonyms-tab" : activeTab === "distribution" ? "distribution-tab" : "overview-tab"}`}
           data-tab-content={activeTab}
         >
           {activeTab === "searches" ? (
             <SearchTab status={searchStatus} onRetry={onRetrySearches} />
+          ) : activeTab === "folder" ? (
+            <FolderTab
+              status={folderStatus}
+              onRetryPreview={onRetryFolderPreview}
+              onCreate={onCreateResearchFolders}
+              onOpen={onOpenResearchFolder}
+              onCopy={onCopyResearchPath}
+              createStatus={folderCreateStatus}
+              openStatus={folderOpenStatus}
+              copyStatus={folderCopyStatus}
+              createArmed={folderCreateArmed}
+              onArmCreate={onArmCreate}
+              onDisarmCreate={onDisarmCreate}
+            />
           ) : activeTab === "vernaculars" ? (
             <VernacularTab
               status={vernacularStatus}
