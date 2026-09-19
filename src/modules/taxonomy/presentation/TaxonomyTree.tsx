@@ -154,9 +154,20 @@ import {
   fetchVernaculars,
   fetchSynonyms,
   fetchDistribution,
+  openFolder,
+  materializeResearch,
+  previewMaterialize,
   walkBreadcrumbForSource,
 } from "@taxa/taxonomy";
-import type { DistributionEntry, SearchLink, SynonymName, TaxonomySource, VernacularName } from "@taxa/taxonomy";
+import type {
+  DistributionEntry,
+  MaterializePreview,
+  OpenFolderResult,
+  SearchLink,
+  SynonymName,
+  TaxonomySource,
+  VernacularName,
+} from "@taxa/taxonomy";
 import type { BreadcrumbSegment } from "./breadcrumb-path";
 import type { Rank, Taxon } from "../domain/taxon";
 import DetailPanel, {
@@ -167,6 +178,12 @@ import type { SearchTabStatus } from "./SearchTab";
 import type { SynonymTabStatus } from "./SynonymTab";
 import type { VernacularTabStatus } from "./VernacularTab";
 import type { DistributionTabStatus } from "./DistributionTab";
+import type {
+  FolderCopyStatus,
+  FolderCreateStatus,
+  FolderOpenStatus,
+  FolderTabStatus,
+} from "./FolderTab";
 import {
   EMPTY_TREE_STATE,
   attachChildrenForSource,
@@ -345,6 +362,54 @@ export default function TaxonomyTree(): React.ReactElement {
   // `SearchTabStatus` + `VernacularTabStatus` + `SynonymTabStatus`).
   const [distributionByTaxonId, setDistributionByTaxonId] = useState<
     Map<number, DistributionTabStatus>
+  >(() => new Map());
+  // ODD-TDFOLDER-001 — per-taxon folder cache. Mirrors the
+  // distribution cache byte-for-byte: the parent owns the cache
+  // so re-selecting a previously selected taxon lands on the
+  // cached preview without a round trip; the eager-fetch-on-
+  // selection contract fires the request the moment a taxon
+  // becomes the active selection. Status is the discriminated-
+  // union shape the FolderTab consumes (idle / loading /
+  // loaded / error). The cache is INVALIDATED on source
+  // switches — unlike the source-AGNOSTIC
+  // vernaculars/synonyms/distribution caches, the materialize
+  // preview walks the active source's parent column, so a
+  // stale preview under CoL yields a different chain under
+  // WoRMS when the parent_id columns diverge. The
+  // `handleSourceChange` callback calls
+  // `setFolderByTaxonId(new Map())` to enforce the contract.
+  const [folderByTaxonId, setFolderByTaxonId] = useState<
+    Map<number, FolderTabStatus>
+  >(() => new Map());
+  // ODD-TDFOLDER-001 — per-taxon create-status + open-status +
+  // copy-status side-effect states. Lives at the tree level
+  // (not inside FolderTab) so the cache + the side-effect
+  // transitions share the same React render frame as the rest
+  // of the detail panel. The create status survives until the
+  // user clicks Create again or switches taxa (mirrors how the
+  // search cache survives across deselects); the open + copy
+  // statuses clear when the user closes the panel OR switches
+  // sources / taxa (they're ephemeral affordances — the user
+  // does not need to see "Opened with `open`" after they
+  // navigated away).
+  const [folderCreateByTaxonId, setFolderCreateByTaxonId] = useState<
+    Map<number, FolderCreateStatus>
+  >(() => new Map());
+  const [folderOpenByTaxonId, setFolderOpenByTaxonId] = useState<
+    Map<number, FolderOpenStatus>
+  >(() => new Map());
+  const [folderCopyByTaxonId, setFolderCopyByTaxonId] = useState<
+    Map<number, FolderCopyStatus>
+  >(() => new Map());
+  // ODD-TDFOLDER-001 — in-tab create-confirmation gate. When
+  // `true`, the FolderTab renders the Confirm row instead of
+  // the bare CTA. Lives at the tree level so a source switch /
+  // taxon switch clears the gate (the stale confirmation has
+  // no meaning under the new source / taxon). The renderer
+  // never sets the gate directly; the user must click the
+  // bare CTA to arm it.
+  const [folderCreateArmedByTaxonId, setFolderCreateArmedByTaxonId] = useState<
+    Map<number, boolean>
   >(() => new Map());
   // ODD-NTP-005 — ref to the most recently selected row so the
   // scroll-into-view call after `select` lands on the right DOM
@@ -756,6 +821,270 @@ export default function TaxonomyTree(): React.ReactElement {
     [],
   );
 
+  // ODD-TDFOLDER-001 — per-taxon materialize-preview loader.
+  // Reads the cached `folderByTaxonId` map and skips the round
+  // trip if a previous load already landed (loaded or errored)
+  // for the same taxon. The eager-fetch-on-selection effect
+  // below triggers this callback on every selection change so
+  // the cache stays warm by the time the user clicks the
+  // Folder tab. The callback also fires from the FolderTab's
+  // Retry button so a transient failure (network blip, 5xx) is
+  // recoverable without a fresh taxon selection. The callback
+  // CLOSES OVER `activeSource` (unlike `loadSearches` /
+  // `loadVernaculars` / `loadSynonyms` / `loadDistribution`,
+  // which are source-AGNOSTIC) — the materialize preview walks
+  // the active source's parent column, so a cache hit under
+  // CoL is stale when the user switches to WoRMS. The
+  // `handleSourceChange` callback clears the cache to enforce
+  // the source-aware invalidation contract.
+  const loadFolderPreview = useCallback(
+    async (id: number) => {
+      const current = folderByTaxonId.get(id);
+      if (current && (current.kind === "loaded" || current.kind === "error")) {
+        return;
+      }
+      setFolderByTaxonId((prev) => {
+        const next = new Map(prev);
+        next.set(id, { kind: "loading" });
+        return next;
+      });
+      try {
+        const preview: MaterializePreview = await previewMaterialize(id, {
+          baseUrl: TAXA_API_ORIGIN,
+          source: activeSource as TaxonomySource,
+        });
+        setFolderByTaxonId((prev) => {
+          const next = new Map(prev);
+          next.set(id, { kind: "loaded", preview });
+          return next;
+        });
+      } catch (err) {
+        setFolderByTaxonId((prev) => {
+          const next = new Map(prev);
+          next.set(id, {
+            kind: "error",
+            message: messageFor(err, `Could not load folder preview of taxon ${id}`),
+          });
+          return next;
+        });
+      }
+    },
+    // `folderByTaxonId` is intentionally NOT in the deps: the
+    // callback reads the latest cache through the functional
+    // updater, so listing it would force a fresh
+    // `loadFolderPreview` identity on every cache mutation
+    // and re-trigger the eager-fetch effect below. The
+    // callback identity is stable across cache mutations so
+    // the effect stays a one-shot per-selection-change fire
+    // (same rationale as `loadSearches` + `loadVernaculars` +
+    // `loadSynonyms` + `loadDistribution`). `activeSource` IS
+    // in the deps because the callback closes over it (the
+    // source parameter is forwarded verbatim to the wire).
+    [activeSource],
+  );
+
+  // ODD-TDFOLDER-001 — materialize-create handler. POSTs the
+  // canonical `materializeResearch` request, then refreshes
+  // the preview cache so the next render sees a fresh
+  // `loaded` preview with `all_exist === true` and the
+  // path-actions row replaces the create row. The handler is
+  // guarded against a stale `selected` change mid-flight: if
+  // the user switches taxa while the POST is in flight, the
+  // success handler no-ops the cache refresh (the preview
+  // belongs to the old taxon — switching it under the new
+  // taxon would show a misleading "all_exist" banner for the
+  // wrong path). The create-status state machine transitions
+  // idle → creating → created | error so the renderer can
+  // disable the CTA + paint inline success / error copy.
+  const handleCreateResearchFolders = useCallback(
+    async () => {
+      if (selected === null) return;
+      const taxonId = selected;
+      setFolderCreateByTaxonId((prev) => {
+        const next = new Map(prev);
+        next.set(taxonId, { kind: "creating" });
+        return next;
+      });
+      try {
+        const result = await materializeResearch(taxonId, {
+          baseUrl: TAXA_API_ORIGIN,
+          source: activeSource as TaxonomySource,
+        });
+        // The user might have switched taxa mid-flight. The
+        // success handler must not overwrite the create
+        // status for the now-selected taxon (the success
+        // belongs to the old taxon). We only commit when the
+        // stored `selected` still matches the taxon we acted
+        // on. The preview refresh is similarly guarded so a
+        // stale source-switch race cannot leak the new
+        // preview under the old taxon.
+        const stillSelected = selected === taxonId;
+        if (stillSelected) {
+          setFolderCreateByTaxonId((prev) => {
+            const next = new Map(prev);
+            next.set(taxonId, { kind: "created", result });
+            return next;
+          });
+          // Refresh the preview so the path-actions row
+          // replaces the create row on the next render. We
+          // short-circuit the cache by deleting the previous
+          // entry so `loadFolderPreview` re-issues the GET;
+          // a fresh preview will paint `all_exist === true`.
+          setFolderByTaxonId((prev) => {
+            const next = new Map(prev);
+            next.delete(taxonId);
+            return next;
+          });
+          void loadFolderPreview(taxonId);
+        }
+      } catch (err) {
+        if (selected === taxonId) {
+          setFolderCreateByTaxonId((prev) => {
+            const next = new Map(prev);
+            next.set(taxonId, {
+              kind: "error",
+              message: messageFor(err, `Could not materialize folders for taxon ${taxonId}`),
+            });
+            return next;
+          });
+        }
+      } finally {
+        // Disarm the gate regardless of outcome so the
+        // renderer drops back to the bare CTA (the success
+        // path replaces it with the path-actions row, the
+        // error path lets the user re-arm).
+        setFolderCreateArmedByTaxonId((prev) => {
+          const next = new Map(prev);
+          next.delete(taxonId);
+          return next;
+        });
+      }
+    },
+    [selected, activeSource, loadFolderPreview],
+  );
+
+  // ODD-TDFOLDER-001 — create-confirmation gate armers. The
+  // user clicks the bare CTA → `handleArmCreate` flips the
+  // gate to true → the renderer paints the Confirm row. The
+  // user clicks Cancel OR the bare CTA again (re-arm is
+  // idempotent) → `handleDisarmCreate` flips it back to
+  // false. The gate is per-taxon so a re-select lands on the
+  // bare CTA again (mirrors the search-link cache contract
+  // that re-selecting a previously selected taxon lands on
+  // the cached result — the gate is not part of the cache,
+  // it lives in its own map so the cache stays read-only).
+  const handleArmCreate = useCallback(() => {
+    if (selected === null) return;
+    setFolderCreateArmedByTaxonId((prev) => {
+      const next = new Map(prev);
+      next.set(selected, true);
+      return next;
+    });
+  }, [selected]);
+
+  const handleDisarmCreate = useCallback(() => {
+    if (selected === null) return;
+    setFolderCreateArmedByTaxonId((prev) => {
+      const next = new Map(prev);
+      next.delete(selected);
+      return next;
+    });
+  }, [selected]);
+
+  // ODD-TDFOLDER-001 — open-folder handler. POSTs the
+  // canonical `openFolder` request; on success the
+  // `folderOpenByTaxonId[taxonId]` entry becomes `opened`
+  // carrying the canonical `OpenFolderResult` so the
+  // renderer can paint the inline "Opened with `open`:
+  // <relative_path>" copy. A 404 (folder not yet
+  // materialized) surfaces as a `TaxonomyApiError`; the
+  // renderer's inline error copy shows the failure message
+  // and the user can re-issue via the path-actions row.
+  const handleOpenResearchFolder = useCallback(async () => {
+    if (selected === null) return;
+    const taxonId = selected;
+    setFolderOpenByTaxonId((prev) => {
+      const next = new Map(prev);
+      next.set(taxonId, { kind: "opening" });
+      return next;
+    });
+    try {
+      const result: OpenFolderResult = await openFolder(taxonId, {
+        baseUrl: TAXA_API_ORIGIN,
+        source: activeSource as TaxonomySource,
+      });
+      setFolderOpenByTaxonId((prev) => {
+        const next = new Map(prev);
+        next.set(taxonId, { kind: "opened", result });
+        return next;
+      });
+    } catch (err) {
+      if (selected === taxonId) {
+        setFolderOpenByTaxonId((prev) => {
+          const next = new Map(prev);
+          next.set(taxonId, {
+            kind: "error",
+            message: messageFor(err, `Could not open folder for taxon ${taxonId}`),
+          });
+          return next;
+        });
+      }
+    }
+  }, [selected, activeSource]);
+
+  // ODD-TDFOLDER-001 — copy-path handler. Reads the cached
+  // `folderByTaxonId[selected]` payload, extracts
+  // `preview.absolute_path` verbatim (the server is the
+  // source of truth — the renderer never sees the clipboard
+  // API directly, the parent owns the transport), and writes
+  // it through `navigator.clipboard.writeText`. A clipboard
+  // failure (NotAllowedError when the page lacks user
+  // activation, or a SecurityError when the page is served
+  // over a non-secure context) is caught gracefully — the
+  // `folderCopyByTaxonId[taxonId]` entry becomes `error`
+  // carrying the failure message so the renderer paints the
+  // inline "Could not copy path: …" copy and the user can
+  // retry without a tab refresh (the legacy
+  // `web/detail.js::renderFolderTab::copyBtn` `showToast`
+  // affordance lives here as inline copy — no new toast
+  // dependency is required, per the ODD-TDFOLDER-001 user
+  // constraint: "Use inline success/error states only; no new
+  // toast dependency or transient notification system").
+  const handleCopyResearchPath = useCallback(async () => {
+    if (selected === null) return;
+    const taxonId = selected;
+    const cached = folderByTaxonId.get(taxonId);
+    const path =
+      cached && cached.kind === "loaded" ? cached.preview.absolute_path : null;
+    if (path === null || path === undefined) return;
+    try {
+      if (
+        typeof navigator === "undefined" ||
+        !navigator.clipboard ||
+        typeof navigator.clipboard.writeText !== "function"
+      ) {
+        throw new Error("clipboard API not available in this context");
+      }
+      await navigator.clipboard.writeText(path);
+      setFolderCopyByTaxonId((prev) => {
+        const next = new Map(prev);
+        next.set(taxonId, { kind: "copied" });
+        return next;
+      });
+    } catch (err) {
+      if (selected === taxonId) {
+        setFolderCopyByTaxonId((prev) => {
+          const next = new Map(prev);
+          next.set(taxonId, {
+            kind: "error",
+            message: messageFor(err, `Could not copy path for taxon ${taxonId}`),
+          });
+          return next;
+        });
+      }
+    }
+  }, [selected, folderByTaxonId]);
+
   const handleSourceChange = useCallback((next: TreeSource) => {
     if (next === activeSource) return;
     // ODD-NTP-005: a source switch clears focused + selected in
@@ -777,6 +1106,25 @@ export default function TaxonomyTree(): React.ReactElement {
     // the other source-bound caches (focused / selected /
     // per-taxon-active-tab).
     setSearchesByTaxonId(new Map());
+    // ODD-TDFOLDER-001: a source switch INVALIDATES the
+    // per-taxon folder cache so the panel cannot render a
+    // stale preview from the previous source. The materialize
+    // preview walks the active source's parent column, so a
+    // stale CoL preview yields a different chain under WoRMS
+    // when the parent_id columns diverge — the
+    // source-AGNOSTIC retention contract that protects the
+    // vernaculars / synonyms / distribution caches does NOT
+    // apply here. The folder-create / folder-open /
+    // folder-copy side-effect states are also cleared so a
+    // stale "Opened with `open`" message cannot bleed into
+    // the next source's selection. The folder-create-armed
+    // gate is cleared so the next source's first render
+    // lands on the bare CTA.
+    setFolderByTaxonId(new Map());
+    setFolderCreateByTaxonId(new Map());
+    setFolderOpenByTaxonId(new Map());
+    setFolderCopyByTaxonId(new Map());
+    setFolderCreateArmedByTaxonId(new Map());
     setActiveSource(next);
   }, [activeSource]);
 
@@ -1052,6 +1400,27 @@ export default function TaxonomyTree(): React.ReactElement {
     if (selected === null) return;
     void loadDistribution(selected);
   }, [selected, loadDistribution]);
+
+  // ODD-TDFOLDER-001 — eager-fetch-on-selection contract for
+  // the Folder tab. Mirrors the distribution eager-fetch effect
+  // byte-for-byte: whenever `selected` becomes a non-null taxon
+  // id, fire the canonical `previewMaterialize(id, { source:
+  // activeSource })` round trip so the Folder tab activation
+  // paints the rendered preview + segment list + count summary
+  // instantly. Re-selecting the same taxon is a no-op (the
+  // `loadFolderPreview` callback short-circuits on `loaded` /
+  // `error` cached entries). Closing the panel (selected → null)
+  // does NOT clear the cache — the cached result survives across
+  // deselects so re-selecting the same taxon later is also
+  // instant. Unlike the source-AGNOSTIC search / vernaculars /
+  // synonyms / distribution caches, the preview cache is
+  // source-AWARE and is invalidated by `handleSourceChange`
+  // (the `folderByTaxonId` map is cleared alongside the other
+  // source-bound resets).
+  useEffect(() => {
+    if (selected === null) return;
+    void loadFolderPreview(selected);
+  }, [selected, loadFolderPreview, activeSource]);
 
   /** Source selector metadata. Recomputed only when the raw root
    *  payload changes. */
@@ -1453,6 +1822,28 @@ export default function TaxonomyTree(): React.ReactElement {
                   synonymsByTaxonId.get(selected) ?? { kind: "idle" };
                 const distributionStatus: DistributionTabStatus =
                   distributionByTaxonId.get(selected) ?? { kind: "idle" };
+                // ODD-TDFOLDER-001 — read the folder preview +
+                // side-effect + armed-gate state for the
+                // currently selected taxon. The preview cache
+                // is source-aware (cleared by handleSourceChange
+                // alongside the other source-bound resets); the
+                // create / open / copy status maps + the
+                // create-armed gate live in their own maps so
+                // they survive across deselects alongside the
+                // preview cache, and the parent owns the gate so
+                // a source switch clears it (the stale
+                // confirmation has no meaning under the new
+                // source).
+                const folderStatus: FolderTabStatus =
+                  folderByTaxonId.get(selected) ?? { kind: "idle" };
+                const folderCreateStatus: FolderCreateStatus =
+                  folderCreateByTaxonId.get(selected) ?? { kind: "idle" };
+                const folderOpenStatus: FolderOpenStatus =
+                  folderOpenByTaxonId.get(selected) ?? { kind: "idle" };
+                const folderCopyStatus: FolderCopyStatus =
+                  folderCopyByTaxonId.get(selected) ?? { kind: "idle" };
+                const folderCreateArmed: boolean =
+                  folderCreateArmedByTaxonId.get(selected) ?? false;
                 return (
                   <DetailPanel
                     taxon={taxon}
@@ -1470,6 +1861,21 @@ export default function TaxonomyTree(): React.ReactElement {
                     onRetrySynonyms={() => void loadSynonyms(selected)}
                     distributionStatus={distributionStatus}
                     onRetryDistribution={() => void loadDistribution(selected)}
+                    folderStatus={folderStatus}
+                    onRetryFolderPreview={() => void loadFolderPreview(selected)}
+                    onArmCreate={handleArmCreate}
+                    onDisarmCreate={handleDisarmCreate}
+                    onCreateResearchFolders={() =>
+                      void handleCreateResearchFolders()
+                    }
+                    onOpenResearchFolder={() =>
+                      void handleOpenResearchFolder()
+                    }
+                    onCopyResearchPath={() => void handleCopyResearchPath()}
+                    folderCreateStatus={folderCreateStatus}
+                    folderOpenStatus={folderOpenStatus}
+                    folderCopyStatus={folderCopyStatus}
+                    folderCreateArmed={folderCreateArmed}
                   />
                 );
               })()}

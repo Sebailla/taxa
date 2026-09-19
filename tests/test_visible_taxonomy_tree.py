@@ -3927,3 +3927,770 @@ def test_out_index_html_has_distribution_tab_styles(static_export) -> None:
         assert needle in css_body, (
             f"ODD-TDDIST-001: static CSS must define the {needle} rule."
         )
+
+
+# ---------------------------------------------------------------------------
+# ODD-TDFOLDER-001 — native Folder tab data contract + UI.
+#
+#   - `previewMaterialize` / `materializeResearch` / `openFolder`
+#     are the canonical typed projections for
+#     `/api/taxon/{id}/materialize-preview` (GET),
+#     `/api/taxon/{id}/materialize` (POST),
+#     `/api/taxon/{id}/open-folder` (POST). The cumulative paths
+#     are server-composed — the React port never joins /
+#     sanitises paths client-side.
+#   - `FolderTab` is the native React renderer; renders the
+#     line-by-line segment list with ✓ / + markers, the count
+#     summary, the info banner (when `all_exist === true`), the
+#     Create row with an explicit in-tab confirmation gate
+#     (when `all_exist === false`), the Open + Copy path-actions
+#     row (when `all_exist === true`), and inline success /
+#     error states for create / open / copy. The source-aware
+#     preview cache is INVALIDATED on source switches (the
+#     materialize preview walks the active source's parent
+#     column — different from the source-agnostic
+#     vernaculars / synonyms / distribution caches).
+# ---------------------------------------------------------------------------
+FOLDER_TAB_FILE = (
+    REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "FolderTab.tsx"
+)
+
+
+def test_folder_tab_file_exists() -> None:
+    """ODD-TDFOLDER-001: FolderTab component must exist as a
+    `.tsx` file under the taxonomy presentation folder (mirrors
+    the ODD-TDDIST-001 / ODD-TDV-001 / ODD-TDSYN-001 component
+    files). The suffix is `.tsx` because the file declares a
+    JSX-rendered React component (the `react-jsx` runtime
+    requires TypeScript's JSX checker, not plain `.ts`)."""
+    assert FOLDER_TAB_FILE.is_file(), (
+        f"missing {FOLDER_TAB_FILE} \u2014 ODD-TDFOLDER-001 ships this "
+        "Folder tab component."
+    )
+    assert FOLDER_TAB_FILE.suffix == ".tsx", (
+        "FolderTab must be `.tsx` (JSX-rendered)."
+    )
+
+
+def test_folder_tab_is_a_client_component() -> None:
+    """ODD-TDFOLDER-001: FolderTab mounts inside the React
+    client island (TaxonomyTree -> DetailPanel -> FolderTab).
+    The component declares the client boundary via the
+    `"use client"` directive at the top of the file so the
+    Create / Confirm / Open / Copy handlers stay interactive
+    after hydration."""
+    text = _read_text(FOLDER_TAB_FILE)
+    assert text.lstrip().startswith('"use client"') or text.lstrip().startswith("'use client'"), (
+        "FolderTab.tsx must declare the client boundary via 'use client'"
+    )
+
+
+def test_folder_tab_consumes_canonical_projection() -> None:
+    """ODD-TDFOLDER-001: FolderTab imports the canonical
+    `MaterializePreview` + `MaterializePreviewSegment` +
+    `MaterializeResult` + `OpenFolderResult` projections from
+    the infrastructure layer. A deep import would leak server
+    composition concerns into the client contract; a missing
+    import would force the component to type the payload
+    inline (bypassing the canonical projection)."""
+    text = _read_text(FOLDER_TAB_FILE)
+    assert "MaterializePreview" in text, (
+        "FolderTab.tsx must consume the canonical `MaterializePreview` projection."
+    )
+    assert "MaterializePreviewSegment" in text, (
+        "FolderTab.tsx must consume the canonical `MaterializePreviewSegment` projection."
+    )
+    assert "MaterializeResult" in text, (
+        "FolderTab.tsx must consume the canonical `MaterializeResult` projection "
+        "(drives the inline success copy after Create)."
+    )
+    assert "OpenFolderResult" in text, (
+        "FolderTab.tsx must consume the canonical `OpenFolderResult` projection "
+        "(drives the inline success copy after Open)."
+    )
+    assert "from \"../infrastructure/api\"" in text, (
+        "FolderTab.tsx must import the canonical projection from "
+        "../infrastructure/api (spec.md rule 4)."
+    )
+
+
+def test_folder_tab_renders_loading_state() -> None:
+    """ODD-TDFOLDER-001: the loading branch renders a
+    `role="status"` element with `aria-busy="true"` + the
+    canonical loading copy "Loading preview…" + the section
+    header. Mirrors the ODD-TDS-001 + ODD-TDV-001 +
+    ODD-TDSYN-001 + ODD-TDDIST-001 loading contracts
+    byte-for-byte."""
+    text = _read_text(FOLDER_TAB_FILE)
+    assert 'role="status"' in text or "role='status'" in text, (
+        "FolderTab.tsx must render a role=\"status\" element for the loading state."
+    )
+    assert "aria-busy" in text, (
+        "FolderTab.tsx must set aria-busy on the loading state for a11y tooling."
+    )
+    assert "Loading preview" in text, (
+        "FolderTab.tsx must render the canonical loading copy."
+    )
+
+
+def test_folder_tab_renders_error_state() -> None:
+    """ODD-TDFOLDER-001: the error branch renders a
+    `role="alert"` element + the failure message + a Retry
+    button (carrying `data-action="retry-folder-preview"` so
+    the parent can route the click through a delegated
+    handler). The Retry button calls the `onRetryPreview`
+    prop callback so the failure is recoverable without a
+    fresh taxon selection."""
+    text = _read_text(FOLDER_TAB_FILE)
+    assert 'role="alert"' in text or "role='alert'" in text, (
+        "FolderTab.tsx must render a role=\"alert\" element for the error state."
+    )
+    assert "Could not load the preview" in text, (
+        "FolderTab.tsx must render the canonical error copy."
+    )
+    assert "Retry" in text, (
+        "FolderTab.tsx must render a Retry button on the preview error state."
+    )
+    assert 'data-action="retry-folder-preview"' in text, (
+        "FolderTab.tsx must stamp data-action=\"retry-folder-preview\" on the Retry button."
+    )
+    assert "onRetryPreview" in text, (
+        "FolderTab.tsx must invoke the onRetryPreview prop on Retry click."
+    )
+
+
+def test_folder_tab_renders_preview_segments_with_markers() -> None:
+    """ODD-TDFOLDER-001: the loaded branch renders the
+    line-by-line segment list with the ✓ / + markers per
+    segment. Each row carries `data-folder-segment-name` +
+    `data-folder-segment-exists` + the cumulative path on
+    `data-folder-segment-cumulative` so the parity test can
+    pin the marker text + path round-trip without scraping
+    className. The marker class is `.folder-segment-marker-exists`
+    (green, ✓) or `.folder-segment-marker-new` (default, +).
+    Mirrors the legacy `web/detail.js::renderFolderTab`
+    marker logic byte-for-byte."""
+    text = _read_text(FOLDER_TAB_FILE)
+    assert "folder-segment-list" in text, (
+        "FolderTab.tsx must render the .folder-segment-list ul element."
+    )
+    assert "folder-segment-item" in text, (
+        "FolderTab.tsx must render the .folder-segment-item li element per segment."
+    )
+    assert "folder-segment-marker" in text, (
+        "FolderTab.tsx must render the .folder-segment-marker span per segment."
+    )
+    assert "folder-segment-marker-exists" in text, (
+        "FolderTab.tsx must render the .folder-segment-marker-exists class on existing segments."
+    )
+    assert "folder-segment-marker-new" in text, (
+        "FolderTab.tsx must render the .folder-segment-marker-new class on new segments."
+    )
+    assert "folder-segment-path" in text, (
+        "FolderTab.tsx must render the .folder-segment-path span per segment."
+    )
+    assert "data-folder-segment-name" in text, (
+        "FolderTab.tsx must stamp data-folder-segment-name on every row."
+    )
+    assert "data-folder-segment-exists" in text, (
+        "FolderTab.tsx must stamp data-folder-segment-exists on every row."
+    )
+    assert "data-folder-segment-cumulative" in text, (
+        "FolderTab.tsx must stamp data-folder-segment-cumulative on every row."
+    )
+
+
+def test_folder_tab_renders_counts_summary() -> None:
+    """ODD-TDFOLDER-001: the loaded branch renders the
+    count summary ("N new folders · M already existed") with
+    the wire values stamped on data-folder-counts +
+    data-folder-new-count + data-folder-existing-count. The
+    renderer does NOT recompute the new-vs-existing counts
+    client-side (the server is the source of truth). Mirrors
+    the legacy `web/detail.js::renderFolderTab::counts`
+    byte-for-byte (singular/plural branch on new_count === 1)."""
+    text = _read_text(FOLDER_TAB_FILE)
+    assert "folder-counts" in text, (
+        "FolderTab.tsx must render the .folder-counts element."
+    )
+    assert "data-folder-counts" in text, (
+        "FolderTab.tsx must stamp data-folder-counts on the counts element."
+    )
+    assert "data-folder-new-count" in text, (
+        "FolderTab.tsx must stamp data-folder-new-count on the counts element."
+    )
+    assert "data-folder-existing-count" in text, (
+        "FolderTab.tsx must stamp data-folder-existing-count on the counts element."
+    )
+    assert "already existed" in text, (
+        "FolderTab.tsx must render the canonical counts copy."
+    )
+    # The singular/plural branch must apply at the renderer
+    # (NOT in the projection layer). The wire `new_count`
+    # surfaces as a number, and the renderer substitutes the
+    # "folder" / "folders" literal based on `new_count === 1`.
+    assert re.search(
+        r"new_count\s*===\s*1\s*\?\s*[\"\']new folder[\"\']\s*:\s*[\"\']new folders[\"\']",
+        text,
+    ), (
+        "FolderTab.tsx must branch on new_count === 1 to pick "
+        "\"new folder\" vs \"new folders\" at render time."
+    )
+
+
+def test_folder_tab_renders_info_banner_when_all_exist() -> None:
+    """ODD-TDFOLDER-001: when `preview.all_exist === true`,
+    the renderer paints the "Path already exists on disk."
+    info banner with the check_circle glyph. The branch is
+    conditional on the wire `all_exist` flag (the renderer
+    does NOT compute all_exist client-side — the server is
+    the source of truth). Mirrors the legacy
+    `web/detail.js::renderFolderTab::infoBanner` byte-for-byte."""
+    text = _read_text(FOLDER_TAB_FILE)
+    assert "folder-info-banner" in text, (
+        "FolderTab.tsx must render the .folder-info-banner element when all_exist === true."
+    )
+    assert "data-folder-info-banner" in text, (
+        "FolderTab.tsx must stamp data-folder-info-banner on the info banner."
+    )
+    assert "Path already exists on disk" in text, (
+        "FolderTab.tsx must render the canonical info banner copy."
+    )
+    assert "check_circle" in text, (
+        "FolderTab.tsx must render the check_circle material-symbol icon on the info banner."
+    )
+
+
+def test_folder_tab_renders_create_row_when_not_all_exist() -> None:
+    """ODD-TDFOLDER-001: when `preview.all_exist === false`,
+    the renderer paints the create row (initially the bare
+    "Create N folders" CTA — the in-tab confirmation gate
+    flips it to the Confirm row on the next click). The CTA
+    carries `data-action="arm-create-research-folders"` so
+    the parent can route the click through the
+    `handleArmCreate` callback. Mirrors the legacy
+    `web/detail.js::renderFolderTab::createBtn` flow,
+    except the React port adds an explicit gate (the legacy
+    oracle POSTs immediately)."""
+    text = _read_text(FOLDER_TAB_FILE)
+    assert "folder-create-row" in text, (
+        "FolderTab.tsx must render the .folder-create-row element when all_exist === false."
+    )
+    assert "data-folder-create-row" in text, (
+        "FolderTab.tsx must stamp data-folder-create-row on the create row."
+    )
+    assert 'data-action="arm-create-research-folders"' in text, (
+        "FolderTab.tsx must stamp data-action=\"arm-create-research-folders\" on the bare CTA "
+        "(so the parent can route the click through handleArmCreate)."
+    )
+    assert "onArmCreate" in text, (
+        "FolderTab.tsx must invoke the onArmCreate prop on bare-CTA click."
+    )
+
+
+def test_folder_tab_renders_confirm_row_when_armed() -> None:
+    """ODD-TDFOLDER-001: when `createArmed === true`, the
+    renderer paints the in-tab confirmation row instead of
+    the bare CTA. The row carries a Cancel button (which
+    invokes `onDisarmCreate`) + a Confirm create button
+    (which invokes `onCreate` — the parent calls
+    `materializeResearch`). The explicit gate is the
+    ODD-TDFOLDER-001 user constraint: "Require an explicit
+    in-tab confirmation before creating folders,
+    intentionally safer than legacy." The legacy
+    `web/detail.js::renderFolderTab::createBtn` POSTs
+    immediately on click."""
+    text = _read_text(FOLDER_TAB_FILE)
+    assert "folder-confirm" in text, (
+        "FolderTab.tsx must render the .folder-confirm element when createArmed === true."
+    )
+    assert "data-folder-confirm" in text, (
+        "FolderTab.tsx must stamp data-folder-confirm on the confirm row."
+    )
+    assert 'data-action="confirm-create-research-folders"' in text, (
+        "FolderTab.tsx must stamp data-action=\"confirm-create-research-folders\" on the "
+        "Confirm button."
+    )
+    assert 'data-action="disarm-create-research-folders"' in text, (
+        "FolderTab.tsx must stamp data-action=\"disarm-create-research-folders\" on the "
+        "Cancel button."
+    )
+    assert "onCreate" in text and "onDisarmCreate" in text, (
+        "FolderTab.tsx must invoke the onCreate prop on Confirm click "
+        "and the onDisarmCreate prop on Cancel click."
+    )
+    # The Confirm row must surface the wire `preview.relative_path`
+    # verbatim so the user sees exactly which folder chain will
+    # be created before they click Confirm. The renderer MUST
+    # NOT construct / sanitise the path client-side — the server
+    # is the source of truth.
+    prompt_block = re.search(
+        r"folder-confirm-prompt[\s\S]{0,400}?relative_path",
+        text,
+    ), (
+        "FolderTab.tsx must surface the wire `preview.relative_path` "
+        "verbatim in the Confirm row prompt."
+    )
+    assert prompt_block, (
+        "FolderTab.tsx must surface the wire `preview.relative_path` "
+        "verbatim in the Confirm row prompt."
+    )
+
+
+def test_folder_tab_renders_path_actions_when_all_exist() -> None:
+    """ODD-TDFOLDER-001: when `preview.all_exist === true`,
+    the renderer paints the Open + Copy path-actions row
+    instead of the create row. The Open button carries the
+    folder_open glyph + invokes `onOpen` (the parent calls
+    `openFolder`); the Copy button carries the content_copy
+    glyph + invokes `onCopy` (the parent calls
+    `navigator.clipboard.writeText`). Mirrors the legacy
+    `web/detail.js::renderFolderTab::pathActions`
+    byte-for-byte."""
+    text = _read_text(FOLDER_TAB_FILE)
+    assert "folder-path-actions" in text, (
+        "FolderTab.tsx must render the .folder-path-actions element when all_exist === true."
+    )
+    assert "data-folder-path-actions" in text, (
+        "FolderTab.tsx must stamp data-folder-path-actions on the path-actions row."
+    )
+    assert 'data-action="open-research-folder"' in text, (
+        "FolderTab.tsx must stamp data-action=\"open-research-folder\" on the Open button."
+    )
+    assert 'data-action="copy-research-path"' in text, (
+        "FolderTab.tsx must stamp data-action=\"copy-research-path\" on the Copy button."
+    )
+    assert "onOpen" in text and "onCopy" in text, (
+        "FolderTab.tsx must invoke onOpen on the Open button "
+        "and onCopy on the Copy button."
+    )
+
+
+def test_folder_tab_renders_inline_success_and_error_messages() -> None:
+    """ODD-TDFOLDER-001: the create / open / copy actions all
+    surface inline success / error messages (no toast
+    dependency). The success messages carry the wire
+    `MaterializeResult.relative_path` /
+    `OpenFolderResult.opened_with` values verbatim. The
+    error messages carry the failure reason verbatim (the
+    user can retry without a tab refresh). The inline
+    messages use the `.folder-inline-message-success` /
+    `.folder-inline-message-error` modifier classes so the
+    existing CSS palette applies. Mirrors the legacy
+    `web/detail.js::renderFolderTab` toast affordance
+    without the toast helper."""
+    text = _read_text(FOLDER_TAB_FILE)
+    assert "folder-inline-message-success" in text, (
+        "FolderTab.tsx must render the .folder-inline-message-success class on success copy."
+    )
+    assert "folder-inline-message-error" in text, (
+        "FolderTab.tsx must render the .folder-inline-message-error class on error copy."
+    )
+    assert "Folders materialized:" in text, (
+        "FolderTab.tsx must render the canonical \"Folders materialized: ...\" success copy."
+    )
+    assert "Opened " in text and "opened_with" in text, (
+        "FolderTab.tsx must render the canonical \"Opened with <bin>: ...\" success copy "
+        "(driven by the wire OpenFolderResult.opened_with value)."
+    )
+    assert "Could not open folder:" in text, (
+        "FolderTab.tsx must render the canonical open-folder error copy."
+    )
+    assert "Could not copy path:" in text, (
+        "FolderTab.tsx must render the canonical copy-path error copy "
+        "(graceful clipboard failure)."
+    )
+
+
+def test_folder_tab_does_not_invoke_clipboard_directly() -> None:
+    """ODD-TDFOLDER-001: the FolderTab component MUST NOT
+    invoke `navigator.clipboard` directly. The clipboard
+    transport lives at the parent (`TaxonomyTree`) so the
+    renderer stays framework-free + spec.md rule 4
+    (presentation → taxonomy module only, no DOM / no fetch
+    tokens in the body beyond the JSX the component is
+    required to render). A direct `navigator.clipboard.*`
+    call would also force a Browser-only path and break the
+    SSR build (the parent owns the clipboard so the render
+    contract stays testable under Node)."""
+    raw = _read_text(FOLDER_TAB_FILE)
+    # Strip every JSDoc / block comment so the assertion
+    # doesn't trip on the docstring's prose explanation
+    # (the file documents that the renderer MUST NOT call
+    # clipboard; the assertion enforces that contract on
+    # the body code).
+    body = re.sub(r"/\*[\s\S]*?\*/", "", raw)
+    assert "navigator.clipboard" not in body, (
+        "FolderTab.tsx must NOT call navigator.clipboard directly — the parent "
+        "owns the clipboard transport so the renderer stays framework-free."
+    )
+
+
+def test_detail_panel_enables_folder_tab() -> None:
+    """ODD-TDFOLDER-001: the Folder tab is ENABLED
+    (`available: true`). The React port's earlier slice marked
+    Folder as `available: false` per the "visibly mark
+    unavailable later tabs without fake actions" policy.
+    ODD-TDFOLDER-001 flips the Folder entry to `true` so the
+    user can click into the native Folder preview."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert re.search(
+        r"key\s*:\s*[\"\']folder[\"\']\s*,\s*label\s*:\s*[\"\']Folder[\"\']"
+        r"[\s\S]{0,200}?available\s*:\s*true",
+        text,
+    ), (
+        "DetailPanel.tsx must declare the Folder tab with `available: true` "
+        "(ODD-TDFOLDER-001 enables the Folder tab body)."
+    )
+
+
+def test_detail_panel_renders_folder_tab_when_active() -> None:
+    """ODD-TDFOLDER-001: when `activeTab === "folder"`, the
+    panel body renders `<FolderTab>` instead of the Overview
+    body. The body slot must consume the canonical
+    `FolderTabStatus` discriminated union + the retry /
+    create / open / copy callbacks + the create-armed gate so
+    the loading / error / loaded states + the in-tab
+    confirmation flow + the inline success / error copy all
+    render correctly."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert "FolderTab" in text, (
+        "DetailPanel.tsx must import the canonical FolderTab component."
+    )
+    assert "FolderTabStatus" in text, (
+        "DetailPanel.tsx must consume the FolderTabStatus type for the folderStatus prop."
+    )
+    assert "FolderCreateStatus" in text and "FolderOpenStatus" in text and "FolderCopyStatus" in text, (
+        "DetailPanel.tsx must consume the FolderCreateStatus + FolderOpenStatus + "
+        "FolderCopyStatus types for the side-effect status props."
+    )
+    # Body slot must dispatch on activeTab === "folder" to
+    # render FolderTab. The dispatch must branch BEFORE the
+    # Overview fallback.
+    assert re.search(
+        r"activeTab\s*===\s*[\"\']folder[\"\']",
+        text,
+    ), (
+        "DetailPanel.tsx body must dispatch on activeTab === \"folder\" "
+        "to render the FolderTab."
+    )
+    assert re.search(
+        r"activeTab\s*===\s*[\"\']folder[\"\'][\s\S]{0,400}?<FolderTab",
+        text,
+    ), (
+        "DetailPanel.tsx must render <FolderTab> when activeTab === \"folder\"."
+    )
+
+
+def test_detail_panel_threads_folder_callbacks() -> None:
+    """ODD-TDFOLDER-001: DetailPanel threads
+    `onRetryFolderPreview` + `onArmCreate` + `onDisarmCreate` +
+    `onCreateResearchFolders` + `onOpenResearchFolder` +
+    `onCopyResearchPath` through to FolderTab so the parent
+    can drive every Folder-side-effect action."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    for name in (
+        "onRetryFolderPreview",
+        "onArmCreate",
+        "onDisarmCreate",
+        "onCreateResearchFolders",
+        "onOpenResearchFolder",
+        "onCopyResearchPath",
+    ):
+        assert name in text, (
+            f"DetailPanel.tsx must thread `{name}` to the FolderTab."
+        )
+
+
+def test_taxonomy_tree_eager_fetches_folder_preview_on_selection() -> None:
+    """ODD-TDFOLDER-001: TaxonomyTree fires the canonical
+    `previewMaterialize(id, { source: activeSource })` round
+    trip the moment a taxon becomes the active selection.
+    The eager-fetch contract pins the `useEffect` so
+    re-selecting a previously selected taxon lands on the
+    cached result without a round trip. The source-aware
+    effect deps include `activeSource` so a source switch
+    re-fires the fetch (the materialize preview walks the
+    active source's parent column)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "previewMaterialize" in text, (
+        "TaxonomyTree.tsx must call the canonical previewMaterialize helper."
+    )
+    assert "loadFolderPreview" in text, (
+        "TaxonomyTree.tsx must declare a loadFolderPreview callback."
+    )
+    # Eager-fetch effect must fire on `selected` change +
+    # `activeSource` change (the source-aware invalidation
+    # contract).
+    assert re.search(
+        r"useEffect\s*\(\s*\(\s*\)\s*=>\s*\{[\s\S]*?selected[\s\S]*?loadFolderPreview[\s\S]*?activeSource",
+        text,
+    ), (
+        "TaxonomyTree.tsx must declare a useEffect that calls "
+        "loadFolderPreview when `selected` or `activeSource` changes "
+        "(ODD-TDFOLDER-001 eager-fetch contract with source-aware invalidation)."
+    )
+
+
+def test_taxonomy_tree_owns_folder_cache() -> None:
+    """ODD-TDFOLDER-001: TaxonomyTree owns the per-taxon
+    folder cache as a `Map<number, FolderTabStatus>`. The
+    cache survives across deselects so re-selecting a
+    previously selected taxon is also instant (mirrors how
+    `perTaxonActiveTab` memory + `searchesByTaxonId` +
+    `vernacularsByTaxonId` + `synonymsByTaxonId` +
+    `distributionByTaxonId` caches survive across
+    deselects)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "folderByTaxonId" in text, (
+        "TaxonomyTree.tsx must own a folderByTaxonId cache."
+    )
+    assert re.search(
+        r"Map\s*<\s*number\s*,\s*FolderTabStatus\s*>",
+        text,
+    ), (
+        "TaxonomyTree.tsx must own a Map<number, FolderTabStatus> for "
+        "the per-taxon folder preview cache."
+    )
+
+
+def test_taxonomy_tree_invalidates_folder_cache_on_source_switch() -> None:
+    """ODD-TDFOLDER-001: a source switch MUST clear the
+    per-taxon folder preview cache so the panel cannot
+    render a stale preview from the previous source. The
+    materialize preview walks the active source's parent
+    column — different from the source-AGNOSTIC
+    vernaculars / synonyms / distribution caches. The
+    cache therefore does NOT survive `handleSourceChange`.
+    The function body MUST carry a
+    `setFolderByTaxonId(new Map())` call."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    handle_idx = text.find("const handleSourceChange")
+    assert handle_idx != -1, (
+        "TaxonomyTree.tsx must declare handleSourceChange."
+    )
+    body = text[handle_idx:handle_idx + 3500]
+    # The folder cache MUST be cleared (ODD-TDFOLDER-001
+    # contract). The source-agnostic retention that
+    # protects the vernacular / synonyms / distribution
+    # caches does NOT apply here — the materialize preview
+    # walks the active source's parent column, so a stale
+    # CoL preview yields a different chain under WoRMS when
+    # the parent_id columns diverge.
+    assert "setFolderByTaxonId" in body, (
+        "ODD-TDFOLDER-001: handleSourceChange MUST clear the per-taxon "
+        "folder preview cache (the materialize preview walks the active "
+        "source's parent column, so the source-AGNOSTIC retention "
+        "contract does not apply)."
+    )
+    # The folder-create / folder-open / folder-copy
+    # side-effect maps + the create-armed gate MUST be
+    # cleared on a source switch (the stale "Opened with
+    # `open`" message cannot bleed into the next source's
+    # selection; the stale confirmation gate has no
+    # meaning under the new source).
+    for name in (
+        "setFolderCreateByTaxonId",
+        "setFolderOpenByTaxonId",
+        "setFolderCopyByTaxonId",
+        "setFolderCreateArmedByTaxonId",
+    ):
+        assert name in body, (
+            f"ODD-TDFOLDER-001: handleSourceChange MUST clear the per-taxon "
+            f"{name} side-effect map (the stale message / gate cannot bleed "
+            f"into the next source's selection)."
+        )
+
+
+def test_taxonomy_tree_handles_stale_async_source_change() -> None:
+    """ODD-TDFOLDER-001: the create / open handlers MUST
+    guard against a stale `selected` change mid-flight. If
+    the user switches taxa while a POST is in flight, the
+    success / error handler must no-op the cache update for
+    the now-selected taxon (the success belongs to the old
+    taxon — switching it under the new taxon would show a
+    misleading "all_exist" banner for the wrong path). The
+    handler captures `taxonId` from the closed-over
+    `selected` and only commits when `selected === taxonId`
+    at the response time."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    handle_idx = text.find("const handleCreateResearchFolders")
+    assert handle_idx != -1, (
+        "TaxonomyTree.tsx must declare handleCreateResearchFolders."
+    )
+    body = text[handle_idx:handle_idx + 2200]
+    # The handler must capture `taxonId` from `selected` at
+    # call time so the stale guard can compare against the
+    # closed-over value (mirrors how `loadSearches` closes
+    # over `selected`).
+    assert re.search(
+        r"const\s+taxonId\s*=\s*selected",
+        body,
+    ), (
+        "TaxonomyTree.tsx handleCreateResearchFolders must capture "
+        "`taxonId = selected` at call time so the stale guard can "
+        "compare against the closed-over value."
+    )
+    # The stale guard must compare `selected === taxonId`
+    # before committing the create-status update.
+    assert re.search(
+        r"selected\s*===\s*taxonId",
+        body,
+    ), (
+        "TaxonomyTree.tsx handleCreateResearchFolders must guard against "
+        "a stale `selected` change with `selected === taxonId` before "
+        "committing the create-status update."
+    )
+    # The same guard pattern must apply to handleOpenResearchFolder.
+    open_idx = text.find("const handleOpenResearchFolder")
+    assert open_idx != -1, (
+        "TaxonomyTree.tsx must declare handleOpenResearchFolder."
+    )
+    open_body = text[open_idx:open_idx + 1500]
+    assert re.search(
+        r"const\s+taxonId\s*=\s*selected",
+        open_body,
+    ) and re.search(
+        r"selected\s*===\s*taxonId",
+        open_body,
+    ), (
+        "TaxonomyTree.tsx handleOpenResearchFolder must capture "
+        "`taxonId = selected` at call time and guard the success / "
+        "error update with `selected === taxonId`."
+    )
+
+
+def test_taxonomy_tree_passes_folder_props_to_detail_panel() -> None:
+    """ODD-TDFOLDER-001: TaxonomyTree threads
+    `folderStatus` + the retry / arm / disarm / create /
+    open / copy callbacks + the create / open / copy status
+    maps + the create-armed gate through to the
+    DetailPanel so the FolderTab body can render the
+    loading / error / loaded states + the in-tab
+    confirmation flow + the inline success / error
+    states."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    for name in (
+        "folderStatus",
+        "onRetryFolderPreview",
+        "onArmCreate",
+        "onDisarmCreate",
+        "onCreateResearchFolders",
+        "onOpenResearchFolder",
+        "onCopyResearchPath",
+        "folderCreateStatus",
+        "folderOpenStatus",
+        "folderCopyStatus",
+        "folderCreateArmed",
+    ):
+        assert name in text, (
+            f"TaxonomyTree.tsx must thread {name} to DetailPanel."
+        )
+
+
+def test_barrel_reexports_folder_contract() -> None:
+    """ODD-TDFOLDER-001: the taxonomy barrel must
+    re-export every Folder wire surface so cross-module
+    consumers can type the preview / materialize /
+    open-folder payloads + helpers without a deep
+    import (spec.md rule 5)."""
+    text = _read_text(TAXONOMY_BARREL)
+    for name in (
+        "previewMaterialize",
+        "materializeResearch",
+        "openFolder",
+        "FetchMaterializePreviewOptions",
+        "FetchMaterializeOptions",
+        "FetchOpenFolderOptions",
+        "MaterializePreview",
+        "MaterializePreviewSegment",
+        "MaterializeResult",
+        "OpenFolderResult",
+    ):
+        assert name in text, (
+            f"taxonomy barrel must re-export `{name}` (ODD-TDFOLDER-001)."
+        )
+
+
+def test_globals_css_declares_folder_tab_selectors() -> None:
+    """ODD-TDFOLDER-001: `src/app/globals.css` must declare
+    the new `.folder-tab` cascade so the per-row
+    `.folder-segment-item` rows + the ✓ / + markers +
+    the cumulative path + the count summary + the info
+    banner + the Create row + the Confirm row + the path-
+    actions row + the inline success / error messages
+    all render identically to the legacy oracle. The
+    selectors live under `@layer components` and are in
+    alphabetical order so the chain-topology guard in
+    `tests/test_research_styles.py` keeps whitelisting
+    them."""
+    text = _read_text(TAXONOMY_GLOBALS_CSS)
+    layer = re.search(r"@layer\s+components\s*\{", text)
+    assert layer, "@layer components must exist in globals.css"
+    body = text[layer.end():]
+    layer_end = body.find("\n}\n")
+    if layer_end == -1:
+        layer_end = body.find("}")
+    body = body[:layer_end]
+    # Every selector must appear in the source. The
+    # minifier may strip whitespace / quotes, so we
+    # accept the bare class names without descendants.
+    for needle in (
+        ".folder-tab",
+        ".folder-tab .folder-btn",
+        ".folder-tab .folder-btn-primary",
+        ".folder-tab .folder-btn-secondary",
+        ".folder-tab .folder-confirm",
+        ".folder-tab .folder-confirm-actions",
+        ".folder-tab .folder-confirm-path",
+        ".folder-tab .folder-confirm-prompt",
+        ".folder-tab .folder-counts",
+        ".folder-tab .folder-create-row",
+        ".folder-tab .folder-info-banner",
+        ".folder-tab .folder-inline-message",
+        ".folder-tab .folder-inline-message-error",
+        ".folder-tab .folder-inline-message-success",
+        ".folder-tab .folder-path-actions",
+        ".folder-tab .folder-section-count",
+        ".folder-tab .folder-section-header",
+        ".folder-tab .folder-section-title",
+        ".folder-tab .folder-segment-list",
+        ".folder-tab .folder-segment-list .folder-segment-item",
+        ".folder-tab .folder-segment-list .folder-segment-marker",
+        ".folder-tab .folder-segment-list .folder-segment-marker-exists",
+        ".folder-tab .folder-segment-list .folder-segment-marker-new",
+        ".folder-tab .folder-segment-list .folder-segment-path",
+        ".folder-tab .folder-segment-wrap",
+    ):
+        assert needle in body, (
+            f"globals.css @layer components must declare {needle}."
+        )
+
+
+def test_out_index_html_has_folder_tab_styles(static_export) -> None:
+    """ODD-TDFOLDER-001: the static export's CSS must
+    define the FolderTab selectors introduced by the
+    React cutover so the native-style Folder preview +
+    segment list + count summary + info banner + create +
+    confirm + path-actions rows render identically to the
+    legacy oracle. The selectors live under the
+    whitelisted `.folder-tab` base class so the
+    chain-topology guard in
+    `tests/test_research_styles.py` keeps whitelisting
+    them."""
+    css_chunks = sorted((REPO_ROOT / "out" / "_next" / "static" / "chunks").glob("*.css"))
+    css_body = "\n".join(
+        c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks
+    )
+    # The container + segment list + create / confirm /
+    # path-actions + button selectors are covered by the
+    # `.folder-tab` cascade in `src/app/globals.css`. The
+    # static export's CSS must surface at least the
+    # top-level `.folder-tab` rule plus the per-row
+    # `.folder-segment-item` rule (so the segment list +
+    # marker + cumulative-path rendering matches the
+    # legacy oracle).
+    for needle in (".folder-tab", ".folder-segment-item"):
+        assert needle in css_body, (
+            f"ODD-TDFOLDER-001: static CSS must define the {needle} rule."
+        )

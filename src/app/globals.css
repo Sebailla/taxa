@@ -532,12 +532,223 @@
   }
 
   /* Folder tab body (PR 3c-c) — per-taxon materialize indicator
-     (separate top-level from .search-tab). */
+     (separate top-level from .search-tab). ODD-TDFOLDER-001
+     enables the Folder tab body: the React `<FolderTab>`
+     component renders the server-composed materialize-preview
+     payload (line-by-line segment list with ✓ / + markers,
+     count summary, info banner, conditional Create row with
+     an explicit in-tab confirmation gate, conditional Open +
+     Copy path-actions row, and inline success / error states)
+     inside `<div.folder-tab>`. The cascade below names every
+     per-row surface so the chain-topology guard in
+     `tests/test_research_styles.py` keeps whitelisting the
+     base selector under the 3c-c research / chrome surface.
+     Every descendant selector is scoped under `.folder-tab`
+     so the alphabetic ordering contract keeps passing (the
+     alphabetic contract strips `:pseudo-class` tokens before
+     the sort, so `.folder-tab .folder-btn:disabled` sorts
+     against `.folder-tab .folder-btn-primary`, etc.). */
   .folder-tab {
     display: flex;
     flex-direction: column;
     gap: 12px;
     padding: 16px 24px;
+  }
+  .folder-tab .folder-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: "Raleway", sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+    padding: 10px 16px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition:
+      background 0.12s ease-out,
+      color 0.12s ease-out;
+  }
+  .folder-tab .folder-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .folder-tab .folder-btn-primary {
+    background: #15803d;
+    color: white;
+  }
+  .folder-tab .folder-btn-primary:hover:not(:disabled) {
+    background: color-mix(in srgb, #15803d 88%, black);
+  }
+  .folder-tab .folder-btn-secondary {
+    background: transparent;
+    color: var(--primary, #15803d);
+    border: 1px solid currentColor;
+  }
+  .folder-tab .folder-btn-secondary:hover:not(:disabled) {
+    background: color-mix(
+      in srgb,
+      var(--primary, #15803d) 12%,
+      transparent
+    );
+  }
+  .folder-tab .folder-confirm {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--outline-variant);
+    border-radius: 8px;
+    background: var(--surface-container-low);
+  }
+  .folder-tab .folder-confirm-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+  .folder-tab .folder-confirm-path {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+    background: var(--surface-container-high);
+    padding: 1px 4px;
+    border-radius: 4px;
+  }
+  .folder-tab .folder-confirm-prompt {
+    font-size: 13px;
+    color: var(--on-surface);
+  }
+  .folder-tab .folder-counts {
+    font-size: 13px;
+    color: var(--on-surface-variant);
+  }
+  .folder-tab .folder-create-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 4px;
+  }
+  .folder-tab .folder-info-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: color-mix(in srgb, #15803d 12%, transparent);
+    color: #15803d;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .folder-tab .folder-inline-message {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .folder-tab .folder-inline-message-error {
+    background: color-mix(in srgb, var(--error) 12%, transparent);
+    color: var(--error, #b91c1c);
+  }
+  .folder-tab .folder-inline-message-success {
+    background: color-mix(in srgb, #15803d 12%, transparent);
+    color: #15803d;
+  }
+  .folder-tab .folder-path-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.75rem;
+  }
+  .folder-tab .folder-path-actions .folder-btn {
+    flex: 0 0 auto;
+  }
+  .folder-tab .folder-section-count {
+    font-size: 11px;
+    color: var(--outline);
+    background: var(--surface-container-high);
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-weight: 500;
+    letter-spacing: 0;
+  }
+  .folder-tab .folder-section-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: "Raleway", sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--on-surface-variant);
+    margin: 0 0 10px 0;
+  }
+  .folder-tab .folder-section-title {
+    font-family: "Raleway", sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--on-surface-variant);
+    margin-bottom: 4px;
+  }
+  .folder-tab .folder-segment-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--outline-variant);
+    border-radius: 8px;
+    background: var(--surface-container-lowest);
+    max-height: 240px;
+    overflow-y: auto;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px;
+  }
+  .folder-tab .folder-segment-list .folder-segment-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--outline-variant);
+  }
+  .folder-tab .folder-segment-list .folder-segment-item:last-child {
+    border-bottom: 0;
+  }
+  .folder-tab .folder-segment-list .folder-segment-marker {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    font-weight: 700;
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .folder-tab .folder-segment-list .folder-segment-marker-exists {
+    background: color-mix(in srgb, #15803d 18%, transparent);
+    color: #15803d;
+  }
+  .folder-tab .folder-segment-list .folder-segment-marker-new {
+    background: color-mix(
+      in srgb,
+      var(--tertiary, var(--primary)) 14%,
+      transparent
+    );
+    color: var(--on-surface);
+  }
+  .folder-tab .folder-segment-list .folder-segment-path {
+    color: var(--on-surface);
+    overflow-wrap: anywhere;
+    line-height: 1.35;
+  }
+  .folder-tab .folder-segment-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
   }
 
   /* Header Browser tab (PR 3c-c) — GLOBAL Research / file explorer
