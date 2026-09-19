@@ -35,6 +35,9 @@ TAXONOMY_GLOBALS_CSS = REPO_ROOT / "src" / "app" / "globals.css"
 VERNACULAR_TAB_FILE = (
     REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "VernacularTab.tsx"
 )
+SYNONYM_TAB_FILE = (
+    REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "SynonymTab.tsx"
+)
 SRC_PAGE = REPO_ROOT / "src" / "app" / "page.tsx"
 SRC_LAYOUT = REPO_ROOT / "src" / "app" / "layout.tsx"
 OUT_DIR = REPO_ROOT / "out"
@@ -2978,4 +2981,484 @@ def test_out_index_html_has_vernacular_tab_styles(static_export) -> None:
     for needle in (".vernacular-tab", ".detail-item"):
         assert needle in css_body, (
             f"ODD-TDV-001: static CSS must define the {needle} rule."
+        )
+
+
+# ---------------------------------------------------------------------------
+# ODD-TDSYN-001 — native Synonyms tab data contract + UI.
+#
+#   - `fetchSynonyms` is the canonical typed projection for
+#     `/api/taxon/{id}/synonyms?limit=200`; preserves the FastAPI
+#     `Synonym` wire fields (id, rank, scientific_name, nullable
+#     authorship, non-nullable status) verbatim — the server
+#     pre-filters to `status != 'accepted'` so status is never
+#     null. The UI does NOT render status (per the ODD-TDSYN-001
+#     user constraint) but the projection MUST carry it so a
+#     future server-composed status-derived affordance does not
+#     need a coordinated React update.
+#   - `SynonymTab` is the native React renderer; renders the
+#     `Synonyms` header + count badge + the per-row
+#     `.detail-item` list carrying the `.rank-chip` chip + the
+#     italic-or-roman scientific name + the optional
+#     `.authorship` span, plus loading / empty / error / retry
+#     states.
+#   - `TaxonomyTree` owns the per-taxon synonyms cache + the
+#     eager-fetch-on-selection contract so tab activation paints
+#     the rows instantly. The cache survives source switches
+#     (the endpoint is source-agnostic — the FastAPI SQL
+#     pre-filters by `parent_id = taxon_id AND status !=
+#     'accepted'` regardless of the active tree source).
+#   - `DetailPanel` enables the Synonyms tab (`available: true`)
+#     and dispatches on `activeTab === "synonyms"` to render the
+#     SynonymTab body.
+# ---------------------------------------------------------------------------
+
+
+def test_synonym_tab_file_exists() -> None:
+    """ODD-TDSYN-001: SynonymTab component must exist as a `.tsx`
+    file in the taxonomy presentation folder."""
+    assert SYNONYM_TAB_FILE.is_file(), (
+        f"missing {SYNONYM_TAB_FILE} \u2014 ODD-TDSYN-001 ships this Synonyms "
+        f"tab body component."
+    )
+    assert SYNONYM_TAB_FILE.suffix == ".tsx", (
+        "SynonymTab must be `.tsx` (JSX-rendered)."
+    )
+
+
+def test_synonym_tab_is_a_client_component() -> None:
+    """ODD-TDSYN-001: SynonymTab mounts inside the React client
+    island (TaxonomyTree -> DetailPanel -> SynonymTab). The
+    component declares the client boundary via `"use client"`
+    so the Retry button + the per-row chip rendering stay
+    interactive after hydration."""
+    text = _read_text(SYNONYM_TAB_FILE)
+    assert text.lstrip().startswith('"use client"') or text.lstrip().startswith("'use client'"), (
+        "SynonymTab.tsx must declare the client boundary via 'use client'"
+    )
+
+
+def test_synonym_tab_consumes_canonical_projection() -> None:
+    """ODD-TDSYN-001: SynonymTab imports the canonical
+    `SynonymName` projection from the infrastructure layer.
+    spec.md rule 4 keeps the component pure of deep imports
+    into sibling presentation helpers (the SynonymName
+    projection is the only domain contract this component
+    needs; the per-row italic-vs-roman split is delegated to
+    the pure `scientificNameClass` helper in `row-format.ts`,
+    a sibling presentation module)."""
+    text = _read_text(SYNONYM_TAB_FILE)
+    assert "SynonymName" in text, (
+        "SynonymTab.tsx must consume the canonical `SynonymName` projection."
+    )
+    assert "scientificNameClass" in text, (
+        "SynonymTab.tsx must consume the pure `scientificNameClass` helper "
+        "to render the italic-or-roman scientific name."
+    )
+
+
+def test_synonym_tab_renders_native_header_and_count() -> None:
+    """ODD-TDSYN-001: the rendered SynonymTab carries the canonical
+    `Synonyms` header (matches the legacy
+    `web/detail.js::buildDetailSection("history", "Synonyms",
+    d.synonyms.length, items)` byte-for-byte) and a count badge
+    stamped on a per-row data attribute (`data-synonym-count`).
+    The `history` material-symbol icon spans the section header
+    so the native visual identity survives the React cutover."""
+    text = _read_text(SYNONYM_TAB_FILE)
+    assert "history" in text, (
+        "SynonymTab.tsx must render the `history` material-symbol icon "
+        "in the section header (legacy oracle parity)."
+    )
+    assert "Synonyms" in text, (
+        "SynonymTab.tsx must render the canonical `Synonyms` header copy."
+    )
+    assert "synonym-section-header" in text, (
+        "SynonymTab.tsx must stamp .synonym-section-header on the header element."
+    )
+    assert "synonym-section-count" in text, (
+        "SynonymTab.tsx must stamp .synonym-section-count on the count badge."
+    )
+    assert "data-synonym-count" in text, (
+        "SynonymTab.tsx must stamp data-synonym-count on the loaded body so "
+        "tests + tooling can observe the row count."
+    )
+
+
+def test_synonym_tab_renders_per_row_chip_rank_and_name() -> None:
+    """ODD-TDSYN-001: every loaded row renders as a `.detail-item`
+    carrying the `.rank-chip` chip (the row's `rank` value
+    surfaced verbatim from the wire) + the scientific name span
+    painted with the ICZN italic-or-roman split via the pure
+    `scientificNameClass` helper + the optional `.authorship`
+    span (conditional on the nullable wire field). The chip is
+    rendered unconditionally (the wire `rank` is non-nullable);
+    the authorship span is conditionally omitted when the row
+    carries `authorship === null` (the legacy
+    `web/detail.js::loadDetail` skips the `.authorship` element
+    when `s.authorship` is falsy). The component MUST NOT render
+    the wire `status` field — the ODD-TDSYN-001 user constraint
+    pins the UI contract: "the UI must not render status or
+    client-sort"."""
+    text = _read_text(SYNONYM_TAB_FILE)
+    # Container: `.detail-item` carries the chip + name span + optional authorship.
+    assert "detail-item" in text, (
+        "SynonymTab.tsx must render .detail-item rows."
+    )
+    # Rank chip + scientific name span are rendered.
+    assert '"rank-chip"' in text or "'rank-chip'" in text, (
+        "SynonymTab.tsx must render the .rank-chip chip on every row "
+        "with the wire rank verbatim."
+    )
+    assert "synonym-name" in text, (
+        "SynonymTab.tsx must render the scientific-name span with the "
+        "italic-or-roman split via scientificNameClass."
+    )
+    # The conditional authorship rendering branches on the
+    # nullable wire field. The pattern below matches the React
+    # conditional `{s.authorship ? (<span className="authorship">) : null}`.
+    assert re.search(
+        r"s\.authorship\s*\?\s*\(",
+        text,
+    ), (
+        "SynonymTab.tsx must conditionally render the .authorship span on the "
+        "row's nullable authorship field."
+    )
+    # Each row carries `data-synonym-item-id` so the legacy
+    # selector + the future row-click handler can identify the
+    # row without reading the chip text. The component also
+    # stamps `data-synonym-item-rank` + `data-synonym-item-status`
+    # so the wire values (including the not-rendered status
+    # field) are observable for tests + tooling.
+    assert "data-synonym-item-id" in text, (
+        "SynonymTab.tsx must stamp data-synonym-item-id on every row."
+    )
+    assert "data-synonym-item-rank" in text, (
+        "SynonymTab.tsx must stamp data-synonym-item-rank on every row."
+    )
+    # UI contract — the wire status field MUST NOT be rendered
+    # as a user-visible element. The component stamps the status
+    # on a data attribute (`data-synonym-item-status`) so tests
+    # + tooling can observe the wire value, but the JSX does not
+    # paint it as text / chip / span / badge. The strict pattern
+    # below rejects any `<span className=...>` element that
+    # carries the status string outside a data-attribute context.
+    assert not re.search(
+        r"<span[^>]*className=[\"\'][^\"\']*status[^\"\']*[\"\'][^>]*>\{?s\.status\}?",
+        text,
+    ), (
+        "ODD-TDSYN-001: SynonymTab must NOT render the wire status field as a "
+        "user-visible element (UI contract: 'must not render status or client-sort')."
+    )
+    # Client-side sorting guard — the component MUST NOT sort
+    # the wire payload client-side (server-driven
+    # `ORDER BY rank, scientific_name` ordering is the source
+    # of truth).
+    assert not re.search(
+        r"\.sort\s*\(|\.toSorted\s*\(|\.\.\.status\.sort|\.localeCompare",
+        text,
+    ), (
+        "ODD-TDSYN-001: SynonymTab must NOT sort the wire payload "
+        "client-side (server ordering is the source of truth)."
+    )
+
+
+def test_synonym_tab_renders_loading_state() -> None:
+    """ODD-TDSYN-001: the loading branch renders a `role="status"`
+    element with the canonical `aria-busy="true"` flag so
+    assistive tech announces the loading state. Mirrors the
+    SearchTab + VernacularTab loading contracts byte-for-byte."""
+    text = _read_text(SYNONYM_TAB_FILE)
+    assert 'role="status"' in text or "role='status'" in text, (
+        "SynonymTab.tsx must render a role=\"status\" element for the loading state."
+    )
+    assert "aria-busy" in text, (
+        "SynonymTab.tsx must set aria-busy on the loading state for a11y tooling."
+    )
+    assert "Loading synonyms" in text, (
+        "SynonymTab.tsx must render the canonical loading copy."
+    )
+
+
+def test_synonym_tab_renders_empty_state() -> None:
+    """ODD-TDSYN-001: the empty branch renders a user-visible
+    "No synonyms available for this taxon." message so the
+    panel never lands on a blank body for taxa with no
+    synonyms. The `synonym-section-count` is stamped as `0`
+    so the header badge mirrors the loaded count without a
+    fake row."""
+    text = _read_text(SYNONYM_TAB_FILE)
+    assert "No synonyms available for this taxon." in text, (
+        "SynonymTab.tsx must render the canonical empty copy."
+    )
+
+
+def test_synonym_tab_renders_error_and_retry_state() -> None:
+    """ODD-TDSYN-001: the error branch renders a `role="alert"`
+    element + the failure message + a Retry button (carrying
+    `data-action="retry-synonyms"` so the parent can route
+    the click through a delegated handler). The Retry button
+    calls the `onRetry` prop callback so the failure is
+    recoverable without a fresh taxon selection."""
+    text = _read_text(SYNONYM_TAB_FILE)
+    assert 'role="alert"' in text or "role='alert'" in text, (
+        "SynonymTab.tsx must render a role=\"alert\" element for the error state."
+    )
+    assert "Could not load synonyms." in text, (
+        "SynonymTab.tsx must render the canonical error copy."
+    )
+    assert "Retry" in text, (
+        "SynonymTab.tsx must render a Retry button."
+    )
+    assert 'data-action="retry-synonyms"' in text, (
+        "SynonymTab.tsx must stamp data-action=\"retry-synonyms\" on the Retry button."
+    )
+    assert "onRetry" in text, (
+        "SynonymTab.tsx must invoke the onRetry prop on Retry click."
+    )
+
+
+def test_detail_panel_enables_synonyms_tab() -> None:
+    """ODD-TDSYN-001: the Synonyms tab is ENABLED
+    (`available: true`). The React port's first slice shipped
+    Overview-only and marked the rest as `available: false`
+    per the "visibly mark unavailable later tabs without fake
+    actions" policy. ODD-TDS-001 enabled Search, ODD-TDV-001
+    enabled Vernaculars, ODD-TDSYN-001 enables Synonyms so the
+    user can click into the native Synonyms row list. Folder /
+    Distribution stay `available: false` until their backing
+    React slices ship."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert re.search(
+        r"key\s*:\s*[\"\']synonyms[\"\']\s*,\s*label\s*:\s*[\"\']Synonyms[\"\']"
+        r"[\s\S]{0,200}?available\s*:\s*true",
+        text,
+    ), (
+        "DetailPanel.tsx must declare the Synonyms tab with `available: true` "
+        "(ODD-TDSYN-001 enables the Synonyms tab body)."
+    )
+
+
+def test_detail_panel_renders_synonym_tab_when_active() -> None:
+    """ODD-TDSYN-001: when `activeTab === "synonyms"`, the panel
+    body renders `<SynonymTab>` instead of the Overview body.
+    The body slot must consume the canonical `SynonymTabStatus`
+    discriminated-union + the `onRetrySynonyms` callback so
+    the loading / empty / error / loaded states all render
+    correctly."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert "SynonymTab" in text, (
+        "DetailPanel.tsx must import the canonical SynonymTab component."
+    )
+    assert "SynonymTabStatus" in text, (
+        "DetailPanel.tsx must consume the SynonymTabStatus type for the "
+        "synonymStatus prop."
+    )
+    # Body slot must dispatch on activeTab === "synonyms" to
+    # render SynonymTab. The dispatch must branch BEFORE the
+    # Overview fallback.
+    assert re.search(
+        r"activeTab\s*===\s*[\"\']synonyms[\"\']",
+        text,
+    ), (
+        "DetailPanel.tsx body must dispatch on activeTab === \"synonyms\" "
+        "to render the SynonymTab."
+    )
+    assert re.search(
+        r"activeTab\s*===\s*[\"\']synonyms[\"\'][\s\S]{0,200}?<SynonymTab",
+        text,
+    ), (
+        "DetailPanel.tsx must render <SynonymTab> when activeTab === \"synonyms\"."
+    )
+    # onRetrySynonyms callback must be threaded through to the SynonymTab.
+    assert "onRetrySynonyms" in text, (
+        "DetailPanel.tsx must thread onRetrySynonyms through to SynonymTab."
+    )
+
+
+def test_taxonomy_tree_eager_fetches_synonyms_on_selection() -> None:
+    """ODD-TDSYN-001: TaxonomyTree fires the canonical
+    `fetchSynonyms(id, { limit: 200 })` round trip the moment
+    a taxon becomes the active selection. The eager-fetch
+    contract pins the `useEffect` so re-selecting a previously
+    selected taxon lands on the cached result without a round
+    trip. The legacy `/api/taxon/{id}/synonyms?limit=200`
+    request shape is preserved byte-identically."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "fetchSynonyms" in text, (
+        "TaxonomyTree.tsx must call the canonical fetchSynonyms helper."
+    )
+    assert "loadSynonyms" in text, (
+        "TaxonomyTree.tsx must declare a loadSynonyms callback."
+    )
+    assert "limit: 200" in text or "limit:200" in text, (
+        "TaxonomyTree.tsx must forward `limit: 200` to fetchSynonyms so the "
+        "request shape stays byte-identical to the legacy oracle."
+    )
+    # Eager-fetch effect must fire on `selected` change.
+    assert re.search(
+        r"useEffect\s*\(\s*\(\s*\)\s*=>\s*\{[^}]*selected[^}]*loadSynonyms",
+        text,
+        re.DOTALL,
+    ), (
+        "TaxonomyTree.tsx must declare a useEffect that calls "
+        "loadSynonyms when `selected` changes (ODD-TDSYN-001 eager-fetch contract)."
+    )
+
+
+def test_taxonomy_tree_owns_synonym_cache() -> None:
+    """ODD-TDSYN-001: TaxonomyTree owns the per-taxon synonym
+    cache as a `Map<number, SynonymTabStatus>`. The cache
+    survives across deselects so re-selecting a previously
+    selected taxon is also instant (mirrors how
+    `perTaxonActiveTab` memory + `searchesByTaxonId` +
+    `vernacularsByTaxonId` caches survive across deselects)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "synonymsByTaxonId" in text, (
+        "TaxonomyTree.tsx must own a synonymsByTaxonId cache."
+    )
+    assert re.search(
+        r"Map\s*<\s*number\s*,\s*SynonymTabStatus\s*>",
+        text,
+    ), (
+        "TaxonomyTree.tsx must own a Map<number, SynonymTabStatus> for "
+        "the per-taxon synonym cache."
+    )
+
+
+def test_taxonomy_tree_keeps_synonym_cache_across_source_switch() -> None:
+    """ODD-TDSYN-001: a source switch MUST NOT clear the
+    per-taxon synonym cache (the
+    `/api/taxon/{id}/synonyms` endpoint is source-agnostic —
+    the FastAPI SQL pre-filters by `parent_id = taxon_id AND
+    status != 'accepted'` regardless of the active tree source
+    — so a previously cached payload stays valid under the new
+    active source). The cached payload survives
+    `handleSourceChange` so re-selecting the same taxon after
+    a source switch is also instant (mirrors how
+    `vernacularsByTaxonId` survives source switches — the
+    source-agnostic retention contract)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    handle_idx = text.find("const handleSourceChange")
+    assert handle_idx != -1, (
+        "TaxonomyTree.tsx must declare handleSourceChange."
+    )
+    body = text[handle_idx:handle_idx + 1400]
+    # The search-link cache IS cleared (ODD-TDS-001 contract).
+    assert "setSearchesByTaxonId" in body, (
+        "ODD-TDS-001: handleSourceChange must clear the per-taxon "
+        "search-link cache alongside the other source-bound resets."
+    )
+    # The vernacular cache MUST NOT be cleared (ODD-TDV-001
+    # contract).
+    assert "setVernacularsByTaxonId" not in body, (
+        "ODD-TDV-001: handleSourceChange MUST NOT clear the per-taxon "
+        "vernacular cache (the vernacular endpoint is source-agnostic)."
+    )
+    # The synonym cache MUST NOT be cleared (ODD-TDSYN-001
+    # contract). The function body must NOT carry a
+    # `setSynonymsByTaxonId(new Map())` call. The regression
+    # guard pins the contract so a future PR cannot silently
+    # break the source-switch retention.
+    assert "setSynonymsByTaxonId" not in body, (
+        "ODD-TDSYN-001: handleSourceChange MUST NOT clear the per-taxon "
+        "synonym cache (the synonym endpoint is source-agnostic)."
+    )
+
+
+def test_taxonomy_tree_passes_synonym_props_to_detail_panel() -> None:
+    """ODD-TDSYN-001: TaxonomyTree threads `synonymStatus` + the
+    retry callback through to the DetailPanel so the SynonymTab
+    body can render the loading / empty / error / loaded states.
+    The retry callback re-issues the `fetchSynonyms` request
+    through the same callback the eager-fetch effect uses."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "synonymStatus" in text, (
+        "TaxonomyTree.tsx must thread synonymStatus to DetailPanel."
+    )
+    assert "onRetrySynonyms" in text, (
+        "TaxonomyTree.tsx must thread onRetrySynonyms to DetailPanel."
+    )
+    # The retry callback must re-issue loadSynonyms for the
+    # currently selected taxon (mirrors the eager-fetch path).
+    assert re.search(
+        r"onRetrySynonyms\s*=\s*\{[^}]*loadSynonyms",
+        text,
+        re.DOTALL,
+    ), (
+        "TaxonomyTree.tsx must map onRetrySynonyms to a loadSynonyms call."
+    )
+
+
+def test_barrel_reexports_synonym_contract() -> None:
+    """ODD-TDSYN-001: the taxonomy barrel must re-export the
+    public synonym data contract so cross-module consumers can
+    type the payload + call the helper without a deep import
+    (spec.md rule 5)."""
+    text = _read_text(TAXONOMY_BARREL)
+    for name in (
+        "fetchSynonyms",
+        "FetchSynonymsOptions",
+        "SynonymName",
+    ):
+        assert name in text, (
+            f"taxonomy barrel must re-export `{name}` (ODD-TDSYN-001)."
+        )
+
+
+def test_globals_css_declares_synonym_tab_selectors() -> None:
+    """ODD-TDSYN-001: `src/app/globals.css` must declare the
+    new `.synonym-tab` cascade so the per-row `.detail-item`
+    rows + the rank chip + the optional `.authorship` span +
+    the section header + count badge all render identically
+    to the legacy oracle. The selectors live under `@layer
+    components` and are in alphabetical order so the
+    chain-topology guard in `tests/test_research_styles.py`
+    keeps whitelisting them."""
+    text = _read_text(TAXONOMY_GLOBALS_CSS)
+    layer = re.search(r"@layer\s+components\s*\{", text)
+    assert layer, "@layer components must exist in globals.css"
+    body = text[layer.end():]
+    layer_end = body.find("\n}\n")
+    if layer_end == -1:
+        layer_end = body.find("}")
+    body = body[:layer_end]
+    # Every selector must appear in the source. The minifier
+    # may strip whitespace / quotes, so we accept the bare
+    # class names without descendants.
+    for needle in (
+        ".synonym-tab",
+        ".synonym-tab > .synonym-list",
+        ".synonym-tab > .synonym-list > .detail-item",
+        ".synonym-tab > .synonym-list > .detail-item > .rank-chip",
+        ".synonym-tab > .synonym-list > .detail-item > .authorship",
+        ".synonym-tab > .synonym-section-header",
+        ".synonym-tab > .synonym-section-count",
+    ):
+        assert needle in body, (
+            f"globals.css @layer components must declare {needle}."
+        )
+
+
+def test_out_index_html_has_synonym_tab_styles(static_export) -> None:
+    """ODD-TDSYN-001: the static export's CSS must define the
+    SynonymTab selectors introduced by the React cutover so
+    the native-style Synonyms row list renders identically
+    to the legacy oracle. The selectors live under the
+    whitelisted `.synonym-tab` base class so the
+    chain-topology guard in
+    `tests/test_research_styles.py` keeps whitelisting them."""
+    css_chunks = sorted((REPO_ROOT / "out" / "_next" / "static" / "chunks").glob("*.css"))
+    css_body = "\n".join(
+        c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks
+    )
+    # The container + list + row + chip selectors are covered
+    # by the `.synonym-tab` cascade in `src/app/globals.css`.
+    # The static export's CSS must surface at least the
+    # top-level `.synonym-tab` rule plus the per-row
+    # `.rank-chip` rule (so the rank chip + scientific name +
+    # authorship rendering matches the legacy oracle).
+    for needle in (".synonym-tab", ".rank-chip"):
+        assert needle in css_body, (
+            f"ODD-TDSYN-001: static CSS must define the {needle} rule."
         )

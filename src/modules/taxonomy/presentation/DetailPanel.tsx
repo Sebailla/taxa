@@ -54,6 +54,8 @@ import {
 } from "./row-format";
 import SearchTab from "./SearchTab";
 import type { SearchTabStatus } from "./SearchTab";
+import SynonymTab from "./SynonymTab";
+import type { SynonymTabStatus } from "./SynonymTab";
 import VernacularTab from "./VernacularTab";
 import type { VernacularTabStatus } from "./VernacularTab";
 import { walkBreadcrumbForSource } from "./breadcrumb-path";
@@ -90,15 +92,18 @@ export interface DetailTabDef {
  *  Synonyms → Distribution) so the React cutover's tab strip matches
  *  the legacy oracle. ODD-TDS-001 enables the `searches` tab — the
  *  server-composed search-engine links body ships as a real
- *  rendering surface. Folder / Vernaculars / Synonyms / Distribution
- *  stay as disabled affordances until their backing React slices
- *  ship. */
+ *  rendering surface. ODD-TDV-001 enables `vernaculars`. ODD-TDSYN-001
+ *  enables `synonyms` — the canonical Synonym tab body renders the
+ *  server-composed historical-name rows (rank chip + scientific name
+ *  + optional authorship) under the native "Synonyms" header. Folder /
+ *  Distribution stay as disabled affordances until their backing React
+ *  slices ship. */
 export const DETAIL_TABS: readonly DetailTabDef[] = [
   { key: "overview", label: "Overview", icon: "info", available: true },
   { key: "searches", label: "Search", icon: "travel_explore", available: true },
   { key: "folder", label: "Folder", icon: "create_new_folder", available: false },
   { key: "vernaculars", label: "Vernaculars", icon: "translate", available: true },
-  { key: "synonyms", label: "Synonyms", icon: "history", available: false },
+  { key: "synonyms", label: "Synonyms", icon: "history", available: true },
   { key: "distribution", label: "Distribution", icon: "public", available: false },
 ];
 
@@ -146,6 +151,21 @@ export interface DetailPanelProps {
    *  request and re-runs through the same status pipeline. */
   readonly vernacularStatus: VernacularTabStatus;
   readonly onRetryVernaculars: () => void;
+  /** ODD-TDSYN-001 — per-taxon synonyms status + retry callback.
+   *  Mirrors the search-link + vernaculars wiring byte-for-byte:
+   *  the parent owns the cache so re-selecting a previously
+   *  selected taxon lands on the cached result without a round
+   *  trip; the eager-fetch-on-selection contract fires the
+   *  request the moment a taxon becomes the active selection. The
+   *  cache SURVIVES source switches (the
+   *  `/api/taxon/{id}/synonyms` endpoint is source-agnostic — the
+   *  FastAPI server filters by `parent_id = taxon_id AND status !=
+   *  'accepted'` regardless of the active tree source — so a
+   *  stale cached payload remains valid under the new source).
+   *  The retry callback re-issues the request and re-runs through
+   *  the same status pipeline. */
+  readonly synonymStatus: SynonymTabStatus;
+  readonly onRetrySynonyms: () => void;
 }
 
 export default function DetailPanel({
@@ -160,6 +180,8 @@ export default function DetailPanel({
   onRetrySearches,
   vernacularStatus,
   onRetryVernaculars,
+  synonymStatus,
+  onRetrySynonyms,
 }: DetailPanelProps): React.ReactElement {
   const realm = realmForPath(taxon.path);
   const extinctCls = taxon.is_extinct ? "line-through opacity-70" : "";
@@ -302,7 +324,7 @@ export default function DetailPanel({
           })}
         </div>
         <div
-          className={`detail-section ${activeTab === "searches" ? "searches-tab" : activeTab === "vernaculars" ? "vernaculars-tab" : "overview-tab"}`}
+          className={`detail-section ${activeTab === "searches" ? "searches-tab" : activeTab === "vernaculars" ? "vernaculars-tab" : activeTab === "synonyms" ? "synonyms-tab" : "overview-tab"}`}
           data-tab-content={activeTab}
         >
           {activeTab === "searches" ? (
@@ -311,6 +333,11 @@ export default function DetailPanel({
             <VernacularTab
               status={vernacularStatus}
               onRetry={onRetryVernaculars}
+            />
+          ) : activeTab === "synonyms" ? (
+            <SynonymTab
+              status={synonymStatus}
+              onRetry={onRetrySynonyms}
             />
           ) : (
             renderOverview({

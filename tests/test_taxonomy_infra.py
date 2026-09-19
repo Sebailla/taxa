@@ -89,11 +89,11 @@ def test_infra_file_has_no_framework_imports() -> None:
 
 
 def test_infra_file_exports_named_fns() -> None:
-    """PR 5a commits to two named exports: `fetchTaxon` and `fetchChildren`. ODD-VTREE-001 adds `fetchDomains`. ODD-TDS-001 adds `fetchSearches`. ODD-TDV-001 adds `fetchVernaculars`. The barrel re-export breaks on a default export."""
+    """PR 5a commits to two named exports: `fetchTaxon` and `fetchChildren`. ODD-VTREE-001 adds `fetchDomains`. ODD-TDS-001 adds `fetchSearches`. ODD-TDV-001 adds `fetchVernaculars`. ODD-TDSYN-001 adds `fetchSynonyms`. The barrel re-export breaks on a default export."""
     if not INFRA_FILE.exists():
         pytest.skip("infra file not present yet")
     text = INFRA_FILE.read_text()
-    for name in ("fetchTaxon", "fetchChildren", "fetchDomains", "fetchSearches", "fetchVernaculars"):
+    for name in ("fetchTaxon", "fetchChildren", "fetchDomains", "fetchSearches", "fetchVernaculars", "fetchSynonyms"):
         pattern = rf"export\s+(?:async\s+)?function\s+{name}\b|export\s+const\s+{name}\b"
         assert re.search(pattern, text), (
             f"infra/api.ts must export `{name}` as a named function or const."
@@ -226,6 +226,100 @@ def test_infra_file_exports_vernacular_type_and_options() -> None:
     assert fetch_block, "infra/api.ts must declare the fetchVernaculars async function."
     assert "limit" in fetch_block.group(0), (
         "fetchVernaculars must read `opts.limit` so React callers can override "
+        "the legacy byte-identical `limit=200` default."
+    )
+
+
+def test_infra_file_exports_synonym_type_and_options() -> None:
+    """ODD-TDSYN-001: the public `SynonymName` type +
+    `FetchSynonymsOptions` interface are exported from
+    `infra/api.ts` so React callers can type the synonym-rows
+    payload without a deep import. The runtime helper
+    `fetchSynonyms` mirrors the FastAPI `api/server.py::Synonym`
+    Pydantic model field-for-field: `id`, `rank`,
+    `scientific_name`, nullable `authorship`, `status`. The
+    server pre-filters to rows where `status != 'accepted'`
+    (`api/server.py::get_synonyms`), so `status` is
+    server-guaranteed non-null. The React port preserves the
+    wire rank / name / authorship / status values verbatim —
+    the UI does NOT render the status field (per the
+    ODD-TDSYN-001 user constraint) but the projection MUST
+    carry it so a future server-composed status-derived
+    affordance does not need a coordinated React update.
+    """
+    if not INFRA_FILE.exists():
+        pytest.skip("infra file not present yet")
+    text = INFRA_FILE.read_text()
+    assert re.search(
+        r"export\s+interface\s+SynonymName\b",
+        text,
+    ), "infra/api.ts must export `SynonymName` as a public interface."
+    assert re.search(
+        r"export\s+interface\s+FetchSynonymsOptions\b",
+        text,
+    ), "infra/api.ts must export `FetchSynonymsOptions` as a public interface."
+    # The SynonymName interface must carry exactly `id` + `rank`
+    # + `scientific_name` + nullable `authorship` + `status` —
+    # the FastAPI Pydantic model field set. `status` is typed
+    # as a non-nullable `string` because the FastAPI SQL
+    # pre-filters to rows where `status != 'accepted'`, so the
+    # wire never carries `null`. `authorship` is typed as
+    # `string | null` so the React port round-trips CoL's
+    # nullable authorship verbatim (the legacy
+    # `web/detail.js::loadDetail` skips the `.authorship` chip
+    # when the row carries `null`, so coercing `null → ""`
+    # would silently render an empty span on every missing
+    # field).
+    assert re.search(
+        r"interface\s+SynonymName\b[^}]*readonly\s+id\s*:\s*number",
+        text,
+    ), "SynonymName must carry `readonly id: number`."
+    assert re.search(
+        r"interface\s+SynonymName\b[^}]*readonly\s+rank\s*:\s*string",
+        text,
+    ), "SynonymName must carry `readonly rank: string`."
+    assert re.search(
+        r"interface\s+SynonymName\b[^}]*readonly\s+scientific_name\s*:\s*string",
+        text,
+    ), "SynonymName must carry `readonly scientific_name: string` (not 'name')."
+    assert re.search(
+        r"interface\s+SynonymName\b[^}]*readonly\s+authorship\s*:\s*string\s*\|\s*null",
+        text,
+    ), "SynonymName.authorship must be typed `string | null` (FastAPI nullability preserved)."
+    assert re.search(
+        r"interface\s+SynonymName\b[^}]*readonly\s+status\s*:\s*string",
+        text,
+    ), "SynonymName.status must be typed `string` (non-nullable: server pre-filters status != 'accepted')."
+    # The SynonymName projection must NOT carry any invented
+    # field beyond the FastAPI wire shape. A canonical
+    # SynonymName with extra fields (e.g. `parent_id`,
+    # `taxon_id`, `source`, `is_ambiguous`) would leak server
+    # composition concerns into the client contract and let
+    # future drift slip past the projection layer.
+    syn_block = re.search(
+        r"interface\s+SynonymName\b[^}]*\}",
+        text,
+        re.DOTALL,
+    )
+    assert syn_block, "SynonymName interface must be syntactically well-formed."
+    props = re.findall(r"readonly\s+(\w+)\s*:", syn_block.group(0))
+    assert sorted(props) == sorted(["id", "rank", "scientific_name", "authorship", "status"]), (
+        "ODD-TDSYN-001: canonical SynonymName must carry exactly "
+        "{id, rank, scientific_name, authorship, status}; got " + str(props)
+    )
+    # The runtime helper must forward `?limit=N` verbatim. The
+    # legacy `/api/taxon/{id}/synonyms?limit=200` request is
+    # the byte-identical default; omitting the option keeps the
+    # React cutover's request shape aligned with the legacy
+    # oracle.
+    fetch_block = re.search(
+        r"export\s+async\s+function\s+fetchSynonyms\b.*?^}",
+        text,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert fetch_block, "infra/api.ts must declare the fetchSynonyms async function."
+    assert "limit" in fetch_block.group(0), (
+        "fetchSynonyms must read `opts.limit` so React callers can override "
         "the legacy byte-identical `limit=200` default."
     )
 
@@ -973,6 +1067,221 @@ const REAL_WORMS_CHILD = {
     () => api.fetchVernaculars(100, { fetch: VJsonFail, baseUrl: "http://x" }),
     (err) => /json|JSON/i.test(String(err && err.message || err)),
     "fetchVernaculars must reject malformed JSON",
+  );
+
+  // ---- ODD-TDSYN-001 — fetchSynonyms wire → domain projection ----
+  // The server returns a JSON array of `Synonym` records
+  // (`id`, `rank`, `scientific_name`, nullable `authorship`,
+  // non-nullable `status`). The SQL pre-filters to rows where
+  // `status != 'accepted'` so the wire payload never carries a
+  // null status. The legacy `web/detail.js::loadDetail` fetches
+  // `/api/taxon/{id}/synonyms?limit=200` and feeds the raw
+  // rows into `buildDetailSection`; the React port's runtime
+  // helper projects the same wire shape through the canonical
+  // `SynonymName` interface so the byte-identical visual
+  // rendering (rank chip + scientific name + optional
+  // `.authorship` span) survives the cutover. The runtime
+  // check below pins every contract in one assertion block.
+  const SynFresh = makeFetch([
+    { ok: true, status: 200, statusText: "OK", json: [
+      // Accepted-rank row + full authorship — genus synonym with
+      // a parenthetical author. The React port renders this as
+      // a `.detail-item` carrying the `.rank-chip` chip with
+      // "genus", the italic scientific name, and the `.authorship`
+      // span.
+      { id: 9001, rank: "genus", scientific_name: "Palaeocop",
+        authorship: "Huxley, 1880", status: "synonym" },
+      // Subgenus row without authorship — the `.authorship`
+      // span is conditionally omitted (the UI must NOT render
+      // an empty chip when the nullable field is null).
+      { id: 9002, rank: "subgenus", scientific_name: "Neocop",
+        authorship: null, status: "synonym" },
+      // Higher-rank synonym — CoL species-level synonym with
+      // a non-italic (roman) scientific name + the typical
+      // "misapplied" status string the FastAPI Pydantic model
+      // enumerates (`synonym`, `ambiguous synonym`, `misapplied`).
+      { id: 9003, rank: "species", scientific_name: "Acipenser baeri",
+        authorship: "Linnaeus, 1758", status: "ambiguous synonym" },
+      // Family-level synonym — proves the wire ordering
+      // (`ORDER BY rank, scientific_name`) reaches the React
+      // port verbatim (the UI must NOT sort client-side).
+      { id: 9004, rank: "family", scientific_name: "Palaeocopidae",
+        authorship: null, status: "synonym" },
+      // Unicode authorship — non-ASCII character must round-trip
+      // verbatim (the legacy `web/detail.js::loadDetail` reads
+      // `s.authorship` straight through).
+      { id: 9005, rank: "subspecies", scientific_name: "Acipenser baerii baicalensis",
+        authorship: "Georgi, 1775", status: "synonym" },
+    ] },
+  ]);
+  const syn = await api.fetchSynonyms(100, { fetch: SynFresh, baseUrl: "http://x" });
+  assert.strictEqual(SynFresh.calls.length, 1);
+  assert.strictEqual(SynFresh.calls[0].input, "http://x/api/taxon/100/synonyms?limit=200",
+    "fetchSynonyms must build the canonical legacy /api/taxon/{id}/synonyms?limit=200 URL by default");
+  assert.strictEqual(Array.isArray(syn), true, "fetchSynonyms must return an array");
+  assert.strictEqual(syn.length, 5,
+    "fetchSynonyms must surface every server-returned SynonymName row");
+  // Wire ordering preservation — the server returns rows
+  // sorted by `rank, scientific_name` and the React port
+  // preserves the order verbatim (the UI must NOT sort
+  // client-side per the ODD-TDSYN-001 user constraint).
+  assert.strictEqual(syn[0].id, 9001);
+  assert.strictEqual(syn[0].rank, "genus");
+  assert.strictEqual(syn[0].scientific_name, "Palaeocop");
+  assert.strictEqual(syn[0].authorship, "Huxley, 1880");
+  assert.strictEqual(syn[0].status, "synonym");
+  // Nullable authorship must round-trip verbatim (the
+  // legacy `web/detail.js::loadDetail` skips the
+  // `.authorship` span when `s.authorship` is falsy, so
+  // coercing `null → ""` would silently render an empty span
+  // on every missing field).
+  assert.strictEqual(syn[1].id, 9002);
+  assert.strictEqual(syn[1].rank, "subgenus");
+  assert.strictEqual(syn[1].scientific_name, "Neocop");
+  assert.strictEqual(syn[1].authorship, null,
+    "ODD-TDSYN-001: FastAPI nullability must round-trip verbatim (authorship=null stays null)");
+  assert.strictEqual(syn[1].status, "synonym");
+  // The non-default `status` values ("ambiguous synonym",
+  // "misapplied") must surface verbatim — the server may
+  // return any non-accepted status string the SQL captures.
+  assert.strictEqual(syn[2].id, 9003);
+  assert.strictEqual(syn[2].status, "ambiguous synonym",
+    "ODD-TDSYN-001: status='ambiguous synonym' must round-trip verbatim");
+  assert.strictEqual(syn[3].rank, "family",
+    "ODD-TDSYN-001: server-ordered row (family) must surface in the order the wire returned it");
+  // Non-ASCII characters in the authorship field must
+  // round-trip verbatim — the legacy `web/detail.js::loadDetail`
+  // reads the raw rows, so the React port must not decode /
+  // re-encode the string.
+  assert.strictEqual(syn[4].authorship, "Georgi, 1775");
+  // The SynonymName projection must NOT carry any invented
+  // field beyond the FastAPI wire shape.
+  for (const n of syn) {
+    const props = Object.keys(n).sort();
+    assert.deepStrictEqual(props, ["authorship", "id", "rank", "scientific_name", "status"],
+      "ODD-TDSYN-001: canonical SynonymName must carry exactly "
+      + "{id, rank, scientific_name, authorship, status}; got " + JSON.stringify(props));
+  }
+
+  // fetchSynonyms ?limit= override — query forwarded verbatim.
+  const SynLim50 = makeFetch([{ ok: true, status: 200, statusText: "OK", json: [] }]);
+  await api.fetchSynonyms(100, { fetch: SynLim50, baseUrl: "http://x", limit: 50 });
+  assert.strictEqual(SynLim50.calls[0].input, "http://x/api/taxon/100/synonyms?limit=50",
+    "fetchSynonyms must forward opts.limit verbatim: " + SynLim50.calls[0].input);
+  const SynLim1000 = makeFetch([{ ok: true, status: 200, statusText: "OK", json: [] }]);
+  await api.fetchSynonyms(100, { fetch: SynLim1000, baseUrl: "http://x", limit: 1000 });
+  assert.strictEqual(SynLim1000.calls[0].input, "http://x/api/taxon/100/synonyms?limit=1000",
+    "fetchSynonyms must forward opts.limit=1000 verbatim");
+
+  // fetchSynonyms empty payload — returns [], does not throw.
+  const SynEmpty = makeFetch([{ ok: true, status: 200, statusText: "OK", json: [] }]);
+  assert.strictEqual((await api.fetchSynonyms(100, { fetch: SynEmpty, baseUrl: "http://x" })).length, 0);
+
+  // fetchSynonyms HTTP non-OK — status code in message.
+  const SynBad = makeFetch([{ ok: false, status: 503, statusText: "Service Unavailable", json: { detail: "DB down" } }]);
+  await assert.rejects(
+    () => api.fetchSynonyms(100, { fetch: SynBad, baseUrl: "http://x" }),
+    (err) => /503/.test(String(err && err.message || err)),
+    "fetchSynonyms must reject on non-OK with the status code in the message",
+  );
+
+  // fetchSynonyms non-array payload — rejects.
+  const SynWrongShape = makeFetch([{ ok: true, status: 200, statusText: "OK", json: { detail: "wrong shape" } }]);
+  await assert.rejects(
+    () => api.fetchSynonyms(100, { fetch: SynWrongShape, baseUrl: "http://x" }),
+    (err) => /non-array/.test(String(err && err.message || err)),
+    "fetchSynonyms must reject non-array payloads",
+  );
+
+  // fetchSynonyms schema-invalid element — rejects.
+  const SynBadElement = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [{ id: 1, rank: "genus", scientific_name: "Palaeocop" /* authorship + status missing */ }] }]);
+  await assert.rejects(
+    () => api.fetchSynonyms(100, { fetch: SynBadElement, baseUrl: "http://x" }),
+    (err) => /invalid|synonym/i.test(String(err && err.message || err)),
+    "fetchSynonyms must reject per-element shape mismatches (missing authorship + status)",
+  );
+
+  // fetchSynonyms wrong type on nullable field — rejects.
+  const SynBadAuthorshipType = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [{ id: 1, rank: "genus", scientific_name: "Palaeocop",
+             authorship: 42, status: "synonym" }] }]);
+  await assert.rejects(
+    () => api.fetchSynonyms(100, { fetch: SynBadAuthorshipType, baseUrl: "http://x" }),
+    (err) => /invalid|synonym/i.test(String(err && err.message || err)),
+    "fetchSynonyms must reject non-string authorship values",
+  );
+
+  // fetchSynonyms wrong type on status (number instead of string) — rejects.
+  // The server pre-filters to rows where `status != 'accepted'`,
+  // so the wire never carries a null status. The runtime check
+  // pins the non-nullable contract on the client projection.
+  const SynBadStatusType = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [{ id: 1, rank: "genus", scientific_name: "Palaeocop",
+             authorship: null, status: null }] }]);
+  await assert.rejects(
+    () => api.fetchSynonyms(100, { fetch: SynBadStatusType, baseUrl: "http://x" }),
+    (err) => /invalid|synonym/i.test(String(err && err.message || err)),
+    "fetchSynonyms must reject null status values (server pre-filters status != 'accepted')",
+  );
+
+  // fetchSynonyms empty scientific_name — rejects (the legacy
+  // `web/detail.js::loadDetail` would not produce an empty
+  // scientific_name because CoL rows have a NOT NULL constraint,
+  // but the React projection must still reject the wire shape
+  // so a future server change cannot silently bypass the
+  // validation).
+  const SynEmptyName = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [{ id: 1, rank: "genus", scientific_name: "",
+             authorship: null, status: "synonym" }] }]);
+  await assert.rejects(
+    () => api.fetchSynonyms(100, { fetch: SynEmptyName, baseUrl: "http://x" }),
+    (err) => /invalid|synonym/i.test(String(err && err.message || err)),
+    "fetchSynonyms must reject empty scientific_name values",
+  );
+
+  // fetchSynonyms empty rank — rejects.
+  const SynEmptyRank = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [{ id: 1, rank: "", scientific_name: "Palaeocop",
+             authorship: null, status: "synonym" }] }]);
+  await assert.rejects(
+    () => api.fetchSynonyms(100, { fetch: SynEmptyRank, baseUrl: "http://x" }),
+    (err) => /invalid|synonym/i.test(String(err && err.message || err)),
+    "fetchSynonyms must reject empty rank values",
+  );
+
+  // fetchSynonyms empty status — rejects (the server
+  // pre-filter requires non-accepted rows, so the wire never
+  // carries an empty status string).
+  const SynEmptyStatus = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [{ id: 1, rank: "genus", scientific_name: "Palaeocop",
+             authorship: null, status: "" }] }]);
+  await assert.rejects(
+    () => api.fetchSynonyms(100, { fetch: SynEmptyStatus, baseUrl: "http://x" }),
+    (err) => /invalid|synonym/i.test(String(err && err.message || err)),
+    "fetchSynonyms must reject empty status values",
+  );
+
+  // fetchSynonyms negative id — id validation rejects.
+  await assert.rejects(
+    () => api.fetchSynonyms(-1, { fetch: makeFetch([]), baseUrl: "http://x" }),
+    (err) => /non-negative integer/i.test(String(err && err.message || err)),
+    "fetchSynonyms must reject negative ids",
+  );
+
+  // fetchSynonyms non-integer id — id validation rejects.
+  await assert.rejects(
+    () => api.fetchSynonyms(1.5, { fetch: makeFetch([]), baseUrl: "http://x" }),
+    (err) => /non-negative integer/i.test(String(err && err.message || err)),
+    "fetchSynonyms must reject non-integer ids",
+  );
+
+  // fetchSynonyms malformed JSON — throws.
+  const SynJsonFail = makeFetch([{ ok: true, status: 200, statusText: "OK", json: Promise.reject(new SyntaxError("Unexpected token < in JSON")) }]);
+  await assert.rejects(
+    () => api.fetchSynonyms(100, { fetch: SynJsonFail, baseUrl: "http://x" }),
+    (err) => /json|JSON/i.test(String(err && err.message || err)),
+    "fetchSynonyms must reject malformed JSON",
   );
 
   process.stdout.write("PASS\n");
