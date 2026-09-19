@@ -89,11 +89,11 @@ def test_infra_file_has_no_framework_imports() -> None:
 
 
 def test_infra_file_exports_named_fns() -> None:
-    """PR 5a commits to two named exports: `fetchTaxon` and `fetchChildren`. ODD-VTREE-001 adds `fetchDomains`. ODD-TDS-001 adds `fetchSearches`. ODD-TDV-001 adds `fetchVernaculars`. ODD-TDSYN-001 adds `fetchSynonyms`. The barrel re-export breaks on a default export."""
+    """PR 5a commits to two named exports: `fetchTaxon` and `fetchChildren`. ODD-VTREE-001 adds `fetchDomains`. ODD-TDS-001 adds `fetchSearches`. ODD-TDV-001 adds `fetchVernaculars`. ODD-TDSYN-001 adds `fetchSynonyms`. ODD-TDDIST-001 adds `fetchDistribution`. The barrel re-export breaks on a default export."""
     if not INFRA_FILE.exists():
         pytest.skip("infra file not present yet")
     text = INFRA_FILE.read_text()
-    for name in ("fetchTaxon", "fetchChildren", "fetchDomains", "fetchSearches", "fetchVernaculars", "fetchSynonyms"):
+    for name in ("fetchTaxon", "fetchChildren", "fetchDomains", "fetchSearches", "fetchVernaculars", "fetchSynonyms", "fetchDistribution"):
         pattern = rf"export\s+(?:async\s+)?function\s+{name}\b|export\s+const\s+{name}\b"
         assert re.search(pattern, text), (
             f"infra/api.ts must export `{name}` as a named function or const."
@@ -320,6 +320,101 @@ def test_infra_file_exports_synonym_type_and_options() -> None:
     assert fetch_block, "infra/api.ts must declare the fetchSynonyms async function."
     assert "limit" in fetch_block.group(0), (
         "fetchSynonyms must read `opts.limit` so React callers can override "
+        "the legacy byte-identical `limit=200` default."
+    )
+
+
+def test_infra_file_exports_distribution_type_and_options() -> None:
+    """ODD-TDDIST-001: the public `DistributionEntry` type +
+    `FetchDistributionOptions` interface are exported from
+    `infra/api.ts` so React callers can type the distribution-rows
+    payload without a deep import. The runtime helper
+    `fetchDistribution` mirrors the FastAPI
+    `api/server.py::DistributionEntry` Pydantic model field-for-
+    field: `id`, `area`, nullable `gazetteer`, nullable
+    `establishment_means`, nullable `degree_of_establishment`. The
+    React port preserves the wire values verbatim (the UI only
+    renders `establishment_means` + `area` per the ODD-TDDIST-001
+    user constraint: "do not render gazetteer/degree or
+    group/filter/sort") but the projection MUST carry every wire
+    field so a future server-composed gazetteer tooltip or
+    degree-derived affordance does not need a coordinated React
+    update — mirroring how `SynonymName.status` survives even
+    though `SynonymTab` does not render it (ODD-TDSYN-001).
+    """
+    if not INFRA_FILE.exists():
+        pytest.skip("infra file not present yet")
+    text = INFRA_FILE.read_text()
+    assert re.search(
+        r"export\s+interface\s+DistributionEntry\b",
+        text,
+    ), "infra/api.ts must export `DistributionEntry` as a public interface."
+    assert re.search(
+        r"export\s+interface\s+FetchDistributionOptions\b",
+        text,
+    ), "infra/api.ts must export `FetchDistributionOptions` as a public interface."
+    # The DistributionEntry interface must carry exactly `id` +
+    # `area` + nullable `gazetteer` + nullable `establishment_means`
+    # + nullable `degree_of_establishment` — the FastAPI Pydantic
+    # model field set. `area` is server-guaranteed non-null +
+    # non-empty (CoL NOT NULL constraint + the SQL pre-filters to
+    # rows where `area IS NOT NULL AND area != ''`). The three
+    # nullable fields MUST be typed `string | null` so the React
+    # port round-trips CoL's nullable columns verbatim (the legacy
+    # `web/detail.js::loadDetail` skips the chip when the row
+    # carries `null`, so coercing `null → ""` would silently
+    # render an empty chip on every missing field).
+    assert re.search(
+        r"interface\s+DistributionEntry\b[^}]*readonly\s+id\s*:\s*number",
+        text,
+    ), "DistributionEntry must carry `readonly id: number`."
+    assert re.search(
+        r"interface\s+DistributionEntry\b[^}]*readonly\s+area\s*:\s*string",
+        text,
+    ), "DistributionEntry must carry `readonly area: string`."
+    assert re.search(
+        r"interface\s+DistributionEntry\b[^}]*readonly\s+gazetteer\s*:\s*string\s*\|\s*null",
+        text,
+    ), "DistributionEntry.gazetteer must be typed `string | null` (FastAPI nullability preserved)."
+    assert re.search(
+        r"interface\s+DistributionEntry\b[^}]*readonly\s+establishment_means\s*:\s*string\s*\|\s*null",
+        text,
+    ), "DistributionEntry.establishment_means must be typed `string | null` (FastAPI nullability preserved)."
+    assert re.search(
+        r"interface\s+DistributionEntry\b[^}]*readonly\s+degree_of_establishment\s*:\s*string\s*\|\s*null",
+        text,
+    ), "DistributionEntry.degree_of_establishment must be typed `string | null` (FastAPI nullability preserved)."
+    # The DistributionEntry projection must NOT carry any invented
+    # field beyond the FastAPI wire shape. A canonical
+    # DistributionEntry with extra fields (e.g. `taxon_id`,
+    # `source`, `is_introduced`) would leak server composition
+    # concerns into the client contract and let future drift slip
+    # past the projection layer.
+    dist_block = re.search(
+        r"interface\s+DistributionEntry\b[^}]*\}",
+        text,
+        re.DOTALL,
+    )
+    assert dist_block, "DistributionEntry interface must be syntactically well-formed."
+    props = re.findall(r"readonly\s+(\w+)\s*:", dist_block.group(0))
+    assert sorted(props) == sorted([
+        "id", "area", "gazetteer", "establishment_means", "degree_of_establishment",
+    ]), (
+        "ODD-TDDIST-001: canonical DistributionEntry must carry exactly "
+        "{id, area, gazetteer, establishment_means, degree_of_establishment}; got " + str(props)
+    )
+    # The runtime helper must forward `?limit=N` verbatim. The
+    # legacy `/api/taxon/{id}/distribution?limit=200` request is
+    # the byte-identical default; omitting the option keeps the
+    # React cutover's request shape aligned with the legacy oracle.
+    fetch_block = re.search(
+        r"export\s+async\s+function\s+fetchDistribution\b.*?^}",
+        text,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert fetch_block, "infra/api.ts must declare the fetchDistribution async function."
+    assert "limit" in fetch_block.group(0), (
+        "fetchDistribution must read `opts.limit` so React callers can override "
         "the legacy byte-identical `limit=200` default."
     )
 
@@ -1282,6 +1377,237 @@ const REAL_WORMS_CHILD = {
     () => api.fetchSynonyms(100, { fetch: SynJsonFail, baseUrl: "http://x" }),
     (err) => /json|JSON/i.test(String(err && err.message || err)),
     "fetchSynonyms must reject malformed JSON",
+  );
+
+  // ---- ODD-TDDIST-001 — fetchDistribution wire → domain projection ----
+  // The server returns a JSON array of `DistributionEntry` records
+  // (`id`, `area`, nullable `gazetteer`, nullable
+  // `establishment_means`, nullable `degree_of_establishment`). The
+  // legacy `web/detail.js::loadDetail` fetches
+  // `/api/taxon/{id}/distribution?limit=200` and feeds the raw
+  // rows into `buildDetailSection`; the React port's runtime
+  // helper projects the same wire shape through the canonical
+  // `DistributionEntry` interface so the byte-identical visual
+  // rendering (establishment-means chip + area text) survives
+  // the cutover. The runtime check below pins every contract
+  // in one assertion block.
+  const DistFresh = makeFetch([
+    { ok: true, status: 200, statusText: "OK", json: [
+      // Native row — all wire fields populated with the legacy
+      // CoL verbatim values. The React port renders this as a
+      // `.detail-item` carrying the `.means-native` chip + the
+      // area text. The `gazetteer` + `degree_of_establishment`
+      // fields are preserved verbatim on the projection surface
+      // (the UI does NOT render them per the ODD-TDDIST-001
+      // user constraint) so a future server-composed
+      // gazetteer tooltip can land without a coordinated React
+      // update.
+      { id: 7001, area: "Argentina",
+        gazetteer: "TDWG Level 4", establishment_means: "native",
+        degree_of_establishment: "native" },
+      // Introduced row — the chip rendering branches on the
+      // `.means-introduced` modifier class via the wire
+      // `establishment_means` value.
+      { id: 7002, area: "USA (California)",
+        gazetteer: "TDWG Level 4", establishment_means: "introduced",
+        degree_of_establishment: "introduced" },
+      // Uncertain row — all three nullable fields populated
+      // with their canonical CoL string values.
+      { id: 7003, area: "South America",
+        gazetteer: "TDWG Level 2", establishment_means: "uncertain",
+        degree_of_establishment: null },
+      // Null establishment_means row — exercises the
+      // ODD-TDDIST-001 client fallback `unknown` (the legacy
+      // `web/detail.js::buildDetailSection` uses
+      // `x.establishment_means || "unknown"` so a wire `null`
+      // paints the `.means-unknown` chip). The
+      // canonical projection MUST keep `null` (never coerced
+      // to `""` or to the literal `unknown`) so the React
+      // port's renderer applies the fallback at render time
+      // only — mirroring how `VernacularName.language: null`
+      // stays `null` and the chip is omitted at the renderer
+      // (ODD-TDV-001).
+      { id: 7004, area: "Brazil",
+        gazetteer: "TDWG Level 4", establishment_means: null,
+        degree_of_establishment: null },
+      // All-nullables row — proves every nullable column
+      // round-trips independently. The legacy oracle would
+      // render this row with the `.means-unknown` chip and
+      // the area text; the canonical projection MUST keep
+      // `null` for every nullable field so the renderer can
+      // apply the ODD-TDDIST-001 fallback deterministically.
+      { id: 7005, area: "Eurasia",
+        gazetteer: null, establishment_means: null,
+        degree_of_establishment: null },
+    ] },
+  ]);
+  const dist = await api.fetchDistribution(100, { fetch: DistFresh, baseUrl: "http://x" });
+  assert.strictEqual(DistFresh.calls.length, 1);
+  assert.strictEqual(DistFresh.calls[0].input, "http://x/api/taxon/100/distribution?limit=200",
+    "fetchDistribution must build the canonical legacy /api/taxon/{id}/distribution?limit=200 URL by default");
+  assert.strictEqual(Array.isArray(dist), true, "fetchDistribution must return an array");
+  assert.strictEqual(dist.length, 5,
+    "fetchDistribution must surface every server-returned DistributionEntry row");
+  // Wire ordering preservation — the server returns rows
+  // sorted by `establishment_means, area` and the React
+  // port preserves the order verbatim (the UI must NOT sort
+  // client-side per the ODD-TDDIST-001 user constraint).
+  assert.strictEqual(dist[0].id, 7001);
+  assert.strictEqual(dist[0].area, "Argentina");
+  assert.strictEqual(dist[0].gazetteer, "TDWG Level 4");
+  assert.strictEqual(dist[0].establishment_means, "native");
+  assert.strictEqual(dist[0].degree_of_establishment, "native");
+  assert.strictEqual(dist[1].id, 7002);
+  assert.strictEqual(dist[1].establishment_means, "introduced");
+  assert.strictEqual(dist[2].id, 7003);
+  assert.strictEqual(dist[2].establishment_means, "uncertain");
+  assert.strictEqual(dist[2].degree_of_establishment, null,
+    "ODD-TDDIST-001: nullable degree_of_establishment must round-trip verbatim (null stays null)");
+  // Nullable establishment_means must round-trip verbatim
+  // (the legacy `web/detail.js::buildDetailSection` applies
+  // the `|| "unknown"` fallback at render time, so coercing
+  // `null → ""` or `null → "unknown"` client-side would
+  // silently bypass the legacy fallback contract).
+  assert.strictEqual(dist[3].id, 7004);
+  assert.strictEqual(dist[3].area, "Brazil");
+  assert.strictEqual(dist[3].gazetteer, "TDWG Level 4");
+  assert.strictEqual(dist[3].establishment_means, null,
+    "ODD-TDDIST-001: nullable establishment_means must round-trip verbatim (null stays null)");
+  assert.strictEqual(dist[3].degree_of_establishment, null);
+  // All-nullables row — every nullable column surfaces as
+  // `null` independently so the renderer can branch on each
+  // field's nullability independently.
+  assert.strictEqual(dist[4].id, 7005);
+  assert.strictEqual(dist[4].area, "Eurasia");
+  assert.strictEqual(dist[4].gazetteer, null,
+    "ODD-TDDIST-001: nullable gazetteer must round-trip verbatim (null stays null)");
+  assert.strictEqual(dist[4].establishment_means, null);
+  assert.strictEqual(dist[4].degree_of_establishment, null);
+  // The DistributionEntry projection must NOT carry any
+  // invented field beyond the FastAPI wire shape.
+  for (const e of dist) {
+    const props = Object.keys(e).sort();
+    assert.deepStrictEqual(props,
+      ["area", "degree_of_establishment", "establishment_means", "gazetteer", "id"],
+      "ODD-TDDIST-001: canonical DistributionEntry must carry exactly "
+      + "{id, area, gazetteer, establishment_means, degree_of_establishment}; got "
+      + JSON.stringify(props));
+  }
+
+  // fetchDistribution ?limit= override — query forwarded verbatim.
+  const DistLim50 = makeFetch([{ ok: true, status: 200, statusText: "OK", json: [] }]);
+  await api.fetchDistribution(100, { fetch: DistLim50, baseUrl: "http://x", limit: 50 });
+  assert.strictEqual(DistLim50.calls[0].input, "http://x/api/taxon/100/distribution?limit=50",
+    "fetchDistribution must forward opts.limit verbatim: " + DistLim50.calls[0].input);
+  const DistLim1000 = makeFetch([{ ok: true, status: 200, statusText: "OK", json: [] }]);
+  await api.fetchDistribution(100, { fetch: DistLim1000, baseUrl: "http://x", limit: 1000 });
+  assert.strictEqual(DistLim1000.calls[0].input, "http://x/api/taxon/100/distribution?limit=1000",
+    "fetchDistribution must forward opts.limit=1000 verbatim");
+
+  // fetchDistribution empty payload — returns [], does not throw.
+  const DistEmpty = makeFetch([{ ok: true, status: 200, statusText: "OK", json: [] }]);
+  assert.strictEqual((await api.fetchDistribution(100, { fetch: DistEmpty, baseUrl: "http://x" })).length, 0);
+
+  // fetchDistribution HTTP non-OK — status code in message.
+  const DistBad = makeFetch([{ ok: false, status: 503, statusText: "Service Unavailable", json: { detail: "DB down" } }]);
+  await assert.rejects(
+    () => api.fetchDistribution(100, { fetch: DistBad, baseUrl: "http://x" }),
+    (err) => /503/.test(String(err && err.message || err)),
+    "fetchDistribution must reject on non-OK with the status code in the message",
+  );
+
+  // fetchDistribution non-array payload — rejects.
+  const DistWrongShape = makeFetch([{ ok: true, status: 200, statusText: "OK", json: { detail: "wrong shape" } }]);
+  await assert.rejects(
+    () => api.fetchDistribution(100, { fetch: DistWrongShape, baseUrl: "http://x" }),
+    (err) => /non-array/.test(String(err && err.message || err)),
+    "fetchDistribution must reject non-array payloads",
+  );
+
+  // fetchDistribution schema-invalid element — rejects.
+  const DistBadElement = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [{ id: 1, area: "Argentina" /* all nullable fields missing */ }] }]);
+  await assert.rejects(
+    () => api.fetchDistribution(100, { fetch: DistBadElement, baseUrl: "http://x" }),
+    (err) => /invalid|distribution/i.test(String(err && err.message || err)),
+    "fetchDistribution must reject per-element shape mismatches (missing nullable fields as undefined)",
+  );
+
+  // fetchDistribution wrong type on nullable field — rejects.
+  const DistBadGazType = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [{ id: 1, area: "Argentina", gazetteer: 123,
+             establishment_means: null, degree_of_establishment: null }] }]);
+  await assert.rejects(
+    () => api.fetchDistribution(100, { fetch: DistBadGazType, baseUrl: "http://x" }),
+    (err) => /invalid|distribution/i.test(String(err && err.message || err)),
+    "fetchDistribution must reject non-string gazetteer values",
+  );
+
+  // fetchDistribution wrong type on nullable field (means) — rejects.
+  const DistBadMeansType = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [{ id: 1, area: "Argentina", gazetteer: null,
+             establishment_means: 7, degree_of_establishment: null }] }]);
+  await assert.rejects(
+    () => api.fetchDistribution(100, { fetch: DistBadMeansType, baseUrl: "http://x" }),
+    (err) => /invalid|distribution/i.test(String(err && err.message || err)),
+    "fetchDistribution must reject non-string establishment_means values",
+  );
+
+  // fetchDistribution wrong type on nullable field (degree) — rejects.
+  const DistBadDegreeType = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [{ id: 1, area: "Argentina", gazetteer: null,
+             establishment_means: null, degree_of_establishment: {} }] }]);
+  await assert.rejects(
+    () => api.fetchDistribution(100, { fetch: DistBadDegreeType, baseUrl: "http://x" }),
+    (err) => /invalid|distribution/i.test(String(err && err.message || err)),
+    "fetchDistribution must reject non-string degree_of_establishment values",
+  );
+
+  // fetchDistribution wrong type on area (number instead of string) — rejects.
+  const DistBadAreaType = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [{ id: 1, area: 42, gazetteer: null,
+             establishment_means: null, degree_of_establishment: null }] }]);
+  await assert.rejects(
+    () => api.fetchDistribution(100, { fetch: DistBadAreaType, baseUrl: "http://x" }),
+    (err) => /invalid|distribution/i.test(String(err && err.message || err)),
+    "fetchDistribution must reject non-string area values",
+  );
+
+  // fetchDistribution empty area — rejects (the legacy
+  // `web/detail.js::loadDetail` would not produce an empty
+  // area because CoL rows have a NOT NULL constraint, but the
+  // React projection must still reject the wire shape so a
+  // future server change cannot silently bypass the
+  // validation).
+  const DistEmptyArea = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [{ id: 1, area: "", gazetteer: null,
+             establishment_means: null, degree_of_establishment: null }] }]);
+  await assert.rejects(
+    () => api.fetchDistribution(100, { fetch: DistEmptyArea, baseUrl: "http://x" }),
+    (err) => /invalid|distribution/i.test(String(err && err.message || err)),
+    "fetchDistribution must reject empty area values",
+  );
+
+  // fetchDistribution negative id — id validation rejects.
+  await assert.rejects(
+    () => api.fetchDistribution(-1, { fetch: makeFetch([]), baseUrl: "http://x" }),
+    (err) => /non-negative integer/i.test(String(err && err.message || err)),
+    "fetchDistribution must reject negative ids",
+  );
+
+  // fetchDistribution non-integer id — id validation rejects.
+  await assert.rejects(
+    () => api.fetchDistribution(1.5, { fetch: makeFetch([]), baseUrl: "http://x" }),
+    (err) => /non-negative integer/i.test(String(err && err.message || err)),
+    "fetchDistribution must reject non-integer ids",
+  );
+
+  // fetchDistribution malformed JSON — throws.
+  const DistJsonFail = makeFetch([{ ok: true, status: 200, statusText: "OK", json: Promise.reject(new SyntaxError("Unexpected token < in JSON")) }]);
+  await assert.rejects(
+    () => api.fetchDistribution(100, { fetch: DistJsonFail, baseUrl: "http://x" }),
+    (err) => /json|JSON/i.test(String(err && err.message || err)),
+    "fetchDistribution must reject malformed JSON",
   );
 
   process.stdout.write("PASS\n");

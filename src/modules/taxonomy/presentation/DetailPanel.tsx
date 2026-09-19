@@ -58,6 +58,8 @@ import SynonymTab from "./SynonymTab";
 import type { SynonymTabStatus } from "./SynonymTab";
 import VernacularTab from "./VernacularTab";
 import type { VernacularTabStatus } from "./VernacularTab";
+import DistributionTab from "./DistributionTab";
+import type { DistributionTabStatus } from "./DistributionTab";
 import { walkBreadcrumbForSource } from "./breadcrumb-path";
 import type { BreadcrumbSegment } from "./breadcrumb-path";
 import type { TreeSource, TreeState } from "./tree-state";
@@ -95,16 +97,19 @@ export interface DetailTabDef {
  *  rendering surface. ODD-TDV-001 enables `vernaculars`. ODD-TDSYN-001
  *  enables `synonyms` — the canonical Synonym tab body renders the
  *  server-composed historical-name rows (rank chip + scientific name
- *  + optional authorship) under the native "Synonyms" header. Folder /
- *  Distribution stay as disabled affordances until their backing React
- *  slices ship. */
+ *  + optional authorship) under the native "Synonyms" header.
+ *  ODD-TDDIST-001 enables `distribution` — the canonical Distribution
+ *  tab body renders the server-composed geographic-range rows
+ *  (establishment-means chip + area) under the native "Distribution"
+ *  header. Folder stays as a disabled affordance until its backing
+ *  React slice ships. */
 export const DETAIL_TABS: readonly DetailTabDef[] = [
   { key: "overview", label: "Overview", icon: "info", available: true },
   { key: "searches", label: "Search", icon: "travel_explore", available: true },
   { key: "folder", label: "Folder", icon: "create_new_folder", available: false },
   { key: "vernaculars", label: "Vernaculars", icon: "translate", available: true },
   { key: "synonyms", label: "Synonyms", icon: "history", available: true },
-  { key: "distribution", label: "Distribution", icon: "public", available: false },
+  { key: "distribution", label: "Distribution", icon: "public", available: true },
 ];
 
 /** Default active tab key for any newly selected taxon. The legacy
@@ -166,6 +171,22 @@ export interface DetailPanelProps {
    *  the same status pipeline. */
   readonly synonymStatus: SynonymTabStatus;
   readonly onRetrySynonyms: () => void;
+  /** ODD-TDDIST-001 — per-taxon distribution status + retry
+   *  callback. Mirrors the search-link + vernaculars +
+   *  synonyms wiring byte-for-byte: the parent owns the cache
+   *  so re-selecting a previously selected taxon lands on the
+   *  cached result without a round trip; the
+   *  eager-fetch-on-selection contract fires the request the
+   *  moment a taxon becomes the active selection. The cache
+   *  SURVIVES source switches (the
+   *  `/api/taxon/{id}/distribution` endpoint is
+   *  source-agnostic — the FastAPI SQL filters by
+   *  `taxon_id = ?` regardless of the active tree source — so
+   *  a stale cached payload remains valid under the new
+   *  source). The retry callback re-issues the request and
+   *  re-runs through the same status pipeline. */
+  readonly distributionStatus: DistributionTabStatus;
+  readonly onRetryDistribution: () => void;
 }
 
 export default function DetailPanel({
@@ -182,6 +203,8 @@ export default function DetailPanel({
   onRetryVernaculars,
   synonymStatus,
   onRetrySynonyms,
+  distributionStatus,
+  onRetryDistribution,
 }: DetailPanelProps): React.ReactElement {
   const realm = realmForPath(taxon.path);
   const extinctCls = taxon.is_extinct ? "line-through opacity-70" : "";
@@ -324,7 +347,7 @@ export default function DetailPanel({
           })}
         </div>
         <div
-          className={`detail-section ${activeTab === "searches" ? "searches-tab" : activeTab === "vernaculars" ? "vernaculars-tab" : activeTab === "synonyms" ? "synonyms-tab" : "overview-tab"}`}
+          className={`detail-section ${activeTab === "searches" ? "searches-tab" : activeTab === "vernaculars" ? "vernaculars-tab" : activeTab === "synonyms" ? "synonyms-tab" : activeTab === "distribution" ? "distribution-tab" : "overview-tab"}`}
           data-tab-content={activeTab}
         >
           {activeTab === "searches" ? (
@@ -338,6 +361,11 @@ export default function DetailPanel({
             <SynonymTab
               status={synonymStatus}
               onRetry={onRetrySynonyms}
+            />
+          ) : activeTab === "distribution" ? (
+            <DistributionTab
+              status={distributionStatus}
+              onRetry={onRetryDistribution}
             />
           ) : (
             renderOverview({
