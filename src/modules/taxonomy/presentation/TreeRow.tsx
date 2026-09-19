@@ -1,6 +1,7 @@
 /**
  * TreeRow — single disclosure row in the visible taxonomy tree
- * (ODD-VTREE-002 / ODD-NTP-003 / ODD-NTP-004 / ODD-NTP-005).
+ * (ODD-VTREE-002 / ODD-NTP-003 / ODD-NTP-004 / ODD-NTP-005 /
+ * ODD-TDDISC-001).
  *
  * Renders one taxon as a real block element (NOT a `display: contents`
  * placeholder) so the depth indent applies to the WHOLE identity +
@@ -68,13 +69,34 @@
  *     (5 / 3k / 2.5M thresholds) with a hover title that carries
  *     the full binomial + count context
  *   - kebab trigger (`more_vert`) + kebab menu — collapses the
- *     per-row "Search online" / "Open folder" / "View on WoRMS"
+ *     per-row "View details" / "Open folder" / "View on WoRMS"
  *     actions into a single menu that opens on click. ODD-NTP-005
- *     enables "Search online" (the action maps to `onSelect`,
+ *     enables "View details" (the action maps to `onSelect`,
  *     which the navigation slice genuinely backs); "Open folder"
  *     stays disabled until the Folder tab + desktop file
  *     endpoints ship (detail-panel / desktop file actions still
  *     lack React backing).
+ *
+ * ODD-TDDISC-001 — discoverable row-level detail action:
+ *   - Every row renders a compact Material Symbols `visibility`
+ *     icon button (`data-action="open-details"`) that calls
+ *     `onSelect(taxon.id)` directly. The button uses the
+ *     existing `.tree-search-icon` class whitelisted under
+ *     TAXONOMY_OWNED_BY_3C_B in `tests/test_research_styles.py`,
+ *     so no new top-level CSS selector is introduced. The
+ *     explicit `aria-label` / `title` keep the icon-led
+ *     affordance accessible to screen readers and mouse-hover
+ *     users alike.
+ *   - The kebab menu's selection item is RENAMED from "Search
+ *     online" to "View details" (label only — the
+ *     `data-action="open-searches"` contract stays so the parent
+ *     keeps routing through `handleKebabAction(id,
+ *     "open-searches")`). The kebab item icon switches from
+ *     `search` to `visibility` so the icon-led affordance is
+ *     consistent with the new row-level button. Both routes
+ *     converge on the same selection primitive, so source
+ *     switches, breadcrumb activation, and per-taxon active-tab
+ *     memory all keep working byte-for-byte.
  *
  * spec.md rule 4: depends on the taxonomy domain (`Taxon`,
  * `Rank`) and the sibling tree-state helpers + the row-format
@@ -364,6 +386,29 @@ export default function TreeRow({
             {speciesCountText}
           </span>
         ) : null}
+        {/* ODD-TDDISC-001 — discoverable row-level detail action.
+            The Material Symbols `visibility` glyph selects the taxon
+            without toggling expansion (mirrors the legacy
+            `web/nav.js::selectTaxon` primitive). The button reuses
+            the `.tree-search-icon` class whitelisted under
+            TAXONOMY_OWNED_BY_3C_B so the chain-topology guard stays
+            green without a new top-level CSS rule. The explicit
+            `aria-label` / `title` keep the icon-led affordance
+            accessible to screen readers and mouse-hover users alike. */}
+        <button
+          type="button"
+          className="tree-search-icon material-symbols-outlined text-[16px] text-on-surface-variant"
+          data-action="open-details"
+          data-taxon-id={taxonIdStr}
+          aria-label={`View details for ${taxon.name}`}
+          title="View details"
+          onClick={(ev) => {
+            ev.stopPropagation();
+            onSelect(taxon.id);
+          }}
+        >
+          visibility
+        </button>
         {/* Kebab — single trigger per row that opens a menu with
             the per-row actions. Items whose backing React
             behavior exists stay enabled; items whose backing
@@ -399,12 +444,17 @@ export default function TreeRow({
             role="menu"
             data-kebab-menu-for={taxonIdStr}
           >
-            {/* "Search online" — ENABLED in ODD-NTP-005. The
-                navigation slice genuinely backs this action: it
-                routes through `onSelect(id)`, which sets focused
-                + selected and re-derives the breadcrumb. The
-                legacy `web/nav.js::open-searches` handler is
-                byte-for-byte equivalent. */}
+            {/* "View details" — RENAMED in ODD-TDDISC-001 from the
+                legacy "Search online" label so the kebab action is
+                discoverable as the detail-panel entry point. The
+                data-action="open-searches" contract stays so the
+                parent keeps routing through `handleKebabAction(id,
+                "open-searches")` byte-for-byte (mirrors the legacy
+                `web/nav.js::open-searches` handler). The kebab
+                item icon switches from `search` to `visibility` so
+                the icon-led affordance matches the new row-level
+                button. Both routes converge on the same selection
+                primitive. */}
             <button
               type="button"
               className="kebab-item"
@@ -420,9 +470,9 @@ export default function TreeRow({
                 aria-hidden="true"
                 className="material-symbols-outlined text-[16px] text-on-surface-variant"
               >
-                search
+                visibility
               </span>
-              <span className="kebab-item-label">Search online</span>
+              <span className="kebab-item-label">View details</span>
             </button>
             {/* "Open folder" — DEFERRED. Renders ONLY when
                 `hasMaterializedFolder(taxon)` is true (the legacy

@@ -636,9 +636,12 @@ def test_tree_row_renders_kebab_trigger() -> None:
 
 
 def test_tree_row_renders_kebab_menu_items() -> None:
-    """ODD-NTP-004: the kebab menu carries the three legacy actions:
-    'Search online' / 'Open folder' / 'View on WoRMS'. Items whose
-    backing React behavior is deferred to ODD-NTP-005 render with
+    """ODD-NTP-004 + ODD-TDDISC-001: the kebab menu carries the three
+    legacy actions: 'View details' / 'Open folder' / 'View on WoRMS'.
+    ODD-TDDISC-001 renamed the selection item from 'Search online'
+    to 'View details' (the data-action="open-searches" contract
+    stays so the parent mapping keeps working byte-for-byte). Items
+    whose backing React behavior is deferred render with
     `disabled` + `aria-disabled="true"` so the user sees them as
     clearly unavailable rather than silently wired to the wrong
     endpoint. Mirrors the legacy `web/tree.js::renderNodeRow::
@@ -646,8 +649,9 @@ def test_tree_row_renders_kebab_menu_items() -> None:
 
     ODD-NTP-004 explicitly enables ONLY `View on WoRMS` (the
     `<a target="_blank">` anchor doesn't need a React handler);
-    `Search online` and `Open folder` stay disabled until ODD-NTP-005
-    wires the corresponding React behavior."""
+    `View details` (was 'Search online') and `Open folder` stay
+    disabled until ODD-NTP-005 wires the corresponding React
+    behavior."""
     text = _read_text(TAXONOMY_TREE_ROW_FILE)
     assert "kebab-menu" in text, (
         "ODD-NTP-004: TreeRow.tsx must render the .kebab-menu container."
@@ -1250,9 +1254,12 @@ def test_out_index_html_has_source_selector_styles(static_export) -> None:
 #   - Collapse-all preserves focused + selected (the legacy
 #     `web/nav.js::collapseAll` does the same — selection is
 #     independent of expansion).
-#   - The kebab "Search online" item is ENABLED (the navigation
-#     slice genuinely backs it). The "Open folder" item stays
-#     `disabled` until the Folder tab + desktop file endpoints
+#   - The kebab "View details" item (formerly "Search online" —
+#     renamed in ODD-TDDISC-001 for discoverability; the
+#     data-action="open-searches" contract is preserved) is ENABLED
+#     (the navigation slice genuinely backs it). The "Open folder"
+#     item stays `disabled` until the Folder tab + desktop file
+#     endpoints
 #     ship (detail-panel / desktop file actions still lack React
 #     backing).
 # ---------------------------------------------------------------------------
@@ -1471,8 +1478,10 @@ def test_tree_row_passes_on_select_focused_selected_to_props() -> None:
     )
 
 
-def test_tree_row_search_online_is_enabled() -> None:
-    """ODD-NTP-005: the kebab 'Search online' item is ENABLED. The
+def test_tree_row_view_details_kebab_is_enabled() -> None:
+    """ODD-TDDISC-001 (formerly ODD-NTP-005): the kebab 'View details'
+    item (RENAMED from 'Search online' for discoverability — the
+    data-action="open-searches" contract stays) is ENABLED. The
     navigation slice genuinely backs it: the item routes through
     `onKebabAction(id, 'open-searches')`, which the parent maps to
     `handleSelect(id)` (mirrors the legacy `web/nav.js::
@@ -1482,19 +1491,32 @@ def test_tree_row_search_online_is_enabled() -> None:
     # The "open-searches" data-action must NOT carry the ODD-NTP-004
     # deferral pair (`disabled` + `aria-disabled="true"`); with
     # ODD-NTP-005 the navigation slice backs the action and the
-    # React handler routes through `onSelect`.
+    # React handler routes through `onSelect`. ODD-TDDISC-001
+    # renamed the visible label only — the action contract stays.
+    # The kebab item is uniquely identified by `className="kebab-item"`
+    # (no other JSX attribute on the row carries that class), so we
+    # anchor the regex on the kebab-item class to avoid false
+    # positives from docstring + comment blocks that mention
+    # `data-action="open-searches"` literally.
     match = re.search(
-        r'data-action="open-searches"[\s\S]*?</button>',
+        r'<button\b[^>]*className\s*=\s*"\s*kebab-item\s*"[\s\S]*?</button>',
         text,
     )
-    assert match, "TreeRow.tsx must render the open-searches kebab item."
+    assert match, (
+        "ODD-TDDISC-001: TreeRow.tsx must render the kebab-item button "
+        "(className=\"kebab-item\") with the open-searches action."
+    )
     body = match.group(0)
+    assert 'data-action="open-searches"' in body, (
+        "ODD-TDDISC-001: kebab item MUST keep data-action=\"open-searches\" "
+        "(parent maps to handleSelect — action contract is preserved)."
+    )
     assert "disabled" not in body, (
-        "ODD-NTP-005: 'Search online' kebab item must NOT be disabled; "
+        "ODD-TDDISC-001: 'View details' kebab item must NOT be disabled; "
         "the navigation slice genuinely backs it."
     )
     assert 'aria-disabled="true"' not in body, (
-        "ODD-NTP-005: 'Search online' kebab item must NOT carry "
+        "ODD-TDDISC-001: 'View details' kebab item must NOT carry "
         "aria-disabled=\"true\"; the navigation slice genuinely backs it."
     )
     # The item handler routes through `onKebabAction(taxon.id, "open-searches")`,
@@ -1503,7 +1525,7 @@ def test_tree_row_search_online_is_enabled() -> None:
         r'onKebabAction\([^)]*"open-searches"',
         body,
     ), (
-        "ODD-NTP-005: 'Search online' must call onKebabAction with "
+        "ODD-TDDISC-001: 'View details' must call onKebabAction with "
         "'open-searches' (parent maps to handleSelect)."
     )
 
@@ -1526,10 +1548,13 @@ def test_tree_row_open_folder_is_still_deferred() -> None:
     )
 
 
-def test_taxonomy_tree_handle_kebab_action_dispatches_search() -> None:
-    """ODD-NTP-005: handleKebabAction routes 'open-searches' through
-    `handleSelect(id)` (the navigation slice's selection primitive)
-    and closes the kebab on dispatch."""
+def test_taxonomy_tree_handle_kebab_action_dispatches_view_details() -> None:
+    """ODD-TDDISC-001 (formerly ODD-NTP-005): handleKebabAction routes
+    'open-searches' through `handleSelect(id)` (the navigation
+    slice's selection primitive) and closes the kebab on dispatch.
+    The action name stayed `open-searches` even though the visible
+    kebab label is now 'View details' — the contract is preserved
+    so the parent mapping keeps working byte-for-byte."""
     text = _read_text(TAXONOMY_TREE_FILE)
     handle_idx = text.find("const handleKebabAction")
     assert handle_idx != -1, (
@@ -1537,10 +1562,10 @@ def test_taxonomy_tree_handle_kebab_action_dispatches_search() -> None:
     )
     body = text[handle_idx:handle_idx + 800]
     assert 'open-searches' in body, (
-        "ODD-NTP-005: handleKebabAction must branch on 'open-searches'."
+        "ODD-TDDISC-001: handleKebabAction must branch on 'open-searches'."
     )
     assert "handleSelect(id)" in body, (
-        "ODD-NTP-005: handleKebabAction must call handleSelect(id) "
+        "ODD-TDDISC-001: handleKebabAction must call handleSelect(id) "
         "for open-searches (the navigation slice's selection primitive)."
     )
 
@@ -1631,6 +1656,230 @@ def test_out_index_html_has_breadcrumb_and_row_affordance_styles(static_export) 
     assert ".tree-row[data-pulse-nonce]" in css_body, (
         "ODD-NTP-005: static CSS must define the "
         ".tree-row[data-pulse-nonce] pulse animation."
+    )
+
+
+# ---------------------------------------------------------------------------
+# ODD-TDDISC-001 — discoverable row-level detail action.
+#
+#   - Every row renders a compact Material Symbols `visibility` icon
+#     control that invokes the existing selection primitive
+#     (`onSelect(taxon.id)`) without toggling expansion. The icon
+#     uses the `.tree-search-icon` class whitelisted under
+#     TAXONOMY_OWNED_BY_3C_B in `tests/test_research_styles.py`,
+#     so no new top-level CSS selector is required.
+#   - The kebab menu's "Search online" item is RENAMED to "View
+#     details" (label only — the data-action="open-searches"
+#     contract stays so the parent keeps routing through
+#     `handleKebabAction(id, "open-searches")`). The kebab item
+#     icon switches from `search` to `visibility` so the icon-led
+#     affordance stays consistent with the new row-level button.
+#   - Both routes converge on the same selection primitive, so
+#     source switches, breadcrumb activation, and the per-taxon
+#     active-tab memory all keep working byte-for-byte.
+# ---------------------------------------------------------------------------
+
+def test_tree_row_renders_view_details_icon_button() -> None:
+    """ODD-TDDISC-001: every row renders a compact `visibility` icon
+    button with `data-action="open-details"` that selects the taxon
+    without toggling expansion. The button uses the existing
+    `.tree-search-icon` class (whitelisted under
+    TAXONOMY_OWNED_BY_3C_B) so no new top-level CSS selector is
+    introduced."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    # The new button MUST exist with the canonical `data-action`
+    # attribute that the row-level affordance contract pins.
+    match = re.search(
+        r'<button\b[^>]*data-action\s*=\s*["\']open-details["\'][\s\S]*?</button>',
+        text,
+    )
+    assert match, (
+        "ODD-TDDISC-001: TreeRow.tsx must render a row-level <button "
+        "data-action=\"open-details\"> with the visibility icon."
+    )
+    body = match.group(0)
+    # The icon MUST be Material Symbols' `visibility` glyph (per the
+    # task plan: "compact Material Symbols `visibility` icon").
+    assert "visibility" in body, (
+        "ODD-TDDISC-001: row-level button must render the `visibility` "
+        "Material Symbols glyph."
+    )
+    # The class hook MUST be the whitelisted `.tree-search-icon`
+    # selector so the existing CSS in `src/app/globals.css` paints
+    # the affordance without a new whitelist entry.
+    assert "tree-search-icon" in body, (
+        "ODD-TDDISC-001: row-level button must use the `.tree-search-icon` "
+        "class (already whitelisted in TAXONOMY_OWNED_BY_3C_B)."
+    )
+    # The button MUST carry an explicit `aria-label` so screen
+    # readers announce the action (the icon alone is meaningless
+    # without an accessible name). The value is a JSX template
+    # literal of the form ``aria-label={`View details for ${taxon.name}`}``
+    # so the regex matches the `aria-label={` prefix and scans
+    # forward for the `View details` substring inside the literal.
+    assert re.search(
+        r"aria-label\s*=\s*\{`[^`]*[Vv]iew\s+details[^`]*`\}",
+        body,
+    ), (
+        "ODD-TDDISC-001: row-level button must declare an explicit "
+        "aria-label that mentions 'View details'."
+    )
+    # The button MUST carry an explicit `title` so mouse-hover
+    # surfaces a tooltip (mirrors the kebab item convention). The
+    # value is a plain string literal (no per-row interpolation)
+    # so a simple regex suffices.
+    assert re.search(
+        r"title\s*=\s*[\"\'][^\"\']*[Vv]iew\s+details[^\"\']*[\"\']",
+        body,
+    ), (
+        "ODD-TDDISC-001: row-level button must declare an explicit "
+        "title that mentions 'View details'."
+    )
+    # The button MUST NOT be disabled — the action is fully wired.
+    assert "disabled" not in body, (
+        "ODD-TDDISC-001: row-level button must NOT be disabled; "
+        "the navigation slice genuinely backs the action."
+    )
+
+
+def test_tree_row_view_details_button_invokes_on_select() -> None:
+    """ODD-TDDISC-001: clicking the row-level visibility button
+    invokes the existing `onSelect(taxon.id)` primitive — the same
+    primitive the kebab "View details" item routes through (the
+    parent maps `open-searches` to `handleSelect`, and the row-level
+    button calls `onSelect` directly). The click MUST NOT toggle
+    expansion — selection is orthogonal to expansion, mirroring the
+    legacy `web/nav.js::selectTaxon` predicate."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    # Anchor the regex on the unique `className="tree-search-icon`
+    # class so the row-level button is unambiguous (no other JSX
+    # block carries that class, and the docstring + inline
+    # comments don't repeat the literal pattern in a way that
+    # would confuse the regex).
+    match = re.search(
+        r'<button\b[^>]*tree-search-icon[^>]*data-action\s*=\s*["\']open-details["\'][\s\S]*?</button>',
+        text,
+    )
+    assert match, "TreeRow.tsx must render the open-details row-level button."
+    body = match.group(0)
+    assert re.search(
+        r'onSelect\s*\(\s*taxon\.id\s*\)',
+        body,
+    ), (
+        "ODD-TDDISC-001: row-level button onClick must call "
+        "onSelect(taxon.id) — the existing selection primitive."
+    )
+    # The click MUST NOT call onToggle (selection is orthogonal to
+    # expansion; toggling would break the legacy oracle).
+    assert "onToggle" not in body, (
+        "ODD-TDDISC-001: row-level button MUST NOT call onToggle; "
+        "selection is orthogonal to expansion."
+    )
+
+
+def test_tree_row_kebab_search_online_renamed_to_view_details() -> None:
+    """ODD-TDDISC-001: the kebab menu's selection item is RENAMED
+    from "Search online" to "View details" (label only — the
+    data-action="open-searches" contract stays so the parent keeps
+    routing through `handleKebabAction(id, "open-searches")`). The
+    kebab item icon switches from `search` to `visibility` so the
+    icon-led affordance stays consistent with the new row-level
+    button."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    # The kebab item is uniquely identified by `className="kebab-item"`
+    # (no other JSX attribute on the row carries that class), so we
+    # anchor the regex on the kebab-item class to avoid false
+    # positives from docstring + comment blocks that mention
+    # `data-action="open-searches"` literally.
+    match = re.search(
+        r'<button\b[^>]*className\s*=\s*"\s*kebab-item\s*"[\s\S]*?</button>',
+        text,
+    )
+    assert match, (
+        "ODD-TDDISC-001: TreeRow.tsx must render the kebab-item button "
+        "with the open-searches action."
+    )
+    body = match.group(0)
+    # The visible label MUST be "View details" (not "Search online").
+    assert ">View details<" in body, (
+        "ODD-TDDISC-001: kebab item label MUST be 'View details' "
+        "(renamed from 'Search online' for discoverability)."
+    )
+    # The legacy "Search online" label MUST be gone from the JSX.
+    assert ">Search online<" not in body, (
+        "ODD-TDDISC-001: kebab menu JSX MUST NOT carry the legacy "
+        "'Search online' label."
+    )
+    # The kebab item icon MUST switch from `search` to `visibility`
+    # so the icon-led affordance is consistent with the new
+    # row-level button. The glyph sits inside a Material Symbols
+    # `<span>` with surrounding whitespace, so we use a regex
+    # that tolerates the leading whitespace + trailing closing
+    # tag (e.g. `\n                visibility\n              </span>`).
+    assert re.search(r">\s*visibility\s*<", body), (
+        "ODD-TDDISC-001: kebab item icon MUST be `visibility` "
+        "(was `search` in ODD-NTP-005)."
+    )
+    assert not re.search(r">\s*search\s*<", body), (
+        "ODD-TDDISC-001: kebab item icon MUST NOT be the legacy "
+        "`search` glyph."
+    )
+    # The data-action MUST stay "open-searches" (the parent mapping
+    # is the contract we promised NOT to change).
+    assert 'data-action="open-searches"' in body, (
+        "ODD-TDDISC-001: kebab item MUST keep data-action=\"open-searches\" "
+        "(parent maps to handleSelect — action contract is preserved)."
+    )
+    # The handler MUST still route through onKebabAction with
+    # "open-searches" so the parent's mapping keeps working
+    # byte-for-byte.
+    assert re.search(
+        r'onKebabAction\([^)]*"open-searches"',
+        body,
+    ), (
+        "ODD-TDDISC-001: kebab item must keep calling "
+        "onKebabAction(id, \"open-searches\") — parent maps to "
+        "handleSelect."
+    )
+
+
+def test_tree_row_view_details_button_uses_existing_css_class() -> None:
+    """ODD-TDDISC-001: the row-level button uses the existing
+    `.tree-search-icon` class which is already whitelisted under
+    TAXONOMY_OWNED_BY_3C_B in `tests/test_research_styles.py`. This
+    keeps the chain-topology guard green without introducing a new
+    top-level CSS rule."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    # Anchor the regex on the unique `className="tree-search-icon`
+    # so the row-level button is unambiguous (the docstring
+    # mentions `data-action="open-details"` literally and would
+    # otherwise confuse the regex).
+    match = re.search(
+        r'<button\b[^>]*tree-search-icon[^>]*data-action\s*=\s*["\']open-details["\'][\s\S]*?</button>',
+        text,
+    )
+    assert match, "TreeRow.tsx must render the open-details row-level button."
+    body = match.group(0)
+    assert "tree-search-icon" in body, (
+        "ODD-TDDISC-001: row-level button must use the `.tree-search-icon` "
+        "class hook so the chain-topology guard keeps whitelisting it."
+    )
+
+
+def test_out_index_html_has_view_details_button_styles(static_export) -> None:
+    """ODD-TDDISC-001: the static export's CSS must define the
+    `.tree-search-icon` rule so the row-level visibility button
+    renders identically to the legacy oracle. The class is already
+    whitelisted (TAXONOMY_OWNED_BY_3C_B) and the rule was shipped
+    by PR 3c-b — this witness confirms the rule survives the
+    static build pipeline."""
+    css_chunks = sorted((REPO_ROOT / "out" / "_next" / "static" / "chunks").glob("*.css"))
+    css_body = "\n".join(
+        c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks
+    )
+    assert ".tree-search-icon" in css_body, (
+        "ODD-TDDISC-001: static CSS must define the .tree-search-icon "
+        "rule (the row-level visibility button relies on it)."
     )
 
 

@@ -16,12 +16,20 @@
  *     drives both `focused` and `selected` to the chosen id. Clicking
  *     a row NEVER breaks an existing expansion — selection is
  *     orthogonal to expansion, matching the legacy oracle.
- *   - `select` is the row-level kebab "Search online" action too,
- *     so the deferred kebab item lands here: it just calls
- *     `handleSelect(id)` and closes the open kebab menu. The
- *     "Open folder" item stays disabled until the Folder tab +
- *     desktop file endpoints ship (detail-panel / desktop file
- *     actions still lack React backing).
+ *   - `select` is the row-level kebab "View details" action too
+ *     (RENAMED from "Search online" in ODD-TDDISC-001 for
+ *     discoverability — the `data-action="open-searches"`
+ *     contract stays so the parent keeps routing through
+ *     `handleSelect`), so the kebab item lands here: it just
+ *     calls `handleSelect(id)` and closes the open kebab menu.
+ *     The "Open folder" item stays disabled until the Folder tab
+ *     + desktop file endpoints ship (detail-panel / desktop file
+ *     actions still lack React backing). ODD-TDDISC-001 ALSO
+ *     adds a compact Material Symbols `visibility` icon control
+ *     on every row (`data-action="open-details"`) that calls
+ *     `onSelect(taxon.id)` directly — the discoverable
+ *     detail-panel entry point that the kebab rename alone
+ *     cannot provide.
  *   - Source switches clear focused + selected + every
  *     source-bound React state (roots, child cache, expanded set,
  *     load status, showAll, per-row error, kebab). Mirrors the
@@ -107,10 +115,13 @@
  *     extinction / count / source / folder indicators, source
  *     tooltip / cross-link, and accessible kebab state. The
  *     "View on WoRMS" kebab item is wired (anchor + target).
- *     "Search online" is wired in ODD-NTP-005 to call
- *     `handleSelect(id)`. "Open folder" stays disabled until the
- *     Folder tab + desktop file endpoints ship (detail-panel /
- *     desktop file actions still lack React backing).
+ *     "View details" (RENAMED from "Search online" in
+ *     ODD-TDDISC-001 for discoverability; the
+ *     `data-action="open-searches"` contract stays) is wired in
+ *     ODD-NTP-005 to call `handleSelect(id)`. "Open folder"
+ *     stays disabled until the Folder tab + desktop file
+ *     endpoints ship (detail-panel / desktop file actions still
+ *     lack React backing).
  *
  * Base URL comes from `process.env.NEXT_PUBLIC_TAXA_API_ORIGIN`
  * (inlined at build time). The variable is unset for production
