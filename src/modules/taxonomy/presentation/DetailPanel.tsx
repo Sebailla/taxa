@@ -54,6 +54,8 @@ import {
 } from "./row-format";
 import SearchTab from "./SearchTab";
 import type { SearchTabStatus } from "./SearchTab";
+import VernacularTab from "./VernacularTab";
+import type { VernacularTabStatus } from "./VernacularTab";
 import { walkBreadcrumbForSource } from "./breadcrumb-path";
 import type { BreadcrumbSegment } from "./breadcrumb-path";
 import type { TreeSource, TreeState } from "./tree-state";
@@ -95,7 +97,7 @@ export const DETAIL_TABS: readonly DetailTabDef[] = [
   { key: "overview", label: "Overview", icon: "info", available: true },
   { key: "searches", label: "Search", icon: "travel_explore", available: true },
   { key: "folder", label: "Folder", icon: "create_new_folder", available: false },
-  { key: "vernaculars", label: "Vernaculars", icon: "translate", available: false },
+  { key: "vernaculars", label: "Vernaculars", icon: "translate", available: true },
   { key: "synonyms", label: "Synonyms", icon: "history", available: false },
   { key: "distribution", label: "Distribution", icon: "public", available: false },
 ];
@@ -132,6 +134,18 @@ export interface DetailPanelProps {
    *  pipeline. */
   readonly searchStatus: SearchTabStatus;
   readonly onRetrySearches: () => void;
+  /** ODD-TDV-001 — per-taxon vernaculars status + retry callback.
+   *  Mirrors the search-link wiring byte-for-byte: the parent owns
+   *  the cache so re-selecting a previously selected taxon lands
+   *  on the cached result without a round trip; the eager-fetch-
+   *  on-selection contract fires the request the moment a taxon
+   *  becomes the active selection. The cache SURVIVES source
+   *  switches (the `/api/taxon/{id}/vernaculars` endpoint is
+   *  source-agnostic, so a stale cached payload remains valid
+   *  under the new source). The retry callback re-issues the
+   *  request and re-runs through the same status pipeline. */
+  readonly vernacularStatus: VernacularTabStatus;
+  readonly onRetryVernaculars: () => void;
 }
 
 export default function DetailPanel({
@@ -144,6 +158,8 @@ export default function DetailPanel({
   onClose,
   searchStatus,
   onRetrySearches,
+  vernacularStatus,
+  onRetryVernaculars,
 }: DetailPanelProps): React.ReactElement {
   const realm = realmForPath(taxon.path);
   const extinctCls = taxon.is_extinct ? "line-through opacity-70" : "";
@@ -286,11 +302,16 @@ export default function DetailPanel({
           })}
         </div>
         <div
-          className={`detail-section ${activeTab === "searches" ? "searches-tab" : "overview-tab"}`}
+          className={`detail-section ${activeTab === "searches" ? "searches-tab" : activeTab === "vernaculars" ? "vernaculars-tab" : "overview-tab"}`}
           data-tab-content={activeTab}
         >
           {activeTab === "searches" ? (
             <SearchTab status={searchStatus} onRetry={onRetrySearches} />
+          ) : activeTab === "vernaculars" ? (
+            <VernacularTab
+              status={vernacularStatus}
+              onRetry={onRetryVernaculars}
+            />
           ) : (
             renderOverview({
               taxon,
