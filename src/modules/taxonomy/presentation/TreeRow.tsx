@@ -1,6 +1,6 @@
 /**
  * TreeRow — single disclosure row in the visible taxonomy tree
- * (ODD-VTREE-002 / ODD-NTP-003 / ODD-NTP-004).
+ * (ODD-VTREE-002 / ODD-NTP-003 / ODD-NTP-004 / ODD-NTP-005).
  *
  * Renders one taxon as a real block element (NOT a `display: contents`
  * placeholder) so the depth indent applies to the WHOLE identity +
@@ -14,10 +14,29 @@
  * The disclosure control is a `<button>` with `aria-expanded` for
  * expandable rows; species / subspecies leaves carry a `•` glyph
  * (no chevron), are `disabled`, and stamp `data-action="select"`
- * so the future ODD-NTP-005 selection handler can dispatch
- * directly on them. Higher ranks stamp `data-action="toggle-expand"`
- * and the lazy child-fetch is owned by `TaxonomyTree` so state
- * transitions stay inside the single client island.
+ * so the ODD-NTP-005 selection handler dispatches directly on
+ * them. Higher ranks stamp `data-action="toggle-expand"` and the
+ * lazy child-fetch is owned by `TaxonomyTree` so state transitions
+ * stay inside the single client island.
+ *
+ * ODD-NTP-005 — native selection / focus / breadcrumb:
+ *   - The row accepts `onSelect`, `focused`, `selected`, and
+ *     `pulseNonce` props from the parent. Selection is
+ *     orthogonal to expansion: clicking a leaf dispatches the
+ *     `select` action (which the parent maps to `handleSelect`)
+ *     WITHOUT toggling expansion; clicking a non-leaf keeps the
+ *     existing expansion state intact. The selected row paints
+ *     a primary-tinted background + left border (matching the
+ *     legacy `web/index.html::.tree-row.selected` cascade); the
+ *     focused row paints a subtle surface-container-low tint +
+ *     outline border (matching `web/index.html::.tree-row.focused`).
+ *     `pulseNonce` triggers a one-shot pulse animation on the
+ *     freshly selected row (mirrors the legacy
+ *     `web/nav.js::select-from-search` `search-pulse` affordance).
+ *   - The row registers its DOM node via `registerRowRef` so the
+ *     parent's `scrollIntoView({ block: "nearest" })` call after
+ *     `select` lands on the right element even when the same id
+ *     was already focused.
  *
  * ODD-NTP-003 — identity block carries:
  *   - disclosure chevron / leaf dot (▾ / ▸ / •)
@@ -50,13 +69,12 @@
  *     the full binomial + count context
  *   - kebab trigger (`more_vert`) + kebab menu — collapses the
  *     per-row "Search online" / "Open folder" / "View on WoRMS"
- *     actions into a single menu that opens on click. Items
- *     whose backing React behavior exists stay enabled; items
- *     whose backing handler is deferred to ODD-NTP-005 render
- *     with `disabled` + `aria-disabled="true"` so the user sees
- *     them as clearly unavailable rather than silently wired to
- *     the wrong endpoint. Keyboard dismissal (Escape) + click-
- *     outside dismissal are owned by `TaxonomyTree`.
+ *     actions into a single menu that opens on click. ODD-NTP-005
+ *     enables "Search online" (the action maps to `onSelect`,
+ *     which the navigation slice genuinely backs); "Open folder"
+ *     stays disabled until the Folder tab + desktop file
+ *     endpoints ship (detail-panel / desktop file actions still
+ *     lack React backing).
  *
  * spec.md rule 4: depends on the taxonomy domain (`Taxon`,
  * `Rank`) and the sibling tree-state helpers + the row-format
@@ -104,11 +122,28 @@ export interface TreeRowProps {
   readonly depth: number;
   readonly state: TreeState;
   readonly onToggle: (id: number) => void;
+  /** ODD-NTP-005 — selection handler. Called on leaf disclosure
+   *  clicks (`data-action="select"`) and on the kebab "Search
+   *  online" item. Mirrors the legacy `web/nav.js::selectTaxon`
+   *  primitive — the parent owns focused + selected state and
+   *  never touches expansion here. */
+  readonly onSelect: (id: number) => void;
   /** Active tree source — drives the source-info tooltip branch
    *  (CoL-only vs WoRMS-only vs cross-link). Mirrors the legacy
    *  `web/tree.js::renderNodeRow::sourceTooltipText` source-aware
    *  decision. */
   readonly activeSource: TreeSource;
+  /** ODD-NTP-005 — focused taxon id (drives the breadcrumb).
+   *  Paints the focused row with a subtle surface-container-low
+   *  tint + outline border. Mirrors
+   *  `web/tree.js::renderNodeRow::rowClassFor(isFocused=true)`. */
+  readonly focused: number | null;
+  /** ODD-NTP-005 — selected taxon id (drives the row highlight +
+   *  detail-panel + URL hash in the legacy oracle). Paints the
+   *  selected row with the primary-tinted background + left
+   *  border. Mirrors
+   *  `web/tree.js::renderNodeRow::rowClassFor(isSelected=true)`. */
+  readonly selected: number | null;
   /** Identifier of the row whose kebab menu is currently open, or
    *  `null` when every kebab is closed. Owned by `TaxonomyTree` so
    *  only one kebab can be open at a time across the whole tree. */
@@ -119,14 +154,26 @@ export interface TreeRowProps {
    *  level. */
   readonly onToggleKebab: (id: number) => void;
   /** Kebab item action handler. Called by every enabled kebab menu
-   *  item. The parent dispatches `open-searches` / `open-folder-tab`
-   *  once those land in ODD-NTP-005; for ODD-NTP-004 only
-   *  `view-on-worms` is wired (it just navigates to the WoRMS
- *  URL). */
+   *  item. With ODD-NTP-005 the navigation slice genuinely backs
+   *  `open-searches` (which delegates to `onSelect`); `open-folder-tab`
+   *  remains deferred until the Folder tab + desktop file endpoints
+   *  ship; `view-on-worms` is wired via anchor + target. */
   readonly onKebabAction: (
     id: number,
     action: "open-searches" | "open-folder-tab" | "view-on-worms",
   ) => void;
+  /** ODD-NTP-005 — register the row's DOM node so the parent's
+   *  `scrollIntoView({ block: "nearest" })` call after `select`
+   *  can target it. Called on mount with the ref + on unmount
+   *  with `null`. The parent owns the ref map; this callback is
+   *  stable across renders via `useCallback`. */
+  readonly registerRowRef: (id: number, node: HTMLDivElement | null) => void;
+  /** ODD-NTP-005 — monotonic counter that triggers the row's
+   *  one-shot pulse animation. The parent bumps the nonce on
+   *  every successful `select` so the freshly focused row plays
+   *  the legacy `web/nav.js::select-from-search` `search-pulse`
+   *  affordance once. */
+  readonly pulseNonce: number;
 }
 
 export default function TreeRow({
@@ -134,10 +181,15 @@ export default function TreeRow({
   depth,
   state,
   onToggle,
+  onSelect,
   activeSource,
+  focused,
+  selected,
   kebabOpenId,
   onToggleKebab,
   onKebabAction,
+  registerRowRef,
+  pulseNonce,
 }: TreeRowProps): React.ReactElement {
   const expanded = isExpanded(state, taxon.id);
   const knownLeaf = isLeafRank(taxon.rank);
@@ -156,14 +208,35 @@ export default function TreeRow({
       ? "▾"
       : "▸";
 
+  // ODD-NTP-005 — leaves dispatch `select`; non-leaves dispatch
+  // `toggle-expand`. The selection primitive is orthogonal to
+  // expansion: picking a leaf never expands (leaves have no
+  // children); picking a non-leaf keeps the existing expansion
+  // state intact, mirroring the legacy `web/nav.js::selectTaxon`
+  // primitive byte-for-byte.
   const action = knownLeaf ? "select" : "toggle-expand";
   const ariaExpanded = knownLeaf ? undefined : expanded;
   const ariaLabel = knownLeaf
-    ? `${rankLabel(taxon.rank)} ${taxon.name} (leaf)`
+    ? `Select ${rankLabel(taxon.rank)} ${taxon.name} (leaf)`
     : `${expanded ? "Collapse" : "Expand"} ${rankLabel(taxon.rank)} ${taxon.name}`;
   const nameTitle = taxon.authorship
     ? `${taxon.name} ${taxon.authorship}`
     : null;
+
+  // ODD-NTP-005 — selection / focus affordances. Selected wins
+  // over focused; both win over the default hover tint. The
+  // class strings mirror `web/tree.js::rowClassFor` /
+  // `rankClassFor` / `nameClassFor` so the React cutover paints
+  // the same affordances the legacy native tree does.
+  const isSelected = selected === taxon.id;
+  const isFocused = !isSelected && focused === taxon.id;
+  const isPulsing = (isSelected || isFocused) && pulseNonce > 0;
+  const rowCls = rowClassFor(isSelected, isFocused);
+  const rankCls = rankClassFor(isSelected, isFocused);
+  const nameCls = nameClassFor(isSelected, isFocused, depth);
+  const arrowColor =
+    isSelected || isFocused ? "text-primary" : "text-on-surface-variant";
+  const extinctCls = taxon.is_extinct ? "line-through opacity-70" : "";
 
   // ODD-NTP-004 — per-row affordances. The legacy web/tree.js helper
   // computes each branch from the taxon + active source; the React
@@ -191,7 +264,8 @@ export default function TreeRow({
 
   return (
     <div
-      className="tree-row flex items-center w-full px-4 py-row-padding-y relative hover:bg-surface-container-low transition-colors"
+      ref={(node) => registerRowRef(taxon.id, node)}
+      className={`tree-row group flex items-center w-full px-4 py-row-padding-y relative ${rowCls}`}
       data-taxon-id={taxon.id}
       data-action={action}
       data-rank={taxon.rank}
@@ -201,9 +275,12 @@ export default function TreeRow({
       data-realm={realm}
       data-materialized={isMaterialized ? "true" : undefined}
       data-status={taxon.status ?? "unknown"}
+      data-selected={isSelected ? "true" : undefined}
+      data-focused={isFocused ? "true" : undefined}
+      data-pulse-nonce={isPulsing ? pulseNonce : undefined}
       style={{ paddingLeft: `${paddingLeft}px` }}
     >
-      <div className="flex items-center justify-center w-6 h-6 mr-2 text-on-surface-variant">
+      <div className={`flex items-center justify-center w-6 h-6 mr-2 ${arrowColor}`}>
         <span aria-hidden="true" className="text-[18px] select-none">
           {disclosure}
         </span>
@@ -213,17 +290,16 @@ export default function TreeRow({
         className="flex items-center gap-3 flex-1 min-w-0 text-left bg-transparent border-0 p-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded"
         aria-expanded={ariaExpanded}
         aria-label={ariaLabel}
+        aria-pressed={isSelected ? "true" : undefined}
         data-taxon-disclosure={knownLeaf ? "leaf" : "expandable"}
-        onClick={knownLeaf ? undefined : () => onToggle(taxon.id)}
+        onClick={knownLeaf ? () => onSelect(taxon.id) : () => onToggle(taxon.id)}
         disabled={knownLeaf}
       >
-        <span className="rank-badge uppercase tracking-[0.1em] px-2 py-0.5 rounded text-on-surface-variant bg-surface-container-highest">
+        <span className={`rank-badge uppercase tracking-[0.1em] px-2 py-0.5 rounded ${rankCls}`}>
           {rankLabel(taxon.rank)}
         </span>
         <span
-          className={`${scientificNameDepthClass(depth)} ${scientificNameClass(taxon.rank)} truncate ${
-            taxon.is_extinct ? "line-through opacity-70" : ""
-          }`}
+          className={`${nameCls} truncate ${extinctCls} ${scientificNameClass(taxon.rank)}`}
           title={nameTitle ?? undefined}
           aria-label={nameTitle ?? undefined}
         >
@@ -323,20 +399,18 @@ export default function TreeRow({
             role="menu"
             data-kebab-menu-for={taxonIdStr}
           >
-            {/* "Search online" — DEFERRED to ODD-NTP-005. Renders
-                with `disabled` + `aria-disabled="true"` so the
-                user sees the action is clearly unavailable
-                rather than silently wired to a non-existent
-                React handler. */}
+            {/* "Search online" — ENABLED in ODD-NTP-005. The
+                navigation slice genuinely backs this action: it
+                routes through `onSelect(id)`, which sets focused
+                + selected and re-derives the breadcrumb. The
+                legacy `web/nav.js::open-searches` handler is
+                byte-for-byte equivalent. */}
             <button
               type="button"
               className="kebab-item"
               data-action="open-searches"
               data-taxon-id={taxonIdStr}
               role="menuitem"
-              disabled
-              aria-disabled="true"
-              title="Search online (deferred to ODD-NTP-005)"
               onClick={(ev) => {
                 ev.stopPropagation();
                 onKebabAction(taxon.id, "open-searches");
@@ -350,14 +424,13 @@ export default function TreeRow({
               </span>
               <span className="kebab-item-label">Search online</span>
             </button>
-            {/* "Open folder" — DEFERRED to ODD-NTP-005. Renders
-                ONLY when `hasMaterializedFolder(taxon)` is true
-                (the legacy oracle showed the action only when the
-                root→taxon folder was on disk; ODD-NTP-004 mirrors
-                that gate so the menu doesn't surface the action
-                for taxa whose folder hasn't been materialized
-                yet). The item stays `disabled` until ODD-NTP-005
-                wires the React handler. */}
+            {/* "Open folder" — DEFERRED. Renders ONLY when
+                `hasMaterializedFolder(taxon)` is true (the legacy
+                oracle showed the action only when the
+                root→taxon folder was on disk) and stays
+                `disabled` until the Folder tab + desktop file
+                endpoints ship (detail-panel / desktop file
+                actions still lack React backing). */}
             {isMaterialized ? (
               <button
                 type="button"
@@ -367,7 +440,7 @@ export default function TreeRow({
                 role="menuitem"
                 disabled
                 aria-disabled="true"
-                title="Open folder (deferred to ODD-NTP-005)"
+                title="Open folder (deferred — Folder tab + desktop file endpoints lack React backing)"
                 onClick={(ev) => {
                   ev.stopPropagation();
                   onKebabAction(taxon.id, "open-folder-tab");
@@ -413,4 +486,56 @@ export default function TreeRow({
       </div>
     </div>
   );
+}
+
+// ODD-NTP-005 — row class helpers. Mirror `web/tree.js::rowClassFor`
+// / `rankClassFor` / `nameClassFor` byte-for-byte so the React
+// cutover paints the same selected / focused / default row
+// affordances the legacy oracle does. Selected wins over focused
+// wins over the default hover tint; the row's `rounded-r-lg`
+// keeps the right corners soft but leaves the left edge (where
+// the marker border lives) perfectly square — the border has
+// nowhere to curve into.
+//
+// `selected` and `focused` are stable class names (NOT Tailwind
+// utilities) so the realm-tint CSS in `src/app/globals.css` can
+// override the `.scientific-name` color when a row is selected
+// or focused — the realm hue would otherwise fight the
+// primary-color treatment that the Tailwind `text-primary` class
+// already applies.
+function rowClassFor(isSelected: boolean, isFocused: boolean): string {
+  if (isSelected) {
+    return "selected bg-primary/5 border-l-[3px] border-primary rounded-r-lg cursor-pointer";
+  }
+  if (isFocused) {
+    return "focused bg-surface-container-low border-l-[3px] border-outline rounded-r-lg cursor-pointer";
+  }
+  return "hover:bg-surface-container-low transition-colors rounded-r-lg cursor-pointer";
+}
+
+function rankClassFor(isSelected: boolean, isFocused: boolean): string {
+  if (isSelected) return "text-primary bg-primary/10";
+  if (isFocused) return "text-primary bg-primary/5";
+  return "text-on-surface-variant bg-surface-container-highest";
+}
+
+function nameClassFor(
+  isSelected: boolean,
+  isFocused: boolean,
+  depth: number,
+): string {
+  // Selected / focused branches compose the legacy Tailwind
+  // treatment (`font-h1 text-h1 text-primary font-bold` /
+  // `font-h1 text-h1 text-primary`) so the primary-color tint
+  // overrides the realm-tint cascade without a separate CSS
+  // rule. Depth branches delegate to the row-format
+  // `scientificNameDepthClass` helper so the CSS rules in
+  // `src/app/globals.css` (`.scientific-name-depth-0` /
+  // `.scientific-name-depth-n`) carry the typography. The two
+  // systems compose: the Tailwind `text-on-surface` defaults on
+  // descendants land on top of the realm-tint cascade so the
+  // species / family name stays legible at every depth.
+  if (isSelected) return "font-h1 text-h1 text-primary font-bold";
+  if (isFocused) return "font-h1 text-h1 text-primary";
+  return `${scientificNameDepthClass(depth)} text-on-surface`;
 }

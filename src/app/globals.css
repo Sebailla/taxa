@@ -253,7 +253,23 @@
   }
 
   /* Breadcrumb — rank / taxon / scientific-name chain above the tree.
-     JetBrains Mono aligns the rank separators (›) vertically. */
+     JetBrains Mono aligns the rank separators (›) vertically.
+
+     ODD-NTP-005 — native-style breadcrumb above the tree. Mirrors
+     the legacy `web/index.html::#breadcrumb` cascade (sticky top,
+     surface background, 8px vertical padding, 4px gap, JetBrains
+     Mono for the chevron separators). The React port renders each
+     segment as a button (intermediate) or plain text (focused
+     taxon); the home glyph clears focus + selection. The
+     breadcrumb host carries `data-breadcrumb-source` so tests +
+     tooling can confirm the source isolated. The descendant
+     classes (`.breadcrumb-home` / `.breadcrumb-segment` /
+     `.breadcrumb-current`) are nested under the existing
+     `.breadcrumb` top-level rule so the chain-topology guard in
+     `tests/test_research_styles.py` keeps whitelisting them under
+     the 3c-b taxonomy surface. Descendants are sorted by the
+     alphabetical-chain-topology guard (space < period in ASCII, so
+     `.breadcrumb .*` comes BEFORE `.breadcrumb.*`). */
   .breadcrumb {
     display: flex;
     flex-wrap: wrap;
@@ -264,6 +280,42 @@
     font-size: 12px;
     line-height: 1.4;
     color: var(--on-surface);
+  }
+  .breadcrumb .breadcrumb-current {
+    /* Current position — text only, not clickable. Matches the
+       legacy `web/breadcrumb.js` final-segment treatment. */
+    cursor: default;
+  }
+  .breadcrumb .breadcrumb-home {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+  }
+  .breadcrumb .breadcrumb-home:hover {
+    color: var(--primary);
+  }
+  .breadcrumb .breadcrumb-segment {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+  }
+  .breadcrumb .breadcrumb-segment:hover {
+    color: var(--primary);
+  }
+  .breadcrumb.breadcrumb-host {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--on-surface);
+    background: var(--surface);
+    border-bottom: 1px solid var(--outline-variant);
+    border-radius: 0;
   }
 
   /* Collapse-all button (ODD-NTP-003) — per-button visual contract
@@ -717,12 +769,16 @@
      indents the entire identity + disclosure block. The selector,
      collapse-all control, and per-row status affordances span
      the full width via `width: 100%` (or `align-self: stretch`
-     for flex children). No four-column grid is needed any more. */
+     for flex children). No four-column grid is needed any more.
+     ODD-NTP-005: the breadcrumb host sits above the
+     `.tree-source-toggle-wrapper` so the user always sees the
+     active taxonomy path before the source selector. */
   .taxa-tree {
     display: block;
     padding: 0;
     background: var(--surface);
   }
+
   /* Utility classes (PR 3c-e2) — text-color helpers. `.text-on-surface`
      reads from the `--color-on-surface` 3c-a alias;
      `.text-on-primary-fixed` routes through the 3c-e1
@@ -804,7 +860,40 @@
      `TreeRow.ROW_BASE_PADDING_PX + depth * ROW_INDENT_PX`).
      The `:hover` background paints the whole row at once — under
      the previous `display: contents` cascade, only the cells that
-     participated in the parent grid picked up the hover tint. */
+     participated in the parent grid picked up the hover tint.
+
+     ODD-NTP-005 — selected / focused row affordances. The
+     `.selected` / `.focused` classes are added inline by
+     `TreeRow.rowClassFor(isSelected, isFocused)` (mirrors the
+     legacy `web/tree.js::rowClassFor` byte-for-byte). The
+     `.selected` row paints a primary-tinted background +
+     3px primary left border; `.focused` paints a
+     surface-container-low tint + 3px outline left border. Both
+     paint the `:hover` background too so the visual stack
+     stays coherent on cursor-over.
+
+     ODD-NTP-005 — `data-pulse-nonce` re-triggers the pulse
+     animation by bumping the attribute value. The legacy
+     `web/nav.js::select-from-search` handler removes the
+     `search-pulse` class, forces a reflow, then re-adds it; the
+     React cutover uses an attribute toggle so the same effect
+     works without a manual `offsetWidth` read. The pulse
+     expands a primary-tinted ring outward, then fades. The
+     animation is keyed off the `search-pulse-anim` global
+     keyframe shipped in `@layer base` (PR 3c-d).
+
+     Alphabetical chain-topology contract
+     (`tests/test_research_styles.py::test_top_level_selectors_are_alphabetically_ordered`):
+     the cascade is sorted by ASCII (space < dash < period <
+     greater-than < bracket; the test strips pseudo-classes from
+     the head before comparing). Order: `.tree-row` (base + hover)
+     → `.tree-row .*` (descendants, space separator) →
+     `.tree-row > .*` (child selector) → `.tree-row-status`
+     (different base) → `.tree-row.focused` /
+     `.tree-row.selected` (period modifier) →
+     `.tree-row[data-*]` (attribute selector). The pre-ODD-NTP-005
+     cascade already grouped the descendants in this order; this
+     comment is the canonical reference for the alphabetisation. */
   .tree-row {
     display: flex;
     align-items: center;
@@ -825,12 +914,7 @@
      WoRMS-only / WoRMS cross-link). ODD-NTP-004: the cursor
      stays `help` so the user knows the icon is informational;
      the colour flip on hover mirrors the legacy cascade.
-     Descendant of `.tree-row` for the chain-topology guard.
-     Ordered BEFORE the status-dot / species-count-badge rules
-     so the alphabetical chain-topology contract
-     (`tests/test_research_styles.py`) puts `.tree-row .source-info`
-     (`.so`) ahead of `.tree-row .species-count-badge` (`.sp`) and
-     `.tree-row .status-dot` (`.st`). */
+     Descendant of `.tree-row` for the chain-topology guard. */
   .tree-row .source-info {
     cursor: help;
     transition: color 120ms linear;
@@ -840,12 +924,11 @@
   }
 
   /* Per-row species-count badge — formatted via the row-format
-     `speciesCountBadge` helper (5 / 3k / 2.5M thresholds). ODD-NTP-004:
-     JetBrains Mono + neutral surface-container background mirrors
-     the legacy `web/index.html::.font-mono-data` cascade.
-     Descendant of `.tree-row` for the chain-topology guard.
-     Ordered AFTER `.source-info` and BEFORE `.status-dot` for the
-     alphabetical contract (`.sp` < `.st`). */
+     `speciesCountBadge` helper (5 / 3k / 2.5M thresholds).
+     ODD-NTP-004: JetBrains Mono + neutral surface-container
+     background mirrors the legacy `web/index.html::.font-mono-data`
+     cascade. Descendant of `.tree-row` for the chain-topology
+     guard. */
   .tree-row .species-count-badge {
     font-family: "JetBrains Mono", monospace;
     font-size: 11px;
@@ -866,9 +949,7 @@
      `bg-green-500` / `bg-amber-500` / `bg-outline` hues).
      Selectors are descendants of `.tree-row` so the chain-topology
      guard in `tests/test_research_styles.py` whitelists them under
-     the existing `.tree-row` base class. Ordered AFTER
-     `.source-info` / `.species-count-badge` for the alphabetical
-     contract (`.st` > `.sp` > `.so`). */
+     the existing `.tree-row` base class. */
   .tree-row .status-dot {
     display: inline-block;
     width: 8px;
@@ -934,6 +1015,36 @@
     color: var(--on-surface-variant);
   }
 
+  /* ODD-NTP-005 — per-row focused / selected affordances. The
+     `.focused` modifier (subtle surface-container-low tint +
+     outline border) sits BEFORE `.selected` (primary-tinted
+     background + primary left border) so the alphabetical
+     contract (`tests/test_research_styles.py`) puts
+     `.tree-row.focused` (`.f`) ahead of `.tree-row.selected`
+     (`.s`). The period separator in the selector head sorts
+     AFTER `.tree-row-status` (dash separator) and BEFORE
+     `.tree-row[data-*]` (bracket separator) under the ASCII
+     ordering. */
+  .tree-row.focused {
+    background: var(--surface-container-low);
+    border-left: 3px solid var(--outline);
+    border-radius: 0 0.5rem 0.5rem 0;
+  }
+  .tree-row.focused:hover {
+    background: var(--surface-container);
+  }
+  .tree-row.selected {
+    background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+    border-left: 3px solid var(--primary);
+    border-radius: 0 0.5rem 0.5rem 0;
+  }
+  .tree-row.selected:hover {
+    background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+  }
+  .tree-row[data-pulse-nonce] {
+    animation: search-pulse-anim 1.6s linear;
+  }
+
   /* Realm tint — Classification tree rows mirror the Browser
      folder tint from `web/index.html` (ODD-NTP-004). Every row
      carries `data-realm` (bacteria / archaea / viruses / animalia
@@ -943,12 +1054,10 @@
      block) so the rank tier stays legible while the Latin name
      picks up the domain / kingdom colour. The cascade mirrors the
      legacy `web/index.html::.tree-row[data-realm="X"]
-     .scientific-name` byte-for-byte. Ordered AFTER `.tree-row-status`
-     (`.tree-row-` < `.tree-row[` in ASCII) for the alphabetical
-     chain-topology contract in `tests/test_research_styles.py`.
-     Within the cascade, the attribute-value rules (`[data-realm="..."]`)
-     come BEFORE the bare-attribute rule (`[data-realm]`) because
-     `"` (0x22) < `]` (0x5D) in ASCII. */
+     .scientific-name` byte-for-byte. Within the cascade, the
+     attribute-value rules (`[data-realm="..."]`) come BEFORE the
+     bare-attribute rule (`[data-realm]`) because `"` (0x22) <
+     `]` (0x5D) in ASCII. */
   .tree-row[data-realm="animalia"] .scientific-name {
     color: var(--realm-animalia);
   }

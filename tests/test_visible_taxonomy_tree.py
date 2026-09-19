@@ -1223,3 +1223,404 @@ def test_out_index_html_has_source_selector_styles(static_export) -> None:
         "static CSS must reference the canonical --on-primary token "
         "for the active button's text color"
     )
+
+
+# ---------------------------------------------------------------------------
+# ODD-NTP-005 — native source-aware in-tree navigation:
+#   - Focused / selected navigation state lives at the React
+#     component level (mirrors `web/state.js::focused` + `selected`).
+#   - The breadcrumb above the tree renders the focused taxon's
+#     ancestor chain via `walkBreadcrumbForSource(focused, source,
+#     state)`. Each segment carries `data-breadcrumb-segment` +
+#     `data-breadcrumb-rank`; intermediate segments are
+#     `data-action="focus-segment"` buttons, the focused taxon is
+#     plain text.
+#   - Source switches clear focused + selected alongside the
+#     source-bound React state (roots, child cache, expanded set,
+#     load status, showAll, per-row error, kebab). Mirrors the
+#     legacy `web/nav.js::tree-source toggle` reset byte-for-byte.
+#   - Collapse-all preserves focused + selected (the legacy
+#     `web/nav.js::collapseAll` does the same — selection is
+#     independent of expansion).
+#   - The kebab "Search online" item is ENABLED (the navigation
+#     slice genuinely backs it). The "Open folder" item stays
+#     `disabled` until the Folder tab + desktop file endpoints
+#     ship (detail-panel / desktop file actions still lack React
+#     backing).
+# ---------------------------------------------------------------------------
+
+def test_taxonomy_tree_renders_breadcrumb() -> None:
+    """ODD-NTP-005: TaxonomyTree must render a breadcrumb above the
+    tree source selector. Mirrors the legacy
+    `web/index.html::#breadcrumb` cascade byte-for-byte."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    # Breadcrumb host carries the canonical `id="breadcrumb"` so
+    # downstream tooling + the legacy selector still apply. The
+    # JSX literal `id="breadcrumb"` matches either the unescaped
+    # JSX source OR the quoted form; the regex below accepts both.
+    assert re.search(
+        r'id\s*=\s*["\']breadcrumb["\']',
+        text,
+    ), (
+        "ODD-NTP-005: TaxonomyTree.tsx must render a <nav id=\"breadcrumb\"> "
+        "host so the legacy selector + downstream tooling keep applying."
+    )
+    assert "data-breadcrumb=" in text, (
+        "ODD-NTP-005: breadcrumb host must carry data-breadcrumb for tests."
+    )
+    assert "data-breadcrumb-source=" in text, (
+        "ODD-NTP-005: breadcrumb must stamp data-breadcrumb-source so "
+        "tests can confirm source isolation."
+    )
+    assert "data-breadcrumb-length=" in text, (
+        "ODD-NTP-005: breadcrumb must stamp data-breadcrumb-length so "
+        "tests can confirm the rendered segment count."
+    )
+    assert "BREADCRUMB_MAX_HOPS" in text, (
+        "ODD-NTP-005: TaxonomyTree.tsx must consume BREADCRUMB_MAX_HOPS "
+        "so the 30-hop cycle cap surfaces in the rendered breadcrumb."
+    )
+
+
+def test_taxonomy_tree_uses_source_aware_breadcrumb_walker() -> None:
+    """ODD-NTP-005: the breadcrumb walker dispatches on the active
+    source internally. The component must consume
+    `walkBreadcrumbForSource(focused, source, state)` from the
+    canonical `breadcrumb-path` helper."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "walkBreadcrumbForSource" in text, (
+        "ODD-NTP-005: TaxonomyTree.tsx must consume "
+        "walkBreadcrumbForSource."
+    )
+    # The walker must be invoked with `activeSource` (NOT closed
+    # over a stale source literal — the source filter is reactive).
+    assert re.search(
+        r"walkBreadcrumbForSource\([^)]*activeSource",
+        text,
+        re.DOTALL,
+    ), (
+        "ODD-NTP-005: walkBreadcrumbForSource must be invoked with "
+        "the active source (reactive dispatch)."
+    )
+
+
+def test_taxonomy_tree_breadcrumb_segments_carry_action_attributes() -> None:
+    """ODD-NTP-005: intermediate breadcrumb segments render as
+    buttons carrying `data-action="focus-segment"` + `data-taxon-id`
+    so the legacy click delegation stays compatible. The focused
+    taxon itself renders as plain text (no "go to myself" affordance)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert re.search(
+        r'data-action\s*=\s*["\']focus-segment["\']',
+        text,
+    ), (
+        "ODD-NTP-005: intermediate breadcrumb segments must stamp "
+        "data-action=\"focus-segment\"."
+    )
+    assert re.search(
+        r'data-action\s*=\s*["\']focus-home["\']',
+        text,
+    ), (
+        "ODD-NTP-005: breadcrumb must stamp data-action=\"focus-home\" "
+        "on the home glyph so the click delegation clears focus."
+    )
+    assert "data-breadcrumb-segment=" in text, (
+        "ODD-NTP-005: each breadcrumb segment must stamp "
+        "data-breadcrumb-segment={id}."
+    )
+    assert "data-breadcrumb-rank=" in text, (
+        "ODD-NTP-005: each breadcrumb segment must stamp "
+        "data-breadcrumb-rank={rank} for tests + a11y tooling."
+    )
+
+
+def test_taxonomy_tree_owns_focused_selected_navigation_state() -> None:
+    """ODD-NTP-005: TaxonomyTree owns the focused + selected React
+    state (mirrors `web/state.js::focused` + `selected`). Source
+    switches reset both; collapse-all preserves both."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert re.search(
+        r"useState<number \| null>\(\s*null\s*\)",
+        text,
+    ), (
+        "ODD-NTP-005: TaxonomyTree.tsx must own a useState<number|null> "
+        "pair for focused + selected navigation state."
+    )
+    # Both `focused` and `selected` setters are used.
+    assert "setFocused" in text, (
+        "ODD-NTP-005: TaxonomyTree.tsx must expose setFocused."
+    )
+    assert "setSelected" in text, (
+        "ODD-NTP-005: TaxonomyTree.tsx must expose setSelected."
+    )
+
+
+def test_taxonomy_tree_handle_select_sets_focused_and_selected() -> None:
+    """ODD-NTP-005: `handleSelect(id)` is the selection primitive —
+    sets focused + selected to `id`, closes the open kebab, and
+    bumps the pulse nonce. Mirrors the legacy
+    `web/nav.js::selectTaxon(id)` primitive byte-for-byte."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert re.search(
+        r"const\s+handleSelect\s*=\s*useCallback",
+        text,
+    ), (
+        "ODD-NTP-005: TaxonomyTree.tsx must declare handleSelect as "
+        "a useCallback."
+    )
+    handle_idx = text.find("const handleSelect")
+    assert handle_idx != -1
+    body = text[handle_idx:handle_idx + 800]
+    assert "setFocused(id)" in body, (
+        "ODD-NTP-005: handleSelect must call setFocused(id)."
+    )
+    assert "setSelected(id)" in body, (
+        "ODD-NTP-005: handleSelect must call setSelected(id)."
+    )
+    assert "setKebabOpenId(null)" in body, (
+        "ODD-NTP-005: handleSelect must close the open kebab "
+        "(mirrors legacy selectTaxon's fresh-tree render)."
+    )
+
+
+def test_taxonomy_tree_source_change_clears_focused_and_selected() -> None:
+    """ODD-NTP-005: source switches clear focused + selected in
+    addition to the source-bound React state. Mirrors the legacy
+    `web/nav.js::tree-source toggle` reset."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    handle_idx = text.find("const handleSourceChange")
+    assert handle_idx != -1, (
+        "TaxonomyTree.tsx must declare handleSourceChange."
+    )
+    body = text[handle_idx:handle_idx + 800]
+    assert "setFocused(null)" in body, (
+        "ODD-NTP-005: handleSourceChange must call setFocused(null) "
+        "so the breadcrumb rebuilds against the new source's cache."
+    )
+    assert "setSelected(null)" in body, (
+        "ODD-NTP-005: handleSourceChange must call setSelected(null) "
+        "so the new source's detail-panel selection is clean."
+    )
+
+
+def test_taxonomy_tree_collapse_all_preserves_focused_and_selected() -> None:
+    """ODD-NTP-005: collapse-all clears expanded + showAll + kebab
+    but PRESERVES focused + selected (the legacy
+    `web/nav.js::collapseAll` does the same — selection is
+    independent of expansion)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    handle_idx = text.find("const handleCollapseAll")
+    assert handle_idx != -1, (
+        "TaxonomyTree.tsx must declare handleCollapseAll."
+    )
+    body = text[handle_idx:handle_idx + 600]
+    assert "clearExpansion" in body, (
+        "ODD-NTP-005: handleCollapseAll must call clearExpansion."
+    )
+    # Must NOT mutate focused + selected.
+    assert "setFocused(null)" not in body, (
+        "ODD-NTP-005: handleCollapseAll must NOT call setFocused(null); "
+        "selection is independent of expansion."
+    )
+    assert "setSelected(null)" not in body, (
+        "ODD-NTP-005: handleCollapseAll must NOT call setSelected(null); "
+        "selection is independent of expansion."
+    )
+
+
+def test_taxonomy_tree_row_carries_selected_focused_attributes() -> None:
+    """ODD-NTP-005: each row carries `data-selected` /
+    `data-focused` attributes (or omits them when not selected /
+    focused). The selected / focused CSS hooks live in
+    `src/app/globals.css` under the canonical descendant guards."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    assert "data-selected=" in text, (
+        "ODD-NTP-005: TreeRow.tsx must stamp data-selected on the row."
+    )
+    assert "data-focused=" in text, (
+        "ODD-NTP-005: TreeRow.tsx must stamp data-focused on the row."
+    )
+
+
+def test_tree_row_passes_on_select_focused_selected_to_props() -> None:
+    """ODD-NTP-005: TreeRowProps surface accepts the new
+    navigation props (onSelect, focused, selected,
+    registerRowRef, pulseNonce) and the components consumes them
+    to render the data attributes."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    assert "onSelect" in text, (
+        "ODD-NTP-005: TreeRow.tsx must consume onSelect."
+    )
+    assert "focused" in text, (
+        "ODD-NTP-005: TreeRow.tsx must consume focused."
+    )
+    assert "selected" in text, (
+        "ODD-NTP-005: TreeRow.tsx must consume selected."
+    )
+    assert "pulseNonce" in text, (
+        "ODD-NTP-005: TreeRow.tsx must consume pulseNonce so the "
+        "freshly-selected row plays the pulse animation once."
+    )
+
+
+def test_tree_row_search_online_is_enabled() -> None:
+    """ODD-NTP-005: the kebab 'Search online' item is ENABLED. The
+    navigation slice genuinely backs it: the item routes through
+    `onKebabAction(id, 'open-searches')`, which the parent maps to
+    `handleSelect(id)` (mirrors the legacy `web/nav.js::
+    open-searches` handler). The kebab closes on dispatch so the
+    click-outside / Escape dismissal stays consistent."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    # The "open-searches" data-action must NOT carry the ODD-NTP-004
+    # deferral pair (`disabled` + `aria-disabled="true"`); with
+    # ODD-NTP-005 the navigation slice backs the action and the
+    # React handler routes through `onSelect`.
+    match = re.search(
+        r'data-action="open-searches"[\s\S]*?</button>',
+        text,
+    )
+    assert match, "TreeRow.tsx must render the open-searches kebab item."
+    body = match.group(0)
+    assert "disabled" not in body, (
+        "ODD-NTP-005: 'Search online' kebab item must NOT be disabled; "
+        "the navigation slice genuinely backs it."
+    )
+    assert 'aria-disabled="true"' not in body, (
+        "ODD-NTP-005: 'Search online' kebab item must NOT carry "
+        "aria-disabled=\"true\"; the navigation slice genuinely backs it."
+    )
+    # The item handler routes through `onKebabAction(taxon.id, "open-searches")`,
+    # which the parent maps to `handleSelect(id)`.
+    assert re.search(
+        r'onKebabAction\([^)]*"open-searches"',
+        body,
+    ), (
+        "ODD-NTP-005: 'Search online' must call onKebabAction with "
+        "'open-searches' (parent maps to handleSelect)."
+    )
+
+
+def test_tree_row_open_folder_is_still_deferred() -> None:
+    """ODD-NTP-005: the kebab 'Open folder' item stays `disabled`
+    until the Folder tab + desktop file endpoints ship. Detail-panel
+    / desktop file actions still lack React backing."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    match = re.search(
+        r'data-action="open-folder-tab"[\s\S]*?</button>',
+        text,
+    )
+    assert match, "TreeRow.tsx must render the open-folder-tab kebab item."
+    body = match.group(0)
+    assert "disabled" in body and 'aria-disabled="true"' in body, (
+        "ODD-NTP-005: 'Open folder' kebab item must stay disabled + "
+        "aria-disabled=\"true\" until the Folder tab + desktop file "
+        "endpoints ship."
+    )
+
+
+def test_taxonomy_tree_handle_kebab_action_dispatches_search() -> None:
+    """ODD-NTP-005: handleKebabAction routes 'open-searches' through
+    `handleSelect(id)` (the navigation slice's selection primitive)
+    and closes the kebab on dispatch."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    handle_idx = text.find("const handleKebabAction")
+    assert handle_idx != -1, (
+        "TaxonomyTree.tsx must declare handleKebabAction."
+    )
+    body = text[handle_idx:handle_idx + 800]
+    assert 'open-searches' in body, (
+        "ODD-NTP-005: handleKebabAction must branch on 'open-searches'."
+    )
+    assert "handleSelect(id)" in body, (
+        "ODD-NTP-005: handleKebabAction must call handleSelect(id) "
+        "for open-searches (the navigation slice's selection primitive)."
+    )
+
+
+def test_taxonomy_tree_handle_focus_segment_expands_ancestors() -> None:
+    """ODD-NTP-005: handleFocusSegment(id) is the breadcrumb
+    activation primitive. It must expand the ancestors of `id`
+    (via the source-safe edge map) and focus + select the segment
+    id. The expansion never fabricates edges — only already-attached
+    source-safe rows become expandable."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert re.search(
+        r"const\s+handleFocusSegment\s*=\s*useCallback",
+        text,
+    ), (
+        "ODD-NTP-005: TaxonomyTree.tsx must declare handleFocusSegment "
+        "as a useCallback."
+    )
+    handle_idx = text.find("const handleFocusSegment")
+    assert handle_idx != -1
+    body = text[handle_idx:handle_idx + 1200]
+    assert "expandAncestorsOf" in body or "expandAncestors" in body, (
+        "ODD-NTP-005: handleFocusSegment must expand ancestors before "
+        "focusing the segment."
+    )
+    assert "setFocused(id)" in body, (
+        "ODD-NTP-005: handleFocusSegment must call setFocused(id)."
+    )
+    assert "setSelected(id)" in body, (
+        "ODD-NTP-005: handleFocusSegment must call setSelected(id)."
+    )
+
+
+def test_taxonomy_tree_handle_focus_home_clears_navigation() -> None:
+    """ODD-NTP-005: the breadcrumb home glyph clears focused +
+    selected (mirrors the legacy `web/nav.js::focus-home` handler)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert re.search(
+        r"const\s+handleFocusHome\s*=\s*useCallback",
+        text,
+    ), (
+        "ODD-NTP-005: TaxonomyTree.tsx must declare handleFocusHome."
+    )
+    handle_idx = text.find("const handleFocusHome")
+    body = text[handle_idx:handle_idx + 400]
+    assert "setFocused(null)" in body, (
+        "ODD-NTP-005: handleFocusHome must call setFocused(null)."
+    )
+    assert "setSelected(null)" in body, (
+        "ODD-NTP-005: handleFocusHome must call setSelected(null)."
+    )
+
+
+def test_out_index_html_has_breadcrumb_and_row_affordance_styles(static_export) -> None:
+    """ODD-NTP-005: the static export's CSS must define the
+    breadcrumb host + the per-row selected / focused / pulse
+    affordances introduced in ODD-NTP-005. The selectors live
+    under the existing `.breadcrumb` / `.tree-row` chains so the
+    chain-topology guard in `tests/test_research_styles.py` keeps
+    whitelisting them under the 3c-b taxonomy surface."""
+    css_chunks = sorted((REPO_ROOT / "out" / "_next" / "static" / "chunks").glob("*.css"))
+    css_body = "\n".join(
+        c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks
+    )
+    # The breadcrumb has its own host class plus the descendant
+    # classes for home / segment / current (nested under the
+    # canonical `.breadcrumb` rule so the chain-topology guard
+    # whitelists them).
+    assert ".breadcrumb" in css_body, (
+        "ODD-NTP-005: static CSS must define the .breadcrumb rule."
+    )
+    assert "breadcrumb-host" in css_body, (
+        "ODD-NTP-005: static CSS must define the .breadcrumb-host "
+        "modifier (sticky + JetBrains Mono cascade)."
+    )
+    assert ".breadcrumb-segment" in css_body or ".breadcrumb .breadcrumb-segment" in css_body, (
+        "ODD-NTP-005: static CSS must define the .breadcrumb-segment rule."
+    )
+    # Row affordances.
+    assert ".tree-row.selected" in css_body, (
+        "ODD-NTP-005: static CSS must define the .tree-row.selected "
+        "rule (primary-tinted background + 3px primary left border)."
+    )
+    assert ".tree-row.focused" in css_body, (
+        "ODD-NTP-005: static CSS must define the .tree-row.focused "
+        "rule (surface-container-low tint + 3px outline left border)."
+    )
+    assert ".tree-row[data-pulse-nonce]" in css_body, (
+        "ODD-NTP-005: static CSS must define the "
+        ".tree-row[data-pulse-nonce] pulse animation."
+    )

@@ -46,11 +46,25 @@ export { buildTaxonTree, buildTaxonDetail } from "./application/view-models";
 // ancestor chain outside the React tree (tests, server-side snapshots,
 // view-model builders). The React `Breadcrumb` component lands in PR
 // 5c slice 2 and will be re-exported here once it ships.
-export { walkBreadcrumbPath } from "./presentation/breadcrumb-path";
+//
+// ODD-NTP-005: `walkBreadcrumbForSource` is the TreeState-aware walker
+// the React component consumes. It dispatches on the active source
+// internally (CoL reads `parent_id`; Freshwater reads
+// `freshwater_parent_id`; WoRMS reconstructs ancestry from the
+// `deriveWoRMSEdges` reverse index derived from
+// `TreeState.childIdsByParent`). Both helpers are pure and stay
+// framework-free so server-side snapshots + tests can pre-compute the
+// ancestor chain without React or DOM imports.
+export {
+  walkBreadcrumbPath,
+  walkBreadcrumbForSource,
+  deriveWoRMSEdges,
+} from "./presentation/breadcrumb-path";
 export type {
   BreadcrumbSegment,
   BreadcrumbSource,
   ParentIdResolver,
+  BreadcrumbTreeState,
 } from "./presentation/breadcrumb-path";
 export { BREADCRUMB_MAX_HOPS } from "./presentation/breadcrumb-path";
 

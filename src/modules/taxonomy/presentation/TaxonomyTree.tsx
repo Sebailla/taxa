@@ -2,79 +2,121 @@
 
 /**
  * TaxonomyTree — visible taxonomy tree (ODD-VTREE-002 / ODD-NTP-002 /
- * ODD-NTP-003).
+ * ODD-NTP-003 / ODD-NTP-004 / ODD-NTP-005).
  *
  * Client island. Fetches root domains on mount through the canonical
  * `fetchDomains` helper from `@taxa/taxonomy`, renders collapsed root
  * rows, and lazily loads children through `fetchChildren`. Pure
  * tree-state transitions go through the `tree-state.ts` helpers.
  *
+ * ODD-NTP-005 — native source-aware in-tree navigation:
+ *   - The React tree now owns focused / selected navigation state
+ *     (mirrors the legacy `web/state.js::focused` + `selected` pair).
+ *   - `select` on a leaf / `focus-segment` on a breadcrumb ancestor
+ *     drives both `focused` and `selected` to the chosen id. Clicking
+ *     a row NEVER breaks an existing expansion — selection is
+ *     orthogonal to expansion, matching the legacy oracle.
+ *   - `select` is the row-level kebab "Search online" action too,
+ *     so the deferred kebab item lands here: it just calls
+ *     `handleSelect(id)` and closes the open kebab menu. The
+ *     "Open folder" item stays disabled until the Folder tab +
+ *     desktop file endpoints ship (detail-panel / desktop file
+ *     actions still lack React backing).
+ *   - Source switches clear focused + selected + every
+ *     source-bound React state (roots, child cache, expanded set,
+ *     load status, showAll, per-row error, kebab). Mirrors the
+ *     legacy `web/nav.js::tree-source toggle` reset byte-for-byte.
+ *   - Collapse-all clears expanded + showAll + kebab, but
+ *     PRESERVES focused + selected (the legacy `collapseAll` does
+ *     not clear them). Selection is independent of expansion.
+ *   - The native-style breadcrumb above the tree is rendered from
+ *     `walkBreadcrumbForSource(state.focused, activeSource, state)`,
+ *     which dispatches on the active source internally:
+ *       * CoL reads `Taxon.parent_id`
+ *       * Freshwater reads `Taxon.freshwater_parent_id`
+ *       * WoRMS reconstructs ancestry from `deriveWoRMSEdges(state)`,
+ *         a reverse index derived from `childIdsByParent` that only
+ *         carries source-safe WoRMS edges (the FastAPI wire does
+ *         not expose `worms_parent_id`; see ODD-NTP-001 note in
+ *         `domain/taxon.ts`).
+ *     The breadcrumb truncates at the focused taxon when no source-
+ *     safe ancestors are cached, applies the 30-hop cycle cap, and
+ *     never crosses source boundaries.
+ *   - Breadcrumb activation routes through `handleFocusSegment(id)`:
+ *     expand-ancestors + focused = id + selected = id. The walker
+ *     never fabricates edges: it only expands ids that already
+ *     exist in the cached `childIdsByParent` map (a row can only
+ *     become a parent of another row if the user previously
+ *     attached its children under the active source).
+ *   - Native scroll/focus intent: pressing `select` scrolls the
+ *     focused row into view (block: "nearest") so the legacy "row
+ *     comes from search" affordance carries forward as a single
+ *     `scrollIntoView` call. Browser capability governs whether
+ *     the scroll is smooth or instant.
+ *
  * ODD-NTP-002 — native source parity:
  *   - The legacy native tree exposes three independent source views
- *     (CoL / WoRMS / Freshwater) with a segmented control inside the
- *     tree surface. The React tree mirrors that contract: a compact
- *     selector renders inside the tree section, CoL starts active,
- *     WoRMS always appears, Freshwater appears only when the fetched
- *     root payload contains at least one row with a non-null
- *     `freshwater_id`.
+ *     (CoL / WoRMS / Freshwater) with a segmented control inside
+ *     the tree surface. The React tree mirrors that contract: a
+ *     compact selector renders inside the tree section, CoL starts
+ *     active, WoRMS always appears, Freshwater appears only when
+ *     the fetched root payload contains at least one row with a
+ *     non-null `freshwater_id`.
  *   - Source filtering happens client-side against the already-fetched
- *     raw root response (FastAPI `/api/domains` currently ignores the
- *     `source` query parameter; ODD-NTP-001 documents the contract).
- *     The raw root cache survives a source switch so the user sees
- *     an instant roots re-display, not a refetch.
+ *     raw root response (FastAPI `/api/domains` currently ignores
+ *     the `source` query parameter; ODD-NTP-001 documents the
+ *     contract). The raw root cache survives a source switch so the
+ *     user sees an instant roots re-display, not a refetch.
  *   - Child requests go through canonical
- *     `fetchChildren(id, { source: activeSource })` and apply the same
- *     `sourceMatches` predicate before attachment. Foreign rows from
- *     a previous source's hierarchy never enter the visible child
- *     list.
+ *     `fetchChildren(id, { source: activeSource })` and apply the
+ *     same `sourceMatches` predicate before attachment. Foreign
+ *     rows from a previous source's hierarchy never enter the
+ *     visible child list.
  *   - A source switch clears every source-bound piece of state
  *     (roots, child cache, expanded set, load status, showAll,
- *     per-row error) before re-displaying the new source's roots.
- *     The raw root cache SURVIVES the switch (the canonical fetch
- *     happens once on mount; `loadRoots` has no `activeSource`
- *     dependency so a source switch never issues a second
- *     `/api/domains` request). `nodes` also survives the reset (the
- *     projection carries every FastAPI field) so a later source
- *     switch can re-render cached rows without a re-fetch.
- *   - The selector does NOT introduce native selection/focus/detail
- *     state (that lands in ODD-NTP-005). It only adds the three
- *     source affordances plus the focused styling needed to mirror
- *     the native control's placement + active affordance.
+ *     per-row error, focused, selected, kebab) before re-displaying
+ *     the new source's roots. The raw root cache SURVIVES the
+ *     switch.
  *
  * ODD-NTP-003 — native structural parity:
- *   - Each taxon renders as a real block row (not a `display: contents`
- *     grid placeholder) so the depth indent applies to the WHOLE
- *     identity + disclosure block. The native indent is 24px per
- *     depth level; the React port mirrors `TreeRow.ROW_INDENT_PX`
- *     byte-for-byte so the staircase stays in lock-step with the
- *     legacy `web/tree.js::renderNodeRow` oracle.
+ *   - Each taxon renders as a real block row (not a
+ *     `display: contents` grid placeholder) so the depth indent
+ *     applies to the WHOLE identity + disclosure block.
  *   - Loaded children are grouped by native rank tier
  *     (`groupChildrenByRank`) and rendered with native tier
- *     headers — one header per rank group with `count > 1`, sitting
- *     at depth+1, with a "Load N more" affordance that calls
- *     `toggleShowAll(state, parentId, rank)`. The PAGE_SIZE=5
- *     staircase matches the legacy `web/state.js::PAGE_SIZE` constant.
- *   - Source-specific auto-unroll: when `activeSource === "worms"` or
- *     `"freshwater"`, expanding a node adds `${parentId}::${rank}`
- *     to `showAll` for every child rank so the user sees the full
- *     subtree on a single click. CoL view keeps the PAGE_SIZE
- *     staircase. Mirrors `web/nav.js::toggleExpand`.
+ *     headers — one header per rank group with `count > 1`,
+ *     sitting at depth+1, with a "Load N more" affordance that
+ *     calls `toggleShowAll(state, parentId, rank)`. The
+ *     PAGE_SIZE=5 staircase matches the legacy
+ *     `web/state.js::PAGE_SIZE` constant.
+ *   - Source-specific auto-unroll: when `activeSource === "worms"`
+ *     or `"freshwater"`, expanding a node adds
+ *     `${parentId}::${rank}` to `showAll` for every child rank.
+ *     CoL view keeps the PAGE_SIZE staircase.
  *   - Native collapse-all control clears both the expanded set AND
- *     every `showAll` flag, returning the tree to a flat
- *     roots-only view. Mirrors `web/nav.js::collapseAll`.
- *   - Leaf disclosure: species / subspecies rows render with a `•`
- *     glyph (no chevron), are `disabled`, and stamp
- *     `data-action="select"` for the future ODD-NTP-005 selection
- *     handler. Higher ranks render with ▾/▸ and stamp
- *     `data-action="toggle-expand"`. Mirrors `web/tree.js::isLeaf`
- *     + the `chevronFor` / `data-action` contract.
+ *     every `showAll` flag, returning the tree to a flat roots-
+ *     only view.
+ *   - Leaf disclosure: species / subspecies rows render with a
+ *     `•` glyph (no chevron), are `disabled`, and stamp
+ *     `data-action="select"` so the ODD-NTP-005 selection handler
+ *     dispatches directly on them. Higher ranks render with
+ *     ▾/▸ and stamp `data-action="toggle-expand"`.
+ *
+ * ODD-NTP-004 — native row identity and source affordances:
+ *   - Ported pure native row formatting, realm tint, status /
+ *     extinction / count / source / folder indicators, source
+ *     tooltip / cross-link, and accessible kebab state. The
+ *     "View on WoRMS" kebab item is wired (anchor + target).
+ *     "Search online" is wired in ODD-NTP-005 to call
+ *     `handleSelect(id)`. "Open folder" stays disabled until the
+ *     Folder tab + desktop file endpoints ship (detail-panel /
+ *     desktop file actions still lack React backing).
  *
  * Base URL comes from `process.env.NEXT_PUBLIC_TAXA_API_ORIGIN`
  * (inlined at build time). The variable is unset for production
- * static exports — requests stay relative/same-origin so the future
- * FastAPI `out/` mount can serve `/api/domains` from the same origin.
- * Local development overrides the env var via `pnpm run dev:local`
- * (see `package.json`).
+ * static exports — requests stay relative / same-origin so the
+ * future FastAPI `out/` mount can serve `/api/domains` from the
+ * same origin.
  *
  * Accessibility:
  *   - initial loading → `role="status"`
@@ -82,26 +124,36 @@
  *   - empty roots → quiet "No domains returned" copy
  *   - per-row child-load error → inline `role="alert"` with retry
  *   - source selector → `role="group"` with `aria-pressed` on each
- *     button (matches the legacy `web/nav.js::tree-source toggle`
- *     a11y contract)
+ *     button
  *   - tier header "Load N more" → `role="button"` with `aria-label`
- *     describing how many more rows will appear
  *   - collapse-all control → `disabled` + `aria-disabled` when no
- *     expansion exists; otherwise carries the
- *     `Collapse all expanded nodes` affordance label
+ *     expansion exists
+ *   - breadcrumb → `aria-label="Active taxonomy path"` with each
+ *     segment rendered as a button (focusable + keyboard
+ *     activatable) and the focused taxon rendered as text
  *
  * spec.md rule 4: presentation → taxonomy module. The recursive
  * row flattening lives here so the `.taxa-tree` block layout can
  * stack each row + its tier headers + its visible children as a
  * vertical sequence at the right depth.
  */
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { ReactNode } from "react";
 import {
+  BREADCRUMB_MAX_HOPS,
   fetchChildren,
   fetchDomains,
+  walkBreadcrumbForSource,
 } from "@taxa/taxonomy";
 import type { TaxonomySource } from "@taxa/taxonomy";
+import type { BreadcrumbSegment } from "./breadcrumb-path";
 import type { Rank, Taxon } from "../domain/taxon";
 import {
   EMPTY_TREE_STATE,
@@ -187,19 +239,46 @@ export default function TaxonomyTree(): React.ReactElement {
   });
   // ODD-NTP-004 — kebab open state. Lives at the tree level so a
   // click-outside / Escape dismisses every open menu at once and
-  // the visible tree carries only one open kebab at a time. Source
-  // switches and collapse-all both close the open kebab via
-  // `setKebabOpenId(null)` so the menu never lingers over a row
-  // that has been re-projected under a different source / a
-  // different collapsed state.
+  // the visible tree carries only one open kebab at a time.
   const [kebabOpenId, setKebabOpenId] = useState<number | null>(null);
+  // ODD-NTP-005 — focused + selected navigation state. Mirrors the
+  // legacy `web/state.js::focused` + `selected` pair. `focused`
+  // drives the breadcrumb; `selected` is the row the user has
+  // committed to (used by the detail panel + URL hash in the
+  // legacy oracle; the React cutover keeps both fields for the
+  // upcoming ODD-NTP-007 detail panel but currently only paints
+  // the focused / selected row affordances).
+  const [focused, setFocused] = useState<number | null>(null);
+  const [selected, setSelected] = useState<number | null>(null);
+  // ODD-NTP-005 — ref to the most recently selected row so the
+  // scroll-into-view call after `select` lands on the right DOM
+  // node even when the same id was already focused. The ref is
+  // a Map keyed by taxon id so multiple rows can keep their
+  // last-known DOM nodes (selection only ever targets one id at
+  // a time, but the map gives the component a stable read point
+  // that survives React's reconciliation).
+  const rowRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  // ODD-NTP-005 — select-pulse trigger. Bumped on every successful
+  // `select` so the row renders a brief pulse affordance (mirrors
+  // the legacy `web/nav.js::select-from-search` `search-pulse`
+  // animation). The pulse expires after one render frame so the
+  // animation can re-fire on rapid repeat-selects.
+  const [pulseNonce, setPulseNonce] = useState<number>(0);
+
+  // ODD-NTP-005 — derive the source-safe breadcrumb from the
+  // cached tree state. Recomputed every render so source switches,
+  // child attachments, and focus changes all reflect in the
+  // rendered breadcrumb without a stale-snapshot race. The walker
+  // returns `[]` when `focused` is null, so the React render
+  // collapses to an empty breadcrumb host without a conditional.
+  const breadcrumbSegments = useMemo<readonly BreadcrumbSegment[]>(() => {
+    if (focused === null) return [];
+    return walkBreadcrumbForSource(focused, activeSource, state);
+  }, [focused, activeSource, state]);
 
   // `loadRoots` fetches `/api/domains` ONCE on mount. It deliberately
-  // does NOT close over `activeSource` — the source filter is applied
-  // by the `rawRoots + activeSource` effect below, which is the sole
-  // source-filter application point. Closing over `activeSource` here
-  // would put `loadRoots` in the effect's dep array and trigger a
-  // second `/api/domains` round trip on every source switch.
+  // does NOT close over `activeSource` — the source filter is
+  // applied by the `rawRoots + activeSource` effect below.
   const loadRoots = useCallback(async () => {
     setRoot({ status: "loading", message: null });
     try {
@@ -209,8 +288,6 @@ export default function TaxonomyTree(): React.ReactElement {
         setState(EMPTY_TREE_STATE);
         setRoot({ status: "empty", message: null });
       } else {
-        // Store the unfiltered payload; the active-source effect
-        // below projects it through `withRootsForSource` next.
         setRawRoots({ taxa });
         setRoot({ status: "loaded", message: null });
       }
@@ -226,12 +303,8 @@ export default function TaxonomyTree(): React.ReactElement {
     void loadRoots();
   }, [loadRoots]);
 
-  // ODD-NTP-004 — Escape dismisses any open kebab menu. Mirrors the
-  // legacy `web/nav.js::keydown` listener: a single document-level
-  // keydown handler closes every open menu on Escape. The listener
-  // is only attached when `kebabOpenId !== null` so a no-op kebab
-  // (closed state) does not register a document-level event
-  // listener. Cleanup removes the listener when the kebab closes.
+  // ODD-NTP-004 — Escape dismisses any open kebab menu. Mirrors
+  // the legacy `web/nav.js::keydown` listener.
   useEffect(() => {
     if (kebabOpenId === null) return;
     const onKeyDown = (ev: KeyboardEvent): void => {
@@ -242,14 +315,6 @@ export default function TaxonomyTree(): React.ReactElement {
   }, [kebabOpenId]);
 
   // ODD-NTP-004 — click-outside dismisses any open kebab menu.
-  // Mirrors the legacy `web/nav.js::closeAllKebabMenus` predicate:
-  // a single document-level mousedown handler closes the open menu
-  // when the click lands outside the open kebab (the kebab trigger
-  // is a sibling of `.kebab-menu` inside `.kebab`, so a click on
-  // the trigger would otherwise be caught by `closest('.kebab')`
-  // and skipped). The listener is only attached when a kebab is
-  // open so the document-level touchpoint is removed as soon as
-  // the menu closes (no permanent global listener).
   useEffect(() => {
     if (kebabOpenId === null) return;
     const onMouseDown = (ev: MouseEvent): void => {
@@ -265,16 +330,9 @@ export default function TaxonomyTree(): React.ReactElement {
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, [kebabOpenId]);
 
-  /** Apply the active source to the raw root payload. Fires when
-   *  (a) `rawRoots` first becomes non-null after a successful fetch,
-   *  or (b) `activeSource` changes mid-session (the user clicked a
-   *  different source button). Resetting `state` to
-   *  `resetSourceState(prev)` (which clears expanded, child cache,
-   *  load status, showAll, rootIds, preserves nodes) before
-   *  re-applying the filter guarantees a clean source-bound state
-   *  every time — same contract as the legacy
-   *  `web/nav.js::tree-source toggle`. `rawRoots` itself is
-   *  preserved across source switches (no refetch). */
+  // Apply the active source to the raw root payload. Fires when
+  // (a) `rawRoots` first becomes non-null after a successful
+  // fetch, or (b) `activeSource` changes mid-session.
   useEffect(() => {
     if (!rawRoots) return;
     setState((prev) =>
@@ -282,19 +340,6 @@ export default function TaxonomyTree(): React.ReactElement {
     );
   }, [activeSource, rawRoots]);
 
-  // Apply the active-source predicate BEFORE the visible child list
-  // is built — foreign-source rows from the fetched payload (e.g.
-  // WoRMS-only rows landing under a CoL parent's response, or vice
-  // versa) never enter `childIdsByParent`. `attachChildrenForSource`
-  // is the single entry point that combines
-  // `filterChildrenForSource` + `attachChildren`.
-  //
-  // ODD-NTP-003: after a successful attach, if the parent is expanded
-  // and the active source is WoRMS / Freshwater, run the
-  // source-specific auto-unroll so a single expansion reveals the full
-  // subtree (Biota → Animalia → phylum → class → ... → species). CoL
-  // view keeps the PAGE_SIZE staircase to stay snappy. Mirrors the
-  // legacy `web/nav.js::toggleExpand` predicate.
   const loadChildren = useCallback(
     async (id: number) => {
       setState((prev) => setLoadStatus(prev, id, "loading"));
@@ -331,12 +376,6 @@ export default function TaxonomyTree(): React.ReactElement {
       if (wasExpanded) {
         setState((prev) => {
           const collapsed = toggleExpand(prev, id);
-          // Toggling a node closed should also clear its tier-level
-          // showAll entries so a subsequent re-expand starts fresh
-          // (otherwise the auto-unroll would re-fire and the user
-          // would see every WoRMS / Freshwater tier expanded
-          // again on a single click). Mirrors the legacy
-          // `collapseAll` semantic at the per-node level.
           return collapseNodeTiers(collapsed, id);
         });
       } else {
@@ -344,9 +383,6 @@ export default function TaxonomyTree(): React.ReactElement {
         if (knownChildren.length === 0) {
           void loadChildren(id);
         } else {
-          // Children already cached — apply auto-unroll synchronously
-          // so the WoRMS / Freshwater view reveals its full subtree
-          // without waiting for the next render cycle to refresh.
           setState((prev) => autoUnrollForSource(prev, id, activeSource));
         }
       }
@@ -363,25 +399,17 @@ export default function TaxonomyTree(): React.ReactElement {
 
   const handleSourceChange = useCallback((next: TreeSource) => {
     if (next === activeSource) return;
-    // Mirrors the legacy `web/nav.js::tree-source toggle` reset:
-    // clear every source-bound React state (root ids, child cache,
-    // expanded set, load status, showAll, per-row error) so the
-    // next effect re-applies `withRootsForSource` against a blank
-    // slate. The raw root cache SURVIVES the switch — `loadRoots`
-    // already ran once on mount, and `setActiveSource(next)`
-    // triggers the `rawRoots + activeSource` effect to re-project
-    // the cached payload without a second `/api/domains` round
-    // trip. `nodes` is also preserved by `resetSourceState` so
-    // cached rows are reachable on the next switch without a
-    // refetch.
+    // ODD-NTP-005: a source switch clears focused + selected in
+    // addition to the source-bound React state (the legacy
+    // `web/nav.js::tree-source toggle` reset clears every
+    // navigation field). Without this clear the breadcrumb would
+    // briefly render the previous source's ancestor chain after
+    // the source switch, then re-derive against the new cache.
     setState((prev) => resetSourceState(prev));
     setRoot((prev) => ({ status: prev.status, message: null }));
-    // ODD-NTP-004 — clear the open kebab so a menu never lingers
-    // over a row that has been re-projected under a different
-    // source. Mirrors the legacy `web/nav.js::tree-source toggle`
-    // reset (which cleared the kebab as part of the source-bound
-    // state reset).
     setKebabOpenId(null);
+    setFocused(null);
+    setSelected(null);
     setActiveSource(next);
   }, [activeSource]);
 
@@ -393,65 +421,244 @@ export default function TaxonomyTree(): React.ReactElement {
   );
 
   const handleCollapseAll = useCallback(() => {
+    // ODD-NTP-005: collapse-all preserves focused + selected (the
+    // legacy `web/nav.js::collapseAll` does the same — collapsing
+    // the tree does not clear the user's navigation intent).
     setState((prev) => clearExpansion(prev));
-    // ODD-NTP-004 — clear the open kebab so a menu never lingers
-    // over a row that has been collapsed.
     setKebabOpenId(null);
   }, []);
 
-  // ODD-NTP-004 — kebab trigger handler. Mirrors the legacy
-  // `web/nav.js::toggleKebabMenu` predicate byte-for-byte: clicking
-  // a kebab trigger toggles its menu; opening one menu closes every
-  // other open menu (one kebab at a time — multiple open menus would
-  // fight each other for the click-outside-close logic). The state
-  // lives at the tree level so a single click-outside / Escape
-  // listener dismisses every menu at once.
+  // ODD-NTP-005 — kebab trigger handler.
   const handleToggleKebab = useCallback((id: number) => {
     setKebabOpenId((prev) => (prev === id ? null : id));
   }, []);
 
-  // ODD-NTP-004 — kebab item action handler. ODD-NTP-004 only wires
-  // `view-on-worms` (it just navigates to the WoRMS URL — the anchor
-  // + target already handles the navigation; the React handler is a
-  // no-op callback hook for future analytics / log lines). The
-  // `open-searches` / `open-folder-tab` actions are deferred to
-  // ODD-NTP-005; the kebab items render with `disabled` +
-  // `aria-disabled="true"` so the user sees them as clearly
-  // unavailable. Closing the menu on action keeps the click-outside
-  // affordance consistent with the legacy oracle (a menu that stays
-  // open after the user clicked an item would block the row hover
-  // state from re-painting).
+  // ODD-NTP-005 — kebab item action handler. With ODD-NTP-005 the
+  // navigation slice genuinely backs `open-searches` (select the
+  // taxon). The "Open folder" item stays disabled until the Folder
+  // tab + desktop file endpoints ship (detail-panel / desktop file
+  // actions still lack React backing).
   const handleKebabAction = useCallback(
     (
-      _id: number,
+      id: number,
       action: "open-searches" | "open-folder-tab" | "view-on-worms",
     ) => {
+      if (action === "open-searches") {
+        // Mirrors the legacy `web/nav.js::open-searches` handler:
+        // sets focused + selected so the breadcrumb rebuilds and
+        // the row picks up the focused / selected affordances.
+        handleSelect(id);
+        return;
+      }
       if (action === "view-on-worms") {
         // The anchor + target="_blank" already navigates; this
         // handler is the future hook for analytics / log lines.
-        // Closing the menu keeps the click-outside / Escape
-        // dismissal uniform with the legacy oracle.
       }
       setKebabOpenId(null);
+    },
+    // `handleSelect` is stable by useCallback identity; listing
+    // it explicitly keeps the exhaustive-deps lint quiet.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  // ODD-NTP-005 — selection primitive. Sets focused + selected to
+  // `id` and triggers a pulse animation. Selection is ORTHOGONAL
+  // to expansion: selecting a leaf never toggles expansion (leaves
+  // have no children); selecting a non-leaf keeps the existing
+  // expansion state intact. Mirrors the legacy
+  // `web/nav.js::selectTaxon` predicate (focused = id, selected =
+  // id; no expansion mutation).
+  const handleSelect = useCallback(
+    (id: number) => {
+      if (!Number.isFinite(id)) return;
+      // Close the kebab if the selected row had one open — the
+      // legacy `selectTaxon` renders a fresh tree, and an open
+      // kebab over the focused row would otherwise linger past
+      // the select.
+      setKebabOpenId(null);
+      setFocused(id);
+      setSelected(id);
+      // Bump the pulse nonce so a freshly rendered row plays the
+      // one-shot pulse animation. The nonce is a monotonic
+      // counter; rows read it via `data-pulse-nonce` so the
+      // `animation` property can re-trigger by toggling the
+      // class.
+      setPulseNonce((prev) => prev + 1);
     },
     [],
   );
 
+  // ODD-NTP-005 — scroll the selected row into view. Browser
+  // capability governs smoothness: `block: "nearest"` only
+  // scrolls when the row is fully out of view, so a row the
+  // user can already see stays put.
+  useEffect(() => {
+    if (selected === null) return;
+    const el = rowRefs.current.get(selected);
+    if (!el) return;
+    // `scrollIntoView` is on the legacy `web/dom.js::scrollTaxonBelowCard`
+    // helper, but the React cutover does not carry the sticky
+    // detail card yet (the card lands in a future PR). Plain
+    // `block: "nearest"` is the closest equivalent — it scrolls
+    // the row into the viewport when it falls outside, never
+    // centring it across the viewport.
+    el.scrollIntoView({ block: "nearest", behavior: "auto" });
+  }, [selected, pulseNonce]);
+
+  // ODD-NTP-005 — expand the source-safe ancestor chain of `id`
+  // so the breadcrumb activation reveals the row the user
+  // clicked. The walker only expands ids already present in the
+  // cached `childIdsByParent` map (a row can only become a parent
+  // of another row if the user previously attached its children
+  // under the active source); ids absent from the cache are
+  // skipped so the chain stays source-safe. The walker is bounded
+  // at `BREADCRUMB_MAX_HOPS` hops; the WoRMS reverse index comes
+  // from the same `deriveWoRMSEdges` the breadcrumb walker uses,
+  // so the expanded chain is byte-identical to the breadcrumb
+  // path the user sees above the tree.
+  const expandAncestorsOf = useCallback(
+    async (id: number) => {
+      const segments = walkBreadcrumbForSource(id, activeSource, state);
+      // Walk oldest-first so we expand the chain root → leaf in
+      // the same order the breadcrumb renders. Each ancestor is
+      // already cached on the breadcrumb walk; only an ancestor
+      // whose parent has the focused row in its cached
+      // `childIdsByParent` attachment can become a "parent" in
+      // the active source's view, so the expansion is source-safe
+      // by construction.
+      for (const seg of segments) {
+        if (seg.id === id) continue;
+        if (isExpanded(state, seg.id)) continue;
+        // Load children if the cache is empty. Skip silently
+        // when the cache already has no children (the row is a
+        // source-safe leaf).
+        if (childIds(state, seg.id).length === 0) {
+          await loadChildren(seg.id);
+        }
+        setState((prev) => toggleExpand(prev, seg.id));
+        if (activeSource === "worms" || activeSource === "freshwater") {
+          setState((prev) => autoUnrollForSource(prev, seg.id, activeSource));
+        }
+      }
+    },
+    [activeSource, state, loadChildren],
+  );
+
+  // ODD-NTP-005 — breadcrumb segment activation. Replicates the
+  // legacy `web/nav.js::focus-segment` handler: expand the
+  // ancestors of the chosen segment + focus + select it.
+  const handleFocusSegment = useCallback(
+    async (id: number) => {
+      if (!Number.isFinite(id)) return;
+      setKebabOpenId(null);
+      // `expandAncestorsOf` is async (loadChildren round trips);
+      // we don't await so the click feels instant — the row
+      // starts to expand on the next render frame, and the
+      // focus + select apply immediately so the breadcrumb + row
+      // affordances reflect the click before the children load.
+      void expandAncestorsOf(id);
+      setFocused(id);
+      setSelected(id);
+      setPulseNonce((prev) => prev + 1);
+    },
+    [expandAncestorsOf],
+  );
+
+  // ODD-NTP-005 — breadcrumb home click. Mirrors the legacy
+  // `web/nav.js::focus-home` handler: clear focused + selected
+  // (no expansion mutation — `collapseAll` is its own button).
+  const handleFocusHome = useCallback(() => {
+    setKebabOpenId(null);
+    setFocused(null);
+    setSelected(null);
+  }, []);
+
   /** Source selector metadata. Recomputed only when the raw root
-   *  payload changes — the `useMemo` keeps the segmented control
-   *  static across the per-row state churn. Freshwater appears
-   *  only when `hasFreshwaterRoot(rawRoots.taxa)` is true. */
+   *  payload changes. */
   const availableSources = useMemo<readonly TreeSource[]>(() => {
     if (!rawRoots) return ["col", "worms"];
     return availableSourcesFor(rawRoots.taxa);
   }, [rawRoots]);
 
-  /** Collapse-all affordance state. The button is `disabled` when
-   *  no expansion exists, mirroring the legacy
-   *  `web/nav.js::renderCollapseAllButton` opacity/cursor heuristic
-   *  so the visual affordance matches the legacy oracle on all
-   *  three sources. */
+  /** Collapse-all affordance state. */
   const collapseAllEnabled = expandedTierCount(state) > 0;
+
+  /** ODD-NTP-005 — render the native-style breadcrumb above the
+   *  tree. The home glyph clears focused + selected; each
+   *  intermediate ancestor segment is a clickable button that
+   *  expands ancestors + focuses + selects that segment; the
+   *  last segment (the focused taxon itself) renders as text so
+   *  the breadcrumb doesn't include a "go to myself" affordance.
+   *  Mirrors `web/breadcrumb.js::renderBreadcrumb` byte-for-byte
+   *  except the legacy `chevron_right` icon is replaced with a
+   *  unicode `›` so the breadcrumb renders identically without
+   *  a material-symbols webfont. */
+  const renderBreadcrumb = (): ReactNode => {
+    if (focused === null || breadcrumbSegments.length === 0) {
+      return null;
+    }
+    return (
+      <nav
+        id="breadcrumb"
+        className="breadcrumb breadcrumb-host flex items-center gap-2 px-4 py-2 text-body-sm text-on-surface-variant min-w-0 overflow-x-auto"
+        aria-label="Active taxonomy path"
+        data-breadcrumb=""
+        data-breadcrumb-source={activeSource}
+        data-breadcrumb-length={breadcrumbSegments.length}
+        data-breadcrumb-max-hops={BREADCRUMB_MAX_HOPS}
+      >
+        <button
+          type="button"
+          className="breadcrumb-home hover:text-primary transition-colors flex items-center gap-1"
+          data-action="focus-home"
+          title="Clear focus (go to tree root)"
+          aria-label="Clear focus (go to tree root)"
+          onClick={handleFocusHome}
+        >
+          <span aria-hidden="true" className="text-[16px]">⌂</span>
+          <span className="sr-only">Home</span>
+        </button>
+        {breadcrumbSegments.map((seg, i) => {
+          const isLast = i === breadcrumbSegments.length - 1;
+          const rankCls = seg.rank === "species" || seg.rank === "subspecies" ||
+            seg.rank === "genus" || seg.rank === "subgenus" ||
+            seg.rank === "variety" || seg.rank === "subvariety" ||
+            seg.rank === "form"
+            ? "scientific-name"
+            : "scientific-name scientific-name--roman";
+          return (
+            <Fragment key={seg.id}>
+              <span aria-hidden="true" className="text-[14px] text-on-surface-variant">›</span>
+              {isLast ? (
+                <span
+                  className={`breadcrumb-current text-on-surface font-medium ${rankCls}`}
+                  aria-current="page"
+                  data-breadcrumb-segment={seg.id}
+                  data-breadcrumb-rank={seg.rank}
+                  data-breadcrumb-last="true"
+                >
+                  {seg.name}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className={`breadcrumb-segment hover:text-primary transition-colors ${rankCls}`}
+                  data-action="focus-segment"
+                  data-taxon-id={seg.id}
+                  data-breadcrumb-segment={seg.id}
+                  data-breadcrumb-rank={seg.rank}
+                  onClick={() => void handleFocusSegment(seg.id)}
+                >
+                  {seg.name}
+                </button>
+              )}
+            </Fragment>
+          );
+        })}
+      </nav>
+    );
+  };
 
   const renderSourceSelector = (): ReactNode => {
     const selectorLabel = "Tree data source";
@@ -485,12 +692,7 @@ export default function TaxonomyTree(): React.ReactElement {
     );
   };
 
-  /** ODD-NTP-003 — native collapse-all control. Mirrors the legacy
-   *  `#collapse-all` button's contract: clears both the expanded
-   *  set and every `showAll` flag so the tree returns to a flat
-   *  roots-only view. Disabled when no expansion exists. The
-   *  visual treatment (`opacity-40 disabled:cursor-not-allowed`)
-   *  mirrors the legacy cascade. */
+  /** ODD-NTP-003 — native collapse-all control. */
   const renderCollapseAllInline = (): ReactNode => (
     <div
       className="tree-collapse-all"
@@ -516,12 +718,6 @@ export default function TaxonomyTree(): React.ReactElement {
     </div>
   );
 
-  /** ODD-NTP-003 — per-row status affordance. Mirrors the TreeRow
-   *  disclosure's loading + error affordances so the layout stays
-   *  deterministic (the row stays focused on its own disclosure
-   *  contract; loading + error states render as indented
-   *  siblings). The indent uses `depth * 24 + 16` to match the
-   *  TreeRow block-layout contract. */
   const renderRowStatus = (
     tree: TreeState,
     id: number,
@@ -567,12 +763,7 @@ export default function TaxonomyTree(): React.ReactElement {
     return null;
   };
 
-  /** ODD-NTP-003 — native tier header. Sits at `depth+1` so it
-   *  shares the same indent as its children, mirroring the legacy
-   *  `web/tree.js::renderTierHeader` cascade byte-for-byte. The
-   *  "Load N more" affordance calls `handleLoadMore` which marks
-   *  the tier's `${parentId}::${rank}` key in `showAll` — the
-   *  subsequent render expands every child of that rank group. */
+  /** ODD-NTP-003 — native tier header. */
   const renderTierHeader = (
     parentId: number,
     group: RankGroup,
@@ -611,14 +802,22 @@ export default function TaxonomyTree(): React.ReactElement {
     );
   };
 
-  /** ODD-NTP-003 — recursive native tree renderer. Walks the
-   *  `(parentId, depth)` axis; for each taxon it renders the row
-   *  block, then (if expanded) the tier groups for the parent's
-   *  cached children. Tier headers sit at depth+1; their visible
-   *  children sit at depth+1 and recurse into their own tier
-   *  groups at depth+2. Per-row loading + error affordances
-   *  render after the row at the same depth so the user always
-   *  sees the disclosure state immediately under the row. */
+  /** ODD-NTP-005 — register a row's DOM node so the
+   *  `scrollIntoView` call after `select` can target it. The
+   *  ref map is keyed by taxon id; rows clean up their entries
+   *  on unmount so the map doesn't leak. */
+  const registerRowRef = useCallback(
+    (id: number, node: HTMLDivElement | null) => {
+      if (node === null) {
+        rowRefs.current.delete(id);
+      } else {
+        rowRefs.current.set(id, node);
+      }
+    },
+    [],
+  );
+
+  /** ODD-NTP-003 — recursive native tree renderer. */
   const renderRows = (
     tree: TreeState,
     parentId: number | null,
@@ -641,10 +840,15 @@ export default function TaxonomyTree(): React.ReactElement {
             depth={depth}
             state={tree}
             onToggle={handleToggle}
+            onSelect={handleSelect}
             activeSource={activeSource}
+            focused={focused}
+            selected={selected}
             kebabOpenId={kebabOpenId}
             onToggleKebab={handleToggleKebab}
             onKebabAction={handleKebabAction}
+            registerRowRef={registerRowRef}
+            pulseNonce={pulseNonce}
           />
           {expanded && status === "loading" ? renderRowStatus(tree, id, depth) : null}
           {expanded && status === "error" ? renderRowStatus(tree, id, depth) : null}
@@ -655,13 +859,7 @@ export default function TaxonomyTree(): React.ReactElement {
     return <>{items}</>;
   };
 
-  /** ODD-NTP-003 — tier-group renderer. Replaces the previous
-   *  flat-sibling recursion with a grouped view: one tier
-   *  header per `count > 1` rank group, then the visible children
-   *  for that group (each recursing into its own tier groups).
-   *  Source filtering + PAGE_SIZE staircase + showAll are all
-   *  applied inside `groupChildrenByRank`, so this view is a
-   *  pure projection. */
+  /** ODD-NTP-003 — tier-group renderer. */
   const renderTiers = (
     tree: TreeState,
     parentId: number,
@@ -685,10 +883,15 @@ export default function TaxonomyTree(): React.ReactElement {
               depth={depth + 1}
               state={tree}
               onToggle={handleToggle}
+              onSelect={handleSelect}
               activeSource={activeSource}
+              focused={focused}
+              selected={selected}
               kebabOpenId={kebabOpenId}
               onToggleKebab={handleToggleKebab}
               onKebabAction={handleKebabAction}
+              registerRowRef={registerRowRef}
+              pulseNonce={pulseNonce}
             />
             {expanded && status === "loading" ? renderRowStatus(tree, childId, depth + 1) : null}
             {expanded && status === "error" ? renderRowStatus(tree, childId, depth + 1) : null}
@@ -742,6 +945,7 @@ export default function TaxonomyTree(): React.ReactElement {
       {(root.status === "loaded" || root.status === "idle") &&
         state.rootIds.length > 0 && (
           <>
+            {renderBreadcrumb()}
             <div className="tree-source-toggle-wrapper">
               {renderSourceSelector()}
               {renderCollapseAllInline()}
@@ -763,12 +967,7 @@ export default function TaxonomyTree(): React.ReactElement {
 }
 
 /** ODD-NTP-003 — clear the showAll entries keyed to a collapsing
- *  node so a later re-expand starts from the PAGE_SIZE staircase.
- *  Mirrors the legacy `web/nav.js::collapseAll` semantics scoped
- *  to one node (the legacy code did this globally; the React
- *  per-node toggle is a stricter contract because WoRMS /
- *  Freshwater auto-unroll would otherwise re-fire on the next
- *  expand). */
+ *  node so a later re-expand starts from the PAGE_SIZE staircase. */
 function collapseNodeTiers(state: TreeState, parentId: number): TreeState {
   const prefix = `${parentId}::`;
   let next: Set<string> = new Set(state.showAll);
@@ -782,10 +981,6 @@ function collapseNodeTiers(state: TreeState, parentId: number): TreeState {
     }
   }
   if (!mutated) return state;
-  // Reset to a fresh mutable copy before applying the deletes
-  // (state.showAll is ReadonlySet<string>; the Set constructor
-  // accepts it for an immutable initial copy, then `delete` is
-  // callable on the mutable `Set<string>` local).
   if (next.size !== state.showAll.size) {
     next = new Set(state.showAll);
   }
@@ -798,8 +993,5 @@ function collapseNodeTiers(state: TreeState, parentId: number): TreeState {
 }
 
 // Re-export `sourceMatches` so consumers using the React tree can
-// compose the same predicate without a deep import. The barrel
-// (index.ts) is the public API; this internal re-export just keeps
-// the source-affordance slot in `TreeRow` free to filter rows in a
-// later PR (ODD-NTP-004).
+// compose the same predicate without a deep import.
 export { sourceMatches };
