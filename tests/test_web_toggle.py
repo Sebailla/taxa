@@ -303,17 +303,21 @@ def test_search_tab_renders_with_14_links(api_server):
             # clicking the row toggles expansion rather than selecting.
             # To open the detail panel for a non-species row, drive its
             # kebab menu: P1 #2 collapsed the per-row lupa into a kebab
-            # dropdown, so the search action is now reached via the
-            # `more_vert` trigger → "Search online" item.
+            # dropdown, and ODD-TDDISC-001 renamed the kebab item to
+            # "View details" so the action is discoverable as the
+            # detail-panel entry point. The `data-action="open-searches"`
+            # contract stays so the parent keeps routing through
+            # `handleSelect`.
             kebab = page.locator(
                 f'[data-taxon-id="{fresh_id}"] [data-action="toggle-kebab"]'
             ).first
             expect(kebab).to_be_visible(timeout=5_000)
             kebab.click()
-            # Kebab menu is now open — click the "Search online" item
-            # which carries the legacy data-action="open-searches"
-            # attribute. It selects the taxon AND opens the detail
-            # panel on the Search tab.
+            # Kebab menu is now open — click the "View details" item
+            # (RENAMED from "Search online" in ODD-TDDISC-001 for
+            # discoverability; the data-action="open-searches"
+            # contract stays). The item selects the taxon AND opens
+            # the detail panel on the Search tab.
             search_item = page.locator(
                 f'[data-taxon-id="{fresh_id}"] [data-action="open-searches"]'
             ).first
@@ -369,9 +373,12 @@ def test_search_engines_rendered_as_button_grid(api_server):
             page = browser.new_page()
             page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
             page.locator('[data-tree-source="freshwater"]').click()
-            # P1 #2: open the per-row kebab first, then drive the
-            # "Search online" item from the dropdown — the lupa lives
-            # inside the kebab menu now, not inline on the row.
+            # P1 #2 + ODD-TDDISC-001: open the per-row kebab first, then
+            # drive the "View details" item from the dropdown (the
+            # lupa lives inside the kebab menu now, not inline on the
+            # row; ODD-TDDISC-001 renamed the kebab item label from
+            # "Search online" to "View details" for discoverability
+            # while the data-action="open-searches" contract stays).
             kebab = page.locator(
                 f'[data-taxon-id="{fresh_id}"] [data-action="toggle-kebab"]'
             ).first
@@ -432,8 +439,11 @@ def test_detail_header_and_tabs_are_sticky(api_server):
             page = browser.new_page()
             page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
             page.locator('[data-tree-source="freshwater"]').click()
-            # P1 #2: per-row lupa is inside the kebab menu now — open
-            # the kebab, click the "Search online" item.
+            # P1 #2 + ODD-TDDISC-001: per-row lupa is inside the kebab
+            # menu now — open the kebab, click the "View details"
+            # item (RENAMED from "Search online" in ODD-TDDISC-001
+            # for discoverability; the data-action="open-searches"
+            # contract stays).
             kebab = page.locator(
                 f'[data-taxon-id="{fresh_id}"] [data-action="toggle-kebab"]'
             ).first
@@ -689,12 +699,15 @@ def test_kebab_menu_reopens_after_each_close_method(
             elif close_method == "press_escape":
                 page.keyboard.press("Escape")
             elif close_method == "kebab_item_action":
-                # Click an item inside the menu (e.g. "Search online").
-                # The action handler dispatches selectTaxon() which
-                # calls render(), replacing the entire tree DOM. The
-                # kebab menu element is gone after the re-render — the
-                # user must be able to click the NEW trigger and still
-                # see a working kebab menu.
+                # Click an item inside the menu (e.g. "View details"
+                # — renamed from "Search online" in ODD-TDDISC-001
+                # for discoverability; the data-action="open-searches"
+                # contract stays). The action handler dispatches
+                # selectTaxon() which calls render(), replacing the
+                # entire tree DOM. The kebab menu element is gone
+                # after the re-render — the user must be able to
+                # click the NEW trigger and still see a working kebab
+                # menu.
                 search_item = page.locator(
                     f'[data-taxon-id="{fresh_id}"] [data-action="open-searches"]'
                 ).first
@@ -729,22 +742,24 @@ def test_kebab_menu_reopens_after_each_close_method(
     _check_playwright_available() is None,
     reason="playwright not installed (pip install playwright)",
 )
-def test_search_online_reopens_detail_panel_after_close(api_server):
-    """Regression: clicking "Search online" on a row whose detail
-    panel was previously closed must reopen the panel.
+def test_view_details_reopens_detail_panel_after_close(api_server):
+    """Regression: clicking "View details" (RENAMED from "Search
+    online" in ODD-TDDISC-001 — the data-action="open-searches"
+    contract stays) on a row whose detail panel was previously
+    closed must reopen the panel.
 
     Background: closeDetail() flips state.detailOpen = false but
     intentionally leaves state.selected set (the file explorer and
     URL hash stay rooted at that taxon). selectTaxon() had an
     `if (state.selected === id) return` early-exit that ignored
-    detailOpen, so a subsequent "Search online" click on the same
-    row was a silent no-op. Users reported the kebab item "no
-    responde" after closing the panel.
+    detailOpen, so a subsequent kebab click on the same row was a
+    silent no-op. Users reported the kebab item "no responde" after
+    closing the panel.
 
     Test path:
-      1. Open the kebab, click "Search online" -> panel opens.
+      1. Open the kebab, click "View details" -> panel opens.
       2. Close the panel via the X button.
-      3. Open the kebab again, click "Search online" -> panel
+      3. Open the kebab again, click "View details" -> panel
          MUST reopen (this is what the user reported broken).
     """
     from playwright.sync_api import expect, sync_playwright  # type: ignore
@@ -775,7 +790,9 @@ def test_search_online_reopens_detail_panel_after_close(api_server):
             panel = page.locator("#detail-panel")
             close_btn = page.locator('[data-action="close-detail"]').first
 
-            # Step 1: open the panel via Search online.
+            # Step 1: open the panel via the "View details" kebab
+            # item (the data-action="open-searches" contract is
+            # preserved across the ODD-TDDISC-001 rename).
             row.hover()
             trigger.click()
             expect(search_item).to_be_visible(timeout=2_000)
@@ -789,8 +806,8 @@ def test_search_online_reopens_detail_panel_after_close(api_server):
             close_btn.click()
             expect(panel).not_to_be_visible(timeout=2_000)
 
-            # Step 3: open the kebab again, click Search online. The
-            # detail panel MUST reopen. Before the fix this was a
+            # Step 3: open the kebab again, click "View details".
+            # The detail panel MUST reopen. Before the fix this was a
             # silent no-op because selectTaxon()'s early return saw
             # state.selected === id and returned without re-rendering.
             row.hover()
@@ -825,11 +842,15 @@ def test_folder_tab_renders_for_unmaterialized_taxon(api_server):
 
     Test path:
       1. Switch to the Freshwater tree source.
-      2. Open the kebab on the freshwater root row and click Search
-         online (the freshwater root has no searches/vern/syn/dist data,
-         so a plain row click leaves the detail panel hidden — we have
-         to use the kebab → Search online flow to force the panel open,
-         same as test_search_online_reopens_detail_panel_after_close).
+      2. Open the kebab on the freshwater root row and click
+         "View details" (the freshwater root has no
+         searches/vern/syn/dist data, so a plain row click leaves
+         the detail panel hidden — we have to use the kebab →
+         "View details" flow to force the panel open, same as
+         test_view_details_reopens_detail_panel_after_close.
+         ODD-TDDISC-001 renamed the kebab item label from
+         "Search online" to "View details" for discoverability;
+         the data-action="open-searches" contract stays).
       3. Click the Folder tab.
       4. The error message must NOT be visible.
       5. The "Create N folders" button MUST be visible (proves the
@@ -861,7 +882,10 @@ def test_folder_tab_renders_for_unmaterialized_taxon(api_server):
                 f'[data-taxon-id="{fresh_id}"] [data-action="open-searches"]'
             ).first
 
-            # Force the panel open via kebab → Search online.
+            # Force the panel open via kebab → "View details" item
+            # (RENAMED from "Search online" in ODD-TDDISC-001 for
+            # discoverability; the data-action="open-searches"
+            # contract stays).
             row.hover()
             trigger.click()
             expect(search_item).to_be_visible(timeout=2_000)
@@ -912,8 +936,11 @@ def test_folder_tab_shows_open_and_copy_after_materialize(api_server):
       button hidden), it skips Create and asserts the buttons directly.
 
     Test path:
-      1. Switch to Freshwater, open the kebab on the root, click Search
-         online (same forced-open trick as the other Folder tab tests).
+      1. Switch to Freshwater, open the kebab on the root, click
+         "View details" (RENAMED from "Search online" in
+         ODD-TDDISC-001 for discoverability; the
+         data-action="open-searches" contract stays — same
+         forced-open trick as the other Folder tab tests).
       2. Click the Folder tab.
       3. If Create is visible, click it; wait for the materialize round-
          trip + re-render.
@@ -959,7 +986,10 @@ def test_folder_tab_shows_open_and_copy_after_materialize(api_server):
                 f'[data-taxon-id="{fresh_id}"] [data-action="open-searches"]'
             ).first
 
-            # Force the panel open via kebab → Search online.
+            # Force the panel open via kebab → "View details" item
+            # (RENAMED from "Search online" in ODD-TDDISC-001 for
+            # discoverability; the data-action="open-searches"
+            # contract stays).
             row.hover()
             trigger.click()
             expect(search_item).to_be_visible(timeout=2_000)
@@ -1148,6 +1178,7 @@ def test_version_banner_shows_on_outdated_db(api_server):
     tests are unaffected.
     """
     import sqlite3
+
     from playwright.sync_api import expect, sync_playwright  # type: ignore
 
     base = api_server["base_url"]
