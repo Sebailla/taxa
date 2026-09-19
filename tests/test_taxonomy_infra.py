@@ -89,11 +89,11 @@ def test_infra_file_has_no_framework_imports() -> None:
 
 
 def test_infra_file_exports_named_fns() -> None:
-    """PR 5a commits to two named exports: `fetchTaxon` and `fetchChildren`. ODD-VTREE-001 adds `fetchDomains`. The barrel re-export breaks on a default export."""
+    """PR 5a commits to two named exports: `fetchTaxon` and `fetchChildren`. ODD-VTREE-001 adds `fetchDomains`. ODD-TDS-001 adds `fetchSearches`. The barrel re-export breaks on a default export."""
     if not INFRA_FILE.exists():
         pytest.skip("infra file not present yet")
     text = INFRA_FILE.read_text()
-    for name in ("fetchTaxon", "fetchChildren", "fetchDomains"):
+    for name in ("fetchTaxon", "fetchChildren", "fetchDomains", "fetchSearches"):
         pattern = rf"export\s+(?:async\s+)?function\s+{name}\b|export\s+const\s+{name}\b"
         assert re.search(pattern, text), (
             f"infra/api.ts must export `{name}` as a named function or const."
@@ -124,6 +124,45 @@ def test_infra_file_exports_source_type_and_domains_options() -> None:
         r"TaxonomySource\s*=\s*[\"\']col[\"\']\s*\|\s*[\"\']worms[\"\']\s*\|\s*[\"\']freshwater[\"\']",
         text,
     ), "TaxonomySource must enumerate exactly 'col' | 'worms' | 'freshwater'."
+
+
+def test_infra_file_exports_search_link_type_and_options() -> None:
+    """ODD-TDS-001: the public `SearchLink` type + `FetchSearchesOptions`
+    interface are exported from `infra/api.ts` so React callers can
+    type the search-link payload without a deep import. The runtime
+    helper `fetchSearches` mirrors the byte-identical `engine` /
+    `label` / `url` shape of the FastAPI `api/server.py::SearchLink`
+    Pydantic model — the URL is server-composed and must NEVER be
+    reconstructed client-side. A future PR that drops either export
+    breaks the React cutover's typed SearchTab wiring.
+    """
+    if not INFRA_FILE.exists():
+        pytest.skip("infra file not present yet")
+    text = INFRA_FILE.read_text()
+    assert re.search(
+        r"export\s+interface\s+SearchLink\b",
+        text,
+    ), "infra/api.ts must export `SearchLink` as a public interface."
+    assert re.search(
+        r"export\s+interface\s+FetchSearchesOptions\b",
+        text,
+    ), "infra/api.ts must export `FetchSearchesOptions` as a public interface."
+    # The SearchLink interface must carry exactly `engine` + `label`
+    # + `url` — the FastAPI Pydantic model field set. A future PR
+    # that adds a client-side `icon` or `category` field would leak
+    # server composition concerns into the client contract.
+    assert re.search(
+        r"interface\s+SearchLink\b[^}]*readonly\s+engine\s*:\s*string",
+        text,
+    ), "SearchLink must carry `readonly engine: string`."
+    assert re.search(
+        r"interface\s+SearchLink\b[^}]*readonly\s+label\s*:\s*string",
+        text,
+    ), "SearchLink must carry `readonly label: string`."
+    assert re.search(
+        r"interface\s+SearchLink\b[^}]*readonly\s+url\s*:\s*string",
+        text,
+    ), "SearchLink must carry `readonly url: string`."
 
 
 # ---------------------------------------------------------------------------
@@ -580,6 +619,124 @@ const REAL_WORMS_CHILD = {
       "viral realm path must be populated; got " + JSON.stringify(c.path));
     assert.strictEqual(typeof c.species_count, "number");
   }
+
+  // ---- ODD-TDS-001 — fetchSearches wire → domain projection ----
+  // The server returns 14 canonical search engines + 3 curated
+  // destinations (the threads/facebook entries) — the wire
+  // payload covers all 17. The React port's projection preserves
+  // every wire field verbatim (the URL is server-composed and
+  // must NOT be reconstructed client-side). The runtime check
+  // pins the fetchSearches contract in one assertion block.
+  const SFresh = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [
+      { engine: "google",         label: "Google",          url: "https://www.google.com/search?q=Freshwater+Fishes" },
+      { engine: "imagen",         label: "Images",          url: "https://www.google.com/search?q=Freshwater+Fishes&tbm=isch" },
+      { engine: "documentos",     label: "Documents",       url: "https://www.google.com/search?q=Freshwater+Fishes+%28filetype%3Adoc+OR+filetype%3Adocx+OR+filetype%3Atxt%29" },
+      { engine: "pdf",            label: "PDF",             url: "https://www.google.com/search?q=Freshwater+Fishes+filetype%3Apdf" },
+      { engine: "wikipedia",      label: "Wikipedia",       url: "https://en.wikipedia.org/wiki/Special:Search?search=Freshwater+Fishes" },
+      { engine: "bhl",            label: "BHL",             url: "https://www.biodiversitylibrary.org/search?searchTerm=Freshwater+Fishes" },
+      { engine: "researchgate",   label: "ResearchGate",    url: "https://www.researchgate.net/search/publication?q=Freshwater+Fishes" },
+      { engine: "plos",           label: "PLOS",            url: "https://journals.plos.org/plosone/search?query=Freshwater+Fishes" },
+      { engine: "academia",       label: "Academia.edu",    url: "https://www.academia.edu/search?q=Freshwater+Fishes" },
+      { engine: "scielo",         label: "Scielo",          url: "https://search.scielo.org/?q=Freshwater+Fishes" },
+      { engine: "scholar",        label: "Scholar",         url: "https://scholar.google.com/scholar?q=Freshwater+Fishes" },
+      { engine: "youtube",        label: "YouTube",         url: "https://www.youtube.com/results?search_query=Freshwater+Fishes" },
+      { engine: "zootaxa",        label: "Zootaxa",         url: "https://www.biotaxa.org/Zootaxa/search?query=Freshwater+Fishes" },
+      { engine: "scribd",         label: "Scribd",          url: "https://www.scribd.com/search?query=Freshwater+Fishes" },
+      { engine: "threads_acipenser",         label: "Threads: Acipenser",          url: "https://www.threads.com/search?q=acipenser&serp_type=default&xmt=AQG0AC54-jrPT9LBkalK5Lx_FGM7VtC3KUhDTE2hJLKTAwE" },
+      { engine: "facebook_acipenser_baerii", label: "Facebook: Acipenser baerii",  url: "https://www.facebook.com/search/top?q=acipenser%20baerii" },
+      { engine: "threads_shared_post",       label: "Threads: Shared post",        url: "https://www.threads.com/share/BAnZDpDtPZ/" },
+    ],
+  }]);
+  const links = await api.fetchSearches(100, { fetch: SFresh, baseUrl: "http://x" });
+  assert.strictEqual(SFresh.calls.length, 1);
+  assert.strictEqual(SFresh.calls[0].input, "http://x/api/taxon/100/searches",
+    "fetchSearches must build the canonical /api/taxon/{id}/searches URL");
+  assert.strictEqual(Array.isArray(links), true, "fetchSearches must return an array");
+  assert.strictEqual(links.length, 17,
+    "fetchSearches must surface every server-returned SearchLink (14 canonical + 3 curated destinations)");
+  // URL preservation is the central ODD-TDS-001 contract — the
+  // server-composed encoding must reach the React port verbatim.
+  // We compare the exact google entry here so the test fails
+  // loud-and-clear if a future PR ever strips encoding or tries
+  // to template-fill a URL locally.
+  assert.strictEqual(links[0].engine, "google");
+  assert.strictEqual(links[0].label, "Google");
+  assert.strictEqual(links[0].url, "https://www.google.com/search?q=Freshwater+Fishes",
+    "URL preservation contract: server-composed URL must reach the client verbatim");
+  // Every entry must carry non-empty engine + label + url strings.
+  for (const l of links) {
+    assert.strictEqual(typeof l.engine, "string");
+    assert.strictEqual(typeof l.label, "string");
+    assert.strictEqual(typeof l.url, "string");
+    assert.ok(l.engine.length > 0, "engine key must be non-empty");
+    assert.ok(l.label.length > 0, "label must be non-empty");
+    assert.ok(l.url.length > 0, "url must be non-empty");
+  }
+  // The SearchLink projection must NOT carry any invented field.
+  // The server payload has only `engine` + `label` + `url`; a
+  // canonical SearchLink with extra fields (e.g. `icon`, `category`,
+  // `template`) would leak server composition concerns into the
+  // client contract and let future drift slip past the projection.
+  for (const l of links) {
+    const props = Object.keys(l).sort();
+    assert.deepStrictEqual(props, ["engine", "label", "url"],
+      "ODD-TDS-001: canonical SearchLink must carry exactly {engine,label,url}; got " + JSON.stringify(props));
+  }
+  // The three curated destinations (the threads/facebook entries)
+  // must surface as ordinary SearchLink entries — the React
+  // port's SearchTab filters them through the pure category
+  // bridge so they don't render in the 5-category grid, but the
+  // wire projection must preserve them so a future category slot
+  // can carry them without a coordinated server change.
+  const ac = links.find((l) => l.engine === "threads_acipenser");
+  assert.ok(ac, "fetchSearches must surface the threads_acipenser curated destination");
+  assert.strictEqual(ac.url, "https://www.threads.com/search?q=acipenser&serp_type=default&xmt=AQG0AC54-jrPT9LBkalK5Lx_FGM7VtC3KUhDTE2hJLKTAwE",
+    "curated destination URL must round-trip verbatim (server is the source of truth)");
+
+  // fetchSearches empty payload — returns [], does not throw.
+  const SEmpty = makeFetch([{ ok: true, status: 200, statusText: "OK", json: [] }]);
+  assert.strictEqual((await api.fetchSearches(100, { fetch: SEmpty, baseUrl: "http://x" })).length, 0);
+
+  // fetchSearches HTTP non-OK — status code in message.
+  const SBad = makeFetch([{ ok: false, status: 503, statusText: "Service Unavailable", json: { detail: "DB down" } }]);
+  await assert.rejects(
+    () => api.fetchSearches(100, { fetch: SBad, baseUrl: "http://x" }),
+    (err) => /503/.test(String(err && err.message || err)),
+    "fetchSearches must reject on non-OK with the status code in the message",
+  );
+
+  // fetchSearches non-array payload — `fromWireSearchList` rejects.
+  const SWrongShape = makeFetch([{ ok: true, status: 200, statusText: "OK", json: { detail: "wrong shape" } }]);
+  await assert.rejects(
+    () => api.fetchSearches(100, { fetch: SWrongShape, baseUrl: "http://x" }),
+    (err) => /non-array/.test(String(err && err.message || err)),
+    "fetchSearches must reject non-array payloads",
+  );
+
+  // fetchSearches schema-invalid element — `isValidSearchLink` rejects.
+  const SBadElement = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [{ engine: "google", label: "Google" /* missing url */ }] }]);
+  await assert.rejects(
+    () => api.fetchSearches(100, { fetch: SBadElement, baseUrl: "http://x" }),
+    (err) => /invalid|search/i.test(String(err && err.message || err)),
+    "fetchSearches must reject per-element shape mismatches",
+  );
+
+  // fetchSearches negative id — id validation rejects.
+  await assert.rejects(
+    () => api.fetchSearches(-1, { fetch: makeFetch([]), baseUrl: "http://x" }),
+    (err) => /non-negative integer/i.test(String(err && err.message || err)),
+    "fetchSearches must reject negative ids",
+  );
+
+  // fetchSearches malformed JSON — throws.
+  const SJsonFail = makeFetch([{ ok: true, status: 200, statusText: "OK", json: Promise.reject(new SyntaxError("Unexpected token < in JSON")) }]);
+  await assert.rejects(
+    () => api.fetchSearches(100, { fetch: SJsonFail, baseUrl: "http://x" }),
+    (err) => /json|JSON/i.test(String(err && err.message || err)),
+    "fetchSearches must reject malformed JSON",
+  );
 
   process.stdout.write("PASS\n");
 })().catch((err) => {

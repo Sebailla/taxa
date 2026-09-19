@@ -21,12 +21,15 @@ export {
   fetchTaxon,
   fetchChildren,
   fetchDomains,
+  fetchSearches,
   TaxonomyApiError,
 } from "./infrastructure/api";
 export type {
   FetchOptions,
   FetchChildrenOptions,
   FetchDomainsOptions,
+  FetchSearchesOptions,
+  SearchLink,
   TaxonomySource,
 } from "./infrastructure/api";
 
@@ -108,6 +111,27 @@ export {
   hasMaterializedFolder,
 } from "./presentation/row-format";
 export type { StatusDotDescriptor } from "./presentation/row-format";
+
+// ODD-TDS-001 — pure search-engine category metadata bridge. The
+// server payload (`/api/taxon/{id}/searches`) carries no category
+// metadata, so the React port ships a tiny pure helper that maps
+// each server-returned engine key to a 5-category slot + a display
+// icon. The helper stays free of legacy-web dependency (no legacy
+// SEARCH_ENGINES file import) and free of URL composition (the
+// server is the source of truth for URLs).
+export {
+  SEARCH_CATEGORIES,
+  SEARCH_ENGINE_LIST,
+  searchCategoryForEngine,
+  searchIconForEngine,
+  resolveSearchEngineMeta,
+} from "./presentation/search-categories";
+export type {
+  SearchCategory,
+  SearchCategoryKey,
+  SearchEngineMeta,
+  SearchEngineResolved,
+} from "./presentation/search-categories";
 
 // ODD-VTREE-002 — visible taxonomy tree (client island). Re-exported
 // here so cross-module consumers (`src/app/page.tsx`) can mount the
