@@ -52,13 +52,15 @@ feature-branch-chain (user selected). Forecast: roughly 1,400 authored lines acr
   - Implementation: ported pure native row formatting, realm tint, status/extinction/count/source/folder indicators, source tooltip/cross-link, and accessible kebab state. Deferred Search online/Open folder actions are explicitly disabled until their React behavior lands in ODD-NTP-005.
   - Evidence: independent verifier approved focused taxonomy/style checks, strict typecheck, and production CSS inspection. Browser rendering could not run because the verifier correctly did not start an API server; live API behavior was validated by the writer.
   - Delivery: ready to commit and open a PR against `develop`.
-- [ ] ODD-NTP-005 Restore source-aware in-tree navigation and prove parity.
-  - Acceptance: selection/focus/breadcrumb parent paths use the active source relation; focused tests, typecheck, static build, API/CORS checks, and browser comparisons of all three trees pass.
+- [x] ODD-NTP-005 Restore source-aware in-tree navigation and prove parity.
+  - Implementation: source-aware selection/focus and clickable breadcrumbs now use CoL/Freshwater wire parent relations and WoRMS attached source-tree edges; source switching clears source-bound navigation; leaf selection and supported kebab navigation are wired.
+  - Evidence: 202 focused navigation/tree/style tests, strict TypeScript, static build, and diff check passed. Local Python Playwright/Chrome availability was restored for browser evidence; user visually confirmed the React UI functions identically to legacy.
+  - Delivery: ready to commit and open the final parity PR against `develop`.
 - [ ] ODD-NTP-006 Publish parity work units.
   - Acceptance: each coherent work unit has a Conventional Commit and PR linked to approved issue #74 with exactly one `type:*` label; no automatic merge.
 
 ## Progress
-ODD-NTP-001, ODD-NTP-002 (replacement PR #305), and ODD-NTP-003 (replacement PR #306) are merged into `develop`. ODD-NTP-004 is independently verified and ready to publish from `feat/native-tree-row-affordances`.
+ODD-NTP-001 through ODD-NTP-004 are merged into `develop`. ODD-NTP-005 is verified with checks and user-observed browser parity, and is ready for final PR delivery.
 
 ## Next step
-Commit and open the row-affordance PR against `develop`, then complete ODD-NTP-005 final navigation/parity verification.
+Commit and publish the final parity PR against `develop`; do not merge automatically.
