@@ -150,15 +150,17 @@ import {
   BREADCRUMB_MAX_HOPS,
   fetchChildren,
   fetchDomains,
+  fetchSearches,
   walkBreadcrumbForSource,
 } from "@taxa/taxonomy";
-import type { TaxonomySource } from "@taxa/taxonomy";
+import type { SearchLink, TaxonomySource } from "@taxa/taxonomy";
 import type { BreadcrumbSegment } from "./breadcrumb-path";
 import type { Rank, Taxon } from "../domain/taxon";
 import DetailPanel, {
   DEFAULT_DETAIL_TAB,
 } from "./DetailPanel";
 import type { DetailTabKey } from "./DetailPanel";
+import type { SearchTabStatus } from "./SearchTab";
 import {
   EMPTY_TREE_STATE,
   attachChildrenForSource,
@@ -264,6 +266,24 @@ export default function TaxonomyTree(): React.ReactElement {
   // cache has no meaning under the new one).
   const [perTaxonActiveTab, setPerTaxonActiveTab] = useState<
     Map<number, DetailTabKey>
+  >(() => new Map());
+  // ODD-TDS-001 — per-taxon search-link cache. Mirrors the
+  // `perTaxonActiveTab` shape so re-selecting a previously selected
+  // taxon lands on the cached result without a round trip; the
+  // eager-fetch-on-selection effect below fires the request the
+  // moment a taxon becomes the active selection, so clicking the
+  // Search tab paints the rendered link grid instantly. A source
+  // switch clears the cache (a stale link list from the previous
+  // source has no meaning under the new one — the URLs themselves
+  // are taxon-name-based and source-agnostic, but clearing keeps
+  // the panel contract aligned with the other source-bound caches).
+  // Status is the discriminated-union shape the SearchTab consumes:
+  //   idle    — no request issued yet (default for never-selected taxa)
+  //   loading — request in flight
+  //   loaded  — server-composed links cached; empty array allowed
+  //   error   — last attempt failed; retry available
+  const [searchesByTaxonId, setSearchesByTaxonId] = useState<
+    Map<number, SearchTabStatus>
   >(() => new Map());
   // ODD-NTP-005 — ref to the most recently selected row so the
   // scroll-into-view call after `select` lands on the right DOM
@@ -412,6 +432,64 @@ export default function TaxonomyTree(): React.ReactElement {
     [loadChildren],
   );
 
+  // ODD-TDS-001 — per-taxon search-link loader. Reads the cached
+  // `searchesByTaxonId` map and skips the round trip if a previous
+  // load already landed (loaded or errored) for the same taxon.
+  // The eager-fetch-on-selection effect below triggers this callback
+  // on every selection change so the cache stays warm by the time
+  // the user clicks the Search tab. The callback also fires from
+  // the SearchTab's Retry button so a transient failure (network
+  // blip, 5xx) is recoverable without a fresh taxon selection.
+  const loadSearches = useCallback(
+    async (id: number) => {
+      // Already cached (loaded OR errored) — no round trip.
+      // A fresh `error` is treated as cacheable so the user can
+      // manually trigger the retry via the panel button rather
+      // than re-select the taxon.
+      const current = searchesByTaxonId.get(id);
+      if (current && (current.kind === "loaded" || current.kind === "error")) {
+        return;
+      }
+      setSearchesByTaxonId((prev) => {
+        const next = new Map(prev);
+        next.set(id, { kind: "loading" });
+        return next;
+      });
+      try {
+        const links: readonly SearchLink[] = await fetchSearches(id, {
+          baseUrl: TAXA_API_ORIGIN,
+        });
+        setSearchesByTaxonId((prev) => {
+          const next = new Map(prev);
+          if (links.length === 0) {
+            next.set(id, { kind: "empty" });
+          } else {
+            next.set(id, { kind: "loaded", links });
+          }
+          return next;
+        });
+      } catch (err) {
+        setSearchesByTaxonId((prev) => {
+          const next = new Map(prev);
+          next.set(id, {
+            kind: "error",
+            message: messageFor(err, `Could not load search links of taxon ${id}`),
+          });
+          return next;
+        });
+      }
+    },
+    // `searchesByTaxonId` is intentionally NOT in the deps: the
+    // callback reads the latest cache through the functional
+    // updater, so listing it would force a fresh `loadSearches`
+    // identity on every cache mutation and re-trigger the
+    // eager-fetch effect below. The callback identity is stable
+    // across cache mutations so the effect stays a one-shot
+    // per-selection-change fire.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   const handleSourceChange = useCallback((next: TreeSource) => {
     if (next === activeSource) return;
     // ODD-NTP-005: a source switch clears focused + selected in
@@ -425,6 +503,14 @@ export default function TaxonomyTree(): React.ReactElement {
     setKebabOpenId(null);
     setFocused(null);
     setSelected(null);
+    // ODD-TDS-001: a source switch also clears the per-taxon
+    // search-link cache so the panel cannot render a stale URL
+    // set from a previous source's selected taxon. The URLs
+    // themselves are taxon-name-based and source-agnostic, but
+    // clearing the cache keeps the panel contract aligned with
+    // the other source-bound caches (focused / selected /
+    // per-taxon-active-tab).
+    setSearchesByTaxonId(new Map());
     setActiveSource(next);
   }, [activeSource]);
 
@@ -623,6 +709,21 @@ export default function TaxonomyTree(): React.ReactElement {
     setFocused(null);
     setSelected(null);
   }, []);
+
+  // ODD-TDS-001 — eager-fetch-on-selection contract. Whenever
+  // `selected` becomes a non-null taxon id, fire the canonical
+  // `fetchSearches` round trip so the Search tab activation
+  // paints the link grid instantly. Re-selecting the same taxon
+  // is a no-op (the `loadSearches` callback short-circuits on
+  // `loaded` / `error` cached entries). Closing the panel
+  // (selected → null) does NOT clear the cache — the cached
+  // result survives across deselects so re-selecting the same
+  // taxon later is also instant (mirrors how `perTaxonActiveTab`
+  // memory survives across deselects).
+  useEffect(() => {
+    if (selected === null) return;
+    void loadSearches(selected);
+  }, [selected, loadSearches]);
 
   /** Source selector metadata. Recomputed only when the raw root
    *  payload changes. */
@@ -1016,6 +1117,8 @@ export default function TaxonomyTree(): React.ReactElement {
                 const taxon = state.nodes.get(selected);
                 if (!taxon) return null;
                 const activeTab = getActiveTabFor(selected);
+                const searchStatus: SearchTabStatus =
+                  searchesByTaxonId.get(selected) ?? { kind: "idle" };
                 return (
                   <DetailPanel
                     taxon={taxon}
@@ -1025,6 +1128,8 @@ export default function TaxonomyTree(): React.ReactElement {
                     onTabChange={(tab) => handleTabChange(selected, tab)}
                     onFocusSegment={handleFocusSegment}
                     onClose={handleCloseDetail}
+                    searchStatus={searchStatus}
+                    onRetrySearches={() => void loadSearches(selected)}
                   />
                 );
               })()}

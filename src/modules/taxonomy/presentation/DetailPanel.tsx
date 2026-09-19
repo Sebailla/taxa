@@ -52,6 +52,8 @@ import {
   speciesCountBadge,
   statusDotDescriptor,
 } from "./row-format";
+import SearchTab from "./SearchTab";
+import type { SearchTabStatus } from "./SearchTab";
 import { walkBreadcrumbForSource } from "./breadcrumb-path";
 import type { BreadcrumbSegment } from "./breadcrumb-path";
 import type { TreeSource, TreeState } from "./tree-state";
@@ -84,13 +86,14 @@ export interface DetailTabDef {
 /** Canonical tab list. Mirrors the legacy `web/detail.js::tabs` array
  *  order byte-for-byte (Overview → Search → Folder → Vernaculars →
  *  Synonyms → Distribution) so the React cutover's tab strip matches
- *  the legacy oracle. Only `overview` ships a real body in this
- *  slice; the rest render as disabled affordances with no fake
- *  actions, per the ODD-TDO-001 user task ("visibly mark unavailable
- *  later tabs without fake actions"). */
+ *  the legacy oracle. ODD-TDS-001 enables the `searches` tab — the
+ *  server-composed search-engine links body ships as a real
+ *  rendering surface. Folder / Vernaculars / Synonyms / Distribution
+ *  stay as disabled affordances until their backing React slices
+ *  ship. */
 export const DETAIL_TABS: readonly DetailTabDef[] = [
   { key: "overview", label: "Overview", icon: "info", available: true },
-  { key: "searches", label: "Search", icon: "travel_explore", available: false },
+  { key: "searches", label: "Search", icon: "travel_explore", available: true },
   { key: "folder", label: "Folder", icon: "create_new_folder", available: false },
   { key: "vernaculars", label: "Vernaculars", icon: "translate", available: false },
   { key: "synonyms", label: "Synonyms", icon: "history", available: false },
@@ -118,6 +121,17 @@ export interface DetailPanelProps {
    *  primitive the visible breadcrumb uses. */
   readonly onFocusSegment: (id: number) => void;
   readonly onClose: () => void;
+  /** ODD-TDS-001 — per-taxon search-link status + retry callback.
+   *  The parent (`TaxonomyTree`) owns the cache so re-selecting a
+   *  previously selected taxon lands on the cached result without
+   *  a round trip; the eager-fetch-on-selection contract fires
+   *  the request the moment a taxon becomes the active selection,
+   *  so the Search tab activation paints the rendered link grid
+   *  instantly when the user clicks the tab. The retry callback
+   *  re-issues the request and re-runs through the same status
+   *  pipeline. */
+  readonly searchStatus: SearchTabStatus;
+  readonly onRetrySearches: () => void;
 }
 
 export default function DetailPanel({
@@ -128,6 +142,8 @@ export default function DetailPanel({
   onTabChange,
   onFocusSegment,
   onClose,
+  searchStatus,
+  onRetrySearches,
 }: DetailPanelProps): React.ReactElement {
   const realm = realmForPath(taxon.path);
   const extinctCls = taxon.is_extinct ? "line-through opacity-70" : "";
@@ -270,18 +286,22 @@ export default function DetailPanel({
           })}
         </div>
         <div
-          className="detail-section overview-tab"
+          className={`detail-section ${activeTab === "searches" ? "searches-tab" : "overview-tab"}`}
           data-tab-content={activeTab}
         >
-          {renderOverview({
-            taxon,
-            chainSegments,
-            statusText,
-            statusDotClass: statusDot.className,
-            statusTitle: statusDot.title,
-            countDisplay,
-            onFocusSegment,
-          })}
+          {activeTab === "searches" ? (
+            <SearchTab status={searchStatus} onRetry={onRetrySearches} />
+          ) : (
+            renderOverview({
+              taxon,
+              chainSegments,
+              statusText,
+              statusDotClass: statusDot.className,
+              statusTitle: statusDot.title,
+              countDisplay,
+              onFocusSegment,
+            })
+          )}
         </div>
       </div>
     </aside>

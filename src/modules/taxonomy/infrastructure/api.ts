@@ -241,3 +241,109 @@ export async function fetchDomains(
   }
   return fromWireList(await readJson(r), "/api/domains");
 }
+
+/** ODD-TDS-001 — canonical typed `SearchLink` projection. Mirrors
+ *  the FastAPI `api/server.py::SearchLink` Pydantic model field-for-
+ *  field. The server is the source of truth for the URL string
+ *  (server-composed URL encoding at composition time) — `fetchSearches`
+ *  preserves the wire `url` verbatim and never constructs / mutates
+ *  / template-fills a URL locally. The legacy frontend kept a
+ *  SEARCH_ENGINES constant that carried both URL definitions AND
+ *  display-only metadata (icon, category); the server payload does
+ *  NOT carry the icon / category fields, so the canonical
+ *  `SearchLink` deliberately omits them. The React port's category
+ *  bridge lives in `presentation/search-categories.ts` and maps
+ *  engine keys to display-only metadata without ever touching the
+ *  URL. */
+export interface SearchLink {
+  readonly engine: string;
+  readonly label: string;
+  readonly url: string;
+}
+
+/** Per-engine validator. Every required field must be present with
+ *  the right type and a non-empty string content. The URL is
+ *  validated as a non-empty string but NOT parsed — the server is
+ *  the source of truth for URL encoding, and the React port must
+ *  send the wire URL through `target="_blank" rel="noopener
+ *  noreferrer"` exactly as the server composed it. Any wire
+ *  mismatch (missing field, wrong type, empty engine/label/url)
+ *  surfaces as `TaxonomyApiError` so a per-element shape drift
+ *  cannot slip past the projection layer. */
+function isValidSearchLink(value: unknown): value is SearchLink {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.engine === "string" && v.engine.length > 0 &&
+    typeof v.label === "string" && v.label.length > 0 &&
+    typeof v.url === "string" && v.url.length > 0
+  );
+}
+
+/** ODD-TDS-001 — wire → domain projection for the search-link
+ *  payload. Reads the JSON array and validates each element
+ *  through `isValidSearchLink`. A non-array payload or a
+ *  per-element shape mismatch surfaces as `TaxonomyApiError` so
+ *  the SearchTab render loop can branch on a single instance/name
+ *  check. Mirrors the `fromWireList` contract used by
+ *  `fetchChildren` / `fetchDomains` for parity: the caller-supplied
+ *  `context` is interpolated into every error message so log
+ *  lines can attribute the failure to the right endpoint. */
+function fromWireSearchList(
+  payload: unknown,
+  context: string,
+): readonly SearchLink[] {
+  if (!Array.isArray(payload)) {
+    throw new TaxonomyApiError(
+      `taxonomy API ${context} returned a non-array payload: ` + typeof payload,
+    );
+  }
+  const out: SearchLink[] = [];
+  for (let i = 0; i < payload.length; i++) {
+    if (!isValidSearchLink(payload[i])) {
+      throw new TaxonomyApiError(
+        `taxonomy API ${context} returned an invalid SearchLink at index ${i}: domain contract violated`,
+      );
+    }
+    out.push(payload[i] as SearchLink);
+  }
+  return out;
+}
+
+/** Public options surface for `fetchSearches`. Mirrors the
+ *  `FetchOptions` interface (transport-level `fetch` + `baseUrl`)
+ *  so the React port can drive the request with a stubbed fetch
+ *  under test. No additional transport options — the search-links
+ *  endpoint does not accept a `source=` qualifier (the URLs are
+ *  composed against the taxon's `scientific_name` + `authorship`
+ *  on the server side, regardless of the active source). */
+export interface FetchSearchesOptions extends FetchOptions {}
+
+/** ODD-TDS-001 — fetch the server-composed search-engine links for
+ *  a single taxon. Mirrors `fetchTaxon` + `fetchChildren` in
+ *  transport shape: id validation → fetch + status guard → JSON
+ *  parsing → wire → domain projection. The wire shape is a JSON
+ *  array of `SearchLink` objects (`engine`, `label`, `url`); the
+ *  server returns 17 entries today (14 canonical search engines +
+ *  3 curated destinations), but the React port's `SearchTab`
+ *  only renders the subset that has a canonical category slot in
+ *  the pure category bridge (`presentation/search-categories.ts`).
+ *  URL preservation is byte-exact — the server's URL encoding
+ *  flows through untouched. */
+export async function fetchSearches(
+  id: number,
+  opts: FetchSearchesOptions = {},
+): Promise<readonly SearchLink[]> {
+  if (!Number.isInteger(id) || id < 0) {
+    throw new TaxonomyApiError(`fetchSearches: id must be a non-negative integer; got ${id}`);
+  }
+  const f = opts.fetch ?? defaultFetch();
+  const r = await f(url(opts.baseUrl ?? "", `/api/taxon/${id}/searches`));
+  if (!r.ok) {
+    throw new TaxonomyApiError(
+      `taxonomy API GET /api/taxon/${id}/searches failed: ${r.status} ${r.statusText}`,
+      { status: r.status },
+    );
+  }
+  return fromWireSearchList(await readJson(r), `/api/taxon/${id}/searches`);
+}

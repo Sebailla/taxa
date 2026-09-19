@@ -1768,13 +1768,15 @@ def test_detail_panel_stamps_data_realm_attribute() -> None:
 
 
 def test_detail_panel_emits_tab_strip_with_six_tabs() -> None:
-    """ODD-TDO-001: the tab strip carries every legacy tab (Overview
-    / Search / Folder / Vernaculars / Synonyms / Distribution) so
-    the React cutover's surface matches the native oracle. Only
-    Overview is fully rendered in this slice; the other tabs
-    render as `disabled` + `aria-disabled="true"` buttons with no
-    fake actions (per the user-selected "visibly mark unavailable
-    later tabs without fake actions" policy)."""
+    """ODD-TDO-001 + ODD-TDS-001: the tab strip carries every
+    legacy tab (Overview / Search / Folder / Vernaculars /
+    Synonyms / Distribution) so the React cutover's surface
+    matches the native oracle. ODD-TDS-001 enables the Search
+    tab alongside Overview; Folder / Vernaculars / Synonyms /
+    Distribution render as `disabled` + `aria-disabled="true"`
+    buttons with no fake actions (per the user-selected
+    "visibly mark unavailable later tabs without fake actions"
+    policy)."""
     text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
     for tab in ("Overview", "Search", "Folder",
                 "Vernaculars", "Synonyms", "Distribution"):
@@ -1784,12 +1786,13 @@ def test_detail_panel_emits_tab_strip_with_six_tabs() -> None:
 
 
 def test_detail_panel_disables_unavailable_tabs() -> None:
-    """ODD-TDO-001: non-Overview tabs render with `disabled` +
-    `aria-disabled="true"` so the user sees them as clearly
-    unavailable rather than silently wired to a placeholder. The
-    Overview tab is the only fully rendered tab in this slice —
-    every other tab carries a `data-tab-available="false"`
-    attribute so tests + tooling can observe the deferred state."""
+    """ODD-TDO-001 + ODD-TDS-001: non-enabled tabs render with
+    `disabled` + `aria-disabled="true"` so the user sees them as
+    clearly unavailable rather than silently wired to a
+    placeholder. ODD-TDS-001 enables Search alongside Overview;
+    Folder / Vernaculars / Synonyms / Distribution carry
+    `data-tab-available="false"` so tests + tooling can observe
+    the deferred state."""
     text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
     assert "data-tab-available" in text, (
         "DetailPanel.tsx must stamp data-tab-available on each tab button."
@@ -1799,6 +1802,72 @@ def test_detail_panel_disables_unavailable_tabs() -> None:
     )
     assert "aria-disabled" in text, (
         "DetailPanel.tsx must stamp aria-disabled on unavailable tabs."
+    )
+
+
+def test_detail_panel_enables_search_tab() -> None:
+    """ODD-TDS-001: the Search tab is now ENABLED
+    (`available: true`). The legacy `web/detail.js::tabs` array
+    always pushed the Search tab alongside Overview / Folder; the
+    React port's first slice shipped Overview-only and marked the
+    rest as `available: false` per the "visibly mark unavailable
+    later tabs without fake actions" policy. ODD-TDS-001 flips the
+    Search entry to `true` so the user can click into the
+    server-composed search-engine link grid. Folder / Vernaculars
+    / Synonyms / Distribution stay `available: false` until their
+    backing React slices ship.
+    """
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    # The DETAIL_TABS array must contain a `Search` entry whose
+    # `available` flag is `true`. The pattern below accepts either
+    # source-form (`available: true`) or a multi-line layout.
+    assert re.search(
+        r"key\s*:\s*[\"\']searches[\"\']\s*,\s*label\s*:\s*[\"\']Search[\"\']"
+        r"[\s\S]{0,200}?available\s*:\s*true",
+        text,
+    ), (
+        "DetailPanel.tsx must declare the Search tab with `available: true` "
+        "(ODD-TDS-001 enables the Search tab body)."
+    )
+
+
+def test_detail_panel_renders_search_tab_when_active() -> None:
+    """ODD-TDS-001: when `activeTab === "searches"`, the panel
+    body renders `<SearchTab>` instead of the Overview body. The
+    body slot must consume the canonical `SearchTabStatus`
+    discriminated-union + the `onRetrySearches` callback so the
+    loading / empty / error / loaded states all render correctly.
+    The `SearchTab` import at the top of the file pins the wiring
+    contract; the body slot pins the runtime dispatch.
+    """
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert "SearchTab" in text, (
+        "DetailPanel.tsx must import the canonical SearchTab component."
+    )
+    assert "SearchTabStatus" in text, (
+        "DetailPanel.tsx must consume the SearchTabStatus type for the "
+        "searchStatus prop."
+    )
+    # Body slot must dispatch on activeTab === "searches" to render
+    # SearchTab. The `renderOverview` fallback covers every other
+    # tab; the SearchTab branch carries the loading / empty /
+    # error / loaded state machine.
+    assert re.search(
+        r"activeTab\s*===\s*[\"\']searches[\"\']",
+        text,
+    ), (
+        "DetailPanel.tsx body must dispatch on activeTab === \"searches\" "
+        "to render the SearchTab."
+    )
+    assert re.search(
+        r"activeTab\s*===\s*[\"\']searches[\"\'][\s\S]{0,200}?<SearchTab",
+        text,
+    ), (
+        "DetailPanel.tsx must render <SearchTab> when activeTab === \"searches\"."
+    )
+    # onRetrySearches callback must be threaded through to the SearchTab.
+    assert "onRetrySearches" in text, (
+        "DetailPanel.tsx must thread onRetrySearches through to SearchTab."
     )
 
 
@@ -2012,4 +2081,470 @@ def test_barrel_reexports_detail_panel_contract() -> None:
                  "DETAIL_TABS", "DEFAULT_DETAIL_TAB"):
         assert name in text, (
             f"taxonomy barrel must re-export `{name}`."
+        )
+
+
+# ---------------------------------------------------------------------------
+# ODD-TDS-001 — native Search tab data contract + UI.
+#
+#   - `fetchSearches` is the canonical typed projection for
+#     `/api/taxon/{id}/searches`; preserves the server-composed
+#     URL verbatim (never constructs URLs client-side).
+#   - `SearchTab` is the native React renderer; renders the
+#     five-category grouping + loading / empty / error / retry
+#     states + secure anchors (target="_blank" rel="noopener
+#     noreferrer").
+#   - `presentation/search-categories.ts` is the pure category
+#     metadata bridge (5 categories in fixed order + 14 engine
+#     mappings). Stays free of legacy-web dependency.
+#   - `TaxonomyTree` owns the per-taxon search cache + the
+#     eager-fetch-on-selection contract so tab activation paints
+#     the link grid instantly.
+# ---------------------------------------------------------------------------
+
+SEARCH_TAB_FILE = (
+    REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "SearchTab.tsx"
+)
+SEARCH_CATEGORIES_FILE = (
+    REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "search-categories.ts"
+)
+
+
+def test_search_tab_file_exists() -> None:
+    """ODD-TDS-001: SearchTab component must exist as a `.tsx`
+    file in the taxonomy presentation folder."""
+    assert SEARCH_TAB_FILE.is_file(), (
+        f"missing {SEARCH_TAB_FILE} \u2014 ODD-TDS-001 ships this Search "
+        f"tab body component."
+    )
+    assert SEARCH_TAB_FILE.suffix == ".tsx", (
+        "SearchTab must be `.tsx` (JSX-rendered)."
+    )
+
+
+def test_search_tab_is_a_client_component() -> None:
+    """ODD-TDS-001: SearchTab mounts inside the React client island
+    (TaxonomyTree -> DetailPanel -> SearchTab). The component
+    declares the client boundary via `"use client"` so the per-
+    row hover / focus behaviour and the Retry button stay
+    interactive after hydration."""
+    text = _read_text(SEARCH_TAB_FILE)
+    assert text.lstrip().startswith('"use client"') or text.lstrip().startswith("'use client'"), (
+        "SearchTab.tsx must declare the client boundary via 'use client'"
+    )
+
+
+def test_search_tab_consumes_canonical_helpers() -> None:
+    """ODD-TDS-001: SearchTab composes the canonical `SearchLink`
+    projection + the pure category bridge from sibling files in
+    the presentation layer. spec.md rule 4 keeps the component
+    pure of deep imports; rule 5 keeps deep paths blocked via the
+    ESLint `no-restricted-imports` guard."""
+    text = _read_text(SEARCH_TAB_FILE)
+    for name in ("SEARCH_CATEGORIES", "resolveSearchEngineMeta"):
+        assert name in text, (
+            f"SearchTab.tsx must consume the canonical `{name}` helper."
+        )
+
+
+def test_search_tab_renders_five_category_sections() -> None:
+    """ODD-TDS-001: the rendered SearchTab carries one
+    `.search-category-section` per category, each stamped with
+    `data-search-category-section="<key>"`. The section order
+    follows `SEARCH_CATEGORIES` byte-for-byte (general,
+    taxonomic, academic, multimedia, documents) so the React
+    cutover's category order matches the legacy oracle."""
+    text = _read_text(SEARCH_TAB_FILE)
+    # The container carries the canonical `.search-tab` class so the
+    # existing `src/app/globals.css` cascade paints the section
+    # headers + the grid + the link cards without a redesign pass.
+    assert "search-tab" in text, (
+        "SearchTab.tsx must stamp the .search-tab container class."
+    )
+    # Each section carries its key as a data-attribute for tests.
+    assert "data-search-category-section" in text, (
+        "SearchTab.tsx must stamp data-search-category-section on each section."
+    )
+    # Section header carries the canonical `.search-category-header`
+    # class + `data-category="<key>"` so the legacy selector + the
+    # parity test (which counts via `[data-category]`) keep working.
+    assert "search-category-header" in text, (
+        "SearchTab.tsx must render the .search-category-header element."
+    )
+    assert "data-category" in text, (
+        "SearchTab.tsx must stamp data-category on each category header."
+    )
+
+
+def test_search_tab_emits_secure_external_anchors() -> None:
+    """ODD-TDS-001: every link anchor carries
+    `target="_blank" rel="noopener noreferrer"` so the new tab
+    can't reach back into the parent window's `window.opener`
+    reference and the absence of `noreferrer` would let the
+    destination see the referer. The anchor ALSO carries
+    `data-engine-key` + `data-category` so the legacy selector +
+    the parity test keep working without a redesign pass. The
+    URL is the wire value verbatim \u2014 the component must NEVER
+    construct / mutate / template-fill a URL locally."""
+    text = _read_text(SEARCH_TAB_FILE)
+    # target="_blank" + rel="noopener noreferrer" must both be
+    # present on the anchor element. Accept either quote flavor.
+    assert re.search(
+        r'target\s*=\s*["\']_blank["\']',
+        text,
+    ), "SearchTab.tsx must render anchors with target=\"_blank\"."
+    assert re.search(
+        r'rel\s*=\s*["\']noopener\s+noreferrer["\']',
+        text,
+    ), "SearchTab.tsx must render anchors with rel=\"noopener noreferrer\"."
+    # The anchor must stamp `data-engine-key` so the legacy parity
+    # test (which counts via `a.search-engine-btn[data-engine-key]`)
+    # can verify the 14-button contract.
+    assert "data-engine-key" in text, (
+        "SearchTab.tsx must stamp data-engine-key on each link anchor."
+    )
+    # The href must carry the wire URL verbatim \u2014 no template fill,
+    # no encoding manipulation. The component reads `link.url`
+    # directly from the server payload.
+    assert "link.url" in text, (
+        "SearchTab.tsx must thread the wire URL through directly; "
+        "constructing URLs client-side is forbidden (ODD-TDS-001)."
+    )
+
+
+def test_search_tab_renders_loading_state() -> None:
+    """ODD-TDS-001: the loading branch renders a `role="status"`
+    element with the canonical `aria-busy="true"` flag so
+    assistive tech announces the loading state. Mirrors the
+    `aria-busy` contract used elsewhere in the React tree."""
+    text = _read_text(SEARCH_TAB_FILE)
+    assert "role=\"status\"" in text or "role='status'" in text, (
+        "SearchTab.tsx must render a role=\"status\" element for the loading state."
+    )
+    assert "aria-busy" in text, (
+        "SearchTab.tsx must set aria-busy on the loading state for a11y tooling."
+    )
+
+
+def test_search_tab_renders_empty_state() -> None:
+    """ODD-TDS-001: the empty branch renders a user-visible
+    "No search links available for this taxon." message. Mirrors
+    the legacy `web/detail.js::renderSearchesTab` empty copy
+    byte-for-byte so the React cutover's empty affordance matches
+    the legacy oracle."""
+    text = _read_text(SEARCH_TAB_FILE)
+    assert "No search links available for this taxon." in text, (
+        "SearchTab.tsx must render the canonical empty copy."
+    )
+
+
+def test_search_tab_renders_error_and_retry_state() -> None:
+    """ODD-TDS-001: the error branch renders a `role="alert"`
+    element + the failure message + a Retry button (carrying
+    `data-action="retry-searches"` so the parent can route the
+    click through a delegated handler). The Retry button calls
+    the `onRetry` prop callback so the failure is recoverable
+    without a fresh taxon selection."""
+    text = _read_text(SEARCH_TAB_FILE)
+    assert "role=\"alert\"" in text or "role='alert'" in text, (
+        "SearchTab.tsx must render a role=\"alert\" element for the error state."
+    )
+    assert "Could not load search links." in text, (
+        "SearchTab.tsx must render the canonical error copy."
+    )
+    assert "Retry" in text, (
+        "SearchTab.tsx must render a Retry button."
+    )
+    assert "data-action=\"retry-searches\"" in text, (
+        "SearchTab.tsx must stamp data-action=\"retry-searches\" on the Retry button."
+    )
+    assert "onRetry" in text, (
+        "SearchTab.tsx must invoke the onRetry prop on Retry click."
+    )
+
+
+def test_search_categories_file_exists() -> None:
+    """ODD-TDS-001: the pure category metadata bridge lives in
+    `presentation/search-categories.ts`. The file must exist as
+    a `.ts` (no JSX) so the spec.md rule 4 presentation purity
+    contract holds."""
+    assert SEARCH_CATEGORIES_FILE.is_file(), (
+        f"missing {SEARCH_CATEGORIES_FILE} \u2014 ODD-TDS-001 ships this "
+        f"pure category metadata bridge."
+    )
+    assert SEARCH_CATEGORIES_FILE.suffix == ".ts", (
+        "search-categories must be `.ts` (no JSX)."
+    )
+
+
+def test_search_categories_file_is_pure() -> None:
+    """ODD-TDS-001: the category bridge stays free of React /
+    Next / HTTP / DOM / framework tokens (spec.md rule 4). The
+    bridge MUST NOT import from the legacy-web layer so
+    the React port never leaks legacy-web dependencies into the
+    canonical taxonomy module. URL composition is forbidden \u2014
+    the bridge carries engine\u2192category metadata only."""
+    text = _read_text(SEARCH_CATEGORIES_FILE)
+    for tok in (
+        "from 'react'", 'from "react"',
+        "from 'next'",   'from "next"',
+        "from 'nextjs'", 'from "nextjs"',
+        "fetch(", "localStorage", "sessionStorage",
+        "document.", "window.", "process.", "globalThis",
+        "../infrastructure", "../application", "../index",
+        "../../research", "../../design-system",
+        "../../browser-state", "../../app-shell",
+        "web/search_urls", "web/detail",
+        "urllib.parse", "encodeURI", "template",
+    ):
+        assert tok not in text, (
+            f"search-categories.ts must stay free of {tok!r}; spec.md rule 4."
+        )
+
+
+def test_search_categories_exports_five_categories_in_native_order() -> None:
+    """ODD-TDS-001: SEARCH_CATEGORIES must enumerate exactly 5
+    categories in the legacy byte-identical order: general \u2192
+    taxonomic \u2192 academic \u2192 multimedia \u2192 documents. The order
+    here drives the rendered section order \u2014 the first category
+    is the topmost section."""
+    text = _read_text(SEARCH_CATEGORIES_FILE)
+    for name in ("SEARCH_CATEGORIES", "SEARCH_ENGINE_LIST",
+                 "searchCategoryForEngine", "searchIconForEngine",
+                 "resolveSearchEngineMeta"):
+        assert name in text, (
+            f"search-categories.ts must export `{name}`."
+        )
+    # Native category order: general \u2192 taxonomic \u2192 academic \u2192
+    # multimedia \u2192 documents.
+    assert re.search(
+        r"\{\s*key\s*:\s*[\"\']general[\"\']\s*,\s*label\s*:\s*[\"\']General[\"\']",
+        text,
+    ), "SEARCH_CATEGORIES must declare the General category first."
+    assert re.search(
+        r"\{\s*key\s*:\s*[\"\']taxonomic[\"\']\s*,\s*label\s*:\s*[\"\']Taxonomic[\"\']",
+        text,
+    ), "SEARCH_CATEGORIES must declare the Taxonomic category second."
+    assert re.search(
+        r"\{\s*key\s*:\s*[\"\']academic[\"\']\s*,\s*label\s*:\s*[\"\']Academic[\"\']",
+        text,
+    ), "SEARCH_CATEGORIES must declare the Academic category third."
+    assert re.search(
+        r"\{\s*key\s*:\s*[\"\']multimedia[\"\']\s*,\s*label\s*:\s*[\"\']Multimedia[\"\']",
+        text,
+    ), "SEARCH_CATEGORIES must declare the Multimedia category fourth."
+    assert re.search(
+        r"\{\s*key\s*:\s*[\"\']documents[\"\']\s*,\s*label\s*:\s*[\"\']Documents[\"\']",
+        text,
+    ), "SEARCH_CATEGORIES must declare the Documents category fifth."
+    # Native category order \u2014 search for the literal sequence in the
+    # file. The pattern allows any whitespace between the entries.
+    expected_order = re.compile(
+        r"key\s*:\s*[\"\']general[\"\']"
+        r"[\s\S]{0,200}?key\s*:\s*[\"\']taxonomic[\"\']"
+        r"[\s\S]{0,200}?key\s*:\s*[\"\']academic[\"\']"
+        r"[\s\S]{0,200}?key\s*:\s*[\"\']multimedia[\"\']"
+        r"[\s\S]{0,200}?key\s*:\s*[\"\']documents[\"\']",
+    )
+    assert expected_order.search(text), (
+        "SEARCH_CATEGORIES must declare the categories in the native "
+        "order: general \u2192 taxonomic \u2192 academic \u2192 multimedia \u2192 documents."
+    )
+
+
+def test_search_categories_lists_fourteen_engines() -> None:
+    """ODD-TDS-001: SEARCH_ENGINE_LIST must carry exactly 14
+    entries (the legacy `test_search_categories.py` 5-category /
+    14-engine contract). The server returns 17 entries
+    (14 canonical search engines + 3 curated destinations); the
+    3 curated destinations have no canonical category slot in
+    the 5-section layout, so the bridge omits them and the
+    SearchTab drops them via `resolveSearchEngineMeta`."""
+    text = _read_text(SEARCH_CATEGORIES_FILE)
+    # Count engine entries with `key: "..."`. Each engine entry
+    # has exactly one `key:` declaration; other `key:` references
+    # (e.g. in SEARCH_CATEGORIES) are filtered out by the
+    # category regex below.
+    engine_keys = re.findall(
+        r"\{\s*key\s*:\s*[\"\']([^\"\']+)[\"\']\s*,\s*icon\s*:",
+        text,
+    )
+    assert len(engine_keys) == 14, (
+        f"SEARCH_ENGINE_LIST must carry exactly 14 engines; got {len(engine_keys)}."
+    )
+    # The canonical 14 keys. The order within the array mirrors
+    # the legacy SEARCH_ENGINES source-file order so the
+    # rendered button order inside each category is byte-identical
+    # to the legacy oracle.
+    expected = {
+        "google", "imagen", "documentos", "pdf", "wikipedia",
+        "bhl", "researchgate", "plos", "academia", "scielo",
+        "scholar", "youtube", "zootaxa", "scribd",
+    }
+    assert set(engine_keys) == expected, (
+        f"SEARCH_ENGINE_LIST must carry the canonical 14 engines; "
+        f"missing: {expected - set(engine_keys)}; extra: {set(engine_keys) - expected}."
+    )
+
+
+def test_search_categories_categories_match_legacy_parity() -> None:
+    """ODD-TDS-001 (parity oracle): the SearchTab category
+    ordering matches the legacy CATEGORIES byte-for-byte
+    (general \u2192 taxonomic \u2192 academic \u2192 multimedia \u2192
+    documents). The legacy `test_search_categories.py` browser
+    test asserts the same order against the legacy web app; the
+    React port re-uses the same order so the parity test stays
+    honest on the React side. The bridge is the single source of
+    truth \u2014 the SearchTab reads `SEARCH_CATEGORIES` directly."""
+    text = _read_text(SEARCH_CATEGORIES_FILE)
+    expected_order = [
+        "general", "taxonomic", "academic", "multimedia", "documents",
+    ]
+    # Read the full sequence by scanning the source for all
+    # top-level `{ key: "..." }` entries. SEARCH_CATEGORIES
+    # entries carry `label:` (no `icon:`); SEARCH_ENGINE_LIST
+    # entries carry `icon:` later. Filter to the five category
+    # keys so we capture the category ordering independent of
+    # any engine entries that share the `{ key: ..., label: ... }`
+    # shape (none today, but the filter is defensive).
+    full_order = re.findall(
+        r"\{\s*key\s*:\s*[\"\']([^\"\']+)[\"\']\s*,\s*label\s*:",
+        text,
+    )
+    category_keys = []
+    for k in full_order:
+        if k in expected_order:
+            category_keys.append(k)
+    assert category_keys == expected_order, (
+        f"SEARCH_CATEGORIES order must be {expected_order}; got {category_keys}"
+    )
+
+
+def test_barrel_reexports_search_contract() -> None:
+    """ODD-TDS-001: the taxonomy barrel must re-export every
+    SearchTab wire surface so cross-module consumers can type
+    the search status / links / helpers without a deep import
+    (spec.md rule 5)."""
+    text = _read_text(TAXONOMY_BARREL)
+    for name in (
+        "fetchSearches",
+        "FetchSearchesOptions",
+        "SearchLink",
+        "SEARCH_CATEGORIES",
+        "SEARCH_ENGINE_LIST",
+        "searchCategoryForEngine",
+        "searchIconForEngine",
+        "resolveSearchEngineMeta",
+    ):
+        assert name in text, (
+            f"taxonomy barrel must re-export `{name}` (ODD-TDS-001)."
+        )
+
+
+def test_taxonomy_tree_eager_fetches_searches_on_selection() -> None:
+    """ODD-TDS-001: TaxonomyTree fires the canonical
+    `fetchSearches(id)` round trip the moment a taxon becomes
+    the active selection. The eager-fetch contract pins the
+    `useEffect` so re-selecting a previously selected taxon lands
+    on the cached result without a round trip."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "fetchSearches" in text, (
+        "TaxonomyTree.tsx must call the canonical fetchSearches helper."
+    )
+    assert "loadSearches" in text, (
+        "TaxonomyTree.tsx must declare a loadSearches callback."
+    )
+    # Eager-fetch effect must fire on `selected` change.
+    assert re.search(
+        r"useEffect\s*\(\s*\(\s*\)\s*=>\s*\{[^}]*selected[^}]*loadSearches",
+        text,
+        re.DOTALL,
+    ), (
+        "TaxonomyTree.tsx must declare a useEffect that calls "
+        "loadSearches when `selected` changes (eager-fetch contract)."
+    )
+
+
+def test_taxonomy_tree_owns_search_cache() -> None:
+    """ODD-TDS-001: TaxonomyTree owns the per-taxon search cache
+    as a `Map<number, SearchTabStatus>`. The cache survives
+    across deselects so re-selecting a previously selected taxon
+    is also instant (mirrors how `perTaxonActiveTab` memory
+    survives across deselects)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "searchesByTaxonId" in text, (
+        "TaxonomyTree.tsx must own a searchesByTaxonId cache."
+    )
+    assert re.search(
+        r"Map\s*<\s*number\s*,\s*SearchTabStatus\s*>",
+        text,
+    ), (
+        "TaxonomyTree.tsx must own a Map<number, SearchTabStatus> for "
+        "the per-taxon search cache."
+    )
+
+
+def test_taxonomy_tree_passes_search_props_to_detail_panel() -> None:
+    """ODD-TDS-001: TaxonomyTree threads `searchStatus` + the
+    retry callback through to the DetailPanel so the SearchTab
+    body can render the loading / empty / error / loaded states.
+    The retry callback re-issues the `fetchSearches` request
+    through the same callback the eager-fetch effect uses."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "searchStatus" in text, (
+        "TaxonomyTree.tsx must thread searchStatus to DetailPanel."
+    )
+    assert "onRetrySearches" in text, (
+        "TaxonomyTree.tsx must thread onRetrySearches to DetailPanel."
+    )
+    # The retry callback must re-issue loadSearches for the
+    # currently selected taxon (mirrors the eager-fetch path).
+    assert re.search(
+        r"onRetrySearches\s*=\s*\{[^}]*loadSearches",
+        text,
+        re.DOTALL,
+    ), (
+        "TaxonomyTree.tsx must map onRetrySearches to a loadSearches call."
+    )
+
+
+def test_taxonomy_tree_clears_search_cache_on_source_switch() -> None:
+    """ODD-TDS-001: a source switch clears the per-taxon
+    search-link cache so the panel cannot render a stale URL
+    set from a previous source's selected taxon. The URLs
+    themselves are taxon-name-based and source-agnostic, but
+    clearing keeps the panel contract aligned with the other
+    source-bound caches (focused / selected /
+    per-taxon-active-tab)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    handle_idx = text.find("const handleSourceChange")
+    assert handle_idx != -1, (
+        "TaxonomyTree.tsx must declare handleSourceChange."
+    )
+    body = text[handle_idx:handle_idx + 1200]
+    assert "setSearchesByTaxonId" in body, (
+        "ODD-TDS-001: handleSourceChange must clear the per-taxon "
+        "search-link cache alongside the other source-bound resets."
+    )
+
+
+def test_out_index_html_has_search_tab_styles(static_export) -> None:
+    """ODD-TDS-001: the static export's CSS must define the
+    SearchTab selectors introduced by the React cutover so the
+    native-style link grid renders identically to the legacy
+    oracle. The selectors live under the whitelisted `.search-tab`
+    base class so the chain-topology guard in
+    `tests/test_research_styles.py` keeps whitelisting them."""
+    css_chunks = sorted((REPO_ROOT / "out" / "_next" / "static" / "chunks").glob("*.css"))
+    css_body = "\n".join(
+        c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks
+    )
+    # The container + section + header + list + link selectors are
+    # already covered by the existing `.search-tab` cascade in
+    # `src/app/globals.css` (PR 3c-c.4). The static export's CSS
+    # must surface at least the top-level `.search-tab` rule plus
+    # one descendant that matches the link card.
+    for needle in (".search-tab", ".search-link"):
+        assert needle in css_body, (
+            f"ODD-TDS-001: static CSS must define the {needle} rule."
         )
