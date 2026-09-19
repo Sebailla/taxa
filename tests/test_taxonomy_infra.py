@@ -89,11 +89,11 @@ def test_infra_file_has_no_framework_imports() -> None:
 
 
 def test_infra_file_exports_named_fns() -> None:
-    """PR 5a commits to two named exports: `fetchTaxon` and `fetchChildren`. ODD-VTREE-001 adds `fetchDomains`. ODD-TDS-001 adds `fetchSearches`. The barrel re-export breaks on a default export."""
+    """PR 5a commits to two named exports: `fetchTaxon` and `fetchChildren`. ODD-VTREE-001 adds `fetchDomains`. ODD-TDS-001 adds `fetchSearches`. ODD-TDV-001 adds `fetchVernaculars`. The barrel re-export breaks on a default export."""
     if not INFRA_FILE.exists():
         pytest.skip("infra file not present yet")
     text = INFRA_FILE.read_text()
-    for name in ("fetchTaxon", "fetchChildren", "fetchDomains", "fetchSearches"):
+    for name in ("fetchTaxon", "fetchChildren", "fetchDomains", "fetchSearches", "fetchVernaculars"):
         pattern = rf"export\s+(?:async\s+)?function\s+{name}\b|export\s+const\s+{name}\b"
         assert re.search(pattern, text), (
             f"infra/api.ts must export `{name}` as a named function or const."
@@ -163,6 +163,71 @@ def test_infra_file_exports_search_link_type_and_options() -> None:
         r"interface\s+SearchLink\b[^}]*readonly\s+url\s*:\s*string",
         text,
     ), "SearchLink must carry `readonly url: string`."
+
+
+def test_infra_file_exports_vernacular_type_and_options() -> None:
+    """ODD-TDV-001: the public `VernacularName` type +
+    `FetchVernacularsOptions` interface are exported from
+    `infra/api.ts` so React callers can type the vernacular-rows
+    payload without a deep import. The runtime helper
+    `fetchVernaculars` mirrors the byte-identical `id` / `name`
+    + nullable `language` + nullable `country` shape of the
+    FastAPI `api/server.py::Vernacular` Pydantic model — the ISO
+    language / country codes are server-preserved and must NEVER
+    be coerced client-side. A future PR that drops either export
+    breaks the React cutover's typed VernacularTab wiring.
+    """
+    if not INFRA_FILE.exists():
+        pytest.skip("infra file not present yet")
+    text = INFRA_FILE.read_text()
+    assert re.search(
+        r"export\s+interface\s+VernacularName\b",
+        text,
+    ), "infra/api.ts must export `VernacularName` as a public interface."
+    assert re.search(
+        r"export\s+interface\s+FetchVernacularsOptions\b",
+        text,
+    ), "infra/api.ts must export `FetchVernacularsOptions` as a public interface."
+    # The VernacularName interface must carry exactly `id` + `name`
+    # + nullable `language` + nullable `country` — the FastAPI
+    # Pydantic model field set. The `language` and `country`
+    # fields MUST be typed `string | null` so the React port can
+    # round-trip the server's nullable ISO codes verbatim (a wire
+    # `null` projects as `null`, never coerced to empty string or
+    # to a different language tag). The legacy
+    # `web/detail.js::loadDetail` skips the language / country
+    # chip when the row carries `null`, so coercing `null → ""`
+    # would silently render an empty chip on every missing field.
+    assert re.search(
+        r"interface\s+VernacularName\b[^}]*readonly\s+id\s*:\s*number",
+        text,
+    ), "VernacularName must carry `readonly id: number`."
+    assert re.search(
+        r"interface\s+VernacularName\b[^}]*readonly\s+name\s*:\s*string",
+        text,
+    ), "VernacularName must carry `readonly name: string`."
+    assert re.search(
+        r"interface\s+VernacularName\b[^}]*readonly\s+language\s*:\s*string\s*\|\s*null",
+        text,
+    ), "VernacularName.language must be typed `string | null` (FastAPI nullability preserved)."
+    assert re.search(
+        r"interface\s+VernacularName\b[^}]*readonly\s+country\s*:\s*string\s*\|\s*null",
+        text,
+    ), "VernacularName.country must be typed `string | null` (FastAPI nullability preserved)."
+    # The runtime helper must forward `?limit=N` verbatim. The
+    # legacy `/api/taxon/{id}/vernaculars?limit=200` request is
+    # the byte-identical default; omitting the option keeps the
+    # React cutover's request shape aligned with the legacy oracle.
+    fetch_block = re.search(
+        r"export\s+async\s+function\s+fetchVernaculars\b.*?^}",
+        text,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert fetch_block, "infra/api.ts must declare the fetchVernaculars async function."
+    assert "limit" in fetch_block.group(0), (
+        "fetchVernaculars must read `opts.limit` so React callers can override "
+        "the legacy byte-identical `limit=200` default."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -736,6 +801,178 @@ const REAL_WORMS_CHILD = {
     () => api.fetchSearches(100, { fetch: SJsonFail, baseUrl: "http://x" }),
     (err) => /json|JSON/i.test(String(err && err.message || err)),
     "fetchSearches must reject malformed JSON",
+  );
+
+  // ---- ODD-TDV-001 — fetchVernaculars wire → domain projection ----
+  // The server returns a JSON array of `Vernacular` records
+  // (`id`, `name`, nullable `language`, nullable `country`). The
+  // legacy `web/detail.js::loadDetail` fetches
+  // `/api/taxon/{id}/vernaculars?limit=200` and reads the raw rows
+  // into `buildDetailSection`; the React port's runtime helper
+  // projects the same wire shape through the canonical
+  // `VernacularName` interface so the byte-identical visual
+  // rendering (`.lang` + `.country` chips + name span) survives
+  // the cutover. The runtime check below pins every contract in
+  // one assertion block.
+  const VFresh = makeFetch([
+    { ok: true, status: 200, statusText: "OK", json: [
+      // CoL Homo sapiens fixture: full language + country + name.
+      { id: 1, name: "Human", language: "EN", country: "US" },
+      // Latin canonical row: language + country both null (the
+      // server preserves FastAPI nullability — the React port must
+      // surface `null`, never coerce to "" or to a default tag).
+      { id: 2, name: "Homo", language: null, country: null },
+      // Mixed-language row: language present, country missing.
+      // The chip rendering branches on each field's nullability
+      // independently so the country chip is omitted but the
+      // language chip survives.
+      { id: 3, name: "Mensch", language: "DE", country: null },
+      // Country-only row: language missing (uncommon but legal
+      // wire shape), country present.
+      { id: 4, name: "Ser humano", language: null, country: "BR" },
+      // Long-form ISO code: 3-letter language tag + 2-letter
+      // country code — the canonical FastAPI shape preserves
+      // them verbatim (the React port paints them through the
+      // `.lang` + `.country` chips byte-identically).
+      { id: 5, name: "Be\u0259\u0268\u0259\u01b9 nax\u0259\u0288", language: "AZE", country: "AZ" },
+    ] },
+  ]);
+  const v = await api.fetchVernaculars(100, { fetch: VFresh, baseUrl: "http://x" });
+  assert.strictEqual(VFresh.calls.length, 1);
+  assert.strictEqual(VFresh.calls[0].input, "http://x/api/taxon/100/vernaculars?limit=200",
+    "fetchVernaculars must build the canonical legacy /api/taxon/{id}/vernaculars?limit=200 URL by default");
+  assert.strictEqual(Array.isArray(v), true, "fetchVernaculars must return an array");
+  assert.strictEqual(v.length, 5,
+    "fetchVernaculars must surface every server-returned VernacularName row");
+  // FastAPI nullability must round-trip verbatim. The legacy
+  // `web/detail.js::loadDetail` skips the language chip when
+  // `v.language` is falsy, so coercing `null → ""` would silently
+  // render an empty chip on every missing field. The runtime
+  // check pins every nullable shape below.
+  assert.strictEqual(v[0].id, 1);
+  assert.strictEqual(v[0].name, "Human");
+  assert.strictEqual(v[0].language, "EN");
+  assert.strictEqual(v[0].country, "US");
+  assert.strictEqual(v[1].name, "Homo");
+  assert.strictEqual(v[1].language, null,
+    "ODD-TDV-001: FastAPI nullability must round-trip verbatim (language=null stays null)");
+  assert.strictEqual(v[1].country, null,
+    "ODD-TDV-001: FastAPI nullability must round-trip verbatim (country=null stays null)");
+  assert.strictEqual(v[2].name, "Mensch");
+  assert.strictEqual(v[2].language, "DE");
+  assert.strictEqual(v[2].country, null);
+  assert.strictEqual(v[3].name, "Ser humano");
+  assert.strictEqual(v[3].language, null);
+  assert.strictEqual(v[3].country, "BR");
+  // ISO code preservation — non-ASCII name + 3-letter language
+  // code + 2-letter country code must all reach the client
+  // untouched.
+  assert.strictEqual(v[4].name, "Be\u0259\u0268\u0259\u01b9 nax\u0259\u0288");
+  assert.strictEqual(v[4].language, "AZE");
+  assert.strictEqual(v[4].country, "AZ");
+  // The VernacularName projection must NOT carry any invented
+  // field. The server payload has only `id` + `name` + nullable
+  // `language` + nullable `country`; a canonical VernacularName
+  // with extra fields (e.g. `rank`, `taxon_id`, `source`) would
+  // leak server composition concerns into the client contract
+  // and let future drift slip past the projection layer.
+  for (const n of v) {
+    const props = Object.keys(n).sort();
+    assert.deepStrictEqual(props, ["country", "id", "language", "name"],
+      "ODD-TDV-001: canonical VernacularName must carry exactly "
+      + "{id, name, language, country}; got " + JSON.stringify(props));
+  }
+
+  // fetchVernaculars ?limit= override — query forwarded verbatim.
+  const VLim50 = makeFetch([{ ok: true, status: 200, statusText: "OK", json: [] }]);
+  await api.fetchVernaculars(100, { fetch: VLim50, baseUrl: "http://x", limit: 50 });
+  assert.strictEqual(VLim50.calls[0].input, "http://x/api/taxon/100/vernaculars?limit=50",
+    "fetchVernaculars must forward opts.limit verbatim: " + VLim50.calls[0].input);
+  const VLim500 = makeFetch([{ ok: true, status: 200, statusText: "OK", json: [] }]);
+  await api.fetchVernaculars(100, { fetch: VLim500, baseUrl: "http://x", limit: 500 });
+  assert.strictEqual(VLim500.calls[0].input, "http://x/api/taxon/100/vernaculars?limit=500",
+    "fetchVernaculars must forward opts.limit=500 verbatim");
+
+  // fetchVernaculars empty payload — returns [], does not throw.
+  const VEmpty = makeFetch([{ ok: true, status: 200, statusText: "OK", json: [] }]);
+  assert.strictEqual((await api.fetchVernaculars(100, { fetch: VEmpty, baseUrl: "http://x" })).length, 0);
+
+  // fetchVernaculars HTTP non-OK — status code in message.
+  const VBad = makeFetch([{ ok: false, status: 503, statusText: "Service Unavailable", json: { detail: "DB down" } }]);
+  await assert.rejects(
+    () => api.fetchVernaculars(100, { fetch: VBad, baseUrl: "http://x" }),
+    (err) => /503/.test(String(err && err.message || err)),
+    "fetchVernaculars must reject on non-OK with the status code in the message",
+  );
+
+  // fetchVernaculars non-array payload — rejects.
+  const VWrongShape = makeFetch([{ ok: true, status: 200, statusText: "OK", json: { detail: "wrong shape" } }]);
+  await assert.rejects(
+    () => api.fetchVernaculars(100, { fetch: VWrongShape, baseUrl: "http://x" }),
+    (err) => /non-array/.test(String(err && err.message || err)),
+    "fetchVernaculars must reject non-array payloads",
+  );
+
+  // fetchVernaculars schema-invalid element — rejects.
+  const VBadElement = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [{ id: 1, name: "Human" /* language + country missing */ }] }]);
+  await assert.rejects(
+    () => api.fetchVernaculars(100, { fetch: VBadElement, baseUrl: "http://x" }),
+    (err) => /invalid|vernacular/i.test(String(err && err.message || err)),
+    "fetchVernaculars must reject per-element shape mismatches (missing nullable fields as undefined)",
+  );
+
+  // fetchVernaculars wrong type on nullable field — rejects.
+  const VBadLanguageType = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [{ id: 1, name: "Human", language: 123, country: null }] }]);
+  await assert.rejects(
+    () => api.fetchVernaculars(100, { fetch: VBadLanguageType, baseUrl: "http://x" }),
+    (err) => /invalid|vernacular/i.test(String(err && err.message || err)),
+    "fetchVernaculars must reject non-string language values",
+  );
+
+  // fetchVernaculars wrong type on name (number instead of string) — rejects.
+  const VBadNameType = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [{ id: 1, name: 42, language: null, country: null }] }]);
+  await assert.rejects(
+    () => api.fetchVernaculars(100, { fetch: VBadNameType, baseUrl: "http://x" }),
+    (err) => /invalid|vernacular/i.test(String(err && err.message || err)),
+    "fetchVernaculars must reject non-string name values",
+  );
+
+  // fetchVernaculars empty name — rejects (the legacy
+  // `web/detail.js::loadDetail` would not produce an empty name
+  // because CoL rows have a NOT NULL constraint, but the React
+  // projection must still reject the wire shape so a future
+  // server change cannot silently bypass the validation).
+  const VEmptyName = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: [{ id: 1, name: "", language: null, country: null }] }]);
+  await assert.rejects(
+    () => api.fetchVernaculars(100, { fetch: VEmptyName, baseUrl: "http://x" }),
+    (err) => /invalid|vernacular/i.test(String(err && err.message || err)),
+    "fetchVernaculars must reject empty name values",
+  );
+
+  // fetchVernaculars negative id — id validation rejects.
+  await assert.rejects(
+    () => api.fetchVernaculars(-1, { fetch: makeFetch([]), baseUrl: "http://x" }),
+    (err) => /non-negative integer/i.test(String(err && err.message || err)),
+    "fetchVernaculars must reject negative ids",
+  );
+
+  // fetchVernaculars non-integer id — id validation rejects.
+  await assert.rejects(
+    () => api.fetchVernaculars(1.5, { fetch: makeFetch([]), baseUrl: "http://x" }),
+    (err) => /non-negative integer/i.test(String(err && err.message || err)),
+    "fetchVernaculars must reject non-integer ids",
+  );
+
+  // fetchVernaculars malformed JSON — throws.
+  const VJsonFail = makeFetch([{ ok: true, status: 200, statusText: "OK", json: Promise.reject(new SyntaxError("Unexpected token < in JSON")) }]);
+  await assert.rejects(
+    () => api.fetchVernaculars(100, { fetch: VJsonFail, baseUrl: "http://x" }),
+    (err) => /json|JSON/i.test(String(err && err.message || err)),
+    "fetchVernaculars must reject malformed JSON",
   );
 
   process.stdout.write("PASS\n");

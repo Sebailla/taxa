@@ -172,6 +172,7 @@ def test_layer_components_research_chrome_block_does_not_leak_taxonomy():
     body = _block(_read(GLOBALS_CSS), "@layer components")
     allowed = set(TAXONOMY_OWNED_BY_3C_B) | set(UTILITY_CLASSES_OWNED_BY_3C_E2) | {
         ".folder-tab", ".header-browser-tab", ".research-explorer", ".search-tab",
+        ".vernacular-tab",
     }
     for head in _top_level(body):
         m = re.match(r"^\.([^\s:>+~\.\[]+)", head)
