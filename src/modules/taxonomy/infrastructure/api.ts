@@ -347,3 +347,121 @@ export async function fetchSearches(
   }
   return fromWireSearchList(await readJson(r), `/api/taxon/${id}/searches`);
 }
+
+/** ODD-TDV-001 — wire → domain projection for `/api/taxon/{id}/vernaculars`.
+ *  Mirrors the FastAPI `api/server.py::Vernacular` Pydantic model
+ *  field-for-field: `id`, `name`, nullable `language`, nullable `country`.
+ *  The server preserves the FastAPI nullability: a wire `null`
+ *  surfaces as `null` (never coerced to empty string or to a
+ *  different language code), so the React `VernacularTab` can omit
+ *  the language chip when the row carries `language: null` and the
+ *  country chip when it carries `country: null`. The legacy
+ *  `web/detail.js::loadDetail` fetches this exact endpoint and
+ *  passes the raw rows into `buildDetailSection`; the React port
+ *  uses the canonical projection so the byte-identical
+ *  visual rendering (`.lang` + `.country` chips + name span)
+ *  survives the cutover. */
+export interface VernacularName {
+  readonly id: number;
+  readonly name: string;
+  readonly language: string | null;
+  readonly country: string | null;
+}
+
+/** Per-row validator. Every required field must be present with
+ *  the right type and a non-empty string content for `name`. The
+ *  nullable fields (`language`, `country`) MUST be either a string
+ *  (the ISO code verbatim — the server preserves `""` as the
+ *  "unknown language tag" sentinel that CoL ships) or `null` (the
+ *  wire-side "no value"). Any wire mismatch (missing field, wrong
+ *  type, empty `name`) surfaces as `TaxonomyApiError` so a
+ *  per-element shape drift cannot slip past the projection layer. */
+function isValidVernacular(value: unknown): value is VernacularName {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.id === "number" && Number.isInteger(v.id) &&
+    typeof v.name === "string" && v.name.length > 0 &&
+    (v.language === null || typeof v.language === "string") &&
+    (v.country === null || typeof v.country === "string")
+  );
+}
+
+/** ODD-TDV-001 — wire → domain projection for the vernaculars
+ *  payload. Reads the JSON array and validates each element
+ *  through `isValidVernacular`. A non-array payload or a
+ *  per-element shape mismatch surfaces as `TaxonomyApiError` so
+ *  the VernacularTab render loop can branch on a single
+ *  instance/name check. Mirrors `fromWireSearchList` and
+ *  `fromWireList` byte-for-byte: the caller-supplied `context` is
+ *  interpolated into every error message so log lines can
+ *  attribute the failure to the right endpoint. */
+function fromWireVernacularList(
+  payload: unknown,
+  context: string,
+): readonly VernacularName[] {
+  if (!Array.isArray(payload)) {
+    throw new TaxonomyApiError(
+      `taxonomy API ${context} returned a non-array payload: ` + typeof payload,
+    );
+  }
+  const out: VernacularName[] = [];
+  for (let i = 0; i < payload.length; i++) {
+    if (!isValidVernacular(payload[i])) {
+      throw new TaxonomyApiError(
+        `taxonomy API ${context} returned an invalid VernacularName at index ${i}: domain contract violated`,
+      );
+    }
+    out.push(payload[i] as VernacularName);
+  }
+  return out;
+}
+
+/** Public options surface for `fetchVernaculars`. Mirrors the
+ *  `FetchOptions` interface (transport-level `fetch` + `baseUrl`)
+ *  so the React port can drive the request with a stubbed fetch
+ *  under test. `limit` is forwarded verbatim as `?limit=N`; the
+ *  legacy `/api/taxon/{id}/vernaculars?limit=200` request
+ *  (`web/detail.js::loadDetail`) is the byte-identical default,
+ *  so omitting the option keeps the React cutover's request
+ *  shape aligned with the legacy oracle. The FastAPI endpoint
+ *  clamps the limit server-side (`ge=1, le=500`); the React port
+ *  does not re-validate the clamp because the server is the
+ *  source of truth for HTTP error semantics. */
+export interface FetchVernacularsOptions extends FetchOptions {
+  readonly limit?: number;
+}
+
+/** ODD-TDV-001 — fetch the vernacular (common name) rows for a
+ *  single taxon. Mirrors `fetchTaxon` + `fetchChildren` +
+ *  `fetchSearches` in transport shape: id validation → fetch +
+ *  status guard → JSON parsing → wire → domain projection. The
+ *  wire shape is a JSON array of `VernacularName` objects
+ *  (`id`, `name`, nullable `language`, nullable `country`);
+ *  each row carries the verbatim ISO language / country code
+ *  the server preserves, and the React port paints it through
+ *  the `.lang` + `.country` chips byte-identically. This is the
+ *  dedicated endpoint that backs the DetailPanel Vernaculars tab
+ *  — the React port MUST NOT read `vernaculars` off the embedded
+ *  `/api/taxon/{id}` payload (`api/server.py::Taxon.vernaculars`
+ *  is not exposed on the public wire shape — only the dedicated
+ *  `/api/taxon/{id}/vernaculars` endpoint returns the rows). */
+export async function fetchVernaculars(
+  id: number,
+  opts: FetchVernacularsOptions = {},
+): Promise<readonly VernacularName[]> {
+  if (!Number.isInteger(id) || id < 0) {
+    throw new TaxonomyApiError(`fetchVernaculars: id must be a non-negative integer; got ${id}`);
+  }
+  const f = opts.fetch ?? defaultFetch();
+  const limit = opts.limit ?? 200;
+  const query = `?limit=${encodeURIComponent(String(limit))}`;
+  const r = await f(url(opts.baseUrl ?? "", `/api/taxon/${id}/vernaculars${query}`));
+  if (!r.ok) {
+    throw new TaxonomyApiError(
+      `taxonomy API GET /api/taxon/${id}/vernaculars failed: ${r.status} ${r.statusText}`,
+      { status: r.status },
+    );
+  }
+  return fromWireVernacularList(await readJson(r), `/api/taxon/${id}/vernaculars`);
+}

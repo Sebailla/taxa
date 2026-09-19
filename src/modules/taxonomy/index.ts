@@ -22,6 +22,7 @@ export {
   fetchChildren,
   fetchDomains,
   fetchSearches,
+  fetchVernaculars,
   TaxonomyApiError,
 } from "./infrastructure/api";
 export type {
@@ -29,8 +30,10 @@ export type {
   FetchChildrenOptions,
   FetchDomainsOptions,
   FetchSearchesOptions,
+  FetchVernacularsOptions,
   SearchLink,
   TaxonomySource,
+  VernacularName,
 } from "./infrastructure/api";
 
 // Application layer — typed port + readonly view-models.

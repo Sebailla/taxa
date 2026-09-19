@@ -151,9 +151,10 @@ import {
   fetchChildren,
   fetchDomains,
   fetchSearches,
+  fetchVernaculars,
   walkBreadcrumbForSource,
 } from "@taxa/taxonomy";
-import type { SearchLink, TaxonomySource } from "@taxa/taxonomy";
+import type { SearchLink, TaxonomySource, VernacularName } from "@taxa/taxonomy";
 import type { BreadcrumbSegment } from "./breadcrumb-path";
 import type { Rank, Taxon } from "../domain/taxon";
 import DetailPanel, {
@@ -161,6 +162,7 @@ import DetailPanel, {
 } from "./DetailPanel";
 import type { DetailTabKey } from "./DetailPanel";
 import type { SearchTabStatus } from "./SearchTab";
+import type { VernacularTabStatus } from "./VernacularTab";
 import {
   EMPTY_TREE_STATE,
   attachChildrenForSource,
@@ -284,6 +286,23 @@ export default function TaxonomyTree(): React.ReactElement {
   //   error   — last attempt failed; retry available
   const [searchesByTaxonId, setSearchesByTaxonId] = useState<
     Map<number, SearchTabStatus>
+  >(() => new Map());
+  // ODD-TDV-001 — per-taxon vernacular cache. Same shape as the
+  // search-link cache so the DetailPanel contract stays symmetric
+  // across the Search and Vernaculars tabs. Source switch
+  // behaviour DIFFERS from the search-link cache: the
+  // `/api/taxon/{id}/vernaculars` endpoint is source-AGNOSTIC
+  // (mirrors the legacy `web/detail.js::loadDetail` payload which
+  // is also source-agnostic), so a previously cached vernacular
+  // payload stays valid under a new active source. The cache
+  // therefore survives `handleSourceChange` so re-selecting the
+  // same taxon after a source switch is also instant. The
+  // `handleSourceChange` callback intentionally does NOT clear
+  // this map. Status is the discriminated-union shape the
+  // VernacularTab consumes (idle / loading / loaded / empty /
+  // error — byte-identical to `SearchTabStatus`).
+  const [vernacularsByTaxonId, setVernacularsByTaxonId] = useState<
+    Map<number, VernacularTabStatus>
   >(() => new Map());
   // ODD-NTP-005 — ref to the most recently selected row so the
   // scroll-into-view call after `select` lands on the right DOM
@@ -486,6 +505,72 @@ export default function TaxonomyTree(): React.ReactElement {
     // eager-fetch effect below. The callback identity is stable
     // across cache mutations so the effect stays a one-shot
     // per-selection-change fire.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  // ODD-TDV-001 — per-taxon vernacular loader. Reads the cached
+  // `vernacularsByTaxonId` map and skips the round trip if a
+  // previous load already landed (loaded / empty / errored) for
+  // the same taxon. The eager-fetch-on-selection effect below
+  // triggers this callback on every selection change so the
+  // cache stays warm by the time the user clicks the Vernaculars
+  // tab. The callback also fires from the VernacularTab's Retry
+  // button so a transient failure (network blip, 5xx) is
+  // recoverable without a fresh taxon selection. The callback
+  // intentionally does NOT depend on `activeSource` — the
+  // `/api/taxon/{id}/vernaculars` endpoint is source-agnostic
+  // (mirrors the legacy `web/detail.js::loadDetail` payload
+  // shape), so the cache survives source switches.
+  const loadVernaculars = useCallback(
+    async (id: number) => {
+      const current = vernacularsByTaxonId.get(id);
+      if (
+        current &&
+        (current.kind === "loaded" ||
+          current.kind === "empty" ||
+          current.kind === "error")
+      ) {
+        return;
+      }
+      setVernacularsByTaxonId((prev) => {
+        const next = new Map(prev);
+        next.set(id, { kind: "loading" });
+        return next;
+      });
+      try {
+        const names: readonly VernacularName[] = await fetchVernaculars(id, {
+          baseUrl: TAXA_API_ORIGIN,
+          limit: 200,
+        });
+        setVernacularsByTaxonId((prev) => {
+          const next = new Map(prev);
+          if (names.length === 0) {
+            next.set(id, { kind: "empty" });
+          } else {
+            next.set(id, { kind: "loaded", names });
+          }
+          return next;
+        });
+      } catch (err) {
+        setVernacularsByTaxonId((prev) => {
+          const next = new Map(prev);
+          next.set(id, {
+            kind: "error",
+            message: messageFor(err, `Could not load vernaculars of taxon ${id}`),
+          });
+          return next;
+        });
+      }
+    },
+    // `vernacularsByTaxonId` is intentionally NOT in the deps: the
+    // callback reads the latest cache through the functional
+    // updater, so listing it would force a fresh `loadVernaculars`
+    // identity on every cache mutation and re-trigger the
+    // eager-fetch effect below. The callback identity is stable
+    // across cache mutations so the effect stays a one-shot
+    // per-selection-change fire (same rationale as
+    // `loadSearches`).
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
@@ -724,6 +809,25 @@ export default function TaxonomyTree(): React.ReactElement {
     if (selected === null) return;
     void loadSearches(selected);
   }, [selected, loadSearches]);
+
+  // ODD-TDV-001 — eager-fetch-on-selection contract for the
+  // Vernaculars tab. Mirrors the SearchTab eager-fetch effect
+  // byte-for-byte: whenever `selected` becomes a non-null taxon
+  // id, fire the canonical `fetchVernaculars(id, { limit: 200 })`
+  // round trip so the Vernaculars tab activation paints the
+  // rendered `Vernacular names` header + count + per-row chips
+  // + name span instantly. Re-selecting the same taxon is a
+  // no-op (the `loadVernaculars` callback short-circuits on
+  // `loaded` / `empty` / `error` cached entries). Closing the
+  // panel (selected → null) does NOT clear the cache — the
+  // cached result survives across deselects AND across source
+  // switches (the `/api/taxon/{id}/vernaculars` endpoint is
+  // source-agnostic, so the previously cached payload stays
+  // valid under the new active source).
+  useEffect(() => {
+    if (selected === null) return;
+    void loadVernaculars(selected);
+  }, [selected, loadVernaculars]);
 
   /** Source selector metadata. Recomputed only when the raw root
    *  payload changes. */
@@ -1119,6 +1223,8 @@ export default function TaxonomyTree(): React.ReactElement {
                 const activeTab = getActiveTabFor(selected);
                 const searchStatus: SearchTabStatus =
                   searchesByTaxonId.get(selected) ?? { kind: "idle" };
+                const vernacularStatus: VernacularTabStatus =
+                  vernacularsByTaxonId.get(selected) ?? { kind: "idle" };
                 return (
                   <DetailPanel
                     taxon={taxon}
@@ -1130,6 +1236,8 @@ export default function TaxonomyTree(): React.ReactElement {
                     onClose={handleCloseDetail}
                     searchStatus={searchStatus}
                     onRetrySearches={() => void loadSearches(selected)}
+                    vernacularStatus={vernacularStatus}
+                    onRetryVernaculars={() => void loadVernaculars(selected)}
                   />
                 );
               })()}
