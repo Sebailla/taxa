@@ -152,9 +152,10 @@ import {
   fetchDomains,
   fetchSearches,
   fetchVernaculars,
+  fetchSynonyms,
   walkBreadcrumbForSource,
 } from "@taxa/taxonomy";
-import type { SearchLink, TaxonomySource, VernacularName } from "@taxa/taxonomy";
+import type { SearchLink, SynonymName, TaxonomySource, VernacularName } from "@taxa/taxonomy";
 import type { BreadcrumbSegment } from "./breadcrumb-path";
 import type { Rank, Taxon } from "../domain/taxon";
 import DetailPanel, {
@@ -162,6 +163,7 @@ import DetailPanel, {
 } from "./DetailPanel";
 import type { DetailTabKey } from "./DetailPanel";
 import type { SearchTabStatus } from "./SearchTab";
+import type { SynonymTabStatus } from "./SynonymTab";
 import type { VernacularTabStatus } from "./VernacularTab";
 import {
   EMPTY_TREE_STATE,
@@ -303,6 +305,25 @@ export default function TaxonomyTree(): React.ReactElement {
   // error — byte-identical to `SearchTabStatus`).
   const [vernacularsByTaxonId, setVernacularsByTaxonId] = useState<
     Map<number, VernacularTabStatus>
+  >(() => new Map());
+  // ODD-TDSYN-001 — per-taxon synonyms cache. Same shape as the
+  // vernacular cache so the DetailPanel contract stays symmetric
+  // across the Vernaculars and Synonyms tabs. The
+  // `/api/taxon/{id}/synonyms` endpoint is source-AGNOSTIC
+  // (mirrors the legacy `web/detail.js::loadDetail` payload —
+  // the FastAPI SQL pre-filters by `parent_id = taxon_id AND
+  // status != 'accepted'` regardless of the active tree source),
+  // so a previously cached synonym payload stays valid under a
+  // new active source. The cache therefore survives
+  // `handleSourceChange` so re-selecting the same taxon after a
+  // source switch is also instant. The `handleSourceChange`
+  // callback intentionally does NOT clear this map (mirrors the
+  // ODD-TDV-001 source-agnostic retention contract). Status is
+  // the discriminated-union shape the SynonymTab consumes
+  // (idle / loading / loaded / empty / error — byte-identical to
+  // `SearchTabStatus` + `VernacularTabStatus`).
+  const [synonymsByTaxonId, setSynonymsByTaxonId] = useState<
+    Map<number, SynonymTabStatus>
   >(() => new Map());
   // ODD-NTP-005 — ref to the most recently selected row so the
   // scroll-into-view call after `select` lands on the right DOM
@@ -575,6 +596,75 @@ export default function TaxonomyTree(): React.ReactElement {
     [],
   );
 
+  // ODD-TDSYN-001 — per-taxon synonyms loader. Reads the cached
+  // `synonymsByTaxonId` map and skips the round trip if a
+  // previous load already landed (loaded / empty / errored) for
+  // the same taxon. The eager-fetch-on-selection effect below
+  // triggers this callback on every selection change so the
+  // cache stays warm by the time the user clicks the Synonyms
+  // tab. The callback also fires from the SynonymTab's Retry
+  // button so a transient failure (network blip, 5xx) is
+  // recoverable without a fresh taxon selection. The callback
+  // intentionally does NOT depend on `activeSource` — the
+  // `/api/taxon/{id}/synonyms` endpoint is source-agnostic
+  // (mirrors the legacy `web/detail.js::loadDetail` payload
+  // shape), so the cache survives source switches (the
+  // `handleSourceChange` callback deliberately does NOT call
+  // `setSynonymsByTaxonId(new Map())`, mirroring the
+  // ODD-TDV-001 source-agnostic retention contract).
+  const loadSynonyms = useCallback(
+    async (id: number) => {
+      const current = synonymsByTaxonId.get(id);
+      if (
+        current &&
+        (current.kind === "loaded" ||
+          current.kind === "empty" ||
+          current.kind === "error")
+      ) {
+        return;
+      }
+      setSynonymsByTaxonId((prev) => {
+        const next = new Map(prev);
+        next.set(id, { kind: "loading" });
+        return next;
+      });
+      try {
+        const names: readonly SynonymName[] = await fetchSynonyms(id, {
+          baseUrl: TAXA_API_ORIGIN,
+          limit: 200,
+        });
+        setSynonymsByTaxonId((prev) => {
+          const next = new Map(prev);
+          if (names.length === 0) {
+            next.set(id, { kind: "empty" });
+          } else {
+            next.set(id, { kind: "loaded", names });
+          }
+          return next;
+        });
+      } catch (err) {
+        setSynonymsByTaxonId((prev) => {
+          const next = new Map(prev);
+          next.set(id, {
+            kind: "error",
+            message: messageFor(err, `Could not load synonyms of taxon ${id}`),
+          });
+          return next;
+        });
+      }
+    },
+    // `synonymsByTaxonId` is intentionally NOT in the deps: the
+    // callback reads the latest cache through the functional
+    // updater, so listing it would force a fresh `loadSynonyms`
+    // identity on every cache mutation and re-trigger the
+    // eager-fetch effect below. The callback identity is stable
+    // across cache mutations so the effect stays a one-shot
+    // per-selection-change fire (same rationale as
+    // `loadSearches` + `loadVernaculars`).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   const handleSourceChange = useCallback((next: TreeSource) => {
     if (next === activeSource) return;
     // ODD-NTP-005: a source switch clears focused + selected in
@@ -828,6 +918,28 @@ export default function TaxonomyTree(): React.ReactElement {
     if (selected === null) return;
     void loadVernaculars(selected);
   }, [selected, loadVernaculars]);
+
+  // ODD-TDSYN-001 — eager-fetch-on-selection contract for the
+  // Synonyms tab. Mirrors the Vernaculars eager-fetch effect
+  // byte-for-byte: whenever `selected` becomes a non-null taxon
+  // id, fire the canonical `fetchSynonyms(id, { limit: 200 })`
+  // round trip so the Synonyms tab activation paints the
+  // rendered `Synonyms` header + count + the per-row rank chip
+  // + italic-or-roman scientific name + optional `.authorship`
+  // span instantly. Re-selecting the same taxon is a no-op (the
+  // `loadSynonyms` callback short-circuits on `loaded` /
+  // `empty` / `error` cached entries). Closing the panel
+  // (selected → null) does NOT clear the cache — the cached
+  // result survives across deselects AND across source
+  // switches (the `/api/taxon/{id}/synonyms` endpoint is
+  // source-agnostic — the SQL pre-filters by
+  // `parent_id = taxon_id AND status != 'accepted'`
+  // regardless of the active tree source — so the previously
+  // cached payload stays valid under the new active source).
+  useEffect(() => {
+    if (selected === null) return;
+    void loadSynonyms(selected);
+  }, [selected, loadSynonyms]);
 
   /** Source selector metadata. Recomputed only when the raw root
    *  payload changes. */
@@ -1225,6 +1337,8 @@ export default function TaxonomyTree(): React.ReactElement {
                   searchesByTaxonId.get(selected) ?? { kind: "idle" };
                 const vernacularStatus: VernacularTabStatus =
                   vernacularsByTaxonId.get(selected) ?? { kind: "idle" };
+                const synonymStatus: SynonymTabStatus =
+                  synonymsByTaxonId.get(selected) ?? { kind: "idle" };
                 return (
                   <DetailPanel
                     taxon={taxon}
@@ -1238,6 +1352,8 @@ export default function TaxonomyTree(): React.ReactElement {
                     onRetrySearches={() => void loadSearches(selected)}
                     vernacularStatus={vernacularStatus}
                     onRetryVernaculars={() => void loadVernaculars(selected)}
+                    synonymStatus={synonymStatus}
+                    onRetrySynonyms={() => void loadSynonyms(selected)}
                   />
                 );
               })()}

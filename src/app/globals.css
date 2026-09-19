@@ -884,6 +884,78 @@
     white-space: nowrap;
   }
 
+  /* Synonyms tab body (ODD-TDSYN-001) — native DetailPanel Synonyms
+     section: a section header with the `history` icon + the title
+     ("Synonyms") + the count badge, followed by a vertical list of
+     `.detail-item` rows carrying the verbatim rank chip (`.rank-chip`,
+     scoped under the tab so the alphabetic ordering + chain-topology
+     guard in `tests/test_research_styles.py` keeps whitelisting the
+     base selector) + the italic-or-roman scientific name + the
+     optional `.authorship` span. The chips scope under
+     `.synonym-tab > .synonym-list > .detail-item` so the
+     alphabetic ordering + chain-topology guard keeps whitelisting
+     this base selector under the 3c-c research / chrome surface. */
+  .synonym-tab {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 16px 24px;
+  }
+  .synonym-tab > .synonym-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .synonym-tab > .synonym-list > .detail-item {
+    font-size: 13px;
+    color: var(--on-surface);
+    padding: 7px 8px;
+    margin: 0 -8px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: background-color 120ms ease-out;
+  }
+  .synonym-tab > .synonym-list > .detail-item:hover {
+    background-color: var(--surface-container-low);
+  }
+  .synonym-tab > .synonym-list > .detail-item > .authorship {
+    color: var(--on-surface-variant);
+    font-size: 12px;
+  }
+  .synonym-tab > .synonym-list > .detail-item > .rank-chip {
+    font-size: 10px;
+    color: var(--outline);
+    background: var(--surface-container-high);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: "JetBrains Mono", monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .synonym-tab > .synonym-section-count {
+    font-size: 11px;
+    color: var(--outline);
+    background: var(--surface-container-high);
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-weight: 500;
+    letter-spacing: 0;
+  }
+  .synonym-tab > .synonym-section-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: "Raleway", sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--on-surface-variant);
+    margin: 0 0 10px 0;
+  }
+
   /* Tab strip — segmented control with three buttons in fixed order
      (Overview / Search / Folder). The data-tab attribute names each
      tab; PR 5a (taxonomy port) stamps it on the React elements. */
@@ -921,7 +993,8 @@
   .tab-strip > .tab-button[data-tab="Overview"].active,
   .tab-strip > .tab-button[data-tab="Search"].active,
   .tab-strip > .tab-button[data-tab="Folder"].active,
-  .tab-strip > .tab-button[data-tab="Vernaculars"].active {
+  .tab-strip > .tab-button[data-tab="Vernaculars"].active,
+  .tab-strip > .tab-button[data-tab="Synonyms"].active {
     color: var(--primary);
     border-bottom-color: var(--primary);
   }
