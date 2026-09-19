@@ -36,13 +36,19 @@ venv:
 	.venv/bin/pip install --quiet --upgrade pip
 	.venv/bin/pip install --quiet -r requirements.txt
 
-# Frontend CSS build — installs the Node toolchain on first run, then
-# compiles web/index.css into web/dist/tailwind.css via the Tailwind CLI.
-# Run before `make api` (the dev server serves web/dist/tailwind.css).
-# Idempotent: npm install is a no-op when node_modules/ is already in sync.
+# Frontend CSS build — installs Node dependencies from pnpm-lock.yaml
+# on first run, then compiles web/index.css into web/dist/tailwind.css
+# via the Tailwind CLI. This step is INDEPENDENT of `make api`: the
+# API server starts and serves /api/* regardless of the CSS build
+# state. Run `make css` only when you want a styled web/ served by the
+# FastAPI StaticFiles mount (web/index.html references dist/tailwind.css).
+#
+# Idempotent: `pnpm install --frozen-lockfile` is a fast no-op when
+# node_modules/ is already in sync with pnpm-lock.yaml. Use plain
+# `pnpm install` only if you intentionally edited package.json.
 css:
-	npm install --no-audit --no-fund
-	npm run build:css
+	pnpm install --frozen-lockfile
+	pnpm run build:css
 
 download:
 	@mkdir -p data/raw
@@ -105,7 +111,7 @@ $(WORMS_ZIP):
 	@mkdir -p $(WORMS_DIR)
 	@if [ ! -f $(WORMS_TSV) ]; then echo "Downloading WoRMS ColDP (26 MB compressed)..."; curl -sSL -o $(WORMS_ZIP) "$(WORMS_URL)"; unzip -o -q $(WORMS_ZIP) -d $(WORMS_DIR); else echo "WoRMS ColDP already extracted at $(WORMS_DIR)"; fi
 
-api: css
+api:
 	.venv/bin/python3 -m uvicorn api.server:app --host 127.0.0.1 --port 8765
 
 test:
