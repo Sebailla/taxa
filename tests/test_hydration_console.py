@@ -396,3 +396,254 @@ def test_probe_static_html_uses_typed_defaults(static_export):
 
 
 # ---------------------------------------------------------------------------
+# Runtime contract — first paint defaults, console / page error silence,
+# hydration timing.
+# ---------------------------------------------------------------------------
+def test_probe_first_paint_defaults_have_no_console_errors(chromium_probe):
+    """First paint shows typed defaults with no console / page errors.
+
+    Reads every console message + pageerror captured during the
+    initial Chromium navigation + hydration. Asserts:
+      - no `error`-level console messages
+      - no React hydration warnings
+      - no uncaught page errors (`pageerror` events)
+      - the four `data-test-value` elements carry the typed defaults
+        (proves React's first render output matches the SSR markup
+        AND the rehydration path returned the spec-table defaults
+        because storage was empty).
+    """
+    page, console_msgs, page_errors = chromium_probe
+
+    assert not _error_messages(console_msgs), (
+        "first paint produced console error(s): "
+        f"{_error_messages(console_msgs)}"
+    )
+    assert not _hydration_warnings(console_msgs), (
+        "first paint produced React hydration warning(s): "
+        f"{_hydration_warnings(console_msgs)}"
+    )
+    assert not page_errors, (
+        f"first paint produced uncaught page error(s): {page_errors}"
+    )
+
+    # The probe must render the four typed defaults on first paint
+    # (storage is empty in this fixture — only typed defaults exist).
+    page.wait_for_selector(
+        "[data-test-value='theme']", timeout=2_000
+    )
+    assert (
+        page.locator("[data-test-value='theme']").inner_text().strip()
+        == TYPED_DEFAULT_THEME
+    ), (
+        "first paint theme must be the typed default "
+        f"{TYPED_DEFAULT_THEME!r} — the probe failed to render the "
+        "typed default on the first client render"
+    )
+    assert (
+        page.locator("[data-test-value='source']").inner_text().strip()
+        == TYPED_DEFAULT_SOURCE
+    ), (
+        f"first paint source must be the typed default "
+        f"{TYPED_DEFAULT_SOURCE!r}"
+    )
+    assert (
+        page.locator("[data-test-value='last-taxon-id']").inner_text().strip()
+        == TYPED_DEFAULT_NULL
+    ), (
+        f"first paint last-taxon-id must be the typed default "
+        f"{TYPED_DEFAULT_NULL!r}"
+    )
+    assert (
+        page.locator("[data-test-value='kebab-open-id']").inner_text().strip()
+        == TYPED_DEFAULT_NULL
+    ), (
+        f"first paint kebab-open-id must be the typed default "
+        f"{TYPED_DEFAULT_NULL!r}"
+    )
+
+
+def test_probe_storage_reads_happen_after_dom_content_loaded(chromium_probe):
+    """Browser-state keys are not read during the static first render.
+
+    `Storage.prototype.getItem` is wrapped via `addInitScript`
+    BEFORE navigation, so every `localStorage.getItem` call the
+    probe makes is recorded with a `performance.now()` timestamp.
+    After hydration completes, the FIRST recorded read of any
+    browser-state key MUST happen at or after
+    `domContentLoadedEventEnd` — the static HTML render does not
+    need a storage read, so any read in the static first render
+    would show up at a timestamp before `DOMContentLoaded`.
+    """
+    page, console_msgs, page_errors = chromium_probe
+    assert not page_errors, f"unexpected page error(s): {page_errors}"
+
+    reads = page.evaluate("() => window.__storageReadLog || []")
+    taxa_reads = [r for r in reads if r["key"] in ALL_BROWSER_STATE_KEYS]
+    assert taxa_reads, (
+        "expected at least one read of a browser-state key after "
+        f"hydration (the typed hooks must rehydrate); got reads={reads!r}"
+    )
+    # The first browser-state read happens during React's post-mount
+    # subscribe path (`subscribeTheme` → `ensureHydrated` →
+    # `safeGetItem`). That subscription fires AFTER React commits the
+    # hydrated render, which itself runs AFTER DOMContentLoaded. The
+    # assertion below is the witness: no read before DOMContentLoaded
+    # would mean a static-render read snuck in.
+    first_read_t = min(r["t"] for r in taxa_reads)
+    dcl_t = page.evaluate(
+        "() => { const e = performance.getEntriesByType('navigation')[0];"
+        "return e ? e.domContentLoadedEventEnd : null; }"
+    )
+    assert dcl_t is not None, (
+        "performance.getEntriesByType('navigation') returned no entry"
+    )
+    assert first_read_t >= dcl_t, (
+        f"first browser-state storage read ({first_read_t}ms) happened "
+        f"BEFORE DOMContentLoaded ({dcl_t}ms) — the static first "
+        f"render must not read storage. Reads: {reads!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rehydration contract — stored values rehydrate without warnings.
+# ---------------------------------------------------------------------------
+def test_probe_rehydrates_stored_values_without_warnings(static_server):
+    """Stored browser-state values rehydrate without console / page
+    errors.
+
+    Pre-populates `localStorage` with non-default values on a throwaway
+    page (so the origin has stored data), then opens the probe in a
+    fresh context with the storage wrapper installed. The probe must
+    display the stored values after the post-hydration re-render with
+    NO console errors, NO React hydration warnings, and NO page
+    errors.
+    """
+    if not _playwright_importable():
+        pytest.skip("playwright not installed")
+    from playwright.sync_api import sync_playwright  # type: ignore
+
+    stored = {
+        "taxa.settings.theme": "dark",
+        "taxa.tree.source": "worms",
+        "taxa.tree.lastTaxonId": "42",
+        "taxa.tree.kebabOpenId": "7",
+    }
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch(headless=True)
+        except Exception as exc:
+            pytest.skip(f"chromium binary not available: {exc!r}")
+        try:
+            context = browser.new_context()
+            console_msgs: list[dict] = []
+            page_errors: list[str] = []
+
+            # Origin priming — visit any page on the same origin so
+            # `localStorage` is scoped to the test's 127.0.0.1 server.
+            seed_page = context.new_page()
+            seed_page.goto(
+                static_server + "/", wait_until="domcontentloaded", timeout=5_000
+            )
+            for k, v in stored.items():
+                seed_page.evaluate(
+                    f"localStorage.setItem({k!r}, {v!r})"
+                )
+            seed_page.close()
+
+            # Now load the probe with the storage wrapper installed.
+            context.add_init_script(INIT_SCRIPT)
+            page = context.new_page()
+            _attach_listeners(page, console_msgs, page_errors)
+            page.goto(
+                static_server + PROBE_URL,
+                wait_until="domcontentloaded",
+                timeout=10_000,
+            )
+            page.wait_for_selector(
+                "[data-testid='hydration-probe']", timeout=5_000
+            )
+
+            # After hydration + rehydration the probe MUST display
+            # the stored values.
+            for test_value, expected in (
+                ("theme", "dark"),
+                ("source", "worms"),
+                ("last-taxon-id", "42"),
+                ("kebab-open-id", "7"),
+            ):
+                page.wait_for_function(
+                    """([sel, want]) => {
+                        const el = document.querySelector(sel);
+                        return el && el.textContent.trim() === want;
+                    }""",
+                    arg=[f"[data-test-value='{test_value}']", expected],
+                    timeout=3_000,
+                )
+
+            assert not _error_messages(console_msgs), (
+                "rehydration produced console error(s): "
+                f"{_error_messages(console_msgs)}"
+            )
+            assert not _hydration_warnings(console_msgs), (
+                "rehydration produced React hydration warning(s): "
+                f"{_hydration_warnings(console_msgs)}"
+            )
+            assert not page_errors, (
+                f"rehydration produced page error(s): {page_errors}"
+            )
+        finally:
+            browser.close()
+
+
+# ---------------------------------------------------------------------------
+# Setter round-trip contract — clicks persist + re-render without warnings.
+# ---------------------------------------------------------------------------
+def test_probe_setter_round_trip_persists_and_rerenders(chromium_probe):
+    """Click each setter; the probe re-renders with the new value AND
+    persists it to `localStorage` AND produces no console / page
+    errors throughout.
+
+    The probe covers all four typed keys (theme / source /
+    last-taxon-id / kebab-open-id) so the contract generalises:
+    every typed hook's write path is hydration-safe.
+    """
+    page, console_msgs, page_errors = chromium_probe
+    clicks = (
+        ("set-theme-dark", "theme", "dark", "taxa.settings.theme"),
+        ("set-source-worms", "source", "worms", "taxa.tree.source"),
+        ("set-last-taxon-id", "last-taxon-id", "42", "taxa.tree.lastTaxonId"),
+        ("set-kebab-open-id", "kebab-open-id", "7", "taxa.tree.kebabOpenId"),
+    )
+    for action, test_value, expected_text, storage_key in clicks:
+        page.click(f"[data-action='{action}']", timeout=3_000)
+        # Wait for the post-mutation re-render to settle.
+        page.wait_for_function(
+            """([sel, want]) => {
+                const el = document.querySelector(sel);
+                return el && el.textContent.trim() === want;
+            }""",
+            arg=[f"[data-test-value='{test_value}']", expected_text],
+            timeout=3_000,
+        )
+        # The mutation MUST be persisted to localStorage so the next
+        # page load rehydrates from the same value.
+        persisted = page.evaluate(
+            f"() => localStorage.getItem({storage_key!r})"
+        )
+        assert persisted == expected_text, (
+            f"after clicking [{action}], localStorage[{storage_key!r}] "
+            f"must be {expected_text!r}; got {persisted!r}"
+        )
+
+    # Round trip done — assert no errors accumulated.
+    assert not _error_messages(console_msgs), (
+        "setter round trip produced console error(s): "
+        f"{_error_messages(console_msgs)}"
+    )
+    assert not _hydration_warnings(console_msgs), (
+        "setter round trip produced hydration warning(s): "
+        f"{_hydration_warnings(console_msgs)}"
+    )
+    assert not page_errors, (
+        f"setter round trip produced page error(s): {page_errors}"
+    )
