@@ -86,3 +86,14 @@ export {
   useLastTaxonId,
   useKebabOpenId,
 } from "./application/useBrowserStateKey";
+
+// ODD-BSTATE-PW-001 — one-line wiring edit (collateral to the new
+// `presentation/HydrationProbe` component). Exposes the isolated
+// hydration probe through the public barrel so the dedicated
+// `/hydration-probe` route can mount it via
+// `import { HydrationProbe } from "@taxa/browser-state";`. The
+// no-restricted-imports guard rejects deep paths into the
+// presentation layer; the barrel is the only legal consumer
+// surface for cross-module mounts. Existing typed-surface exports
+// stay unchanged.
+export { default as HydrationProbe } from "./presentation/HydrationProbe";
