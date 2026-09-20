@@ -175,6 +175,28 @@ import {
   previewMaterialize,
   walkBreadcrumbForSource,
 } from "@taxa/taxonomy";
+// ODD-BSTATE-TAX-001 — the CoL / WoRMS / Freshwater selector
+// moved from local React state to the typed browser-state store
+// (`useTreeSource`). The hook returns the typed `col` default on
+// SSR + the first client render (so React's hydration guard never
+// trips on a stored value) and the stored value on the post-mount
+// render. The typed default lives in the browser-state module's
+// domain layer so every consumer agrees on the first-render
+// value. The local `DEFAULT_SOURCE` constant was retired — the
+// typed store is the single source of truth.
+//
+// ODD-BSTATE-TAX-002 — strict-continuation: the main route
+// imports `useTreeSource` through the dedicated
+// `@taxa/browser-state/tree-source` entry point (NOT through the
+// aggregate `@taxa/browser-state` barrel). The aggregate barrel
+// re-exports every per-key hook + store + the reset aggregate,
+// and Turbopack groups the four per-key stores into a shared
+// chunk that the main route ends up referencing — which fails
+// the strict chunk-boundary witness in
+// `tests/test_app_shell_render.py::test_out_index_html_chunks_permit_only_tree_source_key`.
+// The dedicated entry point re-exports ONLY the typed-source
+// surface so the strict chunk-boundary contract holds.
+import { useTreeSource } from "@taxa/browser-state/tree-source";
 import type {
   DistributionEntry,
   MaterializePreview,
@@ -247,8 +269,6 @@ interface RawRoots {
 const TAXA_API_ORIGIN: string =
   process.env.NEXT_PUBLIC_TAXA_API_ORIGIN ?? "";
 
-const DEFAULT_SOURCE: TreeSource = "col";
-
 function messageFor(err: unknown, prefix: string): string {
   const detail = err instanceof Error ? err.message : String(err);
   return `${prefix}: ${detail}`;
@@ -275,7 +295,18 @@ function rankPluralFor(rank: Rank): string {
 }
 
 export default function TaxonomyTree(): React.ReactElement {
-  const [activeSource, setActiveSource] = useState<TreeSource>(DEFAULT_SOURCE);
+  // ODD-BSTATE-TAX-001 — the CoL / WoRMS / Freshwater selector
+  // now reads + writes through the typed browser-state store via
+  // `useTreeSource()`. The hook returns the typed default
+  // (`"col"`) on SSR + the first client render, so React's
+  // hydration guard never trips on a stored value; the stored
+  // value rehydrates on the post-mount render. The setter is a
+  // stable callback (React identity preserved across renders)
+  // that mirrors the typed `writeTreeSource` surface. The local
+  // `TreeSource` type literal union is structurally compatible
+  // with the browser-state `TreeSource` type so a cast is NOT
+  // required at the boundary.
+  const [activeSource, setActiveSource] = useTreeSource();
   const [rawRoots, setRawRoots] = useState<RawRoots | null>(null);
   const [state, setState] = useState<TreeState>(EMPTY_TREE_STATE);
   const [root, setRoot] = useState<RootState>({

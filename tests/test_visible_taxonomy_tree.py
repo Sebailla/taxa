@@ -987,10 +987,22 @@ def test_taxonomy_tree_renders_source_selector() -> None:
 
 def test_taxonomy_tree_starts_with_col_active() -> None:
     """ODD-NTP-002: CoL starts active. Mirrors the legacy
-    `state.treeSource = "col"` default in `web/state.js`."""
+    `state.treeSource = "col"` default in `web/state.js`.
+
+    ODD-BSTATE-TAX-001: the typed default now flows through the
+    browser-state module's `DEFAULT_TREE_SOURCE` (a `"col"` literal
+    the `useTreeSource` hook returns on first paint). The local
+    `DEFAULT_SOURCE` constant is gone — the typed default lives in
+    the typed store so SSR + the first client render stay byte-equal
+    and the post-mount rehydration surfaces the stored value. The
+    contract pin here is the `useTreeSource()` invocation: the
+    hook's typed default is `"col"` (the typed default itself is
+    locked by `tests/test_browser_state_keys.py`)."""
     text = _read_text(TAXONOMY_TREE_FILE)
-    assert re.search(r"DEFAULT_SOURCE\b[^=]*=\s*[\"\']col[\"\']", text), (
-        "TaxonomyTree.tsx must default the active source to 'col'"
+    assert re.search(r"useTreeSource\s*\(\s*\)", text), (
+        "TaxonomyTree.tsx must consume `useTreeSource()` from "
+        "`@taxa/browser-state` so the CoL typed default flows through "
+        "the browser-state module (ODD-BSTATE-TAX-001)."
     )
 
 
@@ -5047,3 +5059,336 @@ def test_out_index_html_has_folder_tab_styles(static_export) -> None:
         assert needle in css_body, (
             f"ODD-TDFOLDER-001: static CSS must define the {needle} rule."
         )
+
+
+# ---------------------------------------------------------------------------
+# ODD-BSTATE-TAX-001 — Persist TaxonomyTree active source.
+#
+# Migrates the CoL / WoRMS / Freshwater selector from local React
+# state to the typed `useTreeSource` hook in `@taxa/browser-state`
+# while preserving the entire existing source-switch reset cascade.
+#
+#   - Public-barrel wiring: `useTreeSource` MUST be imported from
+#     `@taxa/browser-state` (no deep paths into the layer folders;
+#     the `no-restricted-imports` ESLint guard rejects them at
+#     build time).
+#   - No local activeSource state: the `useState<TreeSource>(...)`
+#     call MUST be gone — the typed store owns the source so the
+#     first client render agrees with SSR (typed default `col`) and
+#     a stored selection rehydrates after the first render.
+#   - `handleSourceChange` reset cascade preserved: the kebab +
+#     focused + selected + searches + folder resets + the
+#     `setActiveSource(next)` final call MUST stay byte-equal so
+#     the source switch still mirrors the legacy
+#     `web/nav.js::tree-source toggle` reset.
+#   - First-render default: `useTreeSource()` returns the typed
+#     `col` default; the post-mount re-render surfaces the stored
+#     value (`tests/test_hydration_console.py::test_probe_rehydrates_stored_values_without_warnings`
+#     covers the end-to-end persistence witness in real Chromium).
+#   - Primary-route chunk boundary: the chunks `out/index.html`
+#     references MAY carry `taxa.tree.source` (the active source
+#     hook is now bundled) but MUST stay free of the OTHER three
+#     browser-state keys (`taxa.settings.theme`,
+#     `taxa.tree.lastTaxonId`, `taxa.tree.kebabOpenId`) — those
+#     hooks stay out of scope until their consumer slices ship.
+# ---------------------------------------------------------------------------
+
+
+def test_taxonomy_tree_imports_use_tree_source_via_dedicated_entry_point() -> None:
+    """ODD-BSTATE-TAX-002 (strict-continuation wiring):
+    `useTreeSource` MUST be imported through the dedicated
+    `@taxa/browser-state/tree-source` entry point — NOT through
+    the aggregate `@taxa/browser-state` barrel that the hydration
+    probe consumes.
+
+    Why the entry point switch:
+
+      - The aggregate barrel (`@taxa/browser-state`) re-exports
+        every per-key hook + store + the `reset()` aggregate. The
+        probe route legitimately needs all four chains together.
+      - The main route imports ONLY `useTreeSource`, so the
+        barrel's other three chains must NOT be pulled into the
+        main route's bundle. The strict chunk-boundary contract
+        (`tests/test_app_shell_render.py::test_out_index_html_chunks_permit_only_tree_source_key`)
+        forbids the `taxa.settings.theme`,
+        `taxa.tree.lastTaxonId`, and `taxa.tree.kebabOpenId`
+        localStorage key literals in any chunk the main route
+        references.
+      - With the barrel import, Turbopack groups the four per-key
+        store modules into a single shared chunk that the main
+        route ends up referencing (because the barrel transitively
+        pulls every per-key file through its re-export group).
+        That shared chunk contains all four key literals, which
+        trips the strict chunk-boundary witness.
+      - The dedicated `@taxa/browser-state/tree-source` entry
+        point re-exports ONLY the typed-source surface
+        (`useTreeSource` + the `TreeSource` type +
+        `DEFAULT_TREE_SOURCE`). Turbopack can drop the unrelated
+        chains entirely because nothing the main route imports
+        transitively reaches them.
+
+    Source-level pin:
+
+      1. The import statement MUST surface `useTreeSource` from
+         `@taxa/browser-state/tree-source` (the path-alias form
+         declared in `tsconfig.json`).
+      2. The legacy aggregate-barrel import of `useTreeSource`
+         (`from "@taxa/browser-state"`) is REJECTED — it pulls the
+         whole barrel graph into the main route's bundle.
+      3. No deep imports into the layer folders — the entry point
+         is the only legal surface for the typed-source hook.
+
+    RED gate (ODD-BSTATE-TAX-002): this test observes RED before
+    `src/modules/browser-state/tree-source.ts` is authored AND
+    before TaxonomyTree is migrated to the dedicated entry point.
+    The chunk-boundary witness in
+    `tests/test_app_shell_render.py::test_out_index_html_chunks_permit_only_tree_source_key`
+    stays RED until the migration lands.
+    """
+    text = _read_text(TAXONOMY_TREE_FILE)
+    # 1. The import MUST surface `useTreeSource` from the
+    # dedicated entry point.
+    assert re.search(
+        r"""import\s*\{[^}]*\buseTreeSource\b[^}]*\}\s*from\s*["']@taxa/browser-state/tree-source["']""",
+        text,
+    ), (
+        "ODD-BSTATE-TAX-002: TaxonomyTree.tsx must import "
+        "`useTreeSource` through the dedicated "
+        "`@taxa/browser-state/tree-source` entry point so the "
+        "main route's bundle carries ONLY the typed-source "
+        "chain. The aggregate barrel pulls every per-key store "
+        "into a shared chunk that the main route ends up "
+        "referencing, which trips the strict chunk-boundary "
+        "witness in `test_app_shell_render.py::"
+        "test_out_index_html_chunks_permit_only_tree_source_key`."
+    )
+    # 2. Legacy import assertion — REJECT the aggregate barrel
+    # for `useTreeSource`. The barrel stays in place for the
+    # probe route (`src/app/hydration-probe/page.tsx`) and for
+    # the existing module-layer guard contract, but the main
+    # route MUST NOT use it for the typed-source hook.
+    assert not re.search(
+        r"""import\s*\{[^}]*\buseTreeSource\b[^}]*\}\s*from\s*["']@taxa/browser-state["']""",
+        text,
+    ), (
+        "ODD-BSTATE-TAX-002: TaxonomyTree.tsx MUST NOT import "
+        "`useTreeSource` through the aggregate `@taxa/browser-state` "
+        "barrel — the barrel re-exports every per-key hook + "
+        "store + the reset aggregate, and Turbopack groups those "
+        "into a shared chunk that the main route references. "
+        "Use the dedicated `@taxa/browser-state/tree-source` "
+        "entry point instead."
+    )
+    # 3. No deep imports — the entry point is the only legal
+    # surface for the typed-source hook.
+    for bad in (
+        '"../browser-state',
+        "'../browser-state",
+        "@taxa/browser-state/application",
+        "@taxa/browser-state/infrastructure",
+        "@taxa/browser-state/domain",
+        "@taxa/browser-state/presentation",
+    ):
+        assert bad not in text, (
+            f"ODD-BSTATE-TAX-002: TaxonomyTree.tsx must NOT "
+            f"deep-import {bad!r} — the dedicated entry point is "
+            f"the only legal surface for `useTreeSource` "
+            f"(spec.md rule 5 + ESLint `no-restricted-imports` "
+            f"guard)."
+        )
+
+
+def test_taxonomy_tree_does_not_own_active_source_local_state() -> None:
+    """ODD-BSTATE-TAX-001 (no local activeSource state): the
+    component MUST NOT keep a local `useState<TreeSource>(...)` /
+    `useState<...>(DEFAULT_SOURCE)` for `activeSource`. The typed
+    store owns the source so SSR + the first client render agree
+    (the typed default `"col"` is what `useSyncExternalStore`'s
+    server snapshot returns) and the post-mount re-render surfaces
+    the stored value via `subscribeTreeSource` →
+    `ensureHydrated` → `safeGetItem`.
+
+    The contract is the LITERAL non-existence of the previous
+    local-state declaration. A future refactor that re-introduces
+    the local useState (e.g. to "stage" the source during a fetch)
+    would re-break the hydration contract; this test pins the
+    boundary so the regression fails before review.
+    """
+    text = _read_text(TAXONOMY_TREE_FILE)
+    # Reject the previous `useState<TreeSource>(DEFAULT_SOURCE)`
+    # declaration AND any `useState<...>(<local default>)` for the
+    # `activeSource` identifier. The check is anchored on the
+    # `activeSource` setter line so a future refactor that adds a
+    # benign `useState<number>` for `selected` (a different
+    # identifier) stays out of scope.
+    forbidden_patterns = (
+        # The exact previous declaration — pinned by the ODD-NTP-002
+        # slice this work unit migrates away from.
+        r"const\s+\[\s*activeSource\s*,\s*setActiveSource\s*\]\s*=\s*useState\b",
+        # The default-initializer form the previous slice used.
+        r"setActiveSource\s*\(\s*next\s*\)",
+    )
+    # The setter is still produced by `useTreeSource()` so a literal
+    # `setActiveSource(next)` call inside the source-change handler
+    # is expected. The pin: `setActiveSource(next)` MUST come from
+    # the typed-hook destructure, not from a `useState` call. We
+    # accept the call site (one occurrence in `handleSourceChange`)
+    # while still rejecting the local-state declaration.
+    assert not re.search(forbidden_patterns[0], text), (
+        "ODD-BSTATE-TAX-001: TaxonomyTree.tsx MUST NOT declare a "
+        "local `useState<TreeSource>(...)` pair for "
+        "`activeSource` — the typed `useTreeSource()` hook owns the "
+        "source so SSR + the first client render stay byte-equal "
+        "and the stored value rehydrates on the post-mount render."
+    )
+    # The component still calls `setActiveSource(next)` from inside
+    # `handleSourceChange`; this is the typed-hook setter (returned
+    # by `useTreeSource`), not a `useState` setter. The pin below
+    # asserts the call site stays alive — the source-change handler
+    # MUST continue writing through the typed setter so the
+    # stored value persists across reload.
+    assert re.search(forbidden_patterns[1], text), (
+        "ODD-BSTATE-TAX-001: `handleSourceChange` must continue "
+        "calling `setActiveSource(next)` (the typed setter from "
+        "`useTreeSource()`) so the user-picked source persists to "
+        "`taxa.tree.source` across reload."
+    )
+    # The `DEFAULT_SOURCE` constant is retired — the typed default
+    # lives in `@taxa/browser-state` (`DEFAULT_TREE_SOURCE`). A
+    # declaration of a local `DEFAULT_SOURCE = "col"` constant
+    # would shadow the typed default and re-introduce the
+    # non-stored first-render contract.
+    assert not re.search(r"\bDEFAULT_SOURCE\b\s*:", text), (
+        "ODD-BSTATE-TAX-001: TaxonomyTree.tsx MUST NOT declare a "
+        "local `DEFAULT_SOURCE` constant — the typed default lives "
+        "in `@taxa/browser-state` (`DEFAULT_TREE_SOURCE = \"col\"`). "
+        "A local constant would shadow the typed default and "
+        "re-introduce the non-persistent first-render behaviour."
+    )
+
+
+def test_taxonomy_tree_handle_source_change_preserves_reset_cascade() -> None:
+    """ODD-BSTATE-TAX-001 (handleSourceChange reset cascade preserved):
+    the source-switch reset cascade must stay byte-equal so a
+    switch still mirrors the legacy `web/nav.js::tree-source toggle`
+    reset. The handler:
+      - early-outs when the user re-clicks the active source
+      - clears `state` via `resetSourceState` (roots / expanded /
+        child cache / load status / showAll / per-row error)
+      - clears the open kebab
+      - clears focused + selected
+      - clears the per-taxon search-link cache (source-bound)
+      - clears the per-taxon folder cache + side-effect maps (source-bound)
+      - writes through the typed `setActiveSource(next)` setter so
+        the user-picked source persists to `taxa.tree.source` across
+        reload.
+    """
+    text = _read_text(TAXONOMY_TREE_FILE)
+    handle_idx = text.find("const handleSourceChange")
+    assert handle_idx != -1, (
+        "ODD-BSTATE-TAX-001: TaxonomyTree.tsx must declare "
+        "handleSourceChange."
+    )
+    # Anchor on `setActiveSource(next);` — the typed-hook setter
+    # call the cascade terminates with.
+    set_active_idx = text.find("setActiveSource(next);", handle_idx)
+    assert set_active_idx != -1, (
+        "ODD-BSTATE-TAX-001: handleSourceChange must terminate "
+        "with `setActiveSource(next)` (the typed-hook setter) so "
+        "the user-picked source persists to `taxa.tree.source`."
+    )
+    body = text[handle_idx:set_active_idx]
+    # The reset cascade is the ODD-NTP-005 + ODD-TDFOLDER-001
+    # union. Every step is pinned so a future refactor that drops
+    # one of them trips this test before review.
+    cascade_checks = (
+        ("resetSourceState", "ODD-NTP-002: must reset the source-bound tree state"),
+        ("setKebabOpenId(null)", "ODD-NTP-004: must close the open kebab"),
+        ("setFocused(null)", "ODD-NTP-005: must clear focused"),
+        ("setSelected(null)", "ODD-NTP-005: must clear selected"),
+        ("setSearchesByTaxonId(new Map())", "ODD-TDS-001: must clear the search-link cache"),
+        ("setFolderByTaxonId(new Map())", "ODD-TDFOLDER-001: must clear the folder cache"),
+        ("setFolderCreateByTaxonId(new Map())", "ODD-TDFOLDER-001: must clear the folder create map"),
+        ("setFolderOpenByTaxonId(new Map())", "ODD-TDFOLDER-001: must clear the folder open map"),
+        ("setFolderCopyByTaxonId(new Map())", "ODD-TDFOLDER-001: must clear the folder copy map"),
+        ("setFolderCreateArmedByTaxonId(new Map())", "ODD-TDFOLDER-001: must clear the folder create gate"),
+    )
+    for needle, reason in cascade_checks:
+        assert needle in body, (
+            f"ODD-BSTATE-TAX-001: handleSourceChange reset cascade "
+            f"lost {needle!r} — {reason}. The typed-source migration "
+            f"must preserve the existing source-bound reset."
+        )
+    # The early-out guard — clicking the already-active source is a
+    # no-op so the cascade does NOT fire and the persisted value
+    # stays unchanged.
+    assert re.search(
+        r"if\s*\(\s*next\s*===\s*activeSource\s*\)\s*return",
+        text,
+    ), (
+        "ODD-BSTATE-TAX-001: handleSourceChange must keep the "
+        "`if (next === activeSource) return;` early-out guard."
+    )
+
+
+def test_taxonomy_tree_does_not_touch_localstorage_directly() -> None:
+    """ODD-BSTATE-TAX-001 (storage-isolation regression guard):
+    TaxonomyTree must NOT touch `localStorage` directly — the typed
+    store in `src/modules/browser-state/infrastructure/store.ts` is
+    the ONLY legal storage surface (the
+    `tests/test_browser_state_keys.py::test_other_module_does_not_touch_localstorage`
+    contract). Reaching for `localStorage.*` here would bypass the
+    typed hook, break the hydration contract (the post-mount
+    `subscribe` callback would not fire), and re-introduce the
+    non-persistent first-render bug.
+    """
+    text = _read_text(TAXONOMY_TREE_FILE)
+    # Strip comments so an explanatory doc-block that references
+    # `localStorage` (e.g. the ODD-NTP-002 source-parity note)
+    # is not a false positive.
+    block = re.compile(r"/\*[\s\S]*?\*/")
+    line = re.compile(r"//[^\n]*")
+    blank = lambda m: re.sub(r"[^\n]", " ", m.group(0))  # noqa: E731
+    stripped = block.sub(blank, text)
+    stripped = line.sub(blank, stripped)
+    for needle in ("localStorage.", "sessionStorage.", "window.localStorage"):
+        assert needle not in stripped, (
+            f"ODD-BSTATE-TAX-001: TaxonomyTree.tsx must NOT call "
+            f"{needle!r} directly — the typed store owns storage; "
+            f"reach it through the `useTreeSource()` hook."
+        )
+
+
+def test_taxonomy_tree_uses_typed_source_for_breadcrumb_walker() -> None:
+    """ODD-BSTATE-TAX-001 (typed-source round-trip): the breadcrumb
+    walker must consume the typed `activeSource` returned by
+    `useTreeSource()` — no local shadow, no closure over the previous
+    `useState` default. The walker dispatches on the active source
+    internally (CoL reads `Taxon.parent_id`, Freshwater reads
+    `Taxon.freshwater_parent_id`, WoRMS reconstructs ancestry from
+    the reverse index); a stale source literal would render a
+    breadcrumb under the wrong source after rehydration.
+    """
+    text = _read_text(TAXONOMY_TREE_FILE)
+    # `walkBreadcrumbForSource` is invoked with `(focused,
+    # activeSource, state)` — the second argument MUST be the
+    # typed `activeSource` returned by `useTreeSource()`. A future
+    # refactor that hard-codes a source literal here would
+    # silently desync the breadcrumb from the segmented control.
+    assert re.search(
+        r"walkBreadcrumbForSource\s*\(\s*focused\s*,\s*activeSource\s*,",
+        text,
+    ), (
+        "ODD-BSTATE-TAX-001: walkBreadcrumbForSource must be "
+        "invoked with the typed `activeSource` (the "
+        "`useTreeSource()` value), never a hard-coded source "
+        "literal."
+    )
+    # The breadcrumb source data attribute MUST carry the typed
+    # `activeSource` value so the rendered breadcrumb tracks the
+    # typed store end-to-end.
+    assert "data-breadcrumb-source={activeSource}" in text, (
+        "ODD-BSTATE-TAX-001: the breadcrumb host must stamp "
+        "`data-breadcrumb-source={activeSource}` (the typed-hook "
+        "value) so the rendered breadcrumb tracks the typed store."
+    )
