@@ -44,8 +44,37 @@ BARREL = BS_ROOT / "index.ts"
 
 DOMAIN_KEYS_FILE = DOMAIN_DIR / "keys.ts"
 DOMAIN_DEFAULTS_FILE = DOMAIN_DIR / "defaults.ts"
-INFRA_STORE_FILE = INFRA_DIR / "store.ts"
+# ODD-BSTATE-TAX-001-A — split per storage key. The monolithic
+# `useBrowserStateKey.ts` + `store.ts` are retired; each storage key
+# owns its own hook + store file. The tests follow the split: every
+# per-key path is a separate file under its layer, and the layout
+# checks iterate over the canonical list.
+INFRA_STORE_THEME_FILE = INFRA_DIR / "storeTheme.ts"
+INFRA_STORE_TREE_SOURCE_FILE = INFRA_DIR / "storeTreeSource.ts"
+INFRA_STORE_LAST_TAXON_ID_FILE = INFRA_DIR / "storeLastTaxonId.ts"
+INFRA_STORE_KEBAB_OPEN_ID_FILE = INFRA_DIR / "storeKebabOpenId.ts"
+INFRA_STORE_RESET_FILE = INFRA_DIR / "reset.ts"
+INFRA_STORE_FILES: tuple[Path, ...] = (
+    INFRA_STORE_THEME_FILE,
+    INFRA_STORE_TREE_SOURCE_FILE,
+    INFRA_STORE_LAST_TAXON_ID_FILE,
+    INFRA_STORE_KEBAB_OPEN_ID_FILE,
+)
+APP_HOOK_THEME_FILE = APP_DIR / "useTheme.ts"
+APP_HOOK_TREE_SOURCE_FILE = APP_DIR / "useTreeSource.ts"
+APP_HOOK_LAST_TAXON_ID_FILE = APP_DIR / "useLastTaxonId.ts"
+APP_HOOK_KEBAB_OPEN_ID_FILE = APP_DIR / "useKebabOpenId.ts"
+APP_HOOK_FILES: tuple[Path, ...] = (
+    APP_HOOK_THEME_FILE,
+    APP_HOOK_TREE_SOURCE_FILE,
+    APP_HOOK_LAST_TAXON_ID_FILE,
+    APP_HOOK_KEBAB_OPEN_ID_FILE,
+)
+# The legacy monolithic files — pinned here so a future regression
+# that re-introduces the all-keys-in-one-file layout trips the test.
+# A strict TDD continuation requires these to be GONE after the split.
 APP_HOOK_FILE = APP_DIR / "useBrowserStateKey.ts"
+INFRA_STORE_FILE = INFRA_DIR / "store.ts"
 
 # The four canonical storage keys (per the
 # browser-state-hydration spec table). Pin the localStorage literal
@@ -188,16 +217,127 @@ def test_browser_state_barrel_exists() -> None:
     (
         DOMAIN_KEYS_FILE,
         DOMAIN_DEFAULTS_FILE,
-        INFRA_STORE_FILE,
-        APP_HOOK_FILE,
         BARREL,
+        # ODD-BSTATE-TAX-001-A — per-key split. Each storage key
+        # owns its own hook + store file. The monolithic
+        # `store.ts` + `useBrowserStateKey.ts` are retired; they
+        # stay out of the parametrized list so a regression that
+        # re-introduces them trips the dedicated
+        # `test_monolithic_modules_are_retired` pin below.
+        INFRA_STORE_THEME_FILE,
+        INFRA_STORE_TREE_SOURCE_FILE,
+        INFRA_STORE_LAST_TAXON_ID_FILE,
+        INFRA_STORE_KEBAB_OPEN_ID_FILE,
+        INFRA_STORE_RESET_FILE,
+        APP_HOOK_THEME_FILE,
+        APP_HOOK_TREE_SOURCE_FILE,
+        APP_HOOK_LAST_TAXON_ID_FILE,
+        APP_HOOK_KEBAB_OPEN_ID_FILE,
     ),
 )
 def test_canonical_file_present(path: Path) -> None:
-    """Every canonical file MUST be on disk by task close."""
+    """Every canonical file MUST be on disk by task close.
+
+    ODD-BSTATE-TAX-001-A: the canonical files are now split per
+    storage key — every key owns its own hook + store file, and
+    reset.ts is the aggregate module that clears every key. The
+    path list here mirrors the split so the file-presence matrix
+    stays exhaustive without naming every individual file in the
+    test body.
+    """
     assert path.is_file(), (
-        f"missing canonical file: {path}. ODD-BSTATE-001 must create this "
-        f"file inside the documented path."
+        f"missing canonical file: {path}. ODD-BSTATE-TAX-001-A "
+        f"must split the typed store into per-key files."
+    )
+
+
+# ODD-BSTATE-TAX-001-A — strict-continuation layout invariant.
+# After the per-key split, the legacy monolithic `store.ts` +
+# `useBrowserStateKey.ts` files MUST be gone. A future regression
+# that collapses the per-key files back into a monolith would
+# silently re-bundle the typed source + the three forbidden keys
+# into one chunk (Turbopack cannot tree-shake a single-file
+# re-export), defeating the ODD-BSTATE-TAX-001-B strict chunk-
+# boundary contract. The invariant pins the split at the
+# filesystem level.
+def test_monolithic_modules_are_retired() -> None:
+    """The monolithic `infrastructure/store.ts` +
+    `application/useBrowserStateKey.ts` files MUST NOT exist after
+    the per-key split.
+
+    The strict chunk-boundary contract (ODD-BSTATE-TAX-001-B)
+    depends on Turbopack retaining only the imported key's module
+    chain. A monolithic file with four key declarations + four
+    hook declarations defeats retention — the bundler pulls the
+    whole file the moment any consumer touches the module. The
+    invariants below make the regression loud before review.
+    """
+    assert not APP_HOOK_FILE.exists(), (
+        f"monolithic application hook must be retired; "
+        f"{APP_HOOK_FILE} still exists. ODD-BSTATE-TAX-001-A "
+        f"requires per-key hook files (useTheme.ts, "
+        f"useTreeSource.ts, useLastTaxonId.ts, useKebabOpenId.ts)."
+    )
+    assert not INFRA_STORE_FILE.exists(), (
+        f"monolithic infrastructure store must be retired; "
+        f"{INFRA_STORE_FILE} still exists. ODD-BSTATE-TAX-001-A "
+        f"requires per-key store files (storeTheme.ts, "
+        f"storeTreeSource.ts, storeLastTaxonId.ts, "
+        f"storeKebabOpenId.ts) plus a reset.ts aggregate module."
+    )
+
+
+@pytest.mark.parametrize("path", APP_HOOK_FILES)
+def test_application_hook_can_import_react_but_not_localstorage(path: Path) -> None:
+    """Every per-key hook MAY import React (the hook is a React
+    adapter) but MUST NOT touch `localStorage` directly — storage
+    access lives in the matching `infrastructure/store<X>.ts`
+    file. The reset.ts aggregate module owns the cross-key
+    `localStorage.removeItem` calls but per-key hooks never
+    reach for storage primitives on their own.
+
+    ODD-BSTATE-TAX-001-A: with the per-key split, the previous
+    single-file hook (`application/useBrowserStateKey.ts`) is
+    replaced by four sibling files. The contract pins each one
+    independently so a future regression that re-introduces a
+    storage reference in any hook file trips this test before
+    review.
+    """
+    if not path.exists():
+        pytest.skip(f"hook file not present yet: {path}")
+    stripped = _strip_ts_comments(path.read_text(encoding="utf-8"))
+    forbidden = (
+        "localStorage", "sessionStorage",
+        "fetch(", "document.", "process.", "globalThis.",
+    )
+    for token in forbidden:
+        assert token not in stripped, (
+            f"{path.name} must NOT touch {token!r}; storage access "
+            f"is owned by the matching per-key store file."
+        )
+
+
+@pytest.mark.parametrize("path", INFRA_STORE_FILES)
+def test_infrastructure_per_key_store_has_storage_calls(path: Path) -> None:
+    """Every per-key `infrastructure/store<X>.ts` file MUST own
+    its key's `localStorage` calls.
+
+    The previous single-file monolith is replaced by four
+    sibling files; each one owns exactly one storage key
+    (theme / tree-source / last-taxon-id / kebab-open-id). The
+    cross-key `reset()` affordance lives in
+    `infrastructure/reset.ts` and aggregates the four
+    `removeItem` sites. The per-key split also unlocks
+    Turbopack retention — the bundler drops the three unrelated
+    keys when a consumer imports only one hook.
+    """
+    if not path.exists():
+        pytest.skip(f"store file not present yet: {path}")
+    text = path.read_text(encoding="utf-8")
+    assert "localStorage" in text or "globalThis" in text, (
+        f"{path.name} MUST own the localStorage calls for its "
+        f"storage key — the typed store is the only legal storage "
+        f"surface."
     )
 
 
@@ -229,43 +369,6 @@ def test_domain_file_purity(path: Path) -> None:
         assert token not in stripped, (
             f"{path.name} must stay free of {token!r}; spec.md rule 4."
         )
-
-
-def test_application_hook_can_import_react_but_not_localstorage() -> None:
-    """The `application/useBrowserStateKey.ts` hook MAY import React
-    (the hook is a React adapter) but MUST NOT touch `localStorage`
-    directly — storage access lives in `infrastructure/store.ts`.
-    """
-    if not APP_HOOK_FILE.exists():
-        pytest.skip("hook file not present yet")
-    stripped = _strip_ts_comments(APP_HOOK_FILE.read_text(encoding="utf-8"))
-    forbidden = (
-        "localStorage", "sessionStorage",
-        "fetch(", "document.", "process.", "globalThis.",
-    )
-    for token in forbidden:
-        assert token not in stripped, (
-            f"useBrowserStateKey.ts must NOT touch {token!r}; storage access "
-            f"is owned by infrastructure/store.ts."
-        )
-
-
-def test_infrastructure_store_has_storage_calls() -> None:
-    """`infrastructure/store.ts` is the ONLY layer that may call
-    `localStorage`. The hook reaches storage exclusively through the
-    typed read/write/subscribe surface; the domain is pure types.
-    """
-    if not INFRA_STORE_FILE.exists():
-        pytest.skip("store file not present yet")
-    text = INFRA_STORE_FILE.read_text(encoding="utf-8")
-    # At least one getItem / setItem / removeItem site is required.
-    # The spec table pins 4 reads + 4 writes + 4 removeItem-from-reset
-    # (the count assertions live in
-    # `test_browser_state_module_has_exactly_four_read_sites` etc.).
-    assert "localStorage" in text or "globalThis" in text, (
-        "infrastructure/store.ts MUST own the localStorage calls — the "
-        "typed store is the only legal storage surface."
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -377,10 +480,17 @@ def test_browser_state_module_has_reset_remove_item_sites() -> None:
 
 
 def test_browser_state_infrastructure_owns_local_storage_calls() -> None:
-    """Storage access is centralised in `infrastructure/store.ts`.
-    Every literal `localStorage.` reference in the module MUST live
-    inside the infrastructure layer; the domain, application, and
-    barrel files MUST stay storage-free.
+    """Storage access is centralised in the per-key infrastructure
+    stores. Every literal `localStorage.` reference in the module
+    MUST live inside the infrastructure layer (per-key store files
+    + the reset.ts aggregate); the domain, application, and barrel
+    files MUST stay storage-free.
+
+    ODD-BSTATE-TAX-001-A: the previous monolithic
+    `infrastructure/store.ts` is replaced by four sibling files
+    (storeTheme.ts / storeTreeSource.ts / storeLastTaxonId.ts /
+    storeKebabOpenId.ts) plus `infrastructure/reset.ts`. The
+    legal-home set below tracks the split.
     """
     text = _module_text("browser-state")
     if not text:
@@ -388,25 +498,36 @@ def test_browser_state_infrastructure_owns_local_storage_calls() -> None:
     # Concatenate every file but tag each file's origin so we can
     # pinpoint which layer owns a literal reference.
     root = REPO_ROOT / "src" / "modules" / "browser-state"
+    # ODD-BSTATE-TAX-001-A — the only legal homes for storage
+    # primitives are now the four per-key store files PLUS the
+    # `reset.ts` aggregate (which owns the cross-key
+    # `localStorage.removeItem` calls). The legacy monolithic
+    # `store.ts` is retired; a regression that re-introduces it
+    # would re-bundle the typed source + the three forbidden
+    # keys into one chunk (defeating the strict chunk-boundary
+    # contract from ODD-BSTATE-TAX-001-B).
+    legal_homes: set[Path] = set(INFRA_STORE_FILES) | {INFRA_STORE_RESET_FILE}
     offenders: list[tuple[str, str]] = []
     for path in sorted(root.rglob("*.ts")) + sorted(root.rglob("*.tsx")):
         if not path.is_file():
             continue
-        if path == INFRA_STORE_FILE:
-            continue  # the only legal home for storage primitives
+        if path in legal_homes:
+            continue  # legal home for storage primitives
         rel = path.relative_to(BS_ROOT).as_posix()
-        # Only the top-level `infrastructure/store.ts` is allowed to
-        # touch `localStorage` directly. The application hook
-        # (`useBrowserStateKey.ts`) and the barrel re-route through
-        # the typed store; the domain layer is pure types.
+        # Per-key hook files + the barrel + the domain + the
+        # presentation layer MUST stay free of `localStorage.*`
+        # references. The barrel re-routes through the typed
+        # store; the domain layer is pure types; the per-key
+        # hooks reach storage exclusively through the typed
+        # store surface.
         body = _strip_ts_comments(path.read_text(encoding="utf-8"))
         for needle in ("localStorage.", "sessionStorage.", "window.localStorage"):
             if needle in body:
                 offenders.append((rel, needle))
     assert not offenders, (
-        f"storage primitives MUST stay in infrastructure/store.ts; "
-        f"found {offenders}. The typed store is the only legal "
-        f"storage surface."
+        f"storage primitives MUST stay in a per-key infrastructure "
+        f"store file (or the reset.ts aggregate); found {offenders}. "
+        f"The typed store is the only legal storage surface."
     )
 
 
@@ -527,18 +648,28 @@ def test_barrel_exports_typed_surface() -> None:
 # is a React API). Runtime harness exercises every observable surface.
 # ---------------------------------------------------------------------------
 def _tsc_inputs() -> list[Path]:
-    """Files to feed tsc: keys.ts, defaults.ts, store.ts, and the
-    application hook. The hook imports React; we keep the libs
-    ES2022 + DOM so the React global is visible.
+    """Files to feed tsc: the domain files, every per-key store
+    file, the reset.ts aggregate, and every per-key hook file.
+
+    ODD-BSTATE-TAX-001-A: with the per-key split, the compile
+    inputs are now eight sibling files instead of two monoliths.
+    The hook files import React; we keep the libs ES2022 + DOM so
+    the React global is visible.
     """
-    return [
-        p for p in (
-            DOMAIN_KEYS_FILE,
-            DOMAIN_DEFAULTS_FILE,
-            INFRA_STORE_FILE,
-            APP_HOOK_FILE,
-        ) if p.is_file()
-    ]
+    candidates: tuple[Path, ...] = (
+        DOMAIN_KEYS_FILE,
+        DOMAIN_DEFAULTS_FILE,
+        INFRA_STORE_THEME_FILE,
+        INFRA_STORE_TREE_SOURCE_FILE,
+        INFRA_STORE_LAST_TAXON_ID_FILE,
+        INFRA_STORE_KEBAB_OPEN_ID_FILE,
+        INFRA_STORE_RESET_FILE,
+        APP_HOOK_THEME_FILE,
+        APP_HOOK_TREE_SOURCE_FILE,
+        APP_HOOK_LAST_TAXON_ID_FILE,
+        APP_HOOK_KEBAB_OPEN_ID_FILE,
+    )
+    return [p for p in candidates if p.is_file()]
 
 
 def _run_tsc(out_dir: Path, *extra: str) -> subprocess.CompletedProcess:
@@ -568,20 +699,32 @@ def _run_tsc(out_dir: Path, *extra: str) -> subprocess.CompletedProcess:
 
 
 # Runtime harness — exercises every observable surface without
-# booting a real React renderer. The hook is tested through its
-# underlying read/write/subscribe API because `useSyncExternalStore`
-# requires a React renderer (PR 4b owns the React integration test).
-# The contract we lock here is the typed-store surface; the
-# `useSyncExternalStore` wiring is exercised separately by
-# `tests/test_browser_state_hydration_guard.py`.
+# booting a real React renderer. The hooks are tested through
+# their underlying read/write/subscribe APIs because
+# `useSyncExternalStore` requires a React renderer (the React
+# integration belongs to
+# `tests/test_browser_state_hydration_guard.py`).
+#
+# ODD-BSTATE-TAX-001-A: with the per-key split, the harness
+# composes the typed surface from four sibling store modules
+# plus the `reset.js` aggregate. Each per-key module owns its own
+# read/write/subscribe + a `__resetForTests` seam; the reset
+# module aggregates the cross-key reset. The harness requires:
+#   - storeTheme.js
+#   - storeTreeSource.js
+#   - storeLastTaxonId.js
+#   - storeKebabOpenId.js
+#   - reset.js
+# (in that exact order — `argv[2]` is storeTheme, …, `argv[6]`
+# is reset) so the per-key composability stays vendor-agnostic.
 _RUNTIME_HARNESS = r"""
 const path = require("path");
-const fs = require("fs");
 
 // jsdom-free harness: the typed store is the only React-free
 // surface; we exercise it directly. A minimal `window` /
 // `localStorage` polyfill is enough to drive the contract — the
-// store falls back to defaults when storage is missing.
+// per-key store falls back to the typed default when storage is
+// missing.
 const makeStorage = (initial) => {
   const map = new Map(Object.entries(initial || {}));
   return {
@@ -611,24 +754,51 @@ const fail = (label) => {
   process.stderr.write("FAIL " + label + "\n");
   process.exit(1);
 };
-const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-const mod = require(path.resolve(process.argv[2]));
-// tsc preserves the layer folder structure (--rootDir +
-// per-source relative paths), so the compiled `store.js` lives
-// under `out/infrastructure/` and `defaults.js` lives under
-// `out/domain/`. Resolve defaults via `path.relative` from
-// `store.js`'s directory.
+// ODD-BSTATE-TAX-001-A: the harness now requires each per-key
+// store module separately and the `reset.js` aggregate. The
+// five argv slots are exactly: storeTheme, storeTreeSource,
+// storeLastTaxonId, storeKebabOpenId, reset. tsc preserves
+// the layer folder structure (--rootDir + per-source
+// relative paths), so the compiled files land under
+// `out_dir/infrastructure/{storeTheme,storeTreeSource,…}.js`
+// and `out_dir/infrastructure/reset.js`.
+const [themeMod, treeMod, lastMod, kebabMod, resetMod] =
+  [process.argv[2], process.argv[3], process.argv[4], process.argv[5], process.argv[6]].map(
+    (p) => require(path.resolve(p)),
+  );
+
+const {
+  readTheme, writeTheme, subscribeTheme, __resetForTests: __resetTheme,
+} = themeMod;
+const {
+  readTreeSource, writeTreeSource, subscribeTreeSource,
+  __resetForTests: __resetTree,
+} = treeMod;
+const {
+  readLastTaxonId, writeLastTaxonId, subscribeLastTaxonId,
+  __resetForTests: __resetLast,
+} = lastMod;
+const {
+  readKebabOpenId, writeKebabOpenId, subscribeKebabOpenId,
+  __resetForTests: __resetKebab,
+} = kebabMod;
+const { reset } = resetMod;
+
+function __resetForTests() {
+  __resetTheme();
+  __resetTree();
+  __resetLast();
+  __resetKebab();
+}
+
+// ODD-BSTATE-TAX-001-A: the per-key store modules no longer
+// share a single defaults module. Resolve `defaults.js` via
+// `path.relative` from the first per-key store's directory
+// (every per-key store sits under `infrastructure/`, so the
+// resolution lands on `domain/defaults.js`).
 const storeDir = path.dirname(path.resolve(process.argv[2]));
 const defaults = require(path.resolve(storeDir, "../domain/defaults.js"));
-const {
-  readTheme, writeTheme, subscribeTheme,
-  readTreeSource, writeTreeSource, subscribeTreeSource,
-  readLastTaxonId, writeLastTaxonId, subscribeLastTaxonId,
-  readKebabOpenId, writeKebabOpenId, subscribeKebabOpenId,
-  reset,
-  __resetForTests,
-} = mod;
 const {
   DEFAULT_THEME, DEFAULT_TREE_SOURCE,
   DEFAULT_LAST_TAXON_ID, DEFAULT_KEBAB_OPEN_ID,
@@ -766,38 +936,65 @@ process.stdout.write("PASS\n");
 def test_compiled_browser_state_passes_runtime_contract(
     tmp_path, require_toolchain: None,
 ) -> None:
-    """Compile `keys.ts`, `defaults.ts`, `store.ts`, and the hook in
-    strict mode (ES2022 + DOM) and run the runtime harness under
-    Node. The harness covers defaults, hydration, round-trip,
-    subscribers, reset, storage-failure safety, SSR safety, and
-    garbage-value fallbacks.
+    """Compile every per-key file in strict mode (ES2022 + DOM)
+    and run the runtime harness under Node.
+
+    ODD-BSTATE-TAX-001-A: the harness composes the typed surface
+    from four sibling store modules plus the reset aggregate.
+    The compile inputs cover every per-key file, so a regression
+    in any layer fails compilation before harness execution.
+    The harness covers defaults, hydration, round-trip,
+    subscribers, reset, storage-failure safety, SSR safety,
+    and garbage-value fallbacks.
     """
+    # All required per-key files MUST be present for the runtime
+    # contract to be meaningful; refuse to skip into a silent
+    # green by mistake.
+    out_dir = tmp_path / "bs-out"
+    expected_compiled = (
+        ("storeTheme", out_dir / "infrastructure" / "storeTheme.js"),
+        ("storeTreeSource", out_dir / "infrastructure" / "storeTreeSource.js"),
+        ("storeLastTaxonId", out_dir / "infrastructure" / "storeLastTaxonId.js"),
+        ("storeKebabOpenId", out_dir / "infrastructure" / "storeKebabOpenId.js"),
+        ("reset", out_dir / "infrastructure" / "reset.js"),
+    )
+    # Compile every per-key file. The previous monolithic compile
+    # call is replaced by the parametrized list in `_tsc_inputs`
+    # so the compile covers every layer file.
     out_dir = tmp_path / "bs-out"
     result = _run_tsc(out_dir)
     assert result.returncode == 0, (
         f"tsc failed (exit {result.returncode}).\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
-    # The hook is a React-bound module that imports `react`. We do
-    # not exercise the hook at runtime here — that contract lives in
-    # `tests/test_browser_state_hydration_guard.py`. We exercise the
-    # typed-store surface (`store.ts`) directly by pointing the
-    # harness at the compiled `store.js`. tsc preserves the layer
-    # folder structure (--rootDir + per-source relative paths), so
-    # the compiled file lands under `out_dir/infrastructure/store.js`.
-    compiled = out_dir / "infrastructure" / "store.js"
-    if not compiled.is_file():
-        found = sorted(p.name for p in out_dir.rglob("*.js")) if out_dir.exists() else []
+    # The hooks are React-bound modules that import `react`. We
+    # do not exercise them at runtime here — that contract lives
+    # in `tests/test_browser_state_hydration_guard.py`. We
+    # exercise the typed-store surface (the four per-key stores
+    # + the reset aggregate) directly by pointing the harness at
+    # the compiled sibling `.js` files. tsc preserves the layer
+    # folder structure (--rootDir + per-source relative paths),
+    # so the compiled files land under `out_dir/infrastructure/`.
+    missing = [
+        name for name, path in expected_compiled if not path.is_file()
+    ]
+    if missing:
+        found = sorted(
+            p.relative_to(tmp_path).as_posix()
+            for p in (tmp_path / "bs-out").rglob("*.js")
+        ) if (tmp_path / "bs-out").exists() else []
         pytest.fail(
-            f"expected compiled store.js at {compiled}; "
+            f"expected compiled per-key store files at "
+            f"{[p for _, p in expected_compiled]}; missing {missing}; "
             f"found compiled files: {found}"
         )
-    # Write the harness in a sibling dir so tsc doesn't try to type-
-    # check it.
+    # Write the harness in a sibling dir so tsc doesn't try to
+    # type-check it.
     harness_file = tmp_path / "harness.js"
     harness_file.write_text(_RUNTIME_HARNESS, encoding="utf-8")
+    compiled_modules = [str(path) for _, path in expected_compiled]
     node = subprocess.run(
-        ["node", str(harness_file), str(compiled)],
+        ["node", str(harness_file), *compiled_modules],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,

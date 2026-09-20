@@ -49,7 +49,7 @@ import {
   useTreeSource,
   useLastTaxonId,
   useKebabOpenId,
-} from "../application/useBrowserStateKey";
+} from "../index";
 
 /**
  * Render a stored `number | null` value as the literal `null` string

@@ -35,7 +35,6 @@ from pathlib import Path
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Constants pinned by design.md + spec.md (test must break if either changes).
 # ---------------------------------------------------------------------------
@@ -225,6 +224,91 @@ def test_total_module_count_matches_pinned_5():
     )
 
 
+# ODD-BSTATE-TAX-002 — strict-continuation: the public
+# `@taxa/browser-state/tree-source` entry point is the canonical
+# typed-source surface for the main route. The new entry point
+# lives at the module root (NOT inside a layer folder) so it
+# does not require a layer-purity carve-out. The pinned filename
+# lives in `MODULE_ROOT_ENTRY_POINTS` below so the inverse guard
+# admits it as a legitimate module-root child.
+MODULE_ROOT_ENTRY_POINTS: tuple[str, ...] = (
+    # browser-state ships `tree-source.ts` as a dedicated public
+    # entry point for the typed-source chain. The aggregate barrel
+    # (`index.ts`) stays in place for the probe route; this file
+    # is the narrow typed-source surface so the main route can
+    # avoid pulling the unrelated storage chains into its bundle.
+    "tree-source.ts",
+)
+
+
+def test_browser_state_tree_source_entry_point_present() -> None:
+    """ODD-BSTATE-TAX-002 (strict-continuation): the public
+    `@taxa/browser-state/tree-source` entry point MUST exist at
+    the module root so the main route can import the typed
+    tree-source surface without dragging the three unrelated
+    storage chains into its bundle.
+
+    RED gate: this test observes RED before the
+    `src/modules/browser-state/tree-source.ts` file is authored.
+    The strict chunk-boundary contract
+    (`tests/test_app_shell_render.py::test_out_index_html_chunks_permit_only_tree_source_key`)
+    depends on this entry point existing; the per-key module split
+    alone is not enough because Turbopack bundles every key into a
+    shared chunk when consumers reach them through the aggregate
+    barrel.
+    """
+    tree_source_entry = (
+        REPO_ROOT / "src" / "modules" / "browser-state" / "tree-source.ts"
+    )
+    assert tree_source_entry.is_file(), (
+        f"missing public entry point: {tree_source_entry}. "
+        f"ODD-BSTATE-TAX-002 requires the dedicated "
+        f"@taxa/browser-state/tree-source entry point so the main "
+        f"route can bundle ONLY the typed-source chain. The "
+        f"per-key split (ODD-BSTATE-TAX-001-A) is necessary but "
+        f"not sufficient — the aggregate barrel still re-exports "
+        f"every key, so Turbopack groups the four per-key stores "
+        f"into a shared chunk that the main route references."
+    )
+
+
+def test_browser_state_tree_source_entry_point_is_module_root() -> None:
+    """ODD-BSTATE-TAX-002 (location invariant): the entry point
+    MUST live at the module root, not inside any layer folder.
+    A layer-folder location would either (a) require carving the
+    layer guard to admit it, or (b) trip the
+    `no-restricted-imports` ESLint rule the moment any consumer
+    tries to import it. Both are spec.md rule 5 / rule 3
+    regressions.
+
+    The entry point is module-root exactly so consumers can
+    import it through the path-alias-resolved form
+    `@taxa/browser-state/tree-source` (already wired through the
+    `@taxa/browser-state/*` rule in `tsconfig.json`), with no
+    layer-purity carve-out required.
+    """
+    tree_source_entry = (
+        REPO_ROOT / "src" / "modules" / "browser-state" / "tree-source.ts"
+    )
+    if not tree_source_entry.exists():
+        pytest.skip(
+            "tree-source entry point not authored yet — see "
+            "test_browser_state_tree_source_entry_point_present."
+        )
+    # The entry point must NOT live under a layer folder.
+    for layer in LAYERS:
+        nested = (
+            REPO_ROOT / "src" / "modules" / "browser-state" / layer
+            / "tree-source.ts"
+        )
+        assert not nested.exists(), (
+            f"ODD-BSTATE-TAX-002: tree-source entry point MUST live "
+            f"at the module root, not under {layer!r}; found "
+            f"{nested} (the no-restricted-imports guard would "
+            f"reject any consumer that imports it)."
+        )
+
+
 def test_no_forbidden_layer_name_per_module():
     """Inverse guard of `test_layer_folder_exists`: every direct child of
     a capability module MUST be one of the 4 pinned layer folders, the
@@ -233,10 +317,18 @@ def test_no_forbidden_layer_name_per_module():
 
     spec.md rule 3 enumerates the four required layer names; nothing
     else is allowed.
+
+    ODD-BSTATE-TAX-002 carve-out: the public `tree-source.ts` entry
+    point under `src/modules/browser-state/` is admitted as a
+    legitimate module-root child so the dedicated typed-source entry
+    point can ship without inviting a layer-purity violation. The
+    carve-out is intentionally narrow — only the pinned filename in
+    `MODULE_ROOT_ENTRY_POINTS` is admitted; any other unknown child
+    still trips the guard.
     """
     if not MODULES_ROOT.exists():
         pytest.skip("modules root not present yet")
-    allowed = set(LAYERS) | {BARREL_NAME, ".gitkeep"}
+    allowed = set(LAYERS) | {BARREL_NAME, ".gitkeep"} | set(MODULE_ROOT_ENTRY_POINTS)
     for capability in CAPABILITIES:
         module_dir = _module_dir(capability)
         if not module_dir.exists():

@@ -22,9 +22,9 @@ References:
 from __future__ import annotations
 
 import re
+from pathlib import Path
 import shutil
 import subprocess
-from pathlib import Path
 
 import pytest
 
@@ -36,10 +36,43 @@ INFRA_DIR = BS_ROOT / "infrastructure"
 DOMAIN_DIR = BS_ROOT / "domain"
 BARREL = BS_ROOT / "index.ts"
 
-HOOK_FILE = APP_DIR / "useBrowserStateKey.ts"
-INFRA_STORE_FILE = INFRA_DIR / "store.ts"
+# ODD-BSTATE-TAX-001-A — split per storage key. Each hook owns
+# its own file under `application/`; the matching store file
+# lives under `infrastructure/`; the aggregate `reset.ts` lives
+# under `infrastructure/` too. The legacy monolithic
+# `useBrowserStateKey.ts` + `store.ts` are retired; a regression
+# that re-introduces them trips the
+# `test_monolithic_modules_are_retired` pin (lives in
+# `tests/test_browser_state_keys.py`).
+APP_HOOK_THEME_FILE = APP_DIR / "useTheme.ts"
+APP_HOOK_TREE_SOURCE_FILE = APP_DIR / "useTreeSource.ts"
+APP_HOOK_LAST_TAXON_ID_FILE = APP_DIR / "useLastTaxonId.ts"
+APP_HOOK_KEBAB_OPEN_ID_FILE = APP_DIR / "useKebabOpenId.ts"
+APP_HOOK_FILES: tuple[Path, ...] = (
+    APP_HOOK_THEME_FILE,
+    APP_HOOK_TREE_SOURCE_FILE,
+    APP_HOOK_LAST_TAXON_ID_FILE,
+    APP_HOOK_KEBAB_OPEN_ID_FILE,
+)
+INFRA_STORE_THEME_FILE = INFRA_DIR / "storeTheme.ts"
+INFRA_STORE_TREE_SOURCE_FILE = INFRA_DIR / "storeTreeSource.ts"
+INFRA_STORE_LAST_TAXON_ID_FILE = INFRA_DIR / "storeLastTaxonId.ts"
+INFRA_STORE_KEBAB_OPEN_ID_FILE = INFRA_DIR / "storeKebabOpenId.ts"
+INFRA_STORE_RESET_FILE = INFRA_DIR / "reset.ts"
+INFRA_STORE_FILES: tuple[Path, ...] = (
+    INFRA_STORE_THEME_FILE,
+    INFRA_STORE_TREE_SOURCE_FILE,
+    INFRA_STORE_LAST_TAXON_ID_FILE,
+    INFRA_STORE_KEBAB_OPEN_ID_FILE,
+)
 DOMAIN_KEYS_FILE = DOMAIN_DIR / "keys.ts"
 DOMAIN_DEFAULTS_FILE = DOMAIN_DIR / "defaults.ts"
+# Legacy paths — pinned here so a regression that re-introduces
+# the monolithic layout trips the test suite (the path is
+# referenced by the dedicated `test_monolithic_modules_are_retired`
+# pin in `test_browser_state_keys.py`).
+HOOK_FILE = APP_DIR / "useBrowserStateKey.ts"
+INFRA_STORE_FILE = INFRA_DIR / "store.ts"
 
 
 # ---------------------------------------------------------------------------
@@ -84,67 +117,96 @@ def _strip_ts_comments(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# File presence — pins the canonical hook path.
+# File presence — pins the per-key hook paths.
+#
+# ODD-BSTATE-TAX-001-A: the previous monolithic hook file is
+# split into four per-key files (one per storage key). Each
+# hook MUST be on disk by task close so the per-key split
+# stays exhaustive and the strict chunk-boundary contract
+# (ODD-BSTATE-TAX-001-B) can rely on Turbopack retaining only
+# the imported key's module chain.
 # ---------------------------------------------------------------------------
-def test_hook_file_present() -> None:
-    """`application/useBrowserStateKey.ts` is the canonical hook path.
-    PR 4b predecessor ships it; ODD-BSTATE-001 keeps the same path.
+@pytest.mark.parametrize("path", APP_HOOK_FILES)
+def test_hook_file_present(path: Path) -> None:
+    """Every per-key hook file MUST exist on disk by task close.
+
+    The four canonical paths are `useTheme.ts`,
+    `useTreeSource.ts`, `useLastTaxonId.ts`, and
+    `useKebabOpenId.ts`. A future PR that drops one of them
+    silently re-bundles the matching storage key into a
+    sibling chunk, defeating the strict chunk-boundary contract.
     """
-    assert HOOK_FILE.is_file(), (
-        f"missing hook file: {HOOK_FILE}. ODD-BSTATE-001 must create "
-        f"this file inside the canonical path."
+    assert path.is_file(), (
+        f"missing per-key hook file: {path}. ODD-BSTATE-TAX-001-A "
+        f"must split the typed hooks into per-key files."
     )
 
 
 # ---------------------------------------------------------------------------
-# Hook purity — the hook is allowed to import React + the typed
-# store, but MUST NOT touch `localStorage` or any storage primitive
-# directly. Storage access lives in `infrastructure/store.ts`.
+# Hook purity — every per-key hook is allowed to import React +
+# the matching typed store, but MUST NOT touch `localStorage`
+# or any storage primitive directly. Storage access lives in
+# the matching `infrastructure/store<X>.ts` file.
 # ---------------------------------------------------------------------------
-def test_hook_does_not_touch_localstorage() -> None:
-    if not HOOK_FILE.exists():
-        pytest.skip("hook file not present yet")
+@pytest.mark.parametrize("path", APP_HOOK_FILES)
+def test_hook_does_not_touch_localstorage(path: Path) -> None:
+    """Every per-key hook file MUST stay free of `localStorage.`
+    tokens.
+
+    ODD-BSTATE-TAX-001-A: with the per-key split, the storage
+    helpers live in the matching store file
+    (`storeTheme.ts` / `storeTreeSource.ts` / …) and reach the
+    typed surface through the matching per-key read /
+    subscribe imports. The hook itself is a thin React adapter
+    on top of `useSyncExternalStore`. A regression that reaches
+    for `localStorage.*` directly inside any per-key hook file
+    trips this parametrized guard before review.
+    """
+    if not path.exists():
+        pytest.skip(f"hook file not present yet: {path}")
     # Strip comments so a doc-block referencing `localStorage`
-    # (explaining that storage lives in `infrastructure/store.ts`)
-    # is not a false positive.
-    stripped = _strip_ts_comments(HOOK_FILE.read_text(encoding="utf-8"))
+    # (explaining that storage lives in the matching per-key
+    # store) is not a false positive.
+    stripped = _strip_ts_comments(path.read_text(encoding="utf-8"))
     for token in (
         "localStorage", "sessionStorage",
         "fetch(", "document.", "window.localStorage",
         "process.", "globalThis.",
     ):
         assert token not in stripped, (
-            f"useBrowserStateKey.ts must NOT reference {token!r}; storage "
-            f"access belongs to infrastructure/store.ts."
+            f"{path.name} must NOT reference {token!r}; storage "
+            f"access belongs to the matching per-key store file."
         )
 
 
-def test_hook_uses_use_sync_external_store() -> None:
-    """The hydration-safe hook uses `useSyncExternalStore` (React 18+)
+@pytest.mark.parametrize("path", APP_HOOK_FILES)
+def test_hook_uses_use_sync_external_store(path: Path) -> None:
+    """Every per-key hook uses `useSyncExternalStore` (React 18+)
     so SSR returns the typed default, the first client render
     matches SSR, and the post-mount render returns the stored
     value. A future PR that switches to a less safe API (e.g.
     raw `useState` + `useEffect`) breaks the hydration contract.
     """
-    if not HOOK_FILE.exists():
-        pytest.skip("hook file not present yet")
-    text = HOOK_FILE.read_text(encoding="utf-8")
+    if not path.exists():
+        pytest.skip(f"hook file not present yet: {path}")
+    text = path.read_text(encoding="utf-8")
     assert "useSyncExternalStore" in text, (
-        "useBrowserStateKey.ts must use useSyncExternalStore so the "
-        "hydration guard never trips on a stored value."
+        f"{path.name} must use useSyncExternalStore so the "
+        f"hydration guard never trips on a stored value."
     )
 
 
-def test_hook_uses_client_directive() -> None:
-    """The hook is a Client Component hook (uses `useEffect`,
-    `useSyncExternalStore`, browser APIs). It MUST start with the
-    `"use client";` directive so Next.js treats it as client-only
-    code; without the directive the static export would try to
-    evaluate the hook during the build's SSR pass.
+@pytest.mark.parametrize("path", APP_HOOK_FILES)
+def test_hook_uses_client_directive(path: Path) -> None:
+    """Every per-key hook is a Client Component hook. It MUST
+    start with the `"use client";` directive so Next.js
+    treats it as client-only code; without the directive the
+    static export would try to evaluate the hook during the
+    build's SSR pass.
     """
-    if not HOOK_FILE.exists():
-        pytest.skip("hook file not present yet")
-    text = HOOK_FILE.read_text(encoding="utf-8")
+    if not path.exists():
+        pytest.skip(f"hook file not present yet: {path}")
+    text = path.read_text(encoding="utf-8")
     # The directive must be the first non-comment statement. Strip
     # leading comments so a doc-block at the top is allowed.
     block = re.compile(r"/\*[\s\S]*?\*/")
@@ -154,24 +216,82 @@ def test_hook_uses_client_directive() -> None:
     stripped = line.sub(blank, stripped)
     head = stripped.lstrip()
     assert head.startswith(('"use client";', "'use client';")), (
-        "useBrowserStateKey.ts must start with the `\"use client\";` "
-        "directive so Next.js treats it as a Client Component."
+        f"{path.name} must start with the `\"use client\";` "
+        f"directive so Next.js treats it as a Client Component."
     )
 
 
-def test_hook_signature_returns_typed_value_per_key() -> None:
-    """The hook exposes per-key hooks (one per typed storage key) so
-    TypeScript narrows the return type without a generic dispatch
-    table. The four per-key hook names MUST exist.
+# ---------------------------------------------------------------------------
+# Per-key hook signatures — each per-key file MUST export exactly
+# the typed hook for its key (no cross-key import leakage).
+# ---------------------------------------------------------------------------
+EXPECTED_PER_KEY_HOOKS: tuple[tuple[Path, str], ...] = (
+    (APP_HOOK_THEME_FILE, "useTheme"),
+    (APP_HOOK_TREE_SOURCE_FILE, "useTreeSource"),
+    (APP_HOOK_LAST_TAXON_ID_FILE, "useLastTaxonId"),
+    (APP_HOOK_KEBAB_OPEN_ID_FILE, "useKebabOpenId"),
+)
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    EXPECTED_PER_KEY_HOOKS,
+    ids=[
+        "theme",
+        "tree_source",
+        "last_taxon_id",
+        "kebab_open_id",
+    ],
+)
+def test_per_key_hook_signature_returns_typed_value(
+    path: Path, expected: str,
+) -> None:
+    """Each per-key file MUST export exactly its typed hook.
+
+    The strict chunk-boundary contract (ODD-BSTATE-TAX-001-B)
+    depends on each per-key hook file exporting only its own
+    hook. A regression that re-introduces a cross-key export
+    (e.g. `export { useTheme }` from `useTreeSource.ts`) would
+    pull the wrong storage key into the wrong chunk and break
+    the typed-source retention guarantee.
+
+    Acceptance: the per-key file MUST export `export function
+    <expected>(…)` exactly once — no other per-key hook name may
+    appear as an export (cross-key leakage pin).
     """
-    if not HOOK_FILE.exists():
-        pytest.skip("hook file not present yet")
-    text = HOOK_FILE.read_text(encoding="utf-8")
-    for name in (
-        "useTheme", "useTreeSource", "useLastTaxonId", "useKebabOpenId",
-    ):
-        assert re.search(rf"export\s+function\s+{name}\b", text), (
-            f"useBrowserStateKey.ts must export `{name}`."
+    if not path.exists():
+        pytest.skip(f"hook file not present yet: {path}")
+    text = path.read_text(encoding="utf-8")
+    assert re.search(
+        rf"export\s+function\s+{expected}\b",
+        text,
+    ), (
+        f"{path.name} must export `{expected}` (its per-key hook)."
+    )
+    # Reject every other per-key hook name — a future regression
+    # that re-exports a sibling key would re-bundle the typed
+    # surface beyond the strict boundary. The check has two
+    # forms because the f-string substitution disallows literal
+    # braces; we build the regex by string concatenation so the
+    # `{` / `}` characters appear as literals (NOT as f-string
+    # substitution markers).
+    siblings = [
+        name for other_path, name in EXPECTED_PER_KEY_HOOKS
+        if other_path != path
+    ]
+    for sibling in siblings:
+        # `export function <sibling>` declaration pin.
+        function_pat = r"export\s+function\s+" + sibling + r"\b"
+        # `export { …<sibling>… }` re-export object literal pin.
+        brace_pat = (
+            r"export\s*\{[^{}]*\b" + sibling + r"\b[^{}]*\}"
+        )
+        combined = "(?:" + function_pat + "|" + brace_pat + ")"
+        assert not re.search(combined, text), (
+            f"{path.name} must NOT re-export `{sibling}` — the "
+            f"per-key boundary contract keeps each storage key's "
+            f"hook + store in its own file so the strict chunk-"
+            f"boundary witness can rely on Turbopack retention."
         )
 
 
