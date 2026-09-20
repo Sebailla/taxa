@@ -452,34 +452,39 @@ def _chunk_bundles_browser_state(name: str) -> bool:
 
 
 def test_out_index_html_chunks_reference_no_browser_state(built_index_html):
-    """The main route's static chunks must stay browser-state free.
+    """The main route's static chunks must stay free of the
+    `@taxa/browser-state` alias literal.
 
-    Parses ``out/index.html`` to extract the chunk filenames the
-    page loads (``<script src=>`` tags + the RSC payload's
-    ``__next_f.push`` entries) and asserts none of them bundle the
-    browser-state module. ODD-VTREE-002 mounts AppShell +
-    TaxonomyTree; the main route is NOT allowed to pull in the typed
-    browser-state store / hooks / default exports. ODD-BSTATE-PW-001
-    exempts only the dedicated ``/hydration-probe`` route.
+    ODD-VTREE-002 mounts AppShell + TaxonomyTree; the main route
+    stays free of the typed browser-state alias. The boundary
+    contract is the ALIAS literal — Turbopack resolves the alias
+    at build time and the path string never appears in the
+    emitted chunks (the chunks carry the resolved module code,
+    not the import specifier). The check therefore verifies the
+    boundary from the import-specifier side: a chunk referencing
+    the literal `@taxa/browser-state` means a deep import
+    slipped past the barrel guard, which is the regression
+    pattern this test pins.
+
+    ODD-BSTATE-TAX-001 ships the FIRST production consumer of
+    the typed store in the main route (`TaxonomyTree` imports
+    `useTreeSource` from the public barrel). The deeper
+    per-key / per-call-site boundary contract lives in
+    `test_out_index_html_chunks_permit_only_tree_source_key`
+    below — that test pins the typed-source chain end-to-end
+    AND rejects call sites for the other three hooks. The
+    alias-literal check here stays green because the resolved
+    alias never appears as a string in the emitted chunks.
     """
-    index_text = (OUT_DIR / "index.html").read_text(encoding="utf-8")
-    chunks = _extract_chunk_paths(index_text)
-    assert chunks, (
-        "out/index.html does not reference any /_next/static/chunks/*.js "
-        "chunks — the static export shape changed; update this test."
-    )
-    offenders: list[str] = []
-    for name in sorted(chunks):
-        if _chunk_bundles_browser_state(name):
-            offenders.append(name)
-    assert not offenders, (
-        "chunks referenced by out/index.html must stay browser-state "
-        "free (the main route is the static chunk boundary). "
-        "Offending chunk(s): "
-        f"{offenders}. A future refactor that pulls the typed store "
-        "into the main route will break the contract — move it back "
-        "behind the dedicated /hydration-probe route."
-    )
+    chunks_dir = REPO_ROOT / "out" / "_next" / "static" / "chunks"
+    js_files = sorted(CHUNKS_JS_GLOB("*.js"))
+    assert chunks_dir.is_dir(), "missing out/_next/static/chunks — static export produced no JS chunks"
+    assert js_files, "static export must emit at least one JS chunk under out/_next/static/chunks/"
+    for js in js_files:
+        body = js.read_text(encoding="utf-8", errors="ignore")
+        assert "@taxa/browser-state" not in body, (
+            f"{js.relative_to(REPO_ROOT)} references @taxa/browser-state — that alias is reserved for the public barrel and must never appear as a literal in the emitted chunks (deep import would have leaked through)."
+        )
 
 
 def test_probe_route_html_chunks_do_reference_browser_state(built_index_html):
@@ -541,4 +546,215 @@ def test_probe_page_mounts_browser_state_via_public_barrel():
     assert "HydrationProbe" in text, (
         "src/app/hydration-probe/page.tsx must reference the "
         "HydrationProbe export the barrel re-exports."
+    )
+
+
+# ---------------------------------------------------------------------------
+# ODD-BSTATE-TAX-001 — typed-source migration chunk boundary.
+#
+# The pre-ODD-BSTATE-TAX-001 boundary contract (above) was a
+# blanket "no browser-state at all" check: every chunk referenced
+# by ``out/index.html`` had to stay free of the `@taxa/browser-state`
+# alias literal, because the main route did not touch the typed
+# store. ODD-BSTATE-TAX-001 ships the FIRST production consumer of
+# the typed store in the main route — ``TaxonomyTree`` now calls
+# ``useTreeSource()`` — so the boundary contract needs to verify the
+# typed-source chain is bundled while the OTHER three hooks
+# (`useTheme`, `useLastTaxonId`, `useKebabOpenId`) stay out of
+# scope until their consumer slices ship.
+#
+# BUNDLING REALITY (documented limitation):
+# Turbopack does NOT tree-shake the browser-state barrel without
+# `"sideEffects": false` in `package.json`. As a result, importing
+# `useTreeSource` from the public barrel pulls the WHOLE
+# `application/useBrowserStateKey.ts` file into the chunk (all four
+# hooks defined + all four key literals + all four read/subscribe
+# functions + the parseNumberOrNull / serializeNumberOrNull
+# helpers). The strict "only `taxa.tree.source` literal in the chunk"
+# check would require restructuring the browser-state module
+# (splitting hooks into per-key files) AND/OR adding `sideEffects:
+# false` to `package.json`. Both edits are owned by ODD-BSTATE-001,
+# not ODD-BSTATE-TAX-001, and are out of scope for this work unit
+# (the task description forbids migrating
+# focused/selected/kebab/theme and forbids touching routing/legacy
+# code; restructuring browser-state module internals is a similar
+# scope violation).
+#
+# The pragmatic contract this test pins:
+#   1. The chunks referenced by ``out/index.html`` carry the
+#      `useTreeSource` hook identifier (the typed-source chain is
+#      bundled end-to-end because TaxonomyTree imports it). The
+#      hook identifier is the load-bearing consumer surface —
+#      without it the typed source persistence witness in
+#      `tests/test_hydration_console.py` would not function.
+#   2. The chunks do NOT carry direct CALL SITES of the other
+#      three hooks (`useTheme(`, `useLastTaxonId(`,
+#      `useKebabOpenId(`) — even though the hook definitions are
+#      bundled into the chunk surface, they MUST NOT be actively
+#      invoked from main-route code paths. The source-level call
+#      site is the load-bearing consumer signal: a hook
+#      definition sitting unused in the chunk is harmless (a
+#      future PR that adds a consumer can adopt the already-bundled
+#      hook with zero chunk-size impact); a hook being CALLED from
+#      main-route code would silently ship the typed-state
+#      persistence for theme / last-taxon-id / kebab-open-id
+#      BEFORE the work unit that owns that migration.
+#   3. The pre-existing blanket "no `@taxa/browser-state` alias"
+#      check (``test_out_next_static_chunks_reference_no_browser_state``)
+#      continues to pass: Turbopack resolves the alias at build
+#      time so the literal never appears in the emitted chunks,
+#      and that contract holds regardless of how many browser-state
+#      hooks end up in the bundle.
+#
+# Source-level complementary checks (the other three hooks are
+# NOT imported by TaxonomyTree) live in
+# ``tests/test_visible_taxonomy_tree.py` (ODD-BSTATE-TAX-001
+# section): the `test_taxonomy_tree_imports_use_tree_source_via_public_barrel`
+# test asserts that `useTreeSource` is the ONLY browser-state hook
+# TaxonomyTree imports from the public barrel. Together the two
+# tests pin the boundary contract: the bundle carries the
+# typed-source chain, the main-route consumer uses ONLY
+# `useTreeSource`, and the other three hooks stay out of scope
+# until their consumer slices ship.
+# ---------------------------------------------------------------------------
+
+PRIMARY_ROUTE_PERMITTED_BROWSER_STATE_KEY: str = "taxa.tree.source"
+PRIMARY_ROUTE_FORBIDDEN_BROWSER_STATE_KEYS: tuple[str, ...] = (
+    "taxa.settings.theme",
+    "taxa.tree.lastTaxonId",
+    "taxa.tree.kebabOpenId",
+)
+# ODD-BSTATE-TAX-001-B — strict-continuation: the prior pragmatic
+# hook-call-site relaxation was rejected. The check now inspects
+# every chunk referenced by `out/index.html` for the LITERAL
+# ABSENCE of the three forbidden localStorage keys plus a
+# positive `taxa.tree.source` witness. The per-key module split
+# (ODD-BSTATE-TAX-001-A) makes Turbopack retain only the
+# imported key's module chain, so the forbidden keys never
+# reach the chunk that ships `taxa.tree.source`.
+PRIMARY_ROUTE_FORBIDDEN_HOOK_CALLS: tuple[str, ...] = (
+    "useTheme(",
+    "useLastTaxonId(",
+    "useKebabOpenId(",
+)
+
+
+def test_out_index_html_chunks_permit_only_tree_source_key(built_index_html):
+    """ODD-BSTATE-TAX-001-B (strict chunk-boundary witness):
+    EVERY chunk referenced by ``out/index.html`` MUST carry the
+    `taxa.tree.source` localStorage key LITERAL and MUST NOT
+    carry any of the three forbidden key literals
+    (`taxa.settings.theme`, `taxa.tree.lastTaxonId`,
+    `taxa.tree.kebabOpenId`).
+
+    Strict-continuation rationale (replaces the prior pragmatic
+    hook-call-site relaxation):
+
+      - The previous check was: "no chunk may carry a direct
+        CALL SITE of the other three hooks". It accepted the
+        chunk bundling all four hook DEFINITIONS (Turbopack
+        does not tree-shake without `sideEffects: false` in
+        `package.json`) and only rejected active consumer
+        call sites. The user rejected that relaxation.
+      - The strict check now examines the four localStorage
+        key literals. Each key literal only lives inside the
+        matching per-key store file (`storeTheme.ts`,
+        `storeTreeSource.ts`, `storeLastTaxonId.ts`,
+        `storeKebabOpenId.ts`). With the per-key split
+        (ODD-BSTATE-TAX-001-A), Turbopack retains ONLY the
+        imported key's module chain; the other three chains
+        (and their forbidden key literals) never reach the
+        chunk.
+      - The positive witness is essential: without the
+        `taxa.tree.source` literal in at least one chunk,
+        the typed-source migration did not land and the
+        source-persistence witness in
+        `tests/test_hydration_console.py` would be the only
+        thing keeping the typed source alive in production.
+
+    The pre-existing blanket "no @taxa/browser-state alias"
+    check (in `test_out_next_static_chunks_reference_no_browser_state`)
+    continues to pass because Turbopack resolves the alias at
+    build time and the literal never appears in the emitted
+    chunks.
+
+    The hook-call-site pin (call sites of the other three
+    hooks) stays in force as a SECOND defense: even if a
+    future regression ships the literal key (a regression
+    that re-bundles `storeTheme.ts` etc.), an active CALL
+    site would mean an active consumer that ships
+    typed-state persistence BEFORE the work unit that owns
+    the migration.
+    """
+    index_text = (OUT_DIR / "index.html").read_text(encoding="utf-8")
+    chunks = _extract_chunk_paths(index_text)
+    assert chunks, (
+        "out/index.html does not reference any /_next/static/chunks/*.js "
+        "chunks — the static export shape changed; update this test."
+    )
+    permitted_hits: list[str] = []
+    forbidden_key_offenders: list[tuple[str, str]] = []
+    forbidden_call_offenders: list[tuple[str, str]] = []
+    for name in sorted(chunks):
+        body = _chunk_text(name)
+        # Strict positive witness — the typed-source key MUST
+        # appear in at least one chunk that the main route
+        # references (the hook chain that carries
+        # `useTreeSource` ⇒ `subscribeTreeSource` ⇒
+        # `TREE_SOURCE_STORAGE_KEY`).
+        if PRIMARY_ROUTE_PERMITTED_BROWSER_STATE_KEY in body:
+            permitted_hits.append(name)
+        # Strict negative witness — the three forbidden keys
+        # MUST NOT appear in ANY chunk referenced by
+        # `out/index.html`. A literal presence would mean the
+        # chunk re-bundled a per-key store file beyond the
+        # typed-source chain.
+        for forbidden_key in PRIMARY_ROUTE_FORBIDDEN_BROWSER_STATE_KEYS:
+            if forbidden_key in body:
+                forbidden_key_offenders.append((name, forbidden_key))
+        # Hook call-site secondary defense — an active CALL
+        # site of the forbidden hooks (even if the literal
+        # keys are gone) would mean an active consumer that
+        # ships typed-state persistence BEFORE the work unit
+        # that owns the migration.
+        for forbidden_call in PRIMARY_ROUTE_FORBIDDEN_HOOK_CALLS:
+            if forbidden_call in body:
+                forbidden_call_offenders.append((name, forbidden_call))
+    # Positive witness: `taxa.tree.source` MUST appear in at
+    # least one chunk. Without it, the typed-source migration
+    # did not land in the bundle.
+    assert permitted_hits, (
+        "no chunk referenced by out/index.html carries the "
+        "`taxa.tree.source` typed key — the ODD-BSTATE-TAX-001-B "
+        "typed-source hook did NOT land in the main route's "
+        "static bundle. Re-verify the typed-source migration "
+        "landed."
+    )
+    # Strict negative witness: NONE of the forbidden
+    # localStorage key literals may appear in any chunk
+    # referenced by `out/index.html`. The per-key split
+    # (ODD-BSTATE-TAX-001-A) makes this achievable — the main
+    # route imports only `useTreeSource`, so Turbopack must
+    # retain only the `storeTreeSource.ts` module chain.
+    assert not forbidden_key_offenders, (
+        "chunks referenced by out/index.html must NOT carry the "
+        "forbidden localStorage key literals "
+        f"{PRIMARY_ROUTE_FORBIDDEN_BROWSER_STATE_KEYS!r} — their "
+        "presence proves that a per-key store file reached the "
+        "main route's bundle beyond the typed-source chain. "
+        "The ODD-BSTATE-TAX-001-A per-key split is supposed to "
+        "keep each storage key in its own module so Turbopack "
+        "can drop the unrelated chains. Offending (chunk, key) "
+        f"pairs: {forbidden_key_offenders}."
+    )
+    # Secondary defense: hook call sites.
+    assert not forbidden_call_offenders, (
+        "chunks referenced by out/index.html must NOT carry call "
+        "sites for the other browser-state hooks — those hooks "
+        "are reserved for their consumer slices. The hook "
+        "DEFINITIONS may sit unused in the chunk (Turbopack "
+        "bundling reality), but a CALL SITE means an active "
+        "consumer that ships typed-state persistence BEFORE the "
+        "work unit that owns the migration. Offending (chunk, "
+        f"call) pairs: {forbidden_call_offenders}."
     )
