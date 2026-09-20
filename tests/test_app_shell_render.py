@@ -353,3 +353,192 @@ def test_out_next_static_chunks_include_app_shell(built_index_html):
         "no static-export JS chunk references the AppShell/TaxonomyTree "
         "rendered text — the page is not mounting ODD-VTREE-002"
     )
+
+
+# ---------------------------------------------------------------------------
+# ODD-BSTATE-PW-001 — boundary contract between the main route and
+# the dedicated `/hydration-probe` route.
+#
+# The static export contains TWO app-routes after ODD-BSTATE-PW-001:
+#   - `/`              → mounts AppShell + TaxonomyTree, no browser-state
+#   - `/hydration-probe` → mounts `<HydrationProbe />`, the typed store
+#     + hooks are in scope (this is the WHOLE POINT of the witness)
+#
+# The pre-ODD-BSTATE-PW-001 test
+# ``test_out_next_static_chunks_reference_no_browser_state`` scanned
+# EVERY chunk under ``out/_next/static/chunks/`` for
+# ``@taxa/browser-state`` and rejected any hit. That blanket scan is
+# no longer correct: the probe route IS allowed to bundle browser-
+# state. The boundary is now per-route:
+#
+#   * ``out/index.html`` and the chunks IT references must stay free
+#     of browser-state code — the main route's static chunk
+#     boundary.
+#   * ``out/hydration-probe.html`` (which exists only after
+#     ODD-BSTATE-PW-001 ships) and the chunks IT references MUST
+#     bundle browser-state code — the probe route is the only place
+#     the typed store + hooks are allowed to land.
+#
+# Detection heuristic: the path alias ``@taxa/browser-state`` is
+# resolved by the Turbopack bundler at build time and NEVER appears
+# as a literal in the emitted chunks. The reliable witnesses are
+# the FOUR ``localStorage`` key literals the browser-state module
+# hard-codes (``taxa.settings.theme``, ``taxa.tree.source``,
+# ``taxa.tree.lastTaxonId``, ``taxa.tree.kebabOpenId``) — they only
+# exist inside the typed store and survive into the bundle because
+# they are runtime string constants the React hooks pass to
+# ``Storage.prototype.getItem / setItem / removeItem``.
+# ---------------------------------------------------------------------------
+BROWSER_STATE_STORAGE_KEYS: tuple[str, ...] = (
+    "taxa.settings.theme",
+    "taxa.tree.source",
+    "taxa.tree.lastTaxonId",
+    "taxa.tree.kebabOpenId",
+)
+
+
+def _extract_chunk_paths(html_text: str) -> set[str]:
+    """Pull the ``/_next/static/chunks/<name>.js`` filenames an HTML
+    document references.
+
+    Two sources:
+      - ``<script src="/_next/static/chunks/X.js" ...>`` (preload +
+        sync script tags Next.js emits directly in the HTML).
+      - ``"src":"/_next/static/chunks/X.js"`` inside the
+        ``__next_f.push`` RSC payload the static export embeds for
+        client-side hydration.
+
+    Returns a set so duplicate references collapse naturally.
+    """
+    paths: set[str] = set()
+    for match in re.finditer(
+        r'<script[^>]*src="(/_next/static/chunks/([^"]+\.js))"',
+        html_text,
+    ):
+        paths.add(match.group(2))
+    for match in re.finditer(
+        r'"src":"(/_next/static/chunks/([^"]+\.js))"',
+        html_text,
+    ):
+        paths.add(match.group(2))
+    return paths
+
+
+def _chunk_text(name: str) -> str:
+    return (
+        REPO_ROOT
+        / "out"
+        / "_next"
+        / "static"
+        / "chunks"
+        / name
+    ).read_text(encoding="utf-8", errors="ignore")
+
+
+def _chunk_bundles_browser_state(name: str) -> bool:
+    """Return True iff `name` (a chunk filename) contains the four
+    ``localStorage`` key literals the typed store hard-codes. The
+    literals are unique to the browser-state module: every other
+    capability module is forbidden from touching ``localStorage``
+    (`tests/test_browser_state_keys.py::test_other_module_does_not_touch_localstorage`)
+    AND the key literals themselves are only used inside the typed
+    store. A chunk carrying all four keys therefore bundled the
+    typed store end-to-end (the typed defaults + the
+    parse / serialize helpers + the in-memory cache + the
+    read / write / subscribe / reset surface).
+    """
+    body = _chunk_text(name)
+    return all(key in body for key in BROWSER_STATE_STORAGE_KEYS)
+
+
+def test_out_index_html_chunks_reference_no_browser_state(built_index_html):
+    """The main route's static chunks must stay browser-state free.
+
+    Parses ``out/index.html`` to extract the chunk filenames the
+    page loads (``<script src=>`` tags + the RSC payload's
+    ``__next_f.push`` entries) and asserts none of them bundle the
+    browser-state module. ODD-VTREE-002 mounts AppShell +
+    TaxonomyTree; the main route is NOT allowed to pull in the typed
+    browser-state store / hooks / default exports. ODD-BSTATE-PW-001
+    exempts only the dedicated ``/hydration-probe`` route.
+    """
+    index_text = (OUT_DIR / "index.html").read_text(encoding="utf-8")
+    chunks = _extract_chunk_paths(index_text)
+    assert chunks, (
+        "out/index.html does not reference any /_next/static/chunks/*.js "
+        "chunks — the static export shape changed; update this test."
+    )
+    offenders: list[str] = []
+    for name in sorted(chunks):
+        if _chunk_bundles_browser_state(name):
+            offenders.append(name)
+    assert not offenders, (
+        "chunks referenced by out/index.html must stay browser-state "
+        "free (the main route is the static chunk boundary). "
+        "Offending chunk(s): "
+        f"{offenders}. A future refactor that pulls the typed store "
+        "into the main route will break the contract — move it back "
+        "behind the dedicated /hydration-probe route."
+    )
+
+
+def test_probe_route_html_chunks_do_reference_browser_state(built_index_html):
+    """The dedicated `/hydration-probe` route is the ONLY route allowed
+    to bundle the browser-state module.
+
+    ODD-BSTATE-PW-001 ships the probe as a single-purpose witness:
+    the route exists to exercise the typed hooks end-to-end. The
+    chunks IT references MUST bundle the typed store — otherwise the
+    probe would render the typed defaults forever and silently lose
+    the rehydration path.
+    """
+    probe_html = OUT_DIR / "hydration-probe.html"
+    if not probe_html.is_file():
+        pytest.skip(
+            f"missing {probe_html.relative_to(REPO_ROOT)} — the probe "
+            f"route is expected after ODD-BSTATE-PW-001 ships "
+            f"`src/app/hydration-probe/page.tsx`."
+        )
+    probe_text = probe_html.read_text(encoding="utf-8")
+    chunks = _extract_chunk_paths(probe_text)
+    assert chunks, (
+        "out/hydration-probe.html does not reference any "
+        "/_next/static/chunks/*.js chunks — the static export shape "
+        "changed; update this test."
+    )
+    found = any(_chunk_bundles_browser_state(name) for name in chunks)
+    assert found, (
+        "no chunk referenced by out/hydration-probe.html bundles the "
+        "browser-state module — the probe route must pull in the "
+        "typed store + hooks to render the rehydrated values."
+    )
+
+
+def test_probe_page_mounts_browser_state_via_public_barrel():
+    """The probe route mounts ``HydrationProbe`` through the public
+    ``@taxa/browser-state`` barrel (no deep imports).
+
+    Pinned so a future refactor cannot silently break the boundary
+    contract: the probe MUST stay on the public surface so the
+    ``no-restricted-imports`` ESLint guard continues to enforce the
+    modular monolith's layer rule on the new route.
+    """
+    probe_page = (
+        REPO_ROOT / "src" / "app" / "hydration-probe" / "page.tsx"
+    )
+    if not probe_page.is_file():
+        pytest.skip(
+            f"missing {probe_page.relative_to(REPO_ROOT)} — ODD-BSTATE-PW-001 "
+            f"must ship the probe route."
+        )
+    text = probe_page.read_text(encoding="utf-8")
+    assert re.search(r"""from\s+["']@taxa/browser-state["']""", text), (
+        "src/app/hydration-probe/page.tsx must import through the "
+        "public @taxa/browser-state barrel — deep paths into the "
+        "browser-state presentation layer are blocked by "
+        "no-restricted-imports."
+    )
+    assert "HydrationProbe" in text, (
+        "src/app/hydration-probe/page.tsx must reference the "
+        "HydrationProbe export the barrel re-exports."
+    )
