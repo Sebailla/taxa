@@ -29,9 +29,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-
 import re
 import signal
+import socket
 
 import pytest
 
@@ -389,23 +389,37 @@ def test_supervisor_with_real_default_health_does_not_raise_typeerror():
     were given` before the readiness loop even ran. The fakes used in
     the other tests masked this by having a positional signature.
 
-    Forces readiness to fail fast: the API is fake (poll never
-    returns 2xx), so the deadline expires and the supervisor exits 1
-    after raising `HealthCheckTimeout`. The point of the assertion is
-    that we reach that branch at all instead of crashing from
-    TypeError.
+    Hermeticity: the readiness URL points at the bound port of a
+    socket we hold open for the duration of the test (but never
+    listen on), so every probe attempt gets connection-refused
+    regardless of whether any other API happens to be live on 8765.
+    The short deadline (`health_timeout_s = 0.01`) forces a
+    deterministic `HealthCheckTimeout` after which the supervisor
+    exits 1. The point of the assertion is that we reach that branch
+    at all instead of crashing from TypeError.
     """
     api_proc, _ = _make_proc("api", pid=9101)
     fe_proc, _ = _make_proc("frontend", pid=9102)
-    spawned, sup = _make_supervisor(
-        api_proc=api_proc, fe_proc=fe_proc,
-        health_fn=wait_for_health,  # real default
-    )
-    # Force readiness to fail fast: deadline expires on first iteration.
-    sup.health_timeout_s = 0.01
-    sup.health_poll_s = 0.001
-    # Before the fix, this raised TypeError before the loop ran.
-    code = sup.run()
+    # Reserve a local port that nothing is listening on: connection
+    # attempts get ECONNREFUSED deterministically while the socket is
+    # bound (but never accepts). Port is released when the socket closes.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reserved:
+        reserved.bind(("127.0.0.1", 0))
+        unreachable_url = (
+            f"http://127.0.0.1:{reserved.getsockname()[1]}/api/health"
+        )
+        spawned, sup = _make_supervisor(
+            api_proc=api_proc, fe_proc=fe_proc,
+            health_fn=wait_for_health,  # real default
+        )
+        # Pin the unreachable URL before run() so the real
+        # `wait_for_health` probe is guaranteed to fail.
+        sup.health_url = unreachable_url
+        # Force readiness to fail fast: deadline expires on first iteration.
+        sup.health_timeout_s = 0.01
+        sup.health_poll_s = 0.001
+        # Before the fix, this raised TypeError before the loop ran.
+        code = sup.run()
     assert code != 0, (
         f"expected non-zero exit on readiness timeout; got {code}"
     )
