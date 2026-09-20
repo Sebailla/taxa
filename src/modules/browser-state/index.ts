@@ -6,23 +6,83 @@
  * `tsconfig.json`). Direct imports into the layer folders below are
  * blocked by `.eslintrc.cjs::no-restricted-imports`.
  *
- * PR 2a (Phase 2 scaffold work unit) ships an empty barrel — the real
- * exports land with the PR 4 browser-state work unit (tasks 4.1–4.4):
- *   - `keys.ts`                  → four localStorage keys, exactly
- *                                  one getItem + one setItem each
- *   - `defaults.ts`              → typed default values
- *   - `store.ts`                 → useThemeStore, useTreeSourceStore,
- *                                  useLastTaxonStore, useKebabStore
- *                                  (each behind a `mounted` flag)
+ * ODD-BSTATE-001 ships the typed four-key browser-state prerequisite:
+ *   - `domain/keys.ts`        → typed `StorageKey` union + the four
+ *                               `localStorage` literals
+ *                               (`taxa.settings.theme`,
+ *                                `taxa.tree.source`,
+ *                                `taxa.tree.lastTaxonId`,
+ *                                `taxa.tree.kebabOpenId`) plus the
+ *                                `Listener` / `Unsubscribe` types.
+ *   - `domain/defaults.ts`    → typed defaults per key (theme:
+ *                                `"light"`, tree-source: `"col"`,
+ *                                last-taxon-id / kebab-open-id:
+ *                                `null`).
+ *   - `infrastructure/store.ts` → typed `read*` / `write*` /
+ *                                `subscribe*` surface per key plus
+ *                                `reset()`. The ONLY place in the
+ *                                project that touches `localStorage`;
+ *                                every storage failure (private mode
+ *                                / quota exceeded / missing `window`
+ *                                during SSR) is swallowed via
+ *                                `safeStorage` and the typed default
+ *                                is returned so the application keeps
+ *                                rendering.
+ *   - `application/useBrowserStateKey.ts` → hydration-safe React
+ *                                hooks (`useTheme`, `useTreeSource`,
+ *                                `useLastTaxonId`, `useKebabOpenId`)
+ *                                built on `useSyncExternalStore`. The
+ *                                server snapshot is the typed default;
+ *                                the first client render agrees; the
+ *                                post-mount render returns the stored
+ *                                value, so React's hydration guard
+ *                                never trips.
  *
- * Rehydration gates behind a `mounted` flag inside `useEffect` to
- * prevent SSR/CSR hydration mismatches. The four keys are pinned:
- *   - `theme`            → "light" | "dark"
- *   - `tree-source`      → "col"   | "worms"
- *   - `last-taxon-id`    → number | null
- *   - `kebab-open-id`    → string | null
- *
- * An empty barrel is intentionally a no-op re-export so this file is
- * a valid TypeScript module and `tsc --noEmit` accepts it.
+ * The barrel re-exports only the typed surface — no raw
+ * `localStorage` getter/setter leaks through here, so cross-module
+ * consumers cannot bypass the typed store.
  */
-export {};
+export {
+  THEME_STORAGE_KEY,
+  TREE_SOURCE_STORAGE_KEY,
+  LAST_TAXON_ID_STORAGE_KEY,
+  KEBAB_OPEN_ID_STORAGE_KEY,
+  ALL_STORAGE_KEYS,
+} from "./domain/keys";
+export type {
+  StorageKey,
+  Listener,
+  Unsubscribe,
+  Theme,
+  TreeSource,
+} from "./domain/keys";
+
+export {
+  DEFAULT_THEME,
+  DEFAULT_TREE_SOURCE,
+  DEFAULT_LAST_TAXON_ID,
+  DEFAULT_KEBAB_OPEN_ID,
+} from "./domain/defaults";
+
+export {
+  readTheme,
+  writeTheme,
+  subscribeTheme,
+  readTreeSource,
+  writeTreeSource,
+  subscribeTreeSource,
+  readLastTaxonId,
+  writeLastTaxonId,
+  subscribeLastTaxonId,
+  readKebabOpenId,
+  writeKebabOpenId,
+  subscribeKebabOpenId,
+  reset,
+} from "./infrastructure/store";
+
+export {
+  useTheme,
+  useTreeSource,
+  useLastTaxonId,
+  useKebabOpenId,
+} from "./application/useBrowserStateKey";
