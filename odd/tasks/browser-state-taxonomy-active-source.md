@@ -103,7 +103,7 @@ contract. Do not commit, push, or publish without a new explicit user decision.
 - Child 1: `5edaf81` — `refactor(browser-state): split typed state by key`; per-key runtime split and its structural/hydration contract. Size exception: 2,307 authored diff lines.
 - Child 2: `96b6ba6` — `feat(taxonomy): persist active tree source`; dedicated entry point, TaxonomyTree migration, strict static boundary, and module/public-surface checks. Size exception: 815 authored diff lines.
 - Child 3: `e7963cf` — `test(taxonomy): cover source selector persistence`; Chromium selector persistence witness. Size exception: 782 authored diff lines.
-- Delivery status: published as a feature-branch chain for approved issue #74. Tracker: #342 (`develop`, draft); child 1: #343 (`refactor/browser-state-per-key` → tracker, `type:chore` because the repository has no `type:refactor` label); child 2: #344 (`feat/taxonomy-tree-source` → child 1, `type:feature`); child 3: #345 (`feat/browser-state-active-tree-source` → child 2, `type:chore`). Every PR links `Closes #74`; merge remains a separate user decision.
+- Delivery status: published as a feature-branch chain for approved issue #74. Tracker: #342 (`develop`, draft); child 1: #343 (`refactor/browser-state-per-key` → tracker, `type:chore` because the repository has no `type:refactor` label); child 2: #344 (`feat/taxonomy-tree-source` → child 1, `type:feature`); child 3: #346 (`test/taxonomy-tree-source-persistence` → child 2, `type:chore`; supersedes conflicted #345). Every active PR links `Closes #74`; merge remains a separate user decision.
 
 ## Evidence
 - Feature branch: `feat/browser-state-active-tree-source`.
