@@ -46,10 +46,28 @@ make etl
 # 3. Download ColDP + load vernaculars/coldp_id (~5 min, needs ~2 GB free)
 make coldp
 
-# 4. Run the API + frontend
-make api
-# → http://127.0.0.1:8765
+# 4. Run FastAPI (port 8765) and the Next.js frontend (port 3000)
+make dev
+# → http://127.0.0.1:8765 (FastAPI) and http://localhost:3000 (Next.js)
+# Ctrl-C stops both. Logs stream to the same terminal; pipe / tee if
+# you need to inspect either side independently.
 ```
+
+`make dev` is the single-command local dev launcher: it starts
+FastAPI on `127.0.0.1:8765`, waits for `/api/health` to return 2xx,
+then launches Next.js with
+`NEXT_PUBLIC_TAXA_API_ORIGIN=http://127.0.0.1:8765` exported into
+the child environment so the frontend proxies API requests back to
+the FastAPI bind. SIGINT / SIGTERM stop both children cleanly. If
+either child exits unexpectedly, the supervisor stops the other and
+exits non-zero. The launcher is a Python supervisor
+(`scripts/dev.py`) and uses only the standard library — the
+existing `make api`, `pnpm dev`, and `pnpm dev:local` commands are
+untouched.
+
+For the static-FastAPI-only workflow (no Next.js dev server),
+`make api` is still available and unchanged — it binds Uvicorn to
+`127.0.0.1:8765` and serves `web/index.html` directly.
 
 `make api` auto-runs `make css` once on first boot (builds the
 Tailwind CSS bundle into `web/dist/tailwind.css`). For frontend
@@ -61,7 +79,17 @@ npm run watch:css   # rebuild web/dist/tailwind.css on save
 
 ## Frontend
 
-Open `http://127.0.0.1:8765/` after `make api`. Single-page app:
+After `make dev`, open the URLs it started:
+
+- Next.js frontend at <http://localhost:3000> — the development UI
+  with hot reload.
+- FastAPI at <http://127.0.0.1:8765> — serves `/api/*` and the
+  static `web/index.html` fallback at `/`.
+
+If you used `make api` instead (FastAPI only), open
+<http://127.0.0.1:8765/> to reach the vanilla-JS frontend shipped by
+`web/index.html` (served by FastAPI's `StaticFiles` mount). Single-page
+app:
 
 - **Sticky header** with title, search box, filters (Source, Extant only),
   nav (Browser/Classification/Settings), and user avatar
