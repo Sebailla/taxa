@@ -47,4 +47,6 @@ The current Next.js development flow requires two terminals: `make api` for Fast
 
 ## Progress
 - Exploration complete: a Python supervisor is preferred over a Makefile shell recipe because the repository explicitly supports macOS GNU Make 3.81, where `.ONESHELL` is not reliable.
-- Implementation is complete; final independent/live verification remains pending because two fresh verifier invocations stalled before returning evidence. User authorized a work-unit commit and a single size-exception PR for approved issue #74. Generated `next-env.d.ts` drift from local Next dev is intentionally excluded.
+- Work-unit commit: `774f577` — `feat(dev): add unified local launcher` (supervisor, lifecycle tests, `make dev`, docs, and task record).
+- Native assessment of `82e67db..774f577` is high risk due to a process boundary; it requires writer self-verification plus an independent verifier. Final independent/live verification remains pending because fresh verifier invocations stalled before returning evidence. Generated `next-env.d.ts` drift from local Next dev is intentionally excluded.
+- User authorized a single size-exception PR for approved issue #74, but publication remains blocked until the required high-risk verification evidence exists.
