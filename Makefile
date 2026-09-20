@@ -7,7 +7,7 @@
 # assignment. All three are false positives when shellcheck runs against
 # a Makefile that uses .ONESHELL: + $(VAR) expansion + URL variables.
 
-.PHONY: venv download etl coldp worms col load api clean test smoke parity css
+.PHONY: venv download etl coldp worms col load api clean test smoke parity css dev
 
 # Pass each recipe to a single shell invocation so multi-line shell
 # constructs (if/then/else/fi, for/done) parse cleanly without `\<newline>`
@@ -113,6 +113,17 @@ $(WORMS_ZIP):
 
 api:
 	.venv/bin/python3 -m uvicorn api.server:app --host 127.0.0.1 --port 8765
+
+# Single-command local dev: starts FastAPI on 127.0.0.1:8765, waits for
+# /api/health to return 2xx, then launches the Next.js dev server with
+# NEXT_PUBLIC_TAXA_API_ORIGIN=http://127.0.0.1:8765 so the frontend
+# proxies API requests back to the FastAPI bind. SIGINT / SIGTERM stop
+# both children cleanly. Implemented as a Python supervisor
+# (scripts/dev.py) because macOS GNU Make 3.81 silently ignores
+# .ONESHELL, and the cross-child readiness + signal-forwarding logic
+# is awkward in shell. The `make api` contract above is unchanged.
+dev:
+	.venv/bin/python3 scripts/dev.py
 
 test:
 	@if [ ! -d .venv ]; then echo "missing .venv \u2014 run: make venv"; exit 1; fi
