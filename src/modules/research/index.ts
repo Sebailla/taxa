@@ -17,5 +17,27 @@
  *
  * An empty barrel is intentionally a no-op re-export so this file is
  * a valid TypeScript module and `tsc --noEmit` accepts it.
+ *
+ * ODD-MIGRATE-002 W3: re-export the typed HTTP adapter + the
+ * `ExplorerApiError` named error class + the `FetchOptions` transport
+ * surface so cross-module consumers (W6 React mount, integration tests)
+ * reach the W3 contract through the barrel — spec.md rule 5. The
+ * application port (`ExplorerRepository`, `EXPLORER_PORT_NAME`,
+ * `ExplorerFileServeRequest`, `ExplorerFileServeResult`) is re-exported
+ * too so W6+ consumers can wire the typed surface through one barrel
+ * import. The domain types are already reachable through the W1
+ * barrel work; future work units (W4 renderers, W5 search) will
+ * extend the barrel without restructuring this surface.
  */
-export {};
+export {
+  fetchFiles,
+  fetchFileServe,
+  ExplorerApiError,
+} from "./infrastructure/api";
+export type { FetchOptions } from "./infrastructure/api";
+export type {
+  ExplorerRepository,
+  ExplorerFileServeRequest,
+  ExplorerFileServeResult,
+} from "./application/ports";
+export { EXPLORER_PORT_NAME } from "./application/ports";
