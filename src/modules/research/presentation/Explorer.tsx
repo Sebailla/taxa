@@ -95,6 +95,7 @@ import {
 import {
   ExplorerErrorBoundary,
   FileTree,
+  Splitter,
   Viewer,
   fetchFiles,
   createInitialViewerState,
@@ -558,6 +559,7 @@ export default function Explorer(props: ExplorerProps): ReactNode {
           {renderSearchHeader()}
           {renderTreePane()}
         </div>
+        <Splitter />
         <div className="fex-viewer-pane flex-1" data-explorer-viewer-pane="">
           <Viewer
             apiOrigin={apiOrigin}
