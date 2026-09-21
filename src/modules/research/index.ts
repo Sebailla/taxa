@@ -66,9 +66,26 @@
  * top-level type); React consumers read the variants via the same
  * `ViewerDispatch` import. The dispatcher does NOT import or load
  * SheetJS — the application layer stays framework-free,
- * browser-free, and CDN-loader-free. Future W4b3 (EPUB) + W4b4
- * (CSV/TSV/JSON) slices follow the same pattern: add variants to
- * `ViewerDispatch`, not new top-level types.
+ * browser-free, and CDN-loader-free. Future W4b3 (EPUB) slices
+ * follow the same pattern: add variants to `ViewerDispatch`, not
+ * new top-level types.
+ *
+ * ODD-MIGRATE-002 W4b3: re-export the pinned epubjs CDN URL +
+ * window-global name — `EPUBJS_CDN_URL` + `EPUBJS_GLOBAL_NAME`
+ * — so cross-module consumers (W6 React mount) reach the typed
+ * EPUB source descriptor's CDN pin through the barrel. The W4b3
+ * contract adds `epub-source` and `epub-offline` variants to the
+ * existing `ViewerDispatch` discriminated union (no new top-level
+ * type); React consumers read the variants via the same
+ * `ViewerDispatch` import. The dispatcher does NOT import or load
+ * epubjs — the application layer stays framework-free,
+ * browser-free, and CDN-loader-free. The future mount owns the
+ * full EPUB render lifecycle: `<Script>` load +
+ * `ePub(bytes.buffer)` construction + `book.renderTo(...)` mount
+ * + prev / next click handlers + module-scoped
+ * `_currentBook.destroy()` teardown on the NEXT open. Future
+ * W4b4 (CSV/TSV/JSON) slices follow the same pattern: add variants
+ * to `ViewerDispatch`, not new top-level types.
  */
 export {
   fetchFiles,
@@ -91,6 +108,8 @@ export {
   MAMMOTH_GLOBAL_NAME,
   SHEETJS_CDN_URL,
   SHEETJS_GLOBAL_NAME,
+  EPUBJS_CDN_URL,
+  EPUBJS_GLOBAL_NAME,
 } from "./application/renderers";
 export type {
   ViewerDispatch,

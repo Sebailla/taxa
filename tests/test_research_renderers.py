@@ -1,6 +1,6 @@
 """
-Research viewer-dispatch contract tests (W4a + W4b1 of
-`complete-frontend-migration`).
+Research viewer-dispatch contract tests (W4a + W4b1 + W4b2 +
+W4b3 of `complete-frontend-migration`).
 
 Pins the pure typed viewer-dispatch contract in
 `src/modules/research/application/renderers.ts`. The contract is
@@ -9,7 +9,8 @@ no-CDN families (`pdf`, `html`/`htm`, `txt`, `md` legacy-as-text,
 `doc` fallback, `jpg`/`jpeg`/`png`/`gif`/`webp`/`bmp`, `svg`
 with XSS scrub, `mp4`/`webm`/`ogv`) plus the `"other"` extension
 fallback plus the Table/Tree tab-not-applicable feedback, plus
-the W4b1 DOCX source/offline branch.
+the W4b1 DOCX source/offline branch, plus the W4b2 XLS / XLSX
+source/offline branch, plus the W4b3 EPUB source/offline branch.
 
 The W4 split is owned by reviewable slices:
 
@@ -31,13 +32,43 @@ The W4 split is owned by reviewable slices:
     browser-free, and CDN-loader-free — mammoth is NOT
     imported or loaded here; the dispatcher only emits the
     source descriptor for the mount to consume.
-  - W4b2 / W4b3 / W4b4 — XLS/XLSX (SheetJS), EPUB (epubjs),
-    and CSV/TSV + JSON (Papa Parse + native). Each owns one
-    CDN library or the native JSON renderer; each lands as a
-    separately authorized slice that adds its own arm to the
-    dispatcher.
+  - W4b2 — XLS / XLSX only. Both extensions dispatch through
+    the same SheetJS path (`XLSX.read(bytes, {type: "array"})`
+    + `XLSX.utils.sheet_to_html(sheet)`); the dispatcher
+    emits a typed `sheet-source` outcome with the pinned
+    SheetJS CDN URL + global name. When bytes are missing,
+    the dispatcher emits a typed `sheet-offline` branch.
+    The application layer stays framework-free,
+    browser-free, and CDN-loader-free — SheetJS is NOT
+    imported or loaded here; the dispatcher only emits the
+    source descriptor for the mount to consume.
+  - W4b3 — EPUB only. The dispatcher emits a typed
+    `epub-source` outcome that carries the descriptor +
+    bytes + pinned epubjs CDN URL + global name so a
+    future React mount (W6+) can load the legacy-pinned
+    epubjs library, call `ePub(bytes.buffer)`, and own the
+    full EPUB render lifecycle (`book.renderTo(hostEl, ...)`
+    + prev / next click handlers + `_currentBook.destroy()`
+    teardown on the NEXT open so listeners don't leak —
+    mirrors the legacy `web/file_viewer.js::renderEpub`
+    verbatim). When bytes are missing, the dispatcher
+    emits a typed `epub-offline` branch with the download
+    link + pinned CDN URL so the mount paints the same
+    legacy "Viewer offline" banner with a download
+    affordance. The application layer stays framework-free,
+    browser-free, and CDN-loader-free — epubjs is NOT
+    imported or loaded here; the dispatcher only emits the
+    source descriptor for the mount to consume. EPUB on
+    Table / Tree tabs still fires `tab-not-applicable` —
+    EPUB has NO Table / Tree renderer in this contract;
+    the EPUB viewer is the W4b3 source / offline surface
+    itself, scoped to Raw.
+  - W4b4 — CSV / TSV (Papa Parse) + JSON (native). Each
+    owns one CDN library or the native JSON renderer;
+    each lands as a separately authorized slice that adds
+    its own arm to the dispatcher.
 
-Until W4b2–W4b4 land, the dispatcher returns `unsupported` /
+Until W4b4 lands, the dispatcher returns `unsupported` /
 `tab-not-applicable` for the still-deferred format + tab
 combinations, mirroring the legacy "Format .xyz not supported
 in viewer." and "${tab} view not available for .${ext} files —
@@ -67,10 +98,11 @@ The contract must be:
 
   - Pure (spec.md rule 4) — no React, no Next, no HTTP transport,
     no DOM, no DOMParser, no browser state, no process state, no
-    `fetch(`, no `require(`, no `globalThis`, no mammoth import
-    or load (the application layer only carries the pinned CDN
-    URL on the typed source outcome — the future React mount
-    does the actual CDN load via Next 16's `<Script>` component).
+    `fetch(`, no `require(`, no `globalThis`, no mammoth /
+    SheetJS / epubjs import or load (the application layer only
+    carries the pinned CDN URL on the typed source outcome — the
+    future React mount does the actual CDN load via Next 16's
+    `<Script>` component).
   - Domain-dependent only — the dispatcher imports `FileFormat` +
     `ViewerTab` from `../domain/explorer` and nothing else from
     the research module (no inward import from `../infrastructure`,
@@ -78,13 +110,15 @@ The contract must be:
   - Type-stable — a port-compat fixture (compiled alongside the
     dispatcher) proves the dispatcher's typed surface is reachable
     end-to-end; the runtime harness exercises every W4a-supported
-    format + every W4b1 DOCX branch + every still-W4b+-deferred
+    format + every W4b1 DOCX branch + every W4b2 XLS / XLSX
+    branch + every W4b3 EPUB branch + every still-W4b+-deferred
     format + the SVG sanitizer's every branch.
 
 References:
-    odd/tasks/complete-frontend-migration.md          §ODD-MIGRATE-002 / W4a + W4b1
+    odd/tasks/complete-frontend-migration.md          §ODD-MIGRATE-002 / W4a + W4b1 + W4b2 + W4b3
     openspec/specs/research/spec.md                   §Multi-format file viewer,
                                                        §DOCX rendering,
+                                                       §EPUB rendering,
                                                        §Legacy DOC fallback,
                                                        §Table viewer tab,
                                                        §Tree viewer tab,
@@ -94,13 +128,16 @@ References:
     web/file_viewer.js::renderPdf / renderHtml /      Per-format legacy oracles
       renderText / renderMd / renderImage /
       renderSvg / renderVideo / renderUnsupported /
-      renderDocx
+      renderDocx / renderSheet / renderEpub
     web/file_explorer.js::handleTabClick              Legacy tab-not-applicable
                                                        oracle (`${tab} view not
                                                        available for .${ext}
                                                        files — use Raw.`)
     web/file_viewer.js::CDN_URLS.mammoth              Pinned mammoth CDN URL
-    web/index.html (mammoth.js <script> tag)          CDN-pinning companion
+    web/file_viewer.js::CDN_URLS.XLSX                 Pinned SheetJS CDN URL
+    web/file_viewer.js::CDN_URLS.ePub                 Pinned epubjs CDN URL
+    web/index.html (mammoth.js / SheetJS /            CDN-pinning companions
+      epubjs <script> tags)
     next/dist/docs/01-app/03-api-reference/02-        Next 16 `<Script>` component
       components/script.md                            (future mount reference —
                                                        NOT consumed here)
@@ -771,21 +808,222 @@ def test_renderers_file_exports_named_sheetjs_global_name() -> None:
 
 
 # ---------------------------------------------------------------------------
+# W4b3 — EPUB source / offline branch surface
+#
+# The W4b3 contract is the third W4b+ slice: it owns the EPUB
+# format. The contract emits a typed `epub-source` outcome that
+# carries the descriptor + bytes + pinned epubjs CDN URL +
+# global name so a future React mount (W6+) can load the
+# legacy-pinned epubjs library, construct the book via
+# `window.ePub(bytes.buffer)`, and own the full EPUB render
+# lifecycle (`book.renderTo(hostEl, ...)` + prev / next click
+# handlers + module-scoped `_currentBook.destroy()` teardown on
+# the NEXT open so listeners don't leak — mirrors the legacy
+# `web/file_viewer.js::renderEpub` verbatim). When bytes are
+# missing, the contract emits a typed `epub-offline` branch
+# with the download link + pinned CDN URL + global name so the
+# mount paints the same legacy "Viewer offline" banner with a
+# download affordance. The application layer stays
+# framework-free, browser-free, and CDN-loader-free — epubjs
+# is NOT imported or loaded here; the dispatcher only emits the
+# typed source descriptor for the mount to consume.
+#
+# EPUB on Table / Tree tabs stays tab-not-applicable — EPUB
+# has NO Table / Tree renderer in this contract. epubjs
+# renders an EPUB as a paged book, not a Table widget or a
+# Tree widget; the future mount's EPUB viewer is the W4b3
+# source / offline surface itself, scoped to Raw. A future
+# mount that wants a Table or Tree renderer for EPUB would
+# land as a separately authorized follow-up slice.
+# ---------------------------------------------------------------------------
+def test_renderers_file_has_no_epubjs_renderer_or_loader_imports() -> None:
+    """TRIANGULATE — the W4b3 contract is the typed SOURCE
+    outcome for a future mount; the dispatcher MUST NOT import
+    or load epubjs, MUST NOT inject a `<script>` tag, MUST NOT
+    call `loadScriptOnce` (the legacy `web/file_viewer.js`
+    CDN-loader helper that touches `document` + `window`), and
+    MUST NOT inline the epubjs bundle. The contract only
+    pins the CDN URL + global name on the typed source
+    outcome — the future React mount (W6+) consumes the URL
+    through Next 16's `<Script>` component (see
+    `node_modules/next/dist/docs/01-app/03-api-reference/02-
+    components/script.md`) with the `onLoad` / `onError`
+    callbacks. A future PR that imports epubjs into the
+    application layer breaks the layered architecture at
+    review.
+
+    epubjs exposes three calls that the future mount will
+    use: `ePub(arrayBuffer)` to construct the book,
+    `book.renderTo(hostEl, { width: "100%", height: "100%" })`
+    to mount it, and `book.prev()` / `book.next()` to
+    navigate. The dispatcher must NOT call any of them
+    — they happen at the mount. The legacy
+    `web/file_viewer.js::renderEpub` also stores the
+    constructed book in a module-scoped `_currentBook` slot
+    and calls `_currentBook.destroy()` on the NEXT open
+    before mounting the new one (so listeners don't leak —
+    see `design.md` §8 EPUB render lifecycle). The
+    dispatcher does NOT own the destroy lifecycle either — the
+    mount does."""
+    if not RENDERERS_FILE.exists():
+        pytest.skip("renderers file not present yet")
+    text = _strip_ts_comments(RENDERERS_FILE.read_text())
+    for token in (
+        # epubjs import (any spelling — default, named,
+        # sub-path, or the legacy global read).
+        "from 'epubjs'",
+        'from "epubjs"',
+        "from 'epubjs/dist/epub.min'",
+        'from "epubjs/dist/epub.min"',
+        "import('epubjs')",
+        'import("epubjs")',
+        "window.ePub",
+        # `<script>` injection / CDN loader — the dispatcher
+        # stays framework-free; the mount owns the loader.
+        "loadScriptOnce",
+        "createElement('script')",
+        'createElement("script")',
+        "createElement('SCRIPT')",
+        'createElement("SCRIPT")',
+        ".appendChild(s",
+        # epubjs construction / mount / navigation call
+        # sites. The dispatcher does NOT invoke any of them
+        # — it only emits the typed source outcome for the
+        # mount to consume. Mirrors the W4b1 mammoth +
+        # W4b2 SheetJS "dispatcher emits source descriptor
+        # only" contract.
+        ".renderTo(",
+        ".destroy()",
+        # Book lifecycle — the legacy `_currentBook` slot +
+        # `book.prev()` / `book.next()` navigation call
+        # sites happen at the mount.
+        "_currentBook",
+    ):
+        assert token not in text, (
+            f"renderers.ts must stay free of {token!r}; the W4b3 "
+            f"contract is a typed source descriptor only — the "
+            f"future React mount loads epubjs via Next 16's "
+            f"`<Script>` component and calls "
+            f"`window.ePub(bytes.buffer)` + `book.renderTo(...)` + "
+            f"`book.prev()` / `book.next()` + "
+            f"`_currentBook.destroy()` itself."
+        )
+
+
+def test_renderers_file_exports_named_epubjs_cdn_url() -> None:
+    """The W4b3 contract commits to the `EPUBJS_CDN_URL`
+    constant — the legacy-pinned epubjs CDN URL
+    (`web/file_viewer.js::CDN_URLS.ePub` +
+    `web/index.html` <script> tag — the matching companion
+    comment block calls the URL "Pinned URL: do not unpin.").
+    The URL is part of the W4b3 source descriptor so the
+    future React mount can load the CDN idempotently. A
+    future PR that bumps the version MUST update this
+    constant AND the matching `web/index.html` <script> tag
+    AND the focused test that pins the URL. Bumping the URL
+    without updating the comment + the `<script>` tag would
+    silently diverge the legacy + React paths."""
+    if not RENDERERS_FILE.exists():
+        pytest.skip("renderers file not present yet")
+    text = RENDERERS_FILE.read_text()
+    assert re.search(
+        r"export\s+const\s+EPUBJS_CDN_URL\b\s*:\s*string\b",
+        text,
+    ), (
+        "renderers.ts must export `EPUBJS_CDN_URL: string` "
+        "as the pinned epubjs CDN URL constant."
+    )
+    m = re.search(
+        r"export\s+const\s+EPUBJS_CDN_URL\b[^;]*;",
+        text,
+    )
+    assert m, "EPUBJS_CDN_URL must be declared as a const string."
+    declaration = m.group(0)
+    # Pinned URL — `cdn.jsdelivr.net/npm/epubjs@0.3.93/
+    # dist/epub.min.js`. The version pin is a content
+    # hash, not a moving tag — `web/index.html`'s epubjs
+    # comment block ("Pinned URL: do not unpin.") +
+    # `openspec/specs/research/spec.md` "CDN URLs … MUST be
+    # pinned to specific versions" enforce this. The
+    # legacy `CDN_URLS.ePub` map key in
+    # `web/file_viewer.js` pins the URL byte-for-byte.
+    assert (
+        "https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"
+        in declaration
+    ), (
+        "EPUBJS_CDN_URL must be the legacy-pinned URL "
+        '"https://cdn.jsdelivr.net/npm/epubjs@0.3.93/'
+        'dist/epub.min.js" (matches '
+        "web/file_viewer.js::CDN_URLS.ePub + "
+        "web/index.html's epubjs <script> tag)."
+    )
+
+
+def test_renderers_file_exports_named_epubjs_global_name() -> None:
+    """The W4b3 contract commits to the `EPUBJS_GLOBAL_NAME`
+    constant — the window-global name epubjs assigns itself
+    once the CDN script loads (the legacy
+    `web/file_viewer.js::loadScriptOnce("ePub")` resolves
+    via `window[name]`, then the `renderEpub` call site
+    calls `window.ePub(arrayBuffer)`). The global name is
+    part of the W4b3 source descriptor so the future React
+    mount can read the global verbatim without hardcoding
+    the string. A future PR that bumps the library or the
+    CDN pin (e.g. epubjs releases a v1 with a different
+    global) MUST update this constant too.
+
+    Note: the global is the literal `"ePub"` (lowercase
+    `e`, capital `P`), NOT `"EPUBJS"` or `"epub"`. The
+    epubjs UMD bundle assigns itself to `window.ePub`
+    and the legacy `CDN_URLS.ePub` map key matches. The
+    case matters — `window.epub` is undefined at runtime
+    and would silently break the construction site."""
+    if not RENDERERS_FILE.exists():
+        pytest.skip("renderers file not present yet")
+    text = RENDERERS_FILE.read_text()
+    assert re.search(
+        r"export\s+const\s+EPUBJS_GLOBAL_NAME\b\s*:\s*string\b",
+        text,
+    ), (
+        "renderers.ts must export `EPUBJS_GLOBAL_NAME: string` "
+        "as the window-global name constant."
+    )
+    m = re.search(
+        r"export\s+const\s+EPUBJS_GLOBAL_NAME\b[^;]*;",
+        text,
+    )
+    assert m, "EPUBJS_GLOBAL_NAME must be declared as a const string."
+    declaration = m.group(0)
+    # Pinned global — `ePub` (matches the legacy
+    # `window.ePub(arrayBuffer)` site + `CDN_URLS.ePub`
+    # map key in `web/file_viewer.js`). Mirrors the W4b1
+    # mammoth + W4b2 SheetJS "literal global name pinned
+    # in constant" pattern.
+    assert '"ePub"' in declaration or "'ePub'" in declaration, (
+        "EPUBJS_GLOBAL_NAME must be the literal \"ePub\" "
+        "(matches web/file_viewer.js::CDN_URLS.ePub key + "
+        "window.ePub(arrayBuffer) call site)."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public barrel — W4a must re-export the dispatcher surface through
 # the module's barrel so cross-module consumers (W6 React mount,
 # integration tests) reach the W4a contract through the public surface
 # (spec.md rule 5).
 # ---------------------------------------------------------------------------
 def test_barrel_reexports_research_renderers_surface() -> None:
-    """ODD-MIGRATE-002 W4a + W4b1 + W4b2: the public barrel must
-    re-export `dispatchViewer`, `sanitizeSvgMarkup` (as values)
-    and `IMAGE_BIG_FILE_BYTES`, `TAB_NOT_APPLICABLE_SUFFIX`,
-    `MAMMOTH_CDN_URL`, `MAMMOTH_GLOBAL_NAME` (W4a + W4b1 as
-    values), `SHEETJS_CDN_URL`, `SHEETJS_GLOBAL_NAME` (W4b2 as
-    values) plus the five W4a types (`ViewerDispatch`,
+    """ODD-MIGRATE-002 W4a + W4b1 + W4b2 + W4b3: the public
+    barrel must re-export `dispatchViewer`, `sanitizeSvgMarkup`
+    (as values) and `IMAGE_BIG_FILE_BYTES`,
+    `TAB_NOT_APPLICABLE_SUFFIX`, `MAMMOTH_CDN_URL`,
+    `MAMMOTH_GLOBAL_NAME` (W4a + W4b1 as values),
+    `SHEETJS_CDN_URL`, `SHEETJS_GLOBAL_NAME` (W4b2 as values),
+    `EPUBJS_CDN_URL`, `EPUBJS_GLOBAL_NAME` (W4b3 as values)
+    plus the five W4a types (`ViewerDispatch`,
     `ViewerDispatchInput`, `ViewerFileDescriptor`, `ViewerLink`,
     `ViewerImageAdvisory`) via `export type { … }` so
-    cross-module consumers reach the W4a + W4b1 + W4b2
+    cross-module consumers reach the W4a + W4b1 + W4b2 + W4b3
     contract through the barrel."""
     if not BARREL_FILE.exists():
         pytest.skip("research barrel not present yet")
@@ -793,7 +1031,8 @@ def test_barrel_reexports_research_renderers_surface() -> None:
     # Value re-exports — `dispatchViewer`, `sanitizeSvgMarkup`,
     # `IMAGE_BIG_FILE_BYTES`, `TAB_NOT_APPLICABLE_SUFFIX` (W4a)
     # + `MAMMOTH_CDN_URL`, `MAMMOTH_GLOBAL_NAME` (W4b1)
-    # + `SHEETJS_CDN_URL`, `SHEETJS_GLOBAL_NAME` (W4b2).
+    # + `SHEETJS_CDN_URL`, `SHEETJS_GLOBAL_NAME` (W4b2)
+    # + `EPUBJS_CDN_URL`, `EPUBJS_GLOBAL_NAME` (W4b3).
     for name in (
         "dispatchViewer",
         "sanitizeSvgMarkup",
@@ -803,6 +1042,8 @@ def test_barrel_reexports_research_renderers_surface() -> None:
         "MAMMOTH_GLOBAL_NAME",
         "SHEETJS_CDN_URL",
         "SHEETJS_GLOBAL_NAME",
+        "EPUBJS_CDN_URL",
+        "EPUBJS_GLOBAL_NAME",
     ):
         pattern = (
             rf"export\s*\{{\s*[^}}]*\b{name}\b[^}}]*\s*\}}\s*from\s*"
@@ -814,13 +1055,18 @@ def test_barrel_reexports_research_renderers_surface() -> None:
             f"reach the W4a + W4b1 contract through the barrel "
             f"(spec.md rule 5)."
         )
-    # Type re-exports — five W4a types. The W4b1 DOCX contract
-    # does NOT add new exported types — the docx-source /
-    # docx-offline variants live inside the existing
-    # `ViewerDispatch` discriminated union, which the React
-    # mount consumes via the same `ViewerDispatch` import.
-    # Future W4b2–W4b4 slices follow the same pattern: add
-    # variants to `ViewerDispatch`, not new top-level types.
+    # Type re-exports — five W4a types. The W4b1 DOCX
+    # contract does NOT add new exported types — the
+    # docx-source / docx-offline variants live inside the
+    # existing `ViewerDispatch` discriminated union, which
+    # the React mount consumes via the same `ViewerDispatch`
+    # import. The W4b2 XLS / XLSX contract follows the same
+    # pattern (sheet-source / sheet-offline are variants on
+    # `ViewerDispatch`). The W4b3 EPUB contract follows the
+    # same pattern (epub-source / epub-offline are variants
+    # on `ViewerDispatch`). Future W4b4 (CSV / TSV / JSON)
+    # slices follow the same pattern: add variants to
+    # `ViewerDispatch`, not new top-level types.
     for name in (
         "ViewerDispatch",
         "ViewerDispatchInput",
@@ -1221,23 +1467,29 @@ function makeFile(overrides) {
   assert.strictEqual(d.download.href, "/api/files/serve?path=data.zip");
   assert.strictEqual(d.download.download, "data.zip");
 
-  // 20. Still-W4b+-deferred formats on Raw — EPUB / CSV /
-  //     TSV / JSON all fall through to the default arm with
+  // 20. Still-W4b+-deferred formats on Raw — CSV / TSV /
+  //     JSON all fall through to the default arm with
   //     the format-literal "Format .{ext} not supported in
-  //     viewer." message. W4b3+ extends the dispatcher by
+  //     viewer." message. W4b4 extends the dispatcher by
   //     adding explicit arms for each of these formats; the
-  //     W4a + W4b1 + W4b2 contract commits to the unsupported
-  //     fallback so the React mount paints the same
-  //     download-link card as the legacy renderUnsupported.
-  //     DOCX is OWNED by W4b1 — the dispatcher emits the
-  //     typed `docx-source` outcome instead (with bytes-missing
-  //     falling back to `docx-offline`). The DOCX dispatch is
-  //     exercised in steps 30+ below. XLS / XLSX are OWNED
-  //     by W4b2 — the dispatcher emits the typed
-  //     `sheet-source` outcome instead (with bytes-missing
-  //     falling back to `sheet-offline`). The XLS / XLSX
-  //     dispatch is exercised in steps 38+ below.
-  for (const ext of ["epub", "csv", "tsv", "json"]) {
+  //     W4a + W4b1 + W4b2 + W4b3 contract commits to the
+  //     unsupported fallback so the React mount paints the
+  //     same download-link card as the legacy
+  //     renderUnsupported. DOCX is OWNED by W4b1 — the
+  //     dispatcher emits the typed `docx-source` outcome
+  //     instead (with bytes-missing falling back to
+  //     `docx-offline`). The DOCX dispatch is exercised in
+  //     steps 30+ below. XLS / XLSX are OWNED by W4b2 — the
+  //     dispatcher emits the typed `sheet-source` outcome
+  //     instead (with bytes-missing falling back to
+  //     `sheet-offline`). The XLS / XLSX dispatch is
+  //     exercised in steps 38+ below. EPUB is OWNED by W4b3
+  //     — the dispatcher emits the typed `epub-source`
+  //     outcome instead (with bytes-missing falling back to
+  //     `epub-offline`). The EPUB dispatch is exercised in
+  //     steps 50+ below. EPUB is REMOVED from this deferred
+  //     loop so the deferred set is now just CSV / TSV / JSON.
+  for (const ext of ["csv", "tsv", "json"]) {
     d = renderers.dispatchViewer({
       file: makeFile({
         format: ext,
@@ -1397,16 +1649,31 @@ function makeFile(overrides) {
     throw new Error("domain initial-state factory is not reachable from W4a context");
   }
 
-  // 27. Still-W4b+-deferred formats on Table/Tree fire
-  //     tab-not-applicable — the Table / Tree branches gate
-  //     BEFORE the format switch so the deferred formats never
-  //     reach the W4b+ arms. DOCX is OWNED by W4b1 but the
-  //     W4b1 contract does NOT add Table/Tree renderers — DOCX
-  //     is Raw-only via mammoth. DOCX therefore stays in this
-  //     loop (the Table/Tree gate short-circuits before the
-  //     format switch), pinning the W4b1 split shape: DOCX
-  //     dispatches to `docx-source` / `docx-offline` on Raw,
-  //     and to `tab-not-applicable` on Table/Tree.
+  // 27. W4b+ Table/Tree gate check — the Table / Tree
+  //     branch gates BEFORE the format switch so every
+  //     format with a Table/Tree-untouched contract fires
+  //     `tab-not-applicable`. DOCX is OWNED by W4b1 but
+  //     the W4b1 contract does NOT add Table/Tree
+  //     renderers — DOCX is Raw-only via mammoth. DOCX
+  //     therefore stays in this loop (the Table/Tree gate
+  //     short-circuits before the format switch), pinning
+  //     the W4b1 split shape: DOCX dispatches to
+  //     `docx-source` / `docx-offline` on Raw, and to
+  //     `tab-not-applicable` on Table/Tree. XLS / XLSX are
+  //     OWNED by W4b2 but the W4b2 contract does NOT add
+  //     Table/Tree renderers — XLS / XLSX are Raw-only via
+  //     SheetJS (SheetJS emits HTML tables, not a dedicated
+  //     spreadsheet widget). EPUB is OWNED by W4b3 but
+  //     the W4b3 contract does NOT add Table/Tree
+  //     renderers — EPUB is Raw-only via epubjs (epubjs
+  //     renders an EPUB as a paged book, not a Table
+  //     widget or a Tree widget). EPUB therefore stays in
+  //     this loop, pinning the W4b3 split shape: EPUB
+  //     dispatches to `epub-source` / `epub-offline` on
+  //     Raw, and to `tab-not-applicable` on Table/Tree.
+  //     CSV / TSV / JSON are the still-W4b+-deferred
+  //     formats — they also stay in this loop until W4b4
+  //     adds Table-on-csv/tsv + Tree-on-json arms.
   for (const tab of ["Table", "Tree"]) {
     for (const ext of ["docx", "xls", "xlsx", "epub", "csv", "tsv", "json"]) {
       d = renderers.dispatchViewer({
@@ -2213,6 +2480,310 @@ function makeFile(overrides) {
   assert.strictEqual(xlsA.kind, "sheet-source");
   assert.strictEqual(xlsB.kind, "sheet-source");
 
+  // 50. W4b3 EPUB — Raw tab + format="epub" + injected
+  //     bytes dispatches to `epub-source` with the
+  //     descriptor + bytes + pinned epubjs CDN URL +
+  //     global name. The future React mount (W6+) consumes
+  //     the typed source outcome via Next 16's `<Script
+  //     src={scriptUrl} strategy="afterInteractive"
+  //     onLoad={mount}>` then calls
+  //     `window[scriptGlobal](bytes.buffer)` to construct
+  //     the book, then `book.renderTo(hostEl, ...)` to
+  //     mount it, then attaches prev / next click handlers
+  //     to `book.prev()` / `book.next()`, then stores the
+  //     book in a module-scoped `_currentBook` slot so the
+  //     NEXT open's mount can call `_currentBook.destroy()`
+  //     first (mirrors the legacy `web/file_viewer.js::
+  //     renderEpub` shape verbatim — the legacy tears down
+  //     the previous book before mounting the new one so
+  //     listeners don't leak per `design.md` §8). The
+  //     dispatcher does NOT load the script, fetch the
+  //     URL, construct the book, or call renderTo / prev /
+  //     next / destroy — it only emits the typed source
+  //     descriptor.
+  const epubBytes = makeBytes("PK\x03\x04fake-epub-bytes");
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "epub",
+      name: "Mammalia.epub",
+      path: "Animalia/Chordata/Mammalia.epub",
+      url: "/api/files/serve?path=Animalia%2FChordata%2FMammalia.epub",
+      size: epubBytes.length,
+    }),
+    tab: "Raw",
+    bytes: epubBytes,
+  });
+  assert.strictEqual(d.kind, "epub-source",
+    "EPUB + Raw + bytes must dispatch to epub-source: got " + d.kind);
+  assert.strictEqual(d.src,
+    "/api/files/serve?path=Animalia%2FChordata%2FMammalia.epub",
+    "EPUB src must come from the descriptor.url verbatim");
+  assert.strictEqual(d.title, "Mammalia.epub",
+    "EPUB title must come from the descriptor.name verbatim");
+  assert.ok(d.bytes instanceof Uint8Array,
+    "EPUB source must carry bytes as a Uint8Array: got "
+    + typeof d.bytes);
+  assert.strictEqual(d.bytes, epubBytes,
+    "EPUB source bytes must be the SAME Uint8Array reference "
+    + "as the input bytes (the dispatcher passes by reference, "
+    + "does NOT copy — mirrors the W4b1 DOCX + W4b2 XLS / "
+    + "XLSX bytes-reference contract)");
+  assert.strictEqual(d.scriptUrl,
+    "https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js",
+    "EPUB source scriptUrl must be the legacy-pinned epubjs "
+    + "CDN URL (matches web/file_viewer.js::CDN_URLS.ePub "
+    + "and web/index.html's epubjs <script> tag)");
+  assert.strictEqual(d.scriptGlobal, "ePub",
+    "EPUB source scriptGlobal must be the literal 'ePub' "
+    + "(matches web/file_viewer.js::window.ePub(arrayBuffer) "
+    + "call site + CDN_URLS.ePub map key — the epubjs UMD "
+    + "bundle assigns itself to window.ePub, NOT window.EPUBJS "
+    + "or window.epub)");
+
+  // 51. W4b3 EPUB — Raw tab + format="epub" + bytes=null
+  //     falls back to `epub-offline` with the download link
+  //     + pinned CDN URL + global name + reason. The future
+  //     React mount paints the legacy "Viewer offline — raw
+  //     download available" banner verbatim — the same
+  //     shape `web/file_viewer.js::renderOfflineBanner`
+  //     paints, just sourced from the typed offline
+  //     descriptor. The bytes-missing reason is the ONLY
+  //     offline path the dispatcher can detect (the
+  //     dispatcher does not fetch the URL, load the CDN,
+  //     construct the book via `ePub(arrayBuffer)`, or
+  //     invoke `book.renderTo` / `book.prev` / `book.next`
+  //     / `book.destroy` — those failures happen at the
+  //     mount and are not part of the dispatcher
+  //     contract; the legacy `renderEpub` catch branch
+  //     paints the same banner when the `ePub(arrayBuffer)`
+  //     call throws on invalid EPUB archives).
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "epub",
+      name: "missing.epub",
+      path: "missing.epub",
+      url: "/api/files/serve?path=missing.epub",
+      size: 0,
+    }),
+    tab: "Raw",
+    bytes: null,
+  });
+  assert.strictEqual(d.kind, "epub-offline",
+    "EPUB + Raw + bytes=null must fall back to epub-offline: "
+    + "got " + d.kind);
+  assert.strictEqual(d.name, "missing.epub",
+    "EPUB offline name must come from descriptor.name");
+  assert.strictEqual(d.download.href,
+    "/api/files/serve?path=missing.epub",
+    "EPUB offline download.href must come from descriptor.url");
+  assert.strictEqual(d.download.download, "missing.epub",
+    "EPUB offline download.download must carry the basename");
+  assert.strictEqual(d.scriptUrl,
+    "https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js",
+    "EPUB offline scriptUrl must be the legacy-pinned epubjs "
+    + "CDN URL (the mount needs the URL to retry the loader "
+    + "or to surface a 'try again' affordance)");
+  assert.strictEqual(d.scriptGlobal, "ePub",
+    "EPUB offline scriptGlobal must be the literal 'ePub'");
+  assert.strictEqual(d.reason, "bytes-missing",
+    "EPUB offline reason MUST be the typed 'bytes-missing' "
+    + "literal — the dispatcher can only detect this offline "
+    + "path at dispatch time. CDN-load + ePub(arrayBuffer) + "
+    + "renderTo failures are MOUNT responsibilities and are "
+    + "NOT part of this contract: got " + JSON.stringify(d.reason));
+
+  // 52. W4b3 EPUB — bytes-missing framing — the dispatcher
+  //     does NOT carry a free-form message field on the
+  //     offline variant (mirrors the W4b1 DOCX + W4b2 XLS
+  //     / XLSX offline shapes). The offline branch is a
+  //     typed descriptor (kind + name + download +
+  //     scriptUrl + scriptGlobal + reason) and the future
+  //     mount paints the legacy message itself.
+  assert.ok(!("message" in d),
+    "EPUB offline branch MUST NOT carry a free-form 'message' "
+    + "field — the legacy offline wording is painted by the "
+    + "mount from the typed descriptor (kind + name + "
+    + "download), not pre-formatted by the dispatcher");
+
+  // 53. W4b3 EPUB — Table / Tree tabs on EPUB fire
+  //     tab-not-applicable — the Table/Tree gate runs BEFORE
+  //     the format switch so EPUB never reaches the W4b3
+  //     `case "epub":` arm. This pins the W4b3 split shape:
+  //     EPUB has a Raw-only renderer (epubjs renders an
+  //     EPUB as a paged book, not a Table widget or a Tree
+  //     widget — the future mount's EPUB viewer is the
+  //     W4b3 source / offline surface itself, scoped to
+  //     Raw). Step 27 already covers EPUB in the broader
+  //     Table/Tree deferred loop; here we re-assert the
+  //     EPUB case explicitly + verify the message uses
+  //     the "epub" literal (NOT the wire-extension variant
+  //     — the descriptor's `format` field carries "epub"
+  //     verbatim).
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "epub",
+      name: "f.epub",
+      path: "f.epub",
+      url: "/api/files/serve?path=f.epub",
+      size: 100,
+    }),
+    tab: "Table",
+    bytes: epubBytes,
+  });
+  assert.strictEqual(d.kind, "tab-not-applicable",
+    "EPUB + Table + bytes must fire tab-not-applicable "
+    + "(EPUB has no Table renderer): got " + d.kind);
+  assert.strictEqual(d.message,
+    "Table view not available for .epub "
+    + renderers.TAB_NOT_APPLICABLE_SUFFIX,
+    "EPUB + Table message must use the 'epub' format literal "
+    + "as the extension label (the descriptor.format is "
+    + "'epub', not 'other'): got " + JSON.stringify(d.message));
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "epub",
+      name: "f.epub",
+      path: "f.epub",
+      url: "/api/files/serve?path=f.epub",
+      size: 100,
+    }),
+    tab: "Tree",
+    bytes: epubBytes,
+  });
+  assert.strictEqual(d.kind, "tab-not-applicable",
+    "EPUB + Tree + bytes must fire tab-not-applicable "
+    + "(EPUB has no Tree renderer): got " + d.kind);
+
+  // 54. W4b3 EPUB — dispatcher purity — the W4b3 source
+  //     / offline branches are pure: same input yields the
+  //     same output on every call (no Date.now(), no
+  //     Math.random(), no side effects on the input).
+  //     Mirrors the W4b1 DOCX + W4b2 XLS / XLSX purity
+  //     checks from steps 34-35 + 47-48.
+  const epubFile = makeFile({
+    format: "epub",
+    name: "Mammalia.epub",
+    path: "Animalia/Chordata/Mammalia.epub",
+    url: "/api/files/serve?path=Animalia%2FChordata%2FMammalia.epub",
+    size: epubBytes.length,
+  });
+  const epubA = renderers.dispatchViewer({
+    file: epubFile, tab: "Raw", bytes: epubBytes,
+  });
+  const epubB = renderers.dispatchViewer({
+    file: epubFile, tab: "Raw", bytes: epubBytes,
+  });
+  assert.deepStrictEqual(
+    JSON.parse(JSON.stringify(epubA)),
+    JSON.parse(JSON.stringify(epubB)),
+    "EPUB dispatcher MUST be pure — same input → same output",
+  );
+  assert.strictEqual(epubA.kind, "epub-source");
+  assert.strictEqual(epubB.kind, "epub-source");
+  assert.strictEqual(epubA.scriptUrl, epubB.scriptUrl);
+  assert.strictEqual(epubA.scriptGlobal, epubB.scriptGlobal);
+
+  // 55. W4b3 — offline-branch purity (same input → same
+  //     output on the bytes=null path too — mirrors the
+  //     W4b1 DOCX + W4b2 XLS / XLSX offline purity checks
+  //     from steps 35 + 48).
+  const epubMissingFile = makeFile({
+    format: "epub",
+    name: "missing.epub",
+    path: "missing.epub",
+    url: "/api/files/serve?path=missing.epub",
+    size: 0,
+  });
+  const epubOfflineA = renderers.dispatchViewer({
+    file: epubMissingFile, tab: "Raw", bytes: null,
+  });
+  const epubOfflineB = renderers.dispatchViewer({
+    file: epubMissingFile, tab: "Raw", bytes: null,
+  });
+  assert.deepStrictEqual(
+    JSON.parse(JSON.stringify(epubOfflineA)),
+    JSON.parse(JSON.stringify(epubOfflineB)),
+    "EPUB offline branch MUST be pure — same input → same "
+    + "output",
+  );
+  assert.strictEqual(epubOfflineA.kind, "epub-offline");
+  assert.strictEqual(epubOfflineB.kind, "epub-offline");
+  assert.strictEqual(epubOfflineA.scriptUrl, epubOfflineB.scriptUrl);
+  assert.strictEqual(epubOfflineA.reason, epubOfflineB.reason);
+
+  // 56. W4b3 — EPUB bytes-reference contract — the
+  //     dispatcher passes the input bytes reference through
+  //     to `epub-source.bytes` (NO copy, NO decode — the
+  //     dispatcher doesn't load epubjs or construct the
+  //     book). This is intentional: the future mount reads
+  //     the bytes at mount time and feeds them straight to
+  //     `window.ePub(bytes.buffer)`. Copying the bytes at
+  //     dispatch time would cost a Uint8Array allocation
+  //     per dispatch and gain nothing (the mount doesn't
+  //     mutate the bytes). The pinned contract:
+  //     epub-source.bytes === input bytes reference,
+  //     by-reference — mirrors the W4b1 DOCX +
+  //     W4b2 XLS / XLSX bytes-reference contracts.
+  const epubRefBytes = makeBytes("PK\x03\x04epub-reference-test");
+  const epubRef = renderers.dispatchViewer({
+    file: makeFile({
+      format: "epub",
+      name: "ref.epub",
+      path: "ref.epub",
+      url: "/api/files/serve?path=ref.epub",
+      size: epubRefBytes.length,
+    }),
+    tab: "Raw",
+    bytes: epubRefBytes,
+  });
+  assert.strictEqual(epubRef.kind, "epub-source");
+  assert.strictEqual(epubRef.bytes, epubRefBytes,
+    "EPUB epub-source bytes MUST be the SAME Uint8Array "
+    + "reference as the input bytes (pass-by-reference "
+    + "contract — the mount reads bytes at mount time, "
+    + "not dispatch time): got different reference");
+  // A second dispatch on the SAME descriptor + bytes
+  // returns the SAME reference (the dispatcher does not
+  // memoize or copy between calls) — mirrors the W4b1
+  // DOCX + W4b2 XLS / XLSX second-dispatch checks from
+  // steps 36 + 45.
+  const epubRef2 = renderers.dispatchViewer({
+    file: makeFile({
+      format: "epub",
+      name: "ref.epub",
+      path: "ref.epub",
+      url: "/api/files/serve?path=ref.epub",
+      size: epubRefBytes.length,
+    }),
+    tab: "Raw",
+    bytes: epubRefBytes,
+  });
+  assert.strictEqual(epubRef2.bytes, epubRefBytes,
+    "Second EPUB dispatch must also return the SAME bytes "
+    + "reference — the dispatcher does not memoize or copy");
+
+  // 57. W4b3 — EPUB bytes mutation visible through the
+  //     dispatched reference on the epub-source branch
+  //     (because the dispatcher passes by reference,
+  //     mutating the input bytes after dispatch is visible
+  //     through the dispatched reference). This is a
+  //     documented contract — the dispatcher does NOT freeze
+  //     the bytes, it passes them through verbatim. The
+  //     future mount is responsible for treating the bytes
+  //     as read-only or copying before mutation.
+  epubRefBytes[0] = 0x58; // 'X' — mutate input bytes after dispatch
+  // The first dispatch's `epubRef.bytes` is the SAME
+  // reference, so it now sees the mutation too
+  // (Uint8Array is a view on a backing ArrayBuffer — the
+  // bytes field IS the input bytes).
+  assert.strictEqual(epubRef.bytes[0], 0x58,
+    "EPUB bytes-reference contract: mutating input bytes "
+    + "after dispatch is visible through the dispatched "
+    + "reference (the dispatcher passes by reference, not "
+    + "by copy). The mount MUST treat the bytes as "
+    + "read-only or copy before mutation: got byte 0 = "
+    + JSON.stringify(epubRef.bytes[0]));
+
   process.stdout.write("PASS\n");
 })().catch((err) => {
   process.stderr.write("HARNESS_FAILURE: " + (err && err.stack || err) + "\n");
@@ -2297,10 +2868,14 @@ def test_compiled_renderers_passes_runtime_contract(
      11. "other" + Raw dispatches to unsupported with the
          wire-extension message extracted from the path
          basename.
-     12. W4a-deferred formats (DOCX / XLS / XLSX / EPUB / CSV /
-         TSV / JSON) on Raw fall through to the default arm
-         with the format-literal unsupported message — pinning
-         the W4a split until W4b+ extends the dispatcher.
+     12. W4b4-deferred formats (CSV / TSV / JSON) on Raw
+         fall through to the default arm with the
+         format-literal unsupported message — pinning the
+         W4b4 split until a later slice extends the
+         dispatcher. EPUB is no longer in this loop (W4b3
+         owns it); DOCX is no longer in this loop (W4b1
+         owns it); XLS / XLSX are no longer in this loop
+         (W4b2 owns them).
      13. Every W4a-supported format on Table / Tree tabs surfaces
          the legacy `${tab} view not available for .${ext} files
          — use Raw.` message verbatim (W4b+ will override the
@@ -2317,9 +2892,12 @@ def test_compiled_renderers_passes_runtime_contract(
          `createInitialExplorerState()` factory is reachable
          from the W4a compile context (proves the typed
          surface is wired correctly).
-     17. W4a-deferred formats on Table / Tree also fire
+     17. W4b+ formats on Table / Tree also fire
          tab-not-applicable (the Table / Tree branch gates
-         before the format switch).
+         before the format switch — DOCX / XLS / XLSX / EPUB
+         / CSV / TSV / JSON are all Raw-only in the W4
+         contract; only W4b4's CSV / TSV Table and JSON Tree
+         renderers are pending).
      18. Self-closing `<script src=…/>` regression — the
          sanitizer MUST strip self-closing `<script>` shapes
          (`<script src="…"/>`, `<script src="…" />`) case-
@@ -2331,6 +2909,37 @@ def test_compiled_renderers_passes_runtime_contract(
          of case, with case-sensitive regex checks on the
          output (the existing `/i` regex would pass even when
          the uppercase form leaked through).
+     20. W4b1 DOCX (steps 30–37): Raw + bytes → docx-source
+         with descriptor + bytes + pinned mammoth URL + global
+         name; Raw + bytes=null → docx-offline with download
+         + pinned URL + global name + reason="bytes-missing";
+         Table/Tree → tab-not-applicable; dispatcher purity
+         on both branches; bytes-reference contract (the
+         dispatched bytes IS the input bytes reference, by-
+         reference, NO copy); bytes mutation visible through
+         the dispatched reference.
+     21. W4b2 XLS / XLSX (steps 38–49): Raw + bytes →
+         sheet-source with descriptor + bytes + pinned
+         SheetJS URL + global name (BOTH XLS and XLSX dispatch
+         through the same arm); Raw + bytes=null → sheet-offline
+         with download + pinned URL + global name + reason;
+         Table/Tree → tab-not-applicable for both extensions;
+         offline branch has NO free-form `message` field;
+         dispatcher purity + bytes-reference + bytes-mutation
+         contracts on the sheet-source branch.
+     22. W4b3 EPUB (steps 50–57): Raw + bytes → epub-source
+         with descriptor + bytes + pinned epubjs URL + global
+         name `"ePub"` (the epubjs UMD global, NOT
+         `"EPUBJS"` or `"epub"`); Raw + bytes=null →
+         epub-offline with download + pinned URL + global name
+         + reason; Table/Tree → tab-not-applicable (EPUB has
+         NO Table/Tree renderer — the W4b3 EPUB viewer is the
+         W4b3 source / offline surface itself, scoped to Raw);
+         offline branch has NO free-form `message` field;
+         dispatcher purity + bytes-reference + bytes-mutation
+         contracts on the epub-source branch. EPUB is REMOVED
+         from the W4a-deferred Raw loop (step 12 above) so
+         the deferred set is now just CSV / TSV / JSON.
     """
     compiled, harness = compiled_renderers
     # The runtime harness loads the compiled renderers module +
