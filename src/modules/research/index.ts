@@ -43,6 +43,19 @@
  * stay deferred to W4b+; the dispatcher falls through to
  * `unsupported` / `tab-not-applicable` for those combinations until
  * the later slices extend the contract.
+ *
+ * ODD-MIGRATE-002 W4b1: re-export the pinned mammoth CDN URL +
+ * window-global name — `MAMMOTH_CDN_URL` + `MAMMOTH_GLOBAL_NAME`
+ * — so cross-module consumers (W6 React mount) reach the typed
+ * DOCX source descriptor's CDN pin through the barrel. The W4b1
+ * contract adds `docx-source` and `docx-offline` variants to the
+ * existing `ViewerDispatch` discriminated union (no new top-level
+ * type); React consumers read the variants via the same
+ * `ViewerDispatch` import. The dispatcher does NOT import or load
+ * mammoth — the application layer stays framework-free,
+ * browser-free, and CDN-loader-free. Future W4b2–W4b4 slices follow
+ * the same pattern: add variants to `ViewerDispatch`, not new
+ * top-level types.
  */
 export {
   fetchFiles,
@@ -61,6 +74,8 @@ export {
   sanitizeSvgMarkup,
   IMAGE_BIG_FILE_BYTES,
   TAB_NOT_APPLICABLE_SUFFIX,
+  MAMMOTH_CDN_URL,
+  MAMMOTH_GLOBAL_NAME,
 } from "./application/renderers";
 export type {
   ViewerDispatch,
