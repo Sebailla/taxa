@@ -142,3 +142,76 @@ export type {
   ViewerImageAdvisory,
   TableDelimiter,
 } from "./application/renderers";
+
+// ODD-MIGRATE-002 W1 — re-export the W1 domain types so
+// cross-module consumers (the W6 React mount + integration
+// tests) reach the typed shape through the barrel —
+// spec.md rule 5. The domain folder stays private (deep
+// imports are blocked by `.eslintrc.cjs::no-restricted-
+// imports`); every consumer of `ExplorerTree`,
+// `ExplorerTreeNode`, `ExplorerFolderNode`,
+// `ExplorerFileNode`, `ViewerTab`, `FileFormat`, or
+// `SearchState` reaches the typed surface through one
+// barrel import. The W1 `createInitialExplorerState`
+// factory is also re-exported so the W6 mount's initial
+// state matches the legacy `web/state.js::initialExplorerShape()`
+// oracle byte-for-byte.
+//
+// ODD-MIGRATE-003 W6.1 — the W6.1 mount reads every
+// domain type + the W1 initial-state factory + the
+// `ViewerTab` + `FileFormat` literals through the
+// barrel only. The barrel is the single typed hand-off
+// surface between the presentation layer and the rest
+// of the capability module. A future PR that re-exports
+// a new domain type (e.g. a Search-state discriminator
+// the W6.2 search slice owns) extends this list without
+// restructuring the consumer contract.
+export type {
+  ExplorerTree,
+  ExplorerTreeNode,
+  ExplorerFolderNode,
+  ExplorerFileNode,
+  ViewerTab,
+  FileFormat,
+  SearchState,
+  ExplorerState,
+} from "./domain/explorer";
+export { createInitialExplorerState } from "./domain/explorer";
+
+// ODD-MIGRATE-003 W6.1 — re-export the pure state kernel
+// (`explorer-state.ts`) so the React mount consumes the
+// typed state transitions through the barrel. The kernel
+// owns the typed `ExplorerLoadStatus` discriminated union
+// (idle / loading / loaded / empty / error) + the typed
+// `ViewerState` view-model + the `bytesRequiredForFormat`
+// predicate + the `castFileFormat` safe-extension fallback
+// + the `buildServeUrl` W3 URL builder + the recursive
+// `enumerateFiles` walker + the pure `toggleExpansion` /
+// `withExpanded` set transitions. Every helper is pure —
+// the React mount wires the helpers into `useState` /
+// `useEffect` calls without re-implementing the typed
+// surface. The kernel is framework-free (no React, no
+// Next, no DOM, no fetch) so a future presentation-only
+// slice can import it through the barrel and compile it
+// in isolation under `--lib ES2022`. The presentation
+// React components (`Explorer.tsx`, `Viewer.tsx`,
+// `FileTree.tsx`) are re-exported below as the W6.1
+// client island surface.
+export {
+  createInitialLoadStatus,
+  createInitialViewerState,
+  bytesRequiredForFormat,
+  castFileFormat,
+  buildServeUrl,
+  enumerateFiles,
+  toggleExpansion,
+  withExpanded,
+} from "./presentation/explorer-state";
+export type {
+  ExplorerLoadStatus,
+  ViewerState,
+} from "./presentation/explorer-state";
+export { default as Explorer } from "./presentation/Explorer";
+export { default as Viewer } from "./presentation/Viewer";
+export { default as FileTree } from "./presentation/FileTree";
+export { default as ExplorerErrorBoundary } from "./presentation/ExplorerErrorBoundary";
