@@ -56,3 +56,4 @@ Current `develop` has the G4 parity composition but lacks both `scripts/generate
 - #245 merged as PR #350 (`670d9af`).
 - Independent verification is GREEN. The user explicitly accepted one documented size-exception PR for the 1,113-line implementation; commit and publication are authorized, but merging remains a separate decision.
 - Committed implementation as `3785c8b fix(g4): generate candidate manifest`. RDD is clone-locally off; native assessment was unavailable, so the writer and independent-verifier evidence is the verification record.
+- Published PR #351 to `develop`: https://github.com/Sebailla/taxa/pull/351. It links `Closes #246`, has exactly `type:bug`, documents the user-approved size exception, and remains unmerged.
