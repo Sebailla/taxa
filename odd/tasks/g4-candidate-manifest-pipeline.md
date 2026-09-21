@@ -21,8 +21,8 @@ The manifest producer and its validation exist, and `make parity` requires a cal
 
 ## TDD and delivery
 - TDD mode: focused Makefile contract tests; source: G4 test conventions.
-- Delivery strategy: ask-on-risk.
-- Estimated authored change: ~100 lines.
+- Delivery strategy: exception-ok — user selected one cohesive PR.
+- Authored change: 642 lines including the target and 24 hermetic contracts; splitting them would separate behavior from its proofs.
 
 ## Tasks
 - [x] ODD-G4-MANIFEST-001 Add a RED/GREEN Makefile target contract for candidate manifest generation.
@@ -41,4 +41,5 @@ The manifest producer and its validation exist, and `make parity` requires a cal
 
 ## Progress
 - Mapping confirmed the producer and its 13 tests are already on the integration branch; this slice owns only the missing Makefile wiring.
-- Slice implementation and independent verification are GREEN. No commit, push, or PR is authorized yet.
+- Work-unit commit: `a6307d3 feat(g4): wire candidate manifest pipeline`.
+- Slice implementation and independent verification are GREEN. User authorized a single size-exception PR for #246; publication is in progress.
