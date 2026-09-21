@@ -48,7 +48,24 @@ export default function RootLayout({
 }): React.ReactElement {
  return (
   <html lang="en" className={raleway.variable}>
-   <body>{children}</body>
+   <body>
+    {/*
+     * G4 candidate probe marker — approved issue #245.
+     * The capture producer pins `data-testid="g4-probe-marker"` in
+     * `tests/fixtures/g4/corpus/manifest.json` and looks it up via the
+     * literal DOM marker gate before the runner fires. The element is
+     * fully static, hydration-safe (string literal test-id, no
+     * expressions, no handlers, no text content), hidden via the
+     * HTML5 `hidden` attribute (which sets `display: none` AND removes
+     * the element from the accessibility tree), and uses a
+     * non-focusable `<span>` with no `tabIndex` so it cannot shift
+     * tab order. Adding it here does not import owners of later PRs
+     * (`@taxa/app-shell`, `@taxa/browser-state`) — the chain-topology
+     * guard in `tests/test_app_shell_render.py` stays green.
+     */}
+    <span hidden data-testid="g4-probe-marker" />
+    {children}
+   </body>
   </html>
  );
 }
