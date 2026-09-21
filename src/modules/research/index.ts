@@ -83,9 +83,30 @@
  * full EPUB render lifecycle: `<Script>` load +
  * `ePub(bytes.buffer)` construction + `book.renderTo(...)` mount
  * + prev / next click handlers + module-scoped
- * `_currentBook.destroy()` teardown on the NEXT open. Future
- * W4b4 (CSV/TSV/JSON) slices follow the same pattern: add variants
- * to `ViewerDispatch`, not new top-level types.
+ * `_currentBook.destroy()` teardown on the NEXT open.
+ *
+ * ODD-MIGRATE-002 W4b4: re-export the pinned Papa Parse CDN URL
+ * + window-global name — `PAPA_CDN_URL` + `PAPA_GLOBAL_NAME`
+ * — so cross-module consumers (W6 React mount) reach the typed
+ * CSV / TSV source descriptor's CDN pin through the barrel. The
+ * W4b4 contract adds four new variants to the existing
+ * `ViewerDispatch` discriminated union (no new top-level type):
+ * `table-source` (CSV / TSV + Table + bytes), `table-offline`
+ * (CSV / TSV + Table + bytes=null), `json-source` (JSON + Tree +
+ * bytes — NO CDN metadata, JSON parsing is native), and
+ * `json-offline` (JSON + Tree + bytes=null — NO CDN metadata).
+ * React consumers read the variants via the same `ViewerDispatch`
+ * import. The W4b4 contract closes the W4 split by adding the
+ * canonical exceptions to the Table / Tree tab gate: (Table,
+ * csv), (Table, tsv), (Tree, json). CSV / TSV / JSON on Raw
+ * stay on the existing W4a `unsupported` fallback / download
+ * per the user decision (Raw uses the existing fallback/download
+ * behavior). The dispatcher does NOT import or load Papa Parse,
+ * does NOT call `JSON.parse`, does NOT touch the DOM — the
+ * application layer stays framework-free, browser-free, and
+ * CDN-loader-free. Parsing, JSON truncation, Papa script
+ * loading, and all DOM / React / Next rendering remain the future
+ * React mount's responsibility.
  */
 export {
   fetchFiles,
@@ -110,6 +131,8 @@ export {
   SHEETJS_GLOBAL_NAME,
   EPUBJS_CDN_URL,
   EPUBJS_GLOBAL_NAME,
+  PAPA_CDN_URL,
+  PAPA_GLOBAL_NAME,
 } from "./application/renderers";
 export type {
   ViewerDispatch,
@@ -117,4 +140,5 @@ export type {
   ViewerFileDescriptor,
   ViewerLink,
   ViewerImageAdvisory,
+  TableDelimiter,
 } from "./application/renderers";

@@ -1,6 +1,6 @@
 """
 Research viewer-dispatch contract tests (W4a + W4b1 + W4b2 +
-W4b3 of `complete-frontend-migration`).
+W4b3 + W4b4 of `complete-frontend-migration`).
 
 Pins the pure typed viewer-dispatch contract in
 `src/modules/research/application/renderers.ts`. The contract is
@@ -10,7 +10,9 @@ no-CDN families (`pdf`, `html`/`htm`, `txt`, `md` legacy-as-text,
 with XSS scrub, `mp4`/`webm`/`ogv`) plus the `"other"` extension
 fallback plus the Table/Tree tab-not-applicable feedback, plus
 the W4b1 DOCX source/offline branch, plus the W4b2 XLS / XLSX
-source/offline branch, plus the W4b3 EPUB source/offline branch.
+source/offline branch, plus the W4b3 EPUB source/offline branch,
+plus the W4b4 CSV / TSV source/offline branch (Table tab) + JSON
+source/offline branch (Tree tab).
 
 The W4 split is owned by reviewable slices:
 
@@ -63,18 +65,59 @@ The W4 split is owned by reviewable slices:
     EPUB has NO Table / Tree renderer in this contract;
     the EPUB viewer is the W4b3 source / offline surface
     itself, scoped to Raw.
-  - W4b4 — CSV / TSV (Papa Parse) + JSON (native). Each
-    owns one CDN library or the native JSON renderer;
-    each lands as a separately authorized slice that adds
-    its own arm to the dispatcher.
+  - W4b4 — CSV / TSV (Papa Parse) + JSON (native). The
+    W4b4 slice closes the W4 split. CSV / TSV render ONLY
+    on the Table tab (the dispatcher emits typed
+    `table-source` / `table-offline` outcomes carrying
+    descriptor + bytes + pinned Papa Parse CDN URL +
+    window-global name + typed delimiter (`","` for CSV,
+    `"\t"` for TSV)); CSV / TSV on Raw stays on the
+    existing W4a `unsupported` fallback / download
+    behavior (the user decision is authoritative — Raw
+    uses the existing fallback/download path). JSON
+    renders ONLY on the Tree tab (the dispatcher emits
+    typed `json-source` / `json-offline` outcomes carrying
+    descriptor + bytes + download + reason — NO CDN
+    metadata, JSON parsing is native per the spec's "Tree
+    viewer tab / No CDN is used." requirement); JSON on
+    Raw stays on the existing W4a `unsupported` fallback /
+    download. The Table / Tree gate becomes format-aware
+    ONLY for the three canonical exceptions — (Table,
+    csv), (Table, tsv), (Tree, json) — every other
+    Table / Tree combination falls through to the legacy
+    `${tab} view not available for .${ext} files — use
+    Raw.` message verbatim. The application layer stays
+    framework-free, browser-free, and CDN-loader-free —
+    Papa Parse is NOT imported or loaded here, `JSON.parse`
+    is NOT called here, no DOM / React / Next / browser
+    globals are imported here; the dispatcher only emits
+    the typed source / offline outcomes for the mount to
+    consume. Parsing, JSON truncation (the legacy
+    `MAX_JSON_NODES = 50_000` cap from `web/file_viewer.js::
+    renderJsonTree`), Papa script loading, and all DOM /
+    React / Next rendering remain the future React
+    mount's responsibility.
 
-Until W4b4 lands, the dispatcher returns `unsupported` /
-`tab-not-applicable` for the still-deferred format + tab
-combinations, mirroring the legacy "Format .xyz not supported
-in viewer." and "${tab} view not available for .${ext} files —
-use Raw." fallbacks so the React cutover paints the same
-download-link / empty-state cards the legacy
-`web/file_viewer.js` paints.
+The contract is the third pure Research work unit (W1 domain +
+W2 ports + W3 infra + W4a renderers + W4b1 DOCX + W4b2 XLS /
+XLSX + W4b3 EPUB + W4b4 CSV / TSV + JSON). It depends on W1
+domain types (`FileFormat`, `ViewerTab`) and W2 port types
+(`ViewerFileDescriptor`'s `Uint8Array` bytes), but does NOT
+import W3 infrastructure — the dispatcher derives URLs from
+the explicit `ViewerFileDescriptor.url` input field,
+mirroring the layered architecture (spec.md rule 4 —
+application depends on domain ONLY) and the W4a split
+directive ("derive URLs from explicit typed input rather than
+importing W3 implementation"). The W4b4 contract does NOT
+import or load Papa Parse, does NOT call `JSON.parse`, does
+NOT touch the DOM either — the dispatcher's only job for
+CSV / TSV / JSON is to emit the typed source / offline
+descriptor (URL + bytes + pinned CDN URL + global name +
+delimiter for CSV / TSV; URL + bytes for JSON) so a future
+mount can pick it up.
+The contract is value-typed, framework-free, browser-free,
+CDN-loader-free, and fetch-free — a pure function from
+`(file, tab, bytes)` to a typed `ViewerDispatch` outcome.
 
 The contract is the third pure Research work unit (W1 domain +
 W2 ports + W3 infra + W4a renderers + W4b1 DOCX). It depends
@@ -115,27 +158,46 @@ The contract must be:
     format + the SVG sanitizer's every branch.
 
 References:
-    odd/tasks/complete-frontend-migration.md          §ODD-MIGRATE-002 / W4a + W4b1 + W4b2 + W4b3
+    odd/tasks/complete-frontend-migration.md          §ODD-MIGRATE-002 / W4a + W4b1 + W4b2 + W4b3 + W4b4
     openspec/specs/research/spec.md                   §Multi-format file viewer,
                                                        §DOCX rendering,
                                                        §EPUB rendering,
                                                        §Legacy DOC fallback,
                                                        §Table viewer tab,
+                                                       §CSV opens with sticky header,
+                                                       §TSV uses tab delimiter,
+                                                       §CDN load failure falls back to Raw,
                                                        §Tree viewer tab,
+                                                       §JSON root expands on click,
+                                                       §Leaf values are type-coloured,
+                                                       §Large JSON is truncated with a hint,
                                                        §Non-tabular file ignores
                                                        Table/Tree tabs
     web/file_viewer.js::RENDERERS                     Legacy dispatcher oracle
     web/file_viewer.js::renderPdf / renderHtml /      Per-format legacy oracles
       renderText / renderMd / renderImage /
       renderSvg / renderVideo / renderUnsupported /
-      renderDocx / renderSheet / renderEpub
+      renderDocx / renderSheet / renderEpub /
+      renderTable / renderJsonTree
     web/file_explorer.js::handleTabClick              Legacy tab-not-applicable
                                                        oracle (`${tab} view not
                                                        available for .${ext}
                                                        files — use Raw.`)
+                                                       + canonical-exception
+                                                       carve-outs for CSV /
+                                                       TSV on Table + JSON on
+                                                       Tree
     web/file_viewer.js::CDN_URLS.mammoth              Pinned mammoth CDN URL
     web/file_viewer.js::CDN_URLS.XLSX                 Pinned SheetJS CDN URL
     web/file_viewer.js::CDN_URLS.ePub                 Pinned epubjs CDN URL
+    web/file_viewer.js::CDN_URLS.Papa                 Pinned Papa Parse CDN URL
+    web/file_viewer.js::renderTable                   Legacy Table renderer
+                                                       (`delimiter = ext === "tsv"
+                                                       ? "\t" : ","`)
+    web/file_viewer.js::renderJsonTree                Legacy JSON Tree renderer
+                                                       (native `JSON.parse`,
+                                                       iterative walk, 50 000-
+                                                       node cap)
     web/index.html (mammoth.js / SheetJS /            CDN-pinning companions
       epubjs <script> tags)
     next/dist/docs/01-app/03-api-reference/02-        Next 16 `<Script>` component
@@ -1007,23 +1069,217 @@ def test_renderers_file_exports_named_epubjs_global_name() -> None:
 
 
 # ---------------------------------------------------------------------------
+# W4b4 — CSV / TSV (Papa Parse) + JSON (native) dispatch contract
+#
+# The W4b4 slice closes the W4 split. The contract adds three
+# format-aware canonical exceptions to the Table / Tree tab gate:
+# (Table, csv), (Table, tsv), (Tree, json). CSV / TSV emit typed
+# `table-source` / `table-offline` outcomes carrying descriptor +
+# bytes + pinned Papa Parse CDN URL + window-global name + a
+# typed `delimiter` (`","` for CSV, `"\t"` for TSV). JSON emits
+# typed `json-source` / `json-offline` outcomes carrying descriptor
+# + bytes (NO CDN metadata — JSON parsing is native per the
+# spec's "Tree viewer tab / No CDN is used." requirement) +
+# download + reason on the offline branch. CSV / TSV / JSON on
+# Raw stay on the existing W4a `unsupported` fallback / download
+# per the user decision (Raw uses the existing fallback/download
+# behavior). The application layer stays framework-free,
+# browser-free, and CDN-loader-free — Papa Parse is NOT imported
+# or loaded here, `JSON.parse` is NOT called here, no DOM / React
+# / Next / browser globals are imported here. The dispatcher
+# only emits the typed source / offline outcomes for the mount
+# to consume.
+# ---------------------------------------------------------------------------
+def test_renderers_file_has_no_papa_or_json_parse_imports() -> None:
+    """TRIANGULATE — the W4b4 contract is the typed SOURCE /
+    OFFLINE outcomes for a future mount; the dispatcher MUST
+    NOT import or load Papa Parse, MUST NOT inject a `<script>`
+    tag, MUST NOT call `loadScriptOnce` (the legacy
+    `web/file_viewer.js` CDN-loader helper that touches
+    `document` + `window`), MUST NOT call `Papa.parse` /
+    `Papa.unparse` / any other Papa API, MUST NOT call
+    `JSON.parse` / `JSON.stringify`, MUST NOT inline Papa or
+    use the Papa UMD bundle. The contract only pins the CDN
+    URL + global name on the typed source outcome (CSV / TSV
+    only — JSON has no CDN metadata per the spec's "No CDN is
+    used." requirement) — the future React mount (W6+)
+    consumes the URL through Next 16's `<Script>` component
+    (see `node_modules/next/dist/docs/01-app/03-api-reference/
+    02-components/script.md`) with the `onLoad` / `onError`
+    callbacks for Papa, and calls `JSON.parse` natively (in
+    the browser or in Node) for JSON. A future PR that
+    imports Papa into the application layer or calls
+    `JSON.parse` inside the dispatcher breaks the layered
+    architecture at review.
+
+    Papa Parse exposes three APIs that the future mount will
+    use: `Papa.parse(text, options)` to parse CSV / TSV,
+    `Papa.unparse(data, options)` to serialize back, and
+    `Papa.parse钩` (the legacy hook helpers) for streaming.
+    JSON.parse is native to every browser + Node 18+ — the
+    dispatcher does NOT need a CDN library to call it.
+    JSON.stringify is also native; the dispatcher does NOT
+    pre-serialize the JSON output for the mount (the mount
+    walks the parsed tree directly)."""
+    if not RENDERERS_FILE.exists():
+        pytest.skip("renderers file not present yet")
+    text = _strip_ts_comments(RENDERERS_FILE.read_text())
+    for token in (
+        # Papa Parse import (any spelling — default, named,
+        # sub-path, or the legacy global read).
+        "from 'papaparse'",
+        'from "papaparse"',
+        "from 'papaparse/papaparse.min'",
+        'from "papaparse/papaparse.min"',
+        "import('papaparse')",
+        'import("papaparse")',
+        "window.Papa",
+        # `<script>` injection / CDN loader — the dispatcher
+        # stays framework-free; the mount owns the loader.
+        "loadScriptOnce",
+        "createElement('script')",
+        'createElement("script")',
+        "createElement('SCRIPT')",
+        'createElement("SCRIPT")',
+        ".appendChild(s",
+        # Papa Parse call sites. The dispatcher does NOT
+        # invoke any Papa API — it only emits the typed
+        # source / offline outcomes for the mount to
+        # consume. Mirrors the W4b1 mammoth + W4b2
+        # SheetJS + W4b3 epubjs "dispatcher emits
+        # source descriptor only" contract.
+        "Papa.parse",
+        "Papa.unparse",
+        # JSON call sites. The dispatcher does NOT
+        # parse or serialize JSON — it only emits the
+        # typed source / offline outcomes for the mount
+        # to consume. JSON parsing is native; the
+        # mount calls `JSON.parse` (browser or Node)
+        # after a UTF-8 decode. JSON truncation (the
+        # legacy `MAX_JSON_NODES = 50_000` cap from
+        # `web/file_viewer.js::renderJsonTree`) happens
+        # at the mount.
+        "JSON.parse",
+        "JSON.stringify",
+    ):
+        assert token not in text, (
+            f"renderers.ts must stay free of {token!r}; the W4b4 "
+            f"contract is a typed source / offline descriptor only "
+            f"\u2014 the future React mount loads Papa Parse via "
+            f"Next 16's `<Script>` component and calls "
+            f"`window.Papa.parse(...)` itself; the mount calls "
+            f"`JSON.parse(...)` natively for JSON."
+        )
+
+
+def test_renderers_file_exports_named_papa_cdn_url() -> None:
+    """The W4b4 contract commits to the `PAPA_CDN_URL`
+    constant — the legacy-pinned Papa Parse CDN URL
+    (`web/file_viewer.js::CDN_URLS.Papa` + the matching
+    `loadScriptOnce("Papa")` helper; Papa is NOT preloaded in
+    `web/index.html` because it's loaded on demand by
+    `renderTable` on first CSV / TSV open). The URL is part
+    of the W4b4 typed source outcome so the future React
+    mount can load the CDN idempotently. A future PR that
+    bumps the version MUST update this constant AND the
+    legacy `web/file_viewer.js::CDN_URLS.Papa` literal AND
+    the focused test that pins the URL. Bumping the URL
+    without updating the legacy map key would silently
+    diverge the React + legacy paths."""
+    if not RENDERERS_FILE.exists():
+        pytest.skip("renderers file not present yet")
+    text = RENDERERS_FILE.read_text()
+    assert re.search(
+        r"export\s+const\s+PAPA_CDN_URL\b\s*:\s*string\b",
+        text,
+    ), (
+        "renderers.ts must export `PAPA_CDN_URL: string` "
+        "as the pinned Papa Parse CDN URL constant."
+    )
+    m = re.search(
+        r"export\s+const\s+PAPA_CDN_URL\b[^;]*;",
+        text,
+    )
+    assert m, "PAPA_CDN_URL must be declared as a const string."
+    declaration = m.group(0)
+    # Pinned URL — `cdn.jsdelivr.net/npm/papaparse@5.4.1/
+    # papaparse.min.js`. The version pin is a content
+    # hash, not a moving tag — the legacy
+    # `CDN_URLS.Papa` map key in `web/file_viewer.js` +
+    # `openspec/specs/research/spec.md` "CDN URLs … MUST be
+    # pinned to specific versions" enforce this.
+    assert (
+        "https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"
+        in declaration
+    ), (
+        "PAPA_CDN_URL must be the legacy-pinned URL "
+        '"https://cdn.jsdelivr.net/npm/papaparse@5.4.1/'
+        'papaparse.min.js" (matches '
+        "web/file_viewer.js::CDN_URLS.Papa + "
+        "loadScriptOnce('Papa') on-demand loader)."
+    )
+
+
+def test_renderers_file_exports_named_papa_global_name() -> None:
+    """The W4b4 contract commits to the `PAPA_GLOBAL_NAME`
+    constant — the window-global name Papa Parse assigns
+    itself once the CDN script loads (the legacy
+    `web/file_viewer.js::loadScriptOnce("Papa")` resolves
+    via `window[name]`, then the `renderTable` call site
+    calls `window.Papa.parse(text, { delimiter,
+    skipEmptyLines: true })`). The global name is part of
+    the W4b4 typed source outcome so the future React mount
+    can read the global verbatim without hardcoding the
+    string. A future PR that bumps the library or the CDN
+    pin (e.g. Papa releases a v6 with a different global)
+    MUST update this constant too."""
+    if not RENDERERS_FILE.exists():
+        pytest.skip("renderers file not present yet")
+    text = RENDERERS_FILE.read_text()
+    assert re.search(
+        r"export\s+const\s+PAPA_GLOBAL_NAME\b\s*:\s*string\b",
+        text,
+    ), (
+        "renderers.ts must export `PAPA_GLOBAL_NAME: string` "
+        "as the window-global name constant."
+    )
+    m = re.search(
+        r"export\s+const\s+PAPA_GLOBAL_NAME\b[^;]*;",
+        text,
+    )
+    assert m, "PAPA_GLOBAL_NAME must be declared as a const string."
+    declaration = m.group(0)
+    # Pinned global — `Papa` (matches the legacy
+    # `window.Papa.parse` site + `CDN_URLS.Papa` map key
+    # in `web/file_viewer.js`). Mirrors the W4b1
+    # mammoth + W4b2 SheetJS + W4b3 epubjs "literal
+    # global name pinned in constant" pattern.
+    assert '"Papa"' in declaration or "'Papa'" in declaration, (
+        "PAPA_GLOBAL_NAME must be the literal \"Papa\" "
+        "(matches web/file_viewer.js::CDN_URLS.Papa key + "
+        "window.Papa.parse call site)."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public barrel — W4a must re-export the dispatcher surface through
 # the module's barrel so cross-module consumers (W6 React mount,
 # integration tests) reach the W4a contract through the public surface
 # (spec.md rule 5).
 # ---------------------------------------------------------------------------
 def test_barrel_reexports_research_renderers_surface() -> None:
-    """ODD-MIGRATE-002 W4a + W4b1 + W4b2 + W4b3: the public
-    barrel must re-export `dispatchViewer`, `sanitizeSvgMarkup`
-    (as values) and `IMAGE_BIG_FILE_BYTES`,
+    """ODD-MIGRATE-002 W4a + W4b1 + W4b2 + W4b3 + W4b4: the
+    public barrel must re-export `dispatchViewer`,
+    `sanitizeSvgMarkup` (as values) and `IMAGE_BIG_FILE_BYTES`,
     `TAB_NOT_APPLICABLE_SUFFIX`, `MAMMOTH_CDN_URL`,
     `MAMMOTH_GLOBAL_NAME` (W4a + W4b1 as values),
     `SHEETJS_CDN_URL`, `SHEETJS_GLOBAL_NAME` (W4b2 as values),
-    `EPUBJS_CDN_URL`, `EPUBJS_GLOBAL_NAME` (W4b3 as values)
-    plus the five W4a types (`ViewerDispatch`,
-    `ViewerDispatchInput`, `ViewerFileDescriptor`, `ViewerLink`,
-    `ViewerImageAdvisory`) via `export type { … }` so
-    cross-module consumers reach the W4a + W4b1 + W4b2 + W4b3
+    `EPUBJS_CDN_URL`, `EPUBJS_GLOBAL_NAME` (W4b3 as values),
+    `PAPA_CDN_URL`, `PAPA_GLOBAL_NAME` (W4b4 as values) plus
+    the six types (`ViewerDispatch`, `ViewerDispatchInput`,
+    `ViewerFileDescriptor`, `ViewerLink`, `ViewerImageAdvisory`,
+    `TableDelimiter`) via `export type { … }` so cross-module
+    consumers reach the W4a + W4b1 + W4b2 + W4b3 + W4b4
     contract through the barrel."""
     if not BARREL_FILE.exists():
         pytest.skip("research barrel not present yet")
@@ -1032,7 +1288,8 @@ def test_barrel_reexports_research_renderers_surface() -> None:
     # `IMAGE_BIG_FILE_BYTES`, `TAB_NOT_APPLICABLE_SUFFIX` (W4a)
     # + `MAMMOTH_CDN_URL`, `MAMMOTH_GLOBAL_NAME` (W4b1)
     # + `SHEETJS_CDN_URL`, `SHEETJS_GLOBAL_NAME` (W4b2)
-    # + `EPUBJS_CDN_URL`, `EPUBJS_GLOBAL_NAME` (W4b3).
+    # + `EPUBJS_CDN_URL`, `EPUBJS_GLOBAL_NAME` (W4b3)
+    # + `PAPA_CDN_URL`, `PAPA_GLOBAL_NAME` (W4b4).
     for name in (
         "dispatchViewer",
         "sanitizeSvgMarkup",
@@ -1044,6 +1301,8 @@ def test_barrel_reexports_research_renderers_surface() -> None:
         "SHEETJS_GLOBAL_NAME",
         "EPUBJS_CDN_URL",
         "EPUBJS_GLOBAL_NAME",
+        "PAPA_CDN_URL",
+        "PAPA_GLOBAL_NAME",
     ):
         pattern = (
             rf"export\s*\{{\s*[^}}]*\b{name}\b[^}}]*\s*\}}\s*from\s*"
@@ -1052,10 +1311,11 @@ def test_barrel_reexports_research_renderers_surface() -> None:
         assert re.search(pattern, text), (
             f"research barrel must re-export `{name}` from "
             f"'./application/renderers' so cross-module consumers "
-            f"reach the W4a + W4b1 contract through the barrel "
-            f"(spec.md rule 5)."
+            f"reach the W4a + W4b1 + W4b4 contract through the "
+            f"barrel (spec.md rule 5)."
         )
-    # Type re-exports — five W4a types. The W4b1 DOCX
+    # Type re-exports — five W4a types plus the W4b4
+    # `TableDelimiter` literal union. The W4b1 DOCX
     # contract does NOT add new exported types — the
     # docx-source / docx-offline variants live inside the
     # existing `ViewerDispatch` discriminated union, which
@@ -1064,15 +1324,21 @@ def test_barrel_reexports_research_renderers_surface() -> None:
     # pattern (sheet-source / sheet-offline are variants on
     # `ViewerDispatch`). The W4b3 EPUB contract follows the
     # same pattern (epub-source / epub-offline are variants
-    # on `ViewerDispatch`). Future W4b4 (CSV / TSV / JSON)
-    # slices follow the same pattern: add variants to
-    # `ViewerDispatch`, not new top-level types.
+    # on `ViewerDispatch`). The W4b4 CSV / TSV / JSON
+    # contract follows the same pattern (table-source /
+    # table-offline / json-source / json-offline are variants
+    # on `ViewerDispatch`); the only new type is
+    # `TableDelimiter` (the typed `"," | "\t"` literal
+    # union the W4b4 contract adds so the mount can pass the
+    # delimiter straight to Papa's parse options without
+    # hardcoding the string).
     for name in (
         "ViewerDispatch",
         "ViewerDispatchInput",
         "ViewerFileDescriptor",
         "ViewerLink",
         "ViewerImageAdvisory",
+        "TableDelimiter",
     ):
         pattern = (
             rf"export\s+type\s*\{{\s*[^}}]*\b{name}\b[^}}]*\}}\s*from\s*"
@@ -1671,11 +1937,13 @@ function makeFile(overrides) {
   //     this loop, pinning the W4b3 split shape: EPUB
   //     dispatches to `epub-source` / `epub-offline` on
   //     Raw, and to `tab-not-applicable` on Table/Tree.
-  //     CSV / TSV / JSON are the still-W4b+-deferred
-  //     formats — they also stay in this loop until W4b4
-  //     adds Table-on-csv/tsv + Tree-on-json arms.
+  //     CSV / TSV / JSON are OWNED by W4b4 — CSV / TSV
+  //     have Table renderers (Papa Parse), JSON has a Tree
+  //     renderer (native `JSON.parse`). CSV / TSV / JSON
+  //     are REMOVED from this loop and have explicit
+  //     W4b4 dispatch assertions below (steps 58-69).
   for (const tab of ["Table", "Tree"]) {
-    for (const ext of ["docx", "xls", "xlsx", "epub", "csv", "tsv", "json"]) {
+    for (const ext of ["docx", "xls", "xlsx", "epub"]) {
       d = renderers.dispatchViewer({
         file: makeFile({
           format: ext,
@@ -2783,6 +3051,670 @@ function makeFile(overrides) {
     + "by copy). The mount MUST treat the bytes as "
     + "read-only or copy before mutation: got byte 0 = "
     + JSON.stringify(epubRef.bytes[0]));
+
+  // 58. W4b4 CSV — Table tab + format="csv" + injected
+  //     bytes dispatches to `table-source` with the
+  //     descriptor + bytes + pinned Papa Parse CDN URL +
+  //     window-global name + typed delimiter ("," for
+  //     CSV — mirrors the legacy `renderTable` ternary
+  //     `const delimiter = ext === "tsv" ? "\t" : ","`).
+  //     The future React mount (W6+) consumes the typed
+  //     source outcome via Next 16's `<Script src={scriptUrl}
+  //     strategy="afterInteractive" onLoad={parse}>` then
+  //     decodes the bytes as UTF-8, then calls
+  //     `window[scriptGlobal].parse(text, { delimiter,
+  //     skipEmptyLines: true })` to emit the parsed rows.
+  //     The dispatcher does NOT load the script, fetch the
+  //     URL, or call Papa.parse — it only emits the typed
+  //     source descriptor.
+  const csvBytes = makeBytes("name,age\nalice,30\nbob,25\n");
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "csv",
+      name: "data.csv",
+      path: "Animalia/Chordata/data.csv",
+      url: "/api/files/serve?path=Animalia%2FChordata%2Fdata.csv",
+      size: csvBytes.length,
+    }),
+    tab: "Table",
+    bytes: csvBytes,
+  });
+  assert.strictEqual(d.kind, "table-source",
+    "CSV + Table + bytes must dispatch to table-source: got " + d.kind);
+  assert.strictEqual(d.src,
+    "/api/files/serve?path=Animalia%2FChordata%2Fdata.csv",
+    "CSV src must come from the descriptor.url verbatim");
+  assert.strictEqual(d.title, "data.csv",
+    "CSV title must come from the descriptor.name verbatim");
+  assert.ok(d.bytes instanceof Uint8Array,
+    "CSV table-source must carry bytes as a Uint8Array: got "
+    + typeof d.bytes);
+  assert.strictEqual(d.bytes, csvBytes,
+    "CSV table-source bytes must be the SAME Uint8Array "
+    + "reference as the input bytes (the dispatcher passes "
+    + "by reference, does NOT copy \u2014 mirrors the W4b1 "
+    + "DOCX + W4b2 XLS / XLSX + W4b3 EPUB bytes-reference "
+    + "contracts)");
+  assert.strictEqual(d.scriptUrl,
+    "https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js",
+    "CSV table-source scriptUrl must be the legacy-pinned Papa "
+    + "Parse CDN URL (matches web/file_viewer.js::CDN_URLS.Papa "
+    + "+ loadScriptOnce('Papa') on-demand loader)");
+  assert.strictEqual(d.scriptGlobal, "Papa",
+    "CSV table-source scriptGlobal must be the literal 'Papa' "
+    + "(matches web/file_viewer.js::CDN_URLS.Papa key + "
+    + "window.Papa.parse call site)");
+  assert.strictEqual(d.delimiter, ",",
+    "CSV delimiter must be the literal ',' (the legacy "
+    + "renderTable ternary returns ',' for non-TSV): got "
+    + JSON.stringify(d.delimiter));
+
+  // 59. W4b4 TSV — Table tab + format="tsv" + injected
+  //     bytes dispatches to `table-source` with the typed
+  //     delimiter set to "\t" (the legacy `renderTable`
+  //     ternary returns "\t" when ext === "tsv"). The mount
+  //     hands the delimiter straight to Papa.parse so TSV
+  //     cells render without tab artefacts in the cell
+  //     content (per the spec's "TSV uses tab delimiter"
+  //     scenario).
+  const tsvBytes = makeBytes("name\tage\nalice\t30\nbob\t25\n");
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "tsv",
+      name: "data.tsv",
+      path: "Animalia/Chordata/data.tsv",
+      url: "/api/files/serve?path=Animalia%2FChordata%2Fdata.tsv",
+      size: tsvBytes.length,
+    }),
+    tab: "Table",
+    bytes: tsvBytes,
+  });
+  assert.strictEqual(d.kind, "table-source",
+    "TSV + Table + bytes must dispatch to table-source: got " + d.kind);
+  assert.strictEqual(d.src,
+    "/api/files/serve?path=Animalia%2FChordata%2Fdata.tsv",
+    "TSV src must come from the descriptor.url verbatim");
+  assert.strictEqual(d.title, "data.tsv",
+    "TSV title must come from the descriptor.name verbatim");
+  assert.strictEqual(d.bytes, tsvBytes,
+    "TSV table-source bytes must be the SAME Uint8Array "
+    + "reference as the input bytes (pass-by-reference, "
+    + "mirrors the W4b4 CSV bytes-reference contract from "
+    + "step 58)");
+  assert.strictEqual(d.scriptUrl,
+    "https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js",
+    "TSV table-source scriptUrl must be the legacy-pinned Papa "
+    + "Parse CDN URL (same URL for both CSV and TSV \u2014 Papa "
+    + "does not distinguish extensions at the parse site)");
+  assert.strictEqual(d.scriptGlobal, "Papa",
+    "TSV table-source scriptGlobal must be the literal 'Papa' "
+    + "(same global for both CSV and TSV)");
+  assert.strictEqual(d.delimiter, "\t",
+    "TSV delimiter must be the literal '\\t' (the legacy "
+    + "renderTable ternary returns '\\t' when ext === 'tsv'): "
+    + "got " + JSON.stringify(d.delimiter));
+
+  // 60. W4b4 CSV — Table tab + format="csv" + bytes=null
+  //     falls back to `table-offline` with the download
+  //     link + pinned CDN URL + global name + reason. The
+  //     future React mount paints the legacy "Viewer offline
+  //     \u2014 raw download available" banner verbatim \u2014 the
+  //     same shape `web/file_viewer.js::renderOfflineBanner`
+  //     paints, just sourced from the typed offline
+  //     descriptor. The bytes-missing reason is the ONLY
+  //     offline path the dispatcher can detect (the
+  //     dispatcher does not fetch the URL, load the CDN,
+  //     or call Papa.parse \u2014 those failures happen at the
+  //     mount and are not part of the dispatcher
+  //     contract). The offline branch does NOT carry a
+  //     `delimiter` field \u2014 the descriptor's `format`
+  //     field carries "csv" or "tsv" verbatim and the mount
+  //     can re-derive the delimiter from the format if it
+  //     needs to retry the loader after a transient CDN
+  //     blip.
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "csv",
+      name: "missing.csv",
+      path: "missing.csv",
+      url: "/api/files/serve?path=missing.csv",
+      size: 0,
+    }),
+    tab: "Table",
+    bytes: null,
+  });
+  assert.strictEqual(d.kind, "table-offline",
+    "CSV + Table + bytes=null must fall back to table-offline: "
+    + "got " + d.kind);
+  assert.strictEqual(d.name, "missing.csv",
+    "CSV offline name must come from descriptor.name");
+  assert.strictEqual(d.download.href,
+    "/api/files/serve?path=missing.csv",
+    "CSV offline download.href must come from descriptor.url");
+  assert.strictEqual(d.download.download, "missing.csv",
+    "CSV offline download.download must carry the basename");
+  assert.strictEqual(d.scriptUrl,
+    "https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js",
+    "CSV offline scriptUrl must be the legacy-pinned Papa Parse "
+    + "CDN URL (the mount needs the URL to retry the loader or "
+    + "to surface a 'try again' affordance)");
+  assert.strictEqual(d.scriptGlobal, "Papa",
+    "CSV offline scriptGlobal must be the literal 'Papa'");
+  assert.strictEqual(d.reason, "bytes-missing",
+    "CSV offline reason MUST be the typed 'bytes-missing' "
+    + "literal \u2014 the dispatcher can only detect this offline "
+    + "path at dispatch time. CDN-load + Papa.parse failures "
+    + "are MOUNT responsibilities and are NOT part of this "
+    + "contract: got " + JSON.stringify(d.reason));
+  assert.ok(!("delimiter" in d),
+    "CSV table-offline branch MUST NOT carry a 'delimiter' "
+    + "field \u2014 the mount re-derives the delimiter from "
+    + "descriptor.format if needed for retry");
+  assert.ok(!("message" in d),
+    "CSV table-offline branch MUST NOT carry a free-form "
+    + "'message' field \u2014 the legacy offline wording is "
+    + "painted by the mount from the typed descriptor (kind + "
+    + "name + download), not pre-formatted by the dispatcher");
+
+  // 61. W4b4 TSV — Table tab + format="tsv" + bytes=null
+  //     falls back to `table-offline` with the same
+  //     descriptor pattern as CSV (Papa does not
+  //     distinguish CSV vs TSV at the offline site \u2014 both
+  //     extensions share the same CDN URL + global name +
+  //     reason). Mirrors the W4b4 CSV step-60 check.
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "tsv",
+      name: "missing.tsv",
+      path: "missing.tsv",
+      url: "/api/files/serve?path=missing.tsv",
+      size: 0,
+    }),
+    tab: "Table",
+    bytes: null,
+  });
+  assert.strictEqual(d.kind, "table-offline",
+    "TSV + Table + bytes=null must fall back to table-offline: "
+    + "got " + d.kind);
+  assert.strictEqual(d.name, "missing.tsv",
+    "TSV offline name must come from descriptor.name");
+  assert.strictEqual(d.download.href,
+    "/api/files/serve?path=missing.tsv",
+    "TSV offline download.href must come from descriptor.url");
+  assert.strictEqual(d.scriptUrl,
+    "https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js",
+    "TSV offline scriptUrl must be the legacy-pinned Papa "
+    + "Parse CDN URL");
+  assert.strictEqual(d.scriptGlobal, "Papa",
+    "TSV offline scriptGlobal must be the literal 'Papa'");
+  assert.strictEqual(d.reason, "bytes-missing",
+    "TSV offline reason MUST be the typed 'bytes-missing' "
+    + "literal");
+
+  // 62. W4b4 CSV / TSV on Raw \u2014 stays on the existing W4a
+  //     `unsupported` fallback / download (the user decision
+  //     is authoritative: Raw uses the existing
+  //     fallback/download behavior for CSV / TSV / JSON \u2014
+  //     these formats NOW OWN Table / Tree renderers via
+  //     the W4b4 canonical exceptions at the top of the
+  //     dispatcher, but on Raw they still fall through to
+  //     the W4a default-arm `unsupported` with the
+  //     format-literal message). Step 20 already covers
+  //     CSV / TSV in the broader deferred Raw loop; here
+  //     we re-assert CSV / TSV on Raw explicitly.
+  for (const ext of ["csv", "tsv"]) {
+    d = renderers.dispatchViewer({
+      file: makeFile({
+        format: ext,
+        name: "file." + ext,
+        path: "file." + ext,
+        url: "/api/files/serve?path=file." + ext,
+        size: 100,
+      }),
+      tab: "Raw",
+      bytes: null,
+    });
+    assert.strictEqual(d.kind, "unsupported",
+      ext + " + Raw must dispatch to unsupported (Raw uses the "
+      + "existing fallback/download behavior per the W4b4 user "
+      + "decision): got " + d.kind);
+    assert.strictEqual(d.message,
+      "Format ." + ext + " not supported in viewer.",
+      ext + " + Raw message must be the format-literal "
+      + "fallback: got " + JSON.stringify(d.message));
+    assert.strictEqual(d.download.download, "file." + ext,
+      ext + " + Raw download link must carry the file basename");
+  }
+
+  // 63. W4b4 CSV / TSV on Tree \u2014 stays on the legacy
+  //     `tab-not-applicable` branch. The W4b4 contract
+  //     makes the Table / Tree gate format-aware ONLY for
+  //     the three canonical exceptions: (Table, csv),
+  //     (Table, tsv), (Tree, json). CSV / TSV on Tree is
+  //     NOT a canonical exception (the canonical Table
+  //     renderer does not apply to the Tree tab \u2014 CSV /
+  //     TSV are tabular data, not hierarchical). The
+  //     dispatcher's Table / Tree gate therefore fires
+  //     `tab-not-applicable` with the legacy wording.
+  for (const ext of ["csv", "tsv"]) {
+    d = renderers.dispatchViewer({
+      file: makeFile({
+        format: ext,
+        name: "data." + ext,
+        path: "data." + ext,
+        url: "/api/files/serve?path=data." + ext,
+        size: 0,
+      }),
+      tab: "Tree",
+      bytes: null,
+    });
+    assert.strictEqual(d.kind, "tab-not-applicable",
+      ext + " + Tree must dispatch to tab-not-applicable "
+      + "(CSV/TSV on Tree is NOT a W4b4 canonical exception): "
+      + "got " + d.kind);
+    assert.strictEqual(d.message,
+      "Tree view not available for ." + ext + " "
+      + renderers.TAB_NOT_APPLICABLE_SUFFIX,
+      ext + " + Tree message must match legacy wording: got "
+      + JSON.stringify(d.message));
+  }
+
+  // 64. W4b4 JSON \u2014 Tree tab + format="json" + injected
+  //     bytes dispatches to `json-source` with the
+  //     descriptor + bytes ONLY \u2014 NO CDN metadata. JSON
+  //     parsing is native per the spec's "Tree viewer tab /
+  //     No CDN is used." requirement, so there is no CDN
+  //     URL to pin and no window-global name to surface.
+  //     The future React mount (W6+) consumes the typed
+  //     source outcome by decoding the bytes as UTF-8,
+  //     then calling `JSON.parse(text)` natively, then
+  //     walking the tree iteratively per the legacy
+  //     `web/file_viewer.js::renderJsonTree` shape (the
+  //     legacy uses an explicit stack to bound depth at
+  //     heap, not at the call stack \u2014 the iterative walk
+  //     also caps at `MAX_JSON_NODES = 50_000` per the
+  //     spec's "Large JSON is truncated with a hint"
+  //     scenario).
+  const jsonBytes = makeBytes('{"hello":"world","nested":{"a":1,"b":[2,3]}}');
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "json",
+      name: "spec.json",
+      path: "Animalia/Chordata/spec.json",
+      url: "/api/files/serve?path=Animalia%2FChordata%2Fspec.json",
+      size: jsonBytes.length,
+    }),
+    tab: "Tree",
+    bytes: jsonBytes,
+  });
+  assert.strictEqual(d.kind, "json-source",
+    "JSON + Tree + bytes must dispatch to json-source: got " + d.kind);
+  assert.strictEqual(d.src,
+    "/api/files/serve?path=Animalia%2FChordata%2Fspec.json",
+    "JSON src must come from the descriptor.url verbatim");
+  assert.strictEqual(d.title, "spec.json",
+    "JSON title must come from the descriptor.name verbatim");
+  assert.ok(d.bytes instanceof Uint8Array,
+    "JSON json-source must carry bytes as a Uint8Array: got "
+    + typeof d.bytes);
+  assert.strictEqual(d.bytes, jsonBytes,
+    "JSON json-source bytes must be the SAME Uint8Array "
+    + "reference as the input bytes (the dispatcher passes "
+    + "by reference, does NOT copy \u2014 mirrors the W4b1 DOCX "
+    + "+ W4b2 XLS / XLSX + W4b3 EPUB + W4b4 CSV / TSV "
+    + "bytes-reference contracts)");
+  assert.ok(!("scriptUrl" in d),
+    "JSON json-source MUST NOT carry a scriptUrl field "
+    + "(JSON parsing is native \u2014 the spec's 'Tree viewer "
+    + "tab / No CDN is used.' requirement enforces no-CDN): "
+    + "got " + JSON.stringify(d.scriptUrl));
+  assert.ok(!("scriptGlobal" in d),
+    "JSON json-source MUST NOT carry a scriptGlobal field "
+    + "(JSON parsing is native \u2014 no window-global to "
+    + "surface for retry): got " + JSON.stringify(d.scriptGlobal));
+
+  // 65. W4b4 JSON \u2014 Tree tab + format="json" + bytes=null
+  //     falls back to `json-offline` with the download
+  //     link + reason. NO CDN metadata (the offline branch
+  //     mirrors the no-CDN shape of `json-source` \u2014 there
+  //     is no CDN URL to pin and no window-global name to
+  //     surface for retry). The future React mount paints
+  //     the legacy "Viewer offline \u2014 raw download
+  //     available" banner verbatim \u2014 the same shape
+  //     `web/file_viewer.js::renderOfflineBanner` paints,
+  //     just sourced from the typed offline descriptor.
+  //     The bytes-missing reason is the ONLY offline path
+  //     the dispatcher can detect (the dispatcher does not
+  //     fetch the URL, decode bytes, or call JSON.parse
+  //     \u2014 those failures happen at the mount and are not
+  //     part of the dispatcher contract; the legacy
+  //     `renderJsonTree` catch branch paints the same
+  //     banner when JSON.parse throws).
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "json",
+      name: "missing.json",
+      path: "missing.json",
+      url: "/api/files/serve?path=missing.json",
+      size: 0,
+    }),
+    tab: "Tree",
+    bytes: null,
+  });
+  assert.strictEqual(d.kind, "json-offline",
+    "JSON + Tree + bytes=null must fall back to json-offline: "
+    + "got " + d.kind);
+  assert.strictEqual(d.name, "missing.json",
+    "JSON offline name must come from descriptor.name");
+  assert.strictEqual(d.download.href,
+    "/api/files/serve?path=missing.json",
+    "JSON offline download.href must come from descriptor.url");
+  assert.strictEqual(d.download.download, "missing.json",
+    "JSON offline download.download must carry the basename");
+  assert.strictEqual(d.reason, "bytes-missing",
+    "JSON offline reason MUST be the typed 'bytes-missing' "
+    + "literal \u2014 the dispatcher can only detect this "
+    + "offline path at dispatch time. JSON.parse failures "
+    + "are MOUNT responsibilities and are NOT part of this "
+    + "contract: got " + JSON.stringify(d.reason));
+  assert.ok(!("scriptUrl" in d),
+    "JSON json-offline MUST NOT carry a scriptUrl field "
+    + "(JSON parsing is native \u2014 no CDN to retry)");
+  assert.ok(!("scriptGlobal" in d),
+    "JSON json-offline MUST NOT carry a scriptGlobal field "
+    + "(JSON parsing is native \u2014 no window-global to "
+    + "surface for retry)");
+  assert.ok(!("message" in d),
+    "JSON json-offline branch MUST NOT carry a free-form "
+    + "'message' field \u2014 the legacy offline wording is "
+    + "painted by the mount from the typed descriptor (kind + "
+    + "name + download), not pre-formatted by the dispatcher");
+
+  // 66. W4b4 JSON on Raw \u2014 stays on the existing W4a
+  //     `unsupported` fallback / download (the user
+  //     decision is authoritative: Raw uses the existing
+  //     fallback/download behavior for CSV / TSV / JSON).
+  //     JSON NOW OWNS a Tree renderer via the W4b4
+  //     canonical exception, but on Raw it falls through
+  //     to the W4a default-arm `unsupported` with the
+  //     format-literal message. Step 20 already covers
+  //     JSON in the broader deferred Raw loop; here we
+  //     re-assert JSON on Raw explicitly with bytes
+  //     present (the dispatcher still fires `unsupported`
+  //     regardless of bytes on Raw \u2014 the Raw tab is
+  //     owned by the W4a default-arm for JSON).
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "json",
+      name: "spec.json",
+      path: "spec.json",
+      url: "/api/files/serve?path=spec.json",
+      size: 100,
+    }),
+    tab: "Raw",
+    bytes: jsonBytes,
+  });
+  assert.strictEqual(d.kind, "unsupported",
+    "JSON + Raw + bytes must dispatch to unsupported (Raw "
+    + "uses the existing fallback/download behavior per the "
+    + "W4b4 user decision): got " + d.kind);
+  assert.strictEqual(d.message,
+    "Format .json not supported in viewer.",
+    "JSON + Raw message must be the format-literal fallback: "
+    + "got " + JSON.stringify(d.message));
+  assert.strictEqual(d.download.download, "spec.json",
+    "JSON + Raw download link must carry the file basename");
+
+  // 67. W4b4 JSON on Table \u2014 stays on the legacy
+  //     `tab-not-applicable` branch. The W4b4 contract
+  //     makes the Table / Tree gate format-aware ONLY for
+  //     the three canonical exceptions: (Table, csv),
+  //     (Table, tsv), (Tree, json). JSON on Table is NOT a
+  //     canonical exception (the canonical Tree renderer
+  //     does not apply to the Table tab \u2014 JSON is a
+  //     hierarchical tree renderer, not a tabular
+  //     renderer). The dispatcher's Table / Tree gate
+  //     therefore fires `tab-not-applicable` with the
+  //     legacy wording.
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "json",
+      name: "spec.json",
+      path: "spec.json",
+      url: "/api/files/serve?path=spec.json",
+      size: 0,
+    }),
+    tab: "Table",
+    bytes: null,
+  });
+  assert.strictEqual(d.kind, "tab-not-applicable",
+    "JSON + Table must dispatch to tab-not-applicable (JSON on "
+    + "Table is NOT a W4b4 canonical exception): got " + d.kind);
+  assert.strictEqual(d.message,
+    "Table view not available for .json "
+    + renderers.TAB_NOT_APPLICABLE_SUFFIX,
+    "JSON + Table message must match legacy wording: got "
+    + JSON.stringify(d.message));
+
+  // 68. W4b4 dispatcher purity \u2014 the W4b4 CSV / TSV /
+  //     JSON source / offline branches are pure: same
+  //     input yields the same output on every call (no
+  //     Date.now(), no Math.random(), no side effects on
+  //     the input). Mirrors the W4b1 DOCX + W4b2 XLS /
+  //     XLSX + W4b3 EPUB purity checks from steps 34-35 +
+  //     47-48 + 54-55.
+  const tableFile = makeFile({
+    format: "csv",
+    name: "data.csv",
+    path: "data.csv",
+    url: "/api/files/serve?path=data.csv",
+    size: csvBytes.length,
+  });
+  const tableA = renderers.dispatchViewer({
+    file: tableFile, tab: "Table", bytes: csvBytes,
+  });
+  const tableB = renderers.dispatchViewer({
+    file: tableFile, tab: "Table", bytes: csvBytes,
+  });
+  assert.deepStrictEqual(
+    JSON.parse(JSON.stringify(tableA)),
+    JSON.parse(JSON.stringify(tableB)),
+    "CSV dispatcher MUST be pure \u2014 same input \u2192 same output",
+  );
+  assert.strictEqual(tableA.kind, "table-source");
+  assert.strictEqual(tableB.kind, "table-source");
+  assert.strictEqual(tableA.scriptUrl, tableB.scriptUrl);
+  assert.strictEqual(tableA.scriptGlobal, tableB.scriptGlobal);
+  assert.strictEqual(tableA.delimiter, tableB.delimiter);
+  // TSV purity \u2014 the delimiter must round-trip as the
+  // literal "\t".
+  const tsvFile = makeFile({
+    format: "tsv",
+    name: "data.tsv",
+    path: "data.tsv",
+    url: "/api/files/serve?path=data.tsv",
+    size: tsvBytes.length,
+  });
+  const tsvA = renderers.dispatchViewer({
+    file: tsvFile, tab: "Table", bytes: tsvBytes,
+  });
+  const tsvB = renderers.dispatchViewer({
+    file: tsvFile, tab: "Table", bytes: tsvBytes,
+  });
+  assert.deepStrictEqual(
+    JSON.parse(JSON.stringify(tsvA)),
+    JSON.parse(JSON.stringify(tsvB)),
+    "TSV dispatcher MUST be pure \u2014 same input \u2192 same output",
+  );
+  assert.strictEqual(tsvA.delimiter, "\t",
+    "TSV delimiter MUST round-trip as the literal '\\t' on a "
+    + "second dispatch (the dispatcher is pure): got "
+    + JSON.stringify(tsvA.delimiter));
+  // JSON purity \u2014 the json-source branch must round-trip
+  // without a CDN metadata field leak (the absence of
+  // scriptUrl + scriptGlobal is part of the contract).
+  const jsonFile = makeFile({
+    format: "json",
+    name: "spec.json",
+    path: "spec.json",
+    url: "/api/files/serve?path=spec.json",
+    size: jsonBytes.length,
+  });
+  const jsonA = renderers.dispatchViewer({
+    file: jsonFile, tab: "Tree", bytes: jsonBytes,
+  });
+  const jsonB = renderers.dispatchViewer({
+    file: jsonFile, tab: "Tree", bytes: jsonBytes,
+  });
+  assert.deepStrictEqual(
+    JSON.parse(JSON.stringify(jsonA)),
+    JSON.parse(JSON.stringify(jsonB)),
+    "JSON dispatcher MUST be pure \u2014 same input \u2192 same "
+    + "output",
+  );
+  assert.strictEqual(jsonA.kind, "json-source");
+  assert.strictEqual(jsonB.kind, "json-source");
+  assert.ok(!("scriptUrl" in jsonA),
+    "JSON json-source MUST NOT carry scriptUrl on a second "
+    + "dispatch either (no-CDN shape is part of the contract)");
+  // JSON offline-branch purity \u2014 the json-offline
+  // branch must round-trip without a CDN metadata field
+  // leak either (mirrors the source-branch purity check
+  // above).
+  const jsonMissingFile = makeFile({
+    format: "json",
+    name: "missing.json",
+    path: "missing.json",
+    url: "/api/files/serve?path=missing.json",
+    size: 0,
+  });
+  const jsonOfflineA = renderers.dispatchViewer({
+    file: jsonMissingFile, tab: "Tree", bytes: null,
+  });
+  const jsonOfflineB = renderers.dispatchViewer({
+    file: jsonMissingFile, tab: "Tree", bytes: null,
+  });
+  assert.deepStrictEqual(
+    JSON.parse(JSON.stringify(jsonOfflineA)),
+    JSON.parse(JSON.stringify(jsonOfflineB)),
+    "JSON offline branch MUST be pure \u2014 same input \u2192 "
+    + "same output",
+  );
+  assert.strictEqual(jsonOfflineA.kind, "json-offline");
+  assert.strictEqual(jsonOfflineB.kind, "json-offline");
+  assert.ok(!("scriptUrl" in jsonOfflineA),
+    "JSON json-offline MUST NOT carry scriptUrl on a second "
+    + "dispatch either");
+
+  // 69. W4b4 bytes-reference contract on the table-source
+  //     and json-source branches \u2014 the dispatcher
+  //     passes the input bytes reference through to
+  //     `table-source.bytes` / `json-source.bytes` (NO
+  //     copy, NO decode \u2014 the dispatcher doesn't load
+  //     Papa or call JSON.parse). This is intentional:
+  //     the future mount reads the bytes at mount time
+  //     and feeds them straight to the parser. Copying
+  //     the bytes at dispatch time would cost a
+  //     Uint8Array allocation per dispatch and gain
+  //     nothing (the mount doesn't mutate the bytes).
+  //     The pinned contract: table-source.bytes /
+  //     json-source.bytes === input bytes reference,
+  //     by-reference \u2014 mirrors the W4b1 DOCX +
+  //     W4b2 XLS / XLSX + W4b3 EPUB bytes-reference
+  //     contracts.
+  const tableRefBytes = makeBytes("col1,col2\nv1,v2\n");
+  const tableRef = renderers.dispatchViewer({
+    file: makeFile({
+      format: "csv",
+      name: "ref.csv",
+      path: "ref.csv",
+      url: "/api/files/serve?path=ref.csv",
+      size: tableRefBytes.length,
+    }),
+    tab: "Table",
+    bytes: tableRefBytes,
+  });
+  assert.strictEqual(tableRef.kind, "table-source");
+  assert.strictEqual(tableRef.bytes, tableRefBytes,
+    "CSV table-source bytes MUST be the SAME Uint8Array "
+    + "reference as the input bytes (pass-by-reference "
+    + "contract \u2014 the mount reads bytes at mount time, "
+    + "not dispatch time): got different reference");
+  // A second dispatch on the SAME descriptor + bytes
+  // returns the SAME reference (the dispatcher does not
+  // memoize or copy between calls) \u2014 mirrors the W4b1
+  // DOCX + W4b2 XLS / XLSX + W4b3 EPUB second-dispatch
+  // checks from steps 36 + 45 + 56.
+  const tableRef2 = renderers.dispatchViewer({
+    file: makeFile({
+      format: "csv",
+      name: "ref.csv",
+      path: "ref.csv",
+      url: "/api/files/serve?path=ref.csv",
+      size: tableRefBytes.length,
+    }),
+    tab: "Table",
+    bytes: tableRefBytes,
+  });
+  assert.strictEqual(tableRef2.bytes, tableRefBytes,
+    "Second CSV dispatch must also return the SAME bytes "
+    + "reference \u2014 the dispatcher does not memoize or copy");
+  // CSV bytes mutation visible through the dispatched
+  // reference (because the dispatcher passes by
+  // reference, mutating the input bytes after dispatch
+  // is visible through the dispatched reference).
+  tableRefBytes[0] = 0x58; // 'X' \u2014 mutate input bytes
+  // The first dispatch's `tableRef.bytes` is the SAME
+  // reference, so it now sees the mutation too.
+  assert.strictEqual(tableRef.bytes[0], 0x58,
+    "CSV bytes-reference contract: mutating input bytes "
+    + "after dispatch is visible through the dispatched "
+    + "reference (the dispatcher passes by reference, not "
+    + "by copy). The mount MUST treat the bytes as "
+    + "read-only or copy before mutation: got byte 0 = "
+    + JSON.stringify(tableRef.bytes[0]));
+  // JSON bytes-reference contract \u2014 same shape.
+  const jsonRefBytes = makeBytes('{"k":"v"}');
+  const jsonRef = renderers.dispatchViewer({
+    file: makeFile({
+      format: "json",
+      name: "ref.json",
+      path: "ref.json",
+      url: "/api/files/serve?path=ref.json",
+      size: jsonRefBytes.length,
+    }),
+    tab: "Tree",
+    bytes: jsonRefBytes,
+  });
+  assert.strictEqual(jsonRef.kind, "json-source");
+  assert.strictEqual(jsonRef.bytes, jsonRefBytes,
+    "JSON json-source bytes MUST be the SAME Uint8Array "
+    + "reference as the input bytes (pass-by-reference "
+    + "contract \u2014 mirrors the W4b1 DOCX + W4b2 XLS / "
+    + "XLSX + W4b3 EPUB + W4b4 CSV bytes-reference "
+    + "contracts): got different reference");
+  const jsonRef2 = renderers.dispatchViewer({
+    file: makeFile({
+      format: "json",
+      name: "ref.json",
+      path: "ref.json",
+      url: "/api/files/serve?path=ref.json",
+      size: jsonRefBytes.length,
+    }),
+    tab: "Tree",
+    bytes: jsonRefBytes,
+  });
+  assert.strictEqual(jsonRef2.bytes, jsonRefBytes,
+    "Second JSON dispatch must also return the SAME bytes "
+    + "reference \u2014 the dispatcher does not memoize or copy");
+  jsonRefBytes[0] = 0x58; // 'X'
+  assert.strictEqual(jsonRef.bytes[0], 0x58,
+    "JSON bytes-reference contract: mutating input bytes "
+    + "after dispatch is visible through the dispatched "
+    + "reference (the dispatcher passes by reference, not "
+    + "by copy). The mount MUST treat the bytes as "
+    + "read-only or copy before mutation: got byte 0 = "
+    + JSON.stringify(jsonRef.bytes[0]));
 
   process.stdout.write("PASS\n");
 })().catch((err) => {
