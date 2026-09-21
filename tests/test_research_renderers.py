@@ -602,26 +602,198 @@ def test_renderers_file_exports_named_mammoth_global_name() -> None:
 
 
 # ---------------------------------------------------------------------------
+# W4b2 — XLS / XLSX source / offline branch surface
+#
+# The W4b2 contract is the second W4b+ slice: it owns the XLS
+# and XLSX formats. The contract emits a typed `sheet-source`
+# outcome that carries the descriptor + bytes + pinned
+# SheetJS CDN URL + global name so a future React mount
+# (W6+) can load the legacy-pinned SheetJS library and
+# convert the workbook to an HTML table. When bytes are
+# missing, the contract emits a typed `sheet-offline` branch
+# with the download link + pinned CDN URL + global name so
+# the mount paints the same legacy "Viewer offline" banner
+# with a download affordance. The application layer stays
+# framework-free, browser-free, and CDN-loader-free —
+# SheetJS is NOT imported or loaded here; the dispatcher
+# only emits the typed source descriptor for the mount to
+# consume.
+# ---------------------------------------------------------------------------
+def test_renderers_file_has_no_sheetjs_renderer_or_loader_imports() -> None:
+    """TRIANGULATE — the W4b2 contract is the typed SOURCE
+    outcome for a future mount; the dispatcher MUST NOT import
+    or load SheetJS, MUST NOT inject a `<script>` tag, MUST NOT
+    call `loadScriptOnce` (the legacy `web/file_viewer.js`
+    CDN-loader helper that touches `document` + `window`), and
+    MUST NOT inline the SheetJS bundle. The contract only
+    pins the CDN URL + global name on the typed source
+    outcome — the future React mount (W6+) consumes the URL
+    through Next 16's `<Script>` component (see
+    `node_modules/next/dist/docs/01-app/03-api-reference/02-
+    components/script.md`) with the `onLoad` / `onError`
+    callbacks. A future PR that imports SheetJS into the
+    application layer breaks the layered architecture at
+    review.
+
+    SheetJS exposes three calls that the future mount will
+    use: `XLSX.read(bytes, { type: "array" })` to parse the
+    workbook, `XLSX.utils.sheet_to_html(sheet)` to emit the
+    HTML table, and `XLSX.SheetNames` to enumerate sheets
+    for multi-sheet workbooks. The dispatcher must NOT call
+    any of them — they happen at the mount."""
+    if not RENDERERS_FILE.exists():
+        pytest.skip("renderers file not present yet")
+    text = _strip_ts_comments(RENDERERS_FILE.read_text())
+    for token in (
+        # SheetJS import (any spelling — default, named,
+        # sub-path, or the legacy global read).
+        "from 'xlsx'",
+        'from "xlsx"',
+        "from 'xlsx/dist/xlsx.full.min'",
+        'from "xlsx/dist/xlsx.full.min"',
+        "import('xlsx')",
+        'import("xlsx")',
+        "window.XLSX",
+        # `<script>` injection / CDN loader — the dispatcher
+        # stays framework-free; the mount owns the loader.
+        "loadScriptOnce",
+        "createElement('script')",
+        'createElement("script")',
+        "createElement('SCRIPT')",
+        'createElement("SCRIPT")',
+        ".appendChild(s",
+        # SheetJS conversion call sites. The dispatcher does
+        # NOT invoke SheetJS — it only emits the typed source
+        # outcome for the mount to convert.
+        "XLSX.read",
+        "XLSX.utils",
+        "sheet_to_html",
+        "SheetNames",
+    ):
+        assert token not in text, (
+            f"renderers.ts must stay free of {token!r}; the W4b2 "
+            f"contract is a typed source descriptor only — the "
+            f"future React mount loads xlsx via Next 16's "
+            f"`<Script>` component and calls "
+            f"`window.XLSX.read(bytes, {{type: \"array\"}})` + "
+            f"`window.XLSX.utils.sheet_to_html(sheet)` itself."
+        )
+
+
+def test_renderers_file_exports_named_sheetjs_cdn_url() -> None:
+    """The W4b2 contract commits to the `SHEETJS_CDN_URL`
+    constant — the legacy-pinned SheetJS CDN URL
+    (`web/file_viewer.js::CDN_URLS.XLSX` +
+    `web/index.html` <script> tag — the matching companion
+    comment block calls the URL "Pinned URL: do not unpin.").
+    The URL is part of the W4b2 source descriptor so the
+    future React mount can load the CDN idempotently. A
+    future PR that bumps the version MUST update this constant
+    AND the matching `web/index.html` <script> tag AND the
+    focused test that pins the URL. Bumping the URL without
+    updating the comment + the `<script>` tag would silently
+    diverge the legacy + React paths."""
+    if not RENDERERS_FILE.exists():
+        pytest.skip("renderers file not present yet")
+    text = RENDERERS_FILE.read_text()
+    assert re.search(
+        r"export\s+const\s+SHEETJS_CDN_URL\b\s*:\s*string\b",
+        text,
+    ), (
+        "renderers.ts must export `SHEETJS_CDN_URL: string` "
+        "as the pinned SheetJS CDN URL constant."
+    )
+    m = re.search(
+        r"export\s+const\s+SHEETJS_CDN_URL\b[^;]*;",
+        text,
+    )
+    assert m, "SHEETJS_CDN_URL must be declared as a const string."
+    declaration = m.group(0)
+    # Pinned URL — `cdn.jsdelivr.net/npm/xlsx@0.18.5/
+    # dist/xlsx.full.min.js`. The version pin is a content
+    # hash, not a moving tag — `web/index.html`'s SheetJS
+    # comment block ("Pinned URL: do not unpin.") +
+    # `openspec/specs/research/spec.md` "CDN URLs … MUST be
+    # pinned to specific versions" enforce this. The legacy
+    # `CDN_URLS.XLSX` map key + the Community edition
+    # (Apache 2.0) flag in `web/index.html`'s comment block
+    # pin the URL byte-for-byte.
+    assert (
+        "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
+        in declaration
+    ), (
+        "SHEETJS_CDN_URL must be the legacy-pinned URL "
+        '"https://cdn.jsdelivr.net/npm/xlsx@0.18.5/'
+        'dist/xlsx.full.min.js" (matches '
+        "web/file_viewer.js::CDN_URLS.XLSX + "
+        "web/index.html's SheetJS (xlsx) <script> tag)."
+    )
+
+
+def test_renderers_file_exports_named_sheetjs_global_name() -> None:
+    """The W4b2 contract commits to the `SHEETJS_GLOBAL_NAME`
+    constant — the window-global name SheetJS assigns itself
+    once the CDN script loads (the legacy
+    `web/file_viewer.js::loadScriptOnce("XLSX")` resolves
+    via `window[name]`, then the `renderSheet` call sites
+    call `window.XLSX.read(...)` +
+    `window.XLSX.utils.sheet_to_html(...)`). The global name
+    is part of the W4b2 source descriptor so the future React
+    mount can read the global verbatim without hardcoding
+    the string. A future PR that bumps the library or the
+    CDN pin (e.g. SheetJS releases a v1 with a different
+    global) MUST update this constant too."""
+    if not RENDERERS_FILE.exists():
+        pytest.skip("renderers file not present yet")
+    text = RENDERERS_FILE.read_text()
+    assert re.search(
+        r"export\s+const\s+SHEETJS_GLOBAL_NAME\b\s*:\s*string\b",
+        text,
+    ), (
+        "renderers.ts must export `SHEETJS_GLOBAL_NAME: string` "
+        "as the window-global name constant."
+    )
+    m = re.search(
+        r"export\s+const\s+SHEETJS_GLOBAL_NAME\b[^;]*;",
+        text,
+    )
+    assert m, "SHEETJS_GLOBAL_NAME must be declared as a const string."
+    declaration = m.group(0)
+    # Pinned global — `XLSX` (matches the legacy
+    # `window.XLSX.read` + `window.XLSX.utils.sheet_to_html`
+    # sites + `CDN_URLS.XLSX` map key in `web/file_viewer.js`).
+    assert '"XLSX"' in declaration or "'XLSX'" in declaration, (
+        "SHEETJS_GLOBAL_NAME must be the literal \"XLSX\" "
+        "(matches web/file_viewer.js::CDN_URLS.XLSX key + "
+        "window.XLSX.read + window.XLSX.utils.sheet_to_html "
+        "call sites)."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public barrel — W4a must re-export the dispatcher surface through
 # the module's barrel so cross-module consumers (W6 React mount,
 # integration tests) reach the W4a contract through the public surface
 # (spec.md rule 5).
 # ---------------------------------------------------------------------------
 def test_barrel_reexports_research_renderers_surface() -> None:
-    """ODD-MIGRATE-002 W4a + W4b1: the public barrel must re-export
-    `dispatchViewer`, `sanitizeSvgMarkup` (as values) and
-    `IMAGE_BIG_FILE_BYTES`, `TAB_NOT_APPLICABLE_SUFFIX`,
-    `MAMMOTH_CDN_URL`, `MAMMOTH_GLOBAL_NAME` (as values) plus
-    the five W4a types (`ViewerDispatch`, `ViewerDispatchInput`,
-    `ViewerFileDescriptor`, `ViewerLink`, `ViewerImageAdvisory`)
-    via `export type { … }` so cross-module consumers reach the
-    W4a + W4b1 contract through the barrel."""
+    """ODD-MIGRATE-002 W4a + W4b1 + W4b2: the public barrel must
+    re-export `dispatchViewer`, `sanitizeSvgMarkup` (as values)
+    and `IMAGE_BIG_FILE_BYTES`, `TAB_NOT_APPLICABLE_SUFFIX`,
+    `MAMMOTH_CDN_URL`, `MAMMOTH_GLOBAL_NAME` (W4a + W4b1 as
+    values), `SHEETJS_CDN_URL`, `SHEETJS_GLOBAL_NAME` (W4b2 as
+    values) plus the five W4a types (`ViewerDispatch`,
+    `ViewerDispatchInput`, `ViewerFileDescriptor`, `ViewerLink`,
+    `ViewerImageAdvisory`) via `export type { … }` so
+    cross-module consumers reach the W4a + W4b1 + W4b2
+    contract through the barrel."""
     if not BARREL_FILE.exists():
         pytest.skip("research barrel not present yet")
     text = BARREL_FILE.read_text()
     # Value re-exports — `dispatchViewer`, `sanitizeSvgMarkup`,
     # `IMAGE_BIG_FILE_BYTES`, `TAB_NOT_APPLICABLE_SUFFIX` (W4a)
-    # + `MAMMOTH_CDN_URL`, `MAMMOTH_GLOBAL_NAME` (W4b1).
+    # + `MAMMOTH_CDN_URL`, `MAMMOTH_GLOBAL_NAME` (W4b1)
+    # + `SHEETJS_CDN_URL`, `SHEETJS_GLOBAL_NAME` (W4b2).
     for name in (
         "dispatchViewer",
         "sanitizeSvgMarkup",
@@ -629,6 +801,8 @@ def test_barrel_reexports_research_renderers_surface() -> None:
         "TAB_NOT_APPLICABLE_SUFFIX",
         "MAMMOTH_CDN_URL",
         "MAMMOTH_GLOBAL_NAME",
+        "SHEETJS_CDN_URL",
+        "SHEETJS_GLOBAL_NAME",
     ):
         pattern = (
             rf"export\s*\{{\s*[^}}]*\b{name}\b[^}}]*\s*\}}\s*from\s*"
@@ -1047,19 +1221,23 @@ function makeFile(overrides) {
   assert.strictEqual(d.download.href, "/api/files/serve?path=data.zip");
   assert.strictEqual(d.download.download, "data.zip");
 
-  // 20. Still-W4b+-deferred formats on Raw — XLS / XLSX /
-  //     EPUB / CSV / TSV / JSON all fall through to the default
-  //     arm with the format-literal "Format .{ext} not supported
-  //     in viewer." message. W4b+ extends the dispatcher by
+  // 20. Still-W4b+-deferred formats on Raw — EPUB / CSV /
+  //     TSV / JSON all fall through to the default arm with
+  //     the format-literal "Format .{ext} not supported in
+  //     viewer." message. W4b3+ extends the dispatcher by
   //     adding explicit arms for each of these formats; the
-  //     W4a + W4b1 contract commits to the unsupported fallback
-  //     so the React mount paints the same download-link card
-  //     as the legacy renderUnsupported. DOCX is OWNED by W4b1
-  //     — the dispatcher emits the typed `docx-source` outcome
-  //     instead (with bytes-missing falling back to
-  //     `docx-offline`). The DOCX dispatch is exercised in
-  //     steps 30+ below.
-  for (const ext of ["xls", "xlsx", "epub", "csv", "tsv", "json"]) {
+  //     W4a + W4b1 + W4b2 contract commits to the unsupported
+  //     fallback so the React mount paints the same
+  //     download-link card as the legacy renderUnsupported.
+  //     DOCX is OWNED by W4b1 — the dispatcher emits the
+  //     typed `docx-source` outcome instead (with bytes-missing
+  //     falling back to `docx-offline`). The DOCX dispatch is
+  //     exercised in steps 30+ below. XLS / XLSX are OWNED
+  //     by W4b2 — the dispatcher emits the typed
+  //     `sheet-source` outcome instead (with bytes-missing
+  //     falling back to `sheet-offline`). The XLS / XLSX
+  //     dispatch is exercised in steps 38+ below.
+  for (const ext of ["epub", "csv", "tsv", "json"]) {
     d = renderers.dispatchViewer({
       file: makeFile({
         format: ext,
@@ -1603,6 +1781,437 @@ function makeFile(overrides) {
     + "by copy). The mount MUST treat the bytes as "
     + "read-only or copy before mutation: got byte 0 = "
     + JSON.stringify(docxRef.bytes[0]));
+
+  // 38. W4b2 XLSX — Raw tab + format="xlsx" + injected bytes
+  //     dispatches to `sheet-source` with the descriptor +
+  //     bytes + pinned SheetJS CDN URL + global name. The
+  //     future React mount (W6+) consumes the typed source
+  //     outcome via Next 16's `<Script src={scriptUrl}
+  //     strategy="afterInteractive" onLoad={convert}>` then
+  //     calls `window[scriptGlobal].read(bytes, { type:
+  //     "array" })` to parse the workbook, then
+  //     `window[scriptGlobal].utils.sheet_to_html(sheet)` to
+  //     emit the HTML table, then injects the HTML via
+  //     `Range.createContextualFragment` (mirrors the legacy
+  //     `web/file_viewer.js::renderSheet` shape). The
+  //     dispatcher does NOT load the script, fetch the URL,
+  //     or call read / sheet_to_html — it only emits the
+  //     typed source descriptor.
+  const xlsxBytes = makeBytes("PK\x03\x04fake-xlsx-bytes");
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "xlsx",
+      name: "data.xlsx",
+      path: "Animalia/Chordata/data.xlsx",
+      url: "/api/files/serve?path=Animalia%2FChordata%2Fdata.xlsx",
+      size: xlsxBytes.length,
+    }),
+    tab: "Raw",
+    bytes: xlsxBytes,
+  });
+  assert.strictEqual(d.kind, "sheet-source",
+    "XLSX + Raw + bytes must dispatch to sheet-source: got " + d.kind);
+  assert.strictEqual(d.src,
+    "/api/files/serve?path=Animalia%2FChordata%2Fdata.xlsx",
+    "XLSX src must come from the descriptor.url verbatim");
+  assert.strictEqual(d.title, "data.xlsx",
+    "XLSX title must come from the descriptor.name verbatim");
+  assert.ok(d.bytes instanceof Uint8Array,
+    "XLSX source must carry bytes as a Uint8Array: got "
+    + typeof d.bytes);
+  assert.strictEqual(d.bytes, xlsxBytes,
+    "XLSX source bytes must be the SAME Uint8Array reference "
+    + "as the input bytes (the dispatcher passes by reference, "
+    + "does NOT copy — mirrors the W4b1 DOCX bytes-reference "
+    + "contract from step 36)");
+  assert.strictEqual(d.scriptUrl,
+    "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+    "XLSX source scriptUrl must be the legacy-pinned SheetJS "
+    + "CDN URL (matches web/file_viewer.js::CDN_URLS.XLSX "
+    + "and web/index.html's SheetJS (xlsx) <script> tag)");
+  assert.strictEqual(d.scriptGlobal, "XLSX",
+    "XLSX source scriptGlobal must be the literal 'XLSX' "
+    + "(matches web/file_viewer.js::window.XLSX.read + "
+    + "window.XLSX.utils.sheet_to_html call sites + "
+    + "CDN_URLS.XLSX map key)");
+
+  // 39. W4b2 XLS — Raw tab + format="xls" + injected bytes
+  //     dispatches to `sheet-source` with the same descriptor
+  //     shape. Both XLS and XLSX go through the SheetJS path;
+  //     the `format` field carries the extension verbatim so
+  //     the mount can branch on XLS vs XLSX for format-
+  //     specific affordances if needed (SheetJS itself does
+  //     not distinguish them at the read site).
+  const xlsBytes = makeBytes("\xd0\xcf\x11\xe0fake-xls-bytes");
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "xls",
+      name: "data.xls",
+      path: "Animalia/Chordata/data.xls",
+      url: "/api/files/serve?path=Animalia%2FChordata%2Fdata.xls",
+      size: xlsBytes.length,
+    }),
+    tab: "Raw",
+    bytes: xlsBytes,
+  });
+  assert.strictEqual(d.kind, "sheet-source",
+    "XLS + Raw + bytes must dispatch to sheet-source: got " + d.kind);
+  assert.strictEqual(d.src,
+    "/api/files/serve?path=Animalia%2FChordata%2Fdata.xls",
+    "XLS src must come from the descriptor.url verbatim");
+  assert.strictEqual(d.title, "data.xls",
+    "XLS title must come from the descriptor.name verbatim");
+  assert.strictEqual(d.bytes, xlsBytes,
+    "XLS source bytes must be the SAME Uint8Array reference "
+    + "as the input bytes (pass-by-reference, mirrors W4b1 DOCX "
+    + "+ W4b2 XLSX)");
+  assert.strictEqual(d.scriptUrl,
+    "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+    "XLS source scriptUrl must be the legacy-pinned SheetJS CDN "
+    + "URL (same URL for both XLS and XLSX)");
+  assert.strictEqual(d.scriptGlobal, "XLSX",
+    "XLS source scriptGlobal must be the literal 'XLSX' (same "
+    + "global for both XLS and XLSX — SheetJS does not "
+    + "distinguish extensions)");
+
+  // 40. W4b2 XLSX — Raw tab + format="xlsx" + bytes=null
+  //     falls back to `sheet-offline` with the download link
+  //     + pinned CDN URL + global name + reason. The future
+  //     React mount paints the legacy "Viewer offline — raw
+  //     download available" banner verbatim — the same
+  //     shape `web/file_viewer.js::renderOfflineBanner`
+  //     paints, just sourced from the typed offline
+  //     descriptor. The bytes-missing reason is the ONLY
+  //     offline path the dispatcher can detect (the
+  //     dispatcher does not fetch the URL, load the CDN,
+  //     or call read / sheet_to_html — those failures
+  //     happen at the mount and are not part of the
+  //     dispatcher contract).
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "xlsx",
+      name: "missing.xlsx",
+      path: "missing.xlsx",
+      url: "/api/files/serve?path=missing.xlsx",
+      size: 0,
+    }),
+    tab: "Raw",
+    bytes: null,
+  });
+  assert.strictEqual(d.kind, "sheet-offline",
+    "XLSX + Raw + bytes=null must fall back to sheet-offline: "
+    + "got " + d.kind);
+  assert.strictEqual(d.name, "missing.xlsx",
+    "XLSX offline name must come from descriptor.name");
+  assert.strictEqual(d.download.href,
+    "/api/files/serve?path=missing.xlsx",
+    "XLSX offline download.href must come from descriptor.url");
+  assert.strictEqual(d.download.download, "missing.xlsx",
+    "XLSX offline download.download must carry the basename");
+  assert.strictEqual(d.scriptUrl,
+    "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+    "XLSX offline scriptUrl must be the legacy-pinned SheetJS "
+    + "CDN URL (the mount needs the URL to retry the loader "
+    + "or to surface a 'try again' affordance)");
+  assert.strictEqual(d.scriptGlobal, "XLSX",
+    "XLSX offline scriptGlobal must be the literal 'XLSX'");
+  assert.strictEqual(d.reason, "bytes-missing",
+    "XLSX offline reason MUST be the typed 'bytes-missing' "
+    + "literal — the dispatcher can only detect this offline "
+    + "path at dispatch time. CDN-load + read + sheet_to_html "
+    + "failures are MOUNT responsibilities and are NOT part "
+    + "of this contract: got " + JSON.stringify(d.reason));
+
+  // 41. W4b2 XLS — Raw tab + format="xls" + bytes=null
+  //     falls back to `sheet-offline` with the same
+  //     descriptor pattern as XLSX (SheetJS does not
+  //     distinguish XLS vs XLSX at the offline site —
+  //     both extensions share the same CDN URL + global
+  //     name + reason).
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "xls",
+      name: "missing.xls",
+      path: "missing.xls",
+      url: "/api/files/serve?path=missing.xls",
+      size: 0,
+    }),
+    tab: "Raw",
+    bytes: null,
+  });
+  assert.strictEqual(d.kind, "sheet-offline",
+    "XLS + Raw + bytes=null must fall back to sheet-offline: "
+    + "got " + d.kind);
+  assert.strictEqual(d.name, "missing.xls",
+    "XLS offline name must come from descriptor.name");
+  assert.strictEqual(d.download.href,
+    "/api/files/serve?path=missing.xls",
+    "XLS offline download.href must come from descriptor.url");
+  assert.strictEqual(d.scriptUrl,
+    "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+    "XLS offline scriptUrl must be the legacy-pinned SheetJS "
+    + "CDN URL");
+  assert.strictEqual(d.scriptGlobal, "XLSX",
+    "XLS offline scriptGlobal must be the literal 'XLSX'");
+  assert.strictEqual(d.reason, "bytes-missing",
+    "XLS offline reason MUST be the typed 'bytes-missing' "
+    + "literal");
+
+  // 42. W4b2 XLS / XLSX — bytes-missing framing — the
+  //     dispatcher does NOT carry a free-form message
+  //     field on the offline variants (mirrors the W4b1
+  //     DOCX offline shape). The offline branch is a typed
+  //     descriptor (kind + name + download + scriptUrl +
+  //     scriptGlobal + reason) and the future mount paints
+  //     the legacy message itself.
+  assert.ok(!("message" in d),
+    "Sheet offline branch MUST NOT carry a free-form 'message' "
+    + "field — the legacy offline wording is painted by the "
+    + "mount from the typed descriptor (kind + name + "
+    + "download), not pre-formatted by the dispatcher");
+
+  // 43. W4b2 XLSX / XLS — Table / Tree tabs on XLSX /
+  //     XLS fire tab-not-applicable — the Table/Tree
+  //     gate runs BEFORE the format switch so XLS / XLSX
+  //     never reach the W4b2 `case "xls":` /
+  //     `case "xlsx":` arms. This pins the W4b2 split
+  //     shape: XLS / XLSX have a Raw-only renderer
+  //     (SheetJS produces an HTML table, not a dedicated
+  //     Table or Tree widget). Step 27 already covers
+  //     XLS / XLSX in the broader Table/Tree deferred
+  //     loop; here we re-assert the XLSX case explicitly
+  //     + verify the message uses the "xlsx" literal (NOT
+  //     the wire-extension variant — the descriptor's
+  //     `format` field carries "xlsx" verbatim).
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "xlsx",
+      name: "f.xlsx",
+      path: "f.xlsx",
+      url: "/api/files/serve?path=f.xlsx",
+      size: 100,
+    }),
+    tab: "Table",
+    bytes: xlsxBytes,
+  });
+  assert.strictEqual(d.kind, "tab-not-applicable",
+    "XLSX + Table + bytes must fire tab-not-applicable "
+    + "(XLSX has no Table renderer): got " + d.kind);
+  assert.strictEqual(d.message,
+    "Table view not available for .xlsx "
+    + renderers.TAB_NOT_APPLICABLE_SUFFIX,
+    "XLSX + Table message must use the 'xlsx' format literal "
+    + "as the extension label: got " + JSON.stringify(d.message));
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "xlsx",
+      name: "f.xlsx",
+      path: "f.xlsx",
+      url: "/api/files/serve?path=f.xlsx",
+      size: 100,
+    }),
+    tab: "Tree",
+    bytes: xlsxBytes,
+  });
+  assert.strictEqual(d.kind, "tab-not-applicable",
+    "XLSX + Tree + bytes must fire tab-not-applicable "
+    + "(XLSX has no Tree renderer): got " + d.kind);
+
+  // 44. W4b2 XLS — same Table / Tree gate check on the
+  //     XLS extension — both XLS and XLSX share the same
+  //     tab-not-applicable path because SheetJS does not
+  //     distinguish extensions at the Table/Tree site.
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "xls",
+      name: "f.xls",
+      path: "f.xls",
+      url: "/api/files/serve?path=f.xls",
+      size: 100,
+    }),
+    tab: "Table",
+    bytes: xlsBytes,
+  });
+  assert.strictEqual(d.kind, "tab-not-applicable",
+    "XLS + Table + bytes must fire tab-not-applicable "
+    + "(XLS has no Table renderer): got " + d.kind);
+  assert.strictEqual(d.message,
+    "Table view not available for .xls "
+    + renderers.TAB_NOT_APPLICABLE_SUFFIX,
+    "XLS + Table message must use the 'xls' format literal "
+    + "as the extension label: got " + JSON.stringify(d.message));
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "xls",
+      name: "f.xls",
+      path: "f.xls",
+      url: "/api/files/serve?path=f.xls",
+      size: 100,
+    }),
+    tab: "Tree",
+    bytes: xlsBytes,
+  });
+  assert.strictEqual(d.kind, "tab-not-applicable",
+    "XLS + Tree + bytes must fire tab-not-applicable "
+    + "(XLS has no Tree renderer): got " + d.kind);
+
+  // 45. W4b2 — bytes-reference contract on the
+  //     sheet-source branch — the dispatcher passes the
+  //     input bytes reference through to `sheet-source.
+  //     bytes` (NO copy, NO decode — the dispatcher
+  //     doesn't load xlsx or do any conversion). This
+  //     is intentional: the future mount reads the
+  //     bytes at mount time and feeds them straight to
+  //     `window.XLSX.read(bytes, { type: "array" })`.
+  //     Copying the bytes at dispatch time would cost a
+  //     Uint8Array allocation per dispatch and gain
+  //     nothing (the mount doesn't mutate the bytes).
+  //     The pinned contract: sheet-source.bytes ===
+  //     input bytes reference, by-reference — mirrors
+  //     the W4b1 DOCX bytes-reference contract from
+  //     step 36.
+  const sheetRefBytes = makeBytes("PK\x03\x04sheet-reference-test");
+  const sheetRef = renderers.dispatchViewer({
+    file: makeFile({
+      format: "xlsx",
+      name: "ref.xlsx",
+      path: "ref.xlsx",
+      url: "/api/files/serve?path=ref.xlsx",
+      size: sheetRefBytes.length,
+    }),
+    tab: "Raw",
+    bytes: sheetRefBytes,
+  });
+  assert.strictEqual(sheetRef.kind, "sheet-source");
+  assert.strictEqual(sheetRef.bytes, sheetRefBytes,
+    "XLSX sheet-source bytes MUST be the SAME Uint8Array "
+    + "reference as the input bytes (pass-by-reference "
+    + "contract — the mount reads bytes at mount time, "
+    + "not dispatch time): got different reference");
+  // A second dispatch on the SAME descriptor + bytes
+  // returns the SAME reference (the dispatcher does not
+  // memoize or copy between calls) — mirrors the W4b1
+  // DOCX step 36 second-dispatch check.
+  const sheetRef2 = renderers.dispatchViewer({
+    file: makeFile({
+      format: "xlsx",
+      name: "ref.xlsx",
+      path: "ref.xlsx",
+      url: "/api/files/serve?path=ref.xlsx",
+      size: sheetRefBytes.length,
+    }),
+    tab: "Raw",
+    bytes: sheetRefBytes,
+  });
+  assert.strictEqual(sheetRef2.bytes, sheetRefBytes,
+    "Second XLSX dispatch must also return the SAME bytes "
+    + "reference — the dispatcher does not memoize or copy");
+
+  // 46. W4b2 — bytes mutation visible through the
+  //     dispatched reference on the sheet-source branch
+  //     (because the dispatcher passes by reference,
+  //     mutating the input bytes after dispatch is
+  //     visible through the dispatched reference). This
+  //     is a documented contract — the dispatcher does
+  //     NOT freeze the bytes, it passes them through
+  //     verbatim. The future mount is responsible for
+  //     treating the bytes as read-only or copying
+  //     before mutation.
+  sheetRefBytes[0] = 0x58; // 'X' — mutate input bytes after dispatch
+  // The first dispatch's `sheetRef.bytes` is the SAME
+  // reference, so it now sees the mutation too
+  // (Uint8Array is a view on a backing ArrayBuffer — the
+  // bytes field IS the input bytes).
+  assert.strictEqual(sheetRef.bytes[0], 0x58,
+    "XLSX bytes-reference contract: mutating input bytes "
+    + "after dispatch is visible through the dispatched "
+    + "reference (the dispatcher passes by reference, not "
+    + "by copy). The mount MUST treat the bytes as "
+    + "read-only or copy before mutation: got byte 0 = "
+    + JSON.stringify(sheetRef.bytes[0]));
+
+  // 47. W4b2 — dispatcher purity on the sheet-source /
+  //     sheet-offline branches — same input yields the
+  //     same output on every call (no Date.now(), no
+  //     Math.random(), no side effects on the input).
+  //     Mirrors the W4b1 DOCX purity checks from steps
+  //     34-35.
+  const sheetFile = makeFile({
+    format: "xlsx",
+    name: "data.xlsx",
+    path: "data.xlsx",
+    url: "/api/files/serve?path=data.xlsx",
+    size: xlsxBytes.length,
+  });
+  const sheetA = renderers.dispatchViewer({
+    file: sheetFile, tab: "Raw", bytes: xlsxBytes,
+  });
+  const sheetB = renderers.dispatchViewer({
+    file: sheetFile, tab: "Raw", bytes: xlsxBytes,
+  });
+  assert.deepStrictEqual(
+    JSON.parse(JSON.stringify(sheetA)),
+    JSON.parse(JSON.stringify(sheetB)),
+    "XLSX dispatcher MUST be pure — same input → same output",
+  );
+  assert.strictEqual(sheetA.kind, "sheet-source");
+  assert.strictEqual(sheetB.kind, "sheet-source");
+  assert.strictEqual(sheetA.scriptUrl, sheetB.scriptUrl);
+  assert.strictEqual(sheetA.scriptGlobal, sheetB.scriptGlobal);
+
+  // 48. W4b2 — offline-branch purity (same input →
+  //     same output on the bytes=null path too — mirrors
+  //     the source-branch purity check above).
+  const sheetMissingFile = makeFile({
+    format: "xlsx",
+    name: "missing.xlsx",
+    path: "missing.xlsx",
+    url: "/api/files/serve?path=missing.xlsx",
+    size: 0,
+  });
+  const sheetOfflineA = renderers.dispatchViewer({
+    file: sheetMissingFile, tab: "Raw", bytes: null,
+  });
+  const sheetOfflineB = renderers.dispatchViewer({
+    file: sheetMissingFile, tab: "Raw", bytes: null,
+  });
+  assert.deepStrictEqual(
+    JSON.parse(JSON.stringify(sheetOfflineA)),
+    JSON.parse(JSON.stringify(sheetOfflineB)),
+    "XLSX offline branch MUST be pure — same input → same "
+    + "output",
+  );
+  assert.strictEqual(sheetOfflineA.kind, "sheet-offline");
+  assert.strictEqual(sheetOfflineB.kind, "sheet-offline");
+  assert.strictEqual(sheetOfflineA.scriptUrl, sheetOfflineB.scriptUrl);
+  assert.strictEqual(sheetOfflineA.reason, sheetOfflineB.reason);
+
+  // 49. W4b2 — XLS path purity — both XLS and XLSX share
+  //     the same dispatcher arm, but verify the XLS
+  //     purity explicitly (the format-specific `format`
+  //     field is carried in the typed outcome; the
+  //     dispatcher does NOT branch on it for the
+  //     sheet-source / sheet-offline outcome shapes).
+  const xlsFile = makeFile({
+    format: "xls",
+    name: "data.xls",
+    path: "data.xls",
+    url: "/api/files/serve?path=data.xls",
+    size: xlsBytes.length,
+  });
+  const xlsA = renderers.dispatchViewer({
+    file: xlsFile, tab: "Raw", bytes: xlsBytes,
+  });
+  const xlsB = renderers.dispatchViewer({
+    file: xlsFile, tab: "Raw", bytes: xlsBytes,
+  });
+  assert.deepStrictEqual(
+    JSON.parse(JSON.stringify(xlsA)),
+    JSON.parse(JSON.stringify(xlsB)),
+    "XLS dispatcher MUST be pure — same input → same output",
+  );
+  assert.strictEqual(xlsA.kind, "sheet-source");
+  assert.strictEqual(xlsB.kind, "sheet-source");
 
   process.stdout.write("PASS\n");
 })().catch((err) => {
