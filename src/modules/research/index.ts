@@ -56,6 +56,19 @@
  * browser-free, and CDN-loader-free. Future W4b2–W4b4 slices follow
  * the same pattern: add variants to `ViewerDispatch`, not new
  * top-level types.
+ *
+ * ODD-MIGRATE-002 W4b2: re-export the pinned SheetJS CDN URL +
+ * window-global name — `SHEETJS_CDN_URL` + `SHEETJS_GLOBAL_NAME`
+ * — so cross-module consumers (W6 React mount) reach the typed
+ * XLS / XLSX source descriptor's CDN pin through the barrel. The
+ * W4b2 contract adds `sheet-source` and `sheet-offline` variants
+ * to the existing `ViewerDispatch` discriminated union (no new
+ * top-level type); React consumers read the variants via the same
+ * `ViewerDispatch` import. The dispatcher does NOT import or load
+ * SheetJS — the application layer stays framework-free,
+ * browser-free, and CDN-loader-free. Future W4b3 (EPUB) + W4b4
+ * (CSV/TSV/JSON) slices follow the same pattern: add variants to
+ * `ViewerDispatch`, not new top-level types.
  */
 export {
   fetchFiles,
@@ -76,6 +89,8 @@ export {
   TAB_NOT_APPLICABLE_SUFFIX,
   MAMMOTH_CDN_URL,
   MAMMOTH_GLOBAL_NAME,
+  SHEETJS_CDN_URL,
+  SHEETJS_GLOBAL_NAME,
 } from "./application/renderers";
 export type {
   ViewerDispatch,
