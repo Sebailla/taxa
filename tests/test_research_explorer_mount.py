@@ -642,6 +642,168 @@ def test_w6_1_file_tree_folder_row_separates_select_from_expand() -> None:
 
 
 # ---------------------------------------------------------------------------
+# W6.2 Escape-clears-tree synchronously — Explorer.tsx must
+# flush the debounced query in the same Escape handler so the
+# FileTree `useEffect` fires `restoreTreeMutation` immediately,
+# not 200 ms later. Mirrors the legacy
+# `web/file_explorer.js::wireSearch()` Escape branch that
+# calls `runSearch("")` synchronously in the same handler.
+# ---------------------------------------------------------------------------
+def test_w6_2_explorer_escape_clears_debounce_synchronously() -> None:
+    """W6.2 Escape contract: pressing Escape synchronously
+    restores the tree, NOT 200 ms after the debounce
+    flushes. The legacy `web/file_explorer.js::wireSearch()`
+    Escape branch reads:
+
+        if (e.key === "Escape" && input.value) {
+          e.preventDefault();
+          input.value = "";
+          runSearch("");  // synchronous, NOT through setTimeout
+        }
+
+    so a tap of Escape restores the tree in the same handler
+    regardless of where the 200 ms input-debounce timer is.
+    The React equivalent MUST clear BOTH `searchQuery` (the
+    live input value) AND `debouncedQuery` (the value the
+    `searchAnnotation` `useMemo` depends on) inside the same
+    Escape branch so the FileTree `useEffect` flips
+    `searchAnnotation === null` and calls
+    `restoreTreeMutation()` on the next render — without
+    waiting for the debounce `useEffect`'s 200 ms timer to
+    fire.
+
+    The harness verifies the AST shape: the Escape branch
+    in `handleSearchKeyDown` MUST call `setDebouncedQuery`
+    with an empty string alongside the existing
+    `setSearchQuery("")` call. Typed input keeps the full
+    200 ms debounce path (the existing `useEffect` keyed
+    on `[searchQuery]` is unchanged); only Escape bypasses
+    it. Comments are stripped before scanning so the
+    docblock can quote the legacy `runSearch("")` shape
+    without tripping the assertion.
+    """
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = _strip_ts_comments(EXPLORER_FILE.read_text())
+    # Match the Escape branch: from the `ev.key === "Escape"`
+    # guard through the closing `}` of the `if`. The window
+    # is greedy so the captured body spans every line of the
+    # `if` block (the assertion below slices [:600] to bound
+    # it for the per-line checks).
+    escape_block = re.search(
+        r"ev\.key\s*===\s*[\"']Escape[\"'][\s\S]*?\n\s*\}",
+        text,
+    )
+    assert escape_block, (
+        "Explorer.tsx must keep a synchronous Escape branch "
+        "inside `handleSearchKeyDown` that clears the input "
+        "value (`setSearchQuery(\"\")`). The legacy "
+        "`web/file_explorer.js::wireSearch()` Escape branch "
+        "is the reference shape."
+    )
+    block = escape_block.group(0)
+    # End the captured block at the next `}` that closes
+    # the `if`. The legacy's branch is a 4-line conditional;
+    # the React equivalent adds one extra line
+    # (`setDebouncedQuery("")`). A 600-char window is wide
+    # enough to span the addition while still being narrow
+    # enough to NOT cross into the next callback.
+    window = block[:600]
+    assert "setDebouncedQuery" in window, (
+        "Explorer.tsx Escape branch must call "
+        "`setDebouncedQuery(\"\")` synchronously alongside "
+        "`setSearchQuery(\"\")` so the `searchAnnotation` "
+        "`useMemo` flips to `null` on the next render and "
+        "the FileTree `useEffect` calls `restoreTreeMutation` "
+        "without waiting for the 200 ms debounce timer. The "
+        "legacy `runSearch(\"\")` is called synchronously "
+        "in the same handler — the React equivalent must "
+        "not wait for the input-debounce `setTimeout`."
+    )
+    # The Escape handler MUST still call setSearchQuery("")
+    # (the input-clear contract is preserved verbatim).
+    assert "setSearchQuery(\"\")" in window, (
+        "Explorer.tsx Escape branch must call "
+        "`setSearchQuery(\"\")` so the input value clears "
+        "on the next render (mirrors the legacy "
+        "`input.value = \"\"` shape)."
+    )
+    # The Escape handler MUST still call preventDefault so
+    # any ancestor Escape handler (browser back, etc.) does
+    # not also fire (mirrors the legacy `e.preventDefault()`).
+    assert "preventDefault" in window, (
+        "Explorer.tsx Escape branch must call "
+        "`ev.preventDefault()` so an ancestor Escape handler "
+        "does not also fire (mirrors the legacy "
+        "`e.preventDefault()` shape)."
+    )
+    # The Escape handler MUST guard on a non-empty query
+    # (the legacy `&& input.value` branch — pressing Escape
+    # with an empty input is a no-op).
+    assert "searchQuery !== \"\"" in window, (
+        "Explorer.tsx Escape branch must guard on "
+        "`searchQuery !== \"\"` so pressing Escape with an "
+        "empty input is a no-op (mirrors the legacy "
+        "`&& input.value` shape)."
+    )
+
+
+def test_w6_2_explorer_has_no_dead_empty_annotation_handle() -> None:
+    """W6.2 contract — Explorer.tsx MUST NOT carry the dead
+    `emptyAnnotation` useMemo + `void emptyAnnotation` block
+    that was leftover from an earlier draft. The factory
+    `createEmptySearchAnnotation` returns a fresh
+    `{matches, ancestors}` annotation, but the React mount
+    never threads it anywhere (FileTree compares
+    `searchAnnotation === null` for the "no active query"
+    case, not an empty annotation handle). The dead block
+    adds noise + a `noUnusedLocals` hazard. The kernel's
+    `createEmptySearchAnnotation` is still exported through
+    `@taxa/research` (the barrel re-export test pins this)
+    so a future consumer can reach it through the public
+    surface.
+
+    The harness verifies three negative shapes:
+
+      1. No `emptyAnnotation` identifier in the file body
+         (the dead local).
+      2. No `void emptyAnnotation` expression (the explicit
+         "I know I'm unused" suppression).
+      3. The `createEmptySearchAnnotation` import is NOT
+         pulled into Explorer.tsx (the helper is unused at
+         the mount level — a future consumer reaches it
+         through the barrel, not via a deep import into
+         Explorer.tsx).
+
+    Comments are stripped before scanning so the docblock
+    can reference the dead name without tripping the guard.
+    """
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = _strip_ts_comments(EXPLORER_FILE.read_text())
+    assert "emptyAnnotation" not in text, (
+        "Explorer.tsx must NOT carry a local `emptyAnnotation` "
+        "useMemo + `void emptyAnnotation` block — the factory "
+        "is unused at the mount level (FileTree compares "
+        "`searchAnnotation === null`, not an empty annotation "
+        "handle). The dead block is leftover from an earlier "
+        "draft and adds `noUnusedLocals` hazard."
+    )
+    # The Explorer.tsx import surface must NOT pull
+    # `createEmptySearchAnnotation` from `@taxa/research` —
+    # the helper is reachable through the barrel for future
+    # consumers but the mount itself never calls it. A
+    # reverse import here would be a regression.
+    assert "createEmptySearchAnnotation" not in text, (
+        "Explorer.tsx must NOT import `createEmptySearchAnnotation` "
+        "from `@taxa/research` — the helper is unused at the "
+        "mount level and the dead local was removed. The "
+        "helper stays reachable through the barrel for future "
+        "consumers."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Framework-free kernel — explorer-state.ts has no React / Next
 # / FastAPI / DOM / localStorage / process tokens.
 # ---------------------------------------------------------------------------
@@ -699,9 +861,11 @@ def test_explorer_state_kernel_uses_named_exports(
     public surface (createInitialLoadStatus,
     createInitialViewerState, bytesRequiredForFormat,
     castFileFormat, buildServeUrl, enumerateFiles,
-    toggleExpansion, withExpanded) is exported as a named
+    toggleExpansion, withExpanded, annotateMatches,
+    createEmptySearchAnnotation) is exported as a named
     symbol. The barrel re-export test (below) depends on
-    these names being stable."""
+    these names being stable. W6.2 extends the W6.1 set
+    with the pure search helpers."""
     if not EXPLORER_STATE_FILE.is_file():
         pytest.skip("explorer-state.ts not present yet")
     text = EXPLORER_STATE_FILE.read_text()
@@ -714,11 +878,13 @@ def test_explorer_state_kernel_uses_named_exports(
         "enumerateFiles",
         "toggleExpansion",
         "withExpanded",
+        "annotateMatches",
+        "createEmptySearchAnnotation",
     ):
         pattern = rf"export\s+(?:async\s+)?function\s+{name}\b"
         assert re.search(pattern, text), (
             f"explorer-state.ts must export `{name}` as a named "
-            f"function (the W6.1 typed hand-off surface)."
+            f"function (the W6.1 / W6.2 typed hand-off surface)."
         )
 
 
@@ -726,23 +892,25 @@ def test_explorer_state_kernel_uses_named_type_exports(
     require_toolchain: None,
 ) -> None:
     """The kernel commits to named type exports too —
-    `ExplorerLoadStatus` + `ViewerState` are the typed
-    view-models the React mount reads. Both must be
-    declared with `export type` OR `export interface` so
-    the focused compile (CJS module output) strips them
-    at build time. (The W6.1 kernel uses `export type`
-    for the discriminated union + `export interface` for
-    the typed view-model — both shapes qualify.)"""
+    `ExplorerLoadStatus` + `ViewerState` +
+    `SearchAnnotation` are the typed view-models the
+    React mount reads. All three must be declared with
+    `export type` OR `export interface` so the focused
+    compile (CJS module output) strips them at build
+    time. (The W6.1 kernel uses `export type` for the
+    discriminated union + `export interface` for the
+    typed view-model — both shapes qualify. W6.2
+    adds `SearchAnnotation` as `export interface`.)"""
     if not EXPLORER_STATE_FILE.is_file():
         pytest.skip("explorer-state.ts not present yet")
     text = EXPLORER_STATE_FILE.read_text()
-    for type_name in ("ExplorerLoadStatus", "ViewerState"):
+    for type_name in ("ExplorerLoadStatus", "ViewerState", "SearchAnnotation"):
         assert re.search(
             rf"export\s+(?:type|interface)\s+{type_name}\b", text,
         ), (
             f"explorer-state.ts must export `{type_name}` as a "
             f"named `export type` or `export interface` (the W6.1 "
-            f"typed view-model)."
+            f"/ W6.2 typed view-model)."
         )
 
 
@@ -781,7 +949,9 @@ def test_barrel_reexports_w6_1_kernel_helpers() -> None:
     """The public barrel MUST re-export every pure kernel
     helper so the React mount reaches the typed surface
     through `@taxa/research` only. spec.md rule 5 forbids
-    reverse deep imports into the presentation layer."""
+    reverse deep imports into the presentation layer.
+    W6.2 extends the W6.1 set with the pure search
+    helpers `annotateMatches` + `createEmptySearchAnnotation`."""
     if not BARREL_FILE.is_file():
         pytest.skip("barrel not present yet")
     text = BARREL_FILE.read_text()
@@ -792,6 +962,8 @@ def test_barrel_reexports_w6_1_kernel_helpers() -> None:
         "castFileFormat",
         "buildServeUrl",
         "enumerateFiles",
+        "annotateMatches",
+        "createEmptySearchAnnotation",
         "toggleExpansion",
         "withExpanded",
     ):
@@ -802,12 +974,16 @@ def test_barrel_reexports_w6_1_kernel_helpers() -> None:
 
 def test_barrel_reexports_w6_1_kernel_types() -> None:
     """The public barrel MUST re-export the kernel's typed
-    view-models (`ExplorerLoadStatus`, `ViewerState`). The
-    React mount reads these through `@taxa/research`."""
+    view-models (`ExplorerLoadStatus`, `ViewerState`,
+    `SearchAnnotation`). The React mount reads these
+    through `@taxa/research`. W6.2 extends the W6.1
+    surface with `SearchAnnotation` so the FileTree's
+    `useEffect` can reach the typed `{matches,
+    ancestors}` shape without a reverse deep import."""
     if not BARREL_FILE.is_file():
         pytest.skip("barrel not present yet")
     text = BARREL_FILE.read_text()
-    for type_name in ("ExplorerLoadStatus", "ViewerState"):
+    for type_name in ("ExplorerLoadStatus", "ViewerState", "SearchAnnotation"):
         assert re.search(
             rf"export\s+type\s+[^}}]*\b{type_name}\b", text,
         ), (
@@ -1085,6 +1261,149 @@ const kernel = require(path.resolve(process.argv[2]));
   // uses `node` for the format cast + the bytes fetch).
   assert.strictEqual(files[0].node.extension, "pdf");
   assert.strictEqual(files[1].node.size, 200);
+}
+
+// 7. W6.2 — createEmptySearchAnnotation — returns a
+//    fresh annotation with empty Sets on every call so a
+//    consumer can mutate locally without bleeding into a
+//    sibling. The factory must return TWO distinct Set
+//    instances per call (matches + ancestors are not
+//    shared references).
+{
+  const a = kernel.createEmptySearchAnnotation();
+  const b = kernel.createEmptySearchAnnotation();
+  assert.strictEqual(a.matches.size, 0, "matches must start empty");
+  assert.strictEqual(a.ancestors.size, 0, "ancestors must start empty");
+  assert.notStrictEqual(a.matches, b.matches, "matches is a fresh Set");
+  assert.notStrictEqual(a.ancestors, b.ancestors, "ancestors is a fresh Set");
+}
+
+// 8. W6.2 — annotateMatches — null/empty/whitespace
+//    query paths yield the empty annotation (the React
+//    layer short-circuits on this shape without burning
+//    the recursive walker).
+{
+  const tree = {
+    type: "folder",
+    name: "root",
+    path: "",
+    children: [
+      { type: "file", name: "Mammalia.pdf", path: "Mammalia.pdf",
+        extension: "pdf", size: 100, modified: "2024-01-01T00:00:00" },
+    ],
+  };
+  const empty1 = kernel.annotateMatches(tree, "");
+  assert.strictEqual(empty1.matches.size, 0);
+  assert.strictEqual(empty1.ancestors.size, 0);
+  const empty2 = kernel.annotateMatches(tree, "   ");
+  assert.strictEqual(empty2.matches.size, 0);
+  assert.strictEqual(empty2.ancestors.size, 0);
+  const empty3 = kernel.annotateMatches(null, "Mammalia");
+  assert.strictEqual(empty3.matches.size, 0);
+  assert.strictEqual(empty3.ancestors.size, 0);
+}
+
+// 9. W6.2 — annotateMatches — case-insensitive substring
+//    match against `name` + `path`. A folder whose own
+//    name matches ends up in `matches` AND its descendants
+//    stay OUT of `matches` (they land in `ancestors` only
+//    when a descendant itself matches). Mirrors the
+//    legacy `web/file_explorer.js::_annotateMatches` shape
+//    byte-for-byte.
+{
+  const tree = {
+    type: "folder",
+    name: "root",
+    path: "",
+    children: [
+      {
+        type: "folder",
+        name: "Animalia",
+        path: "Animalia",
+        children: [
+          { type: "file", name: "Mammalia.pdf", path: "Animalia/Mammalia.pdf",
+            extension: "pdf", size: 100, modified: "2024-01-01T00:00:00" },
+          { type: "file", name: "Aves.txt", path: "Animalia/Aves.txt",
+            extension: "txt", size: 200, modified: "2024-01-01T00:00:00" },
+        ],
+      },
+      {
+        type: "folder",
+        name: "Plantae",
+        path: "Plantae",
+        children: [
+          { type: "file", name: "Rosa.md", path: "Plantae/Rosa.md",
+            extension: "md", size: 300, modified: "2024-01-01T00:00:00" },
+        ],
+      },
+    ],
+  };
+  // 9a — query "mammalia" matches by name (case-insensitive)
+  const a = kernel.annotateMatches(tree, "mammalia");
+  assert.strictEqual(a.matches.size, 1, "mammalia must match Mammalia.pdf by name");
+  assert.ok(a.matches.has("Animalia/Mammalia.pdf"));
+  assert.strictEqual(a.ancestors.size, 1, "Animalia folder must be an ancestor");
+  assert.ok(a.ancestors.has("Animalia"));
+
+  // 9b — query "rosa" matches by name (case-insensitive).
+  //      Rosa.md's name contains the needle directly; the
+  //      Plantae folder is the ancestor (post-order promotion)
+  //      because Rosa.md is a descendant hit. Confirms the
+  //      post-order ancestor promotion contract: a folder
+  //      with at least one matching descendant ends up in
+  //      `ancestors` even when its own name does NOT
+  //      contain the needle.
+  const b = kernel.annotateMatches(tree, "rosa");
+  assert.ok(b.matches.has("Plantae/Rosa.md"));
+  assert.ok(b.ancestors.has("Plantae"));
+  assert.strictEqual(b.ancestors.size, 1);
+
+  // 9c — multi-match query "Animalia" hits the Animalia
+  //      folder by name + the nested Mammalia.pdf +
+  //      Aves.txt by path substring (descendant paths
+  //      inherit the parent's path). Plantae + Rosa.md
+  //      have no overlap.
+  const c = kernel.annotateMatches(tree, "Animalia");
+  assert.ok(c.matches.has("Animalia"), "Animalia folder matches by name");
+  assert.ok(c.matches.has("Animalia/Mammalia.pdf"), "descendants match by path");
+  assert.ok(c.matches.has("Animalia/Aves.txt"));
+  assert.strictEqual(c.matches.size, 3);
+
+  // 9d — synthetic-root path stays out of `ancestors`.
+  //      The test root has path "" (the React mount wraps
+  //      the wire tree root in a synthetic folder node),
+  //      so even when a descendant matches, the root
+  //      itself never appears in `ancestors`.
+  assert.strictEqual(c.ancestors.size, 0, "synthetic root path is not in ancestors");
+}
+
+// 10. W6.2 — annotateMatches — query with spaces /
+//     accents round-trips through the path substring
+//     match (the legacy `web/file_explorer.js` checks
+//     `path.toLowerCase().includes(needle)` so URL-encoded
+//     paths + accented names are matched byte-for-byte
+//     at the substring level — no URL-decoding).
+{
+  const tree = {
+    type: "folder",
+    name: "root",
+    path: "",
+    children: [
+      {
+        type: "folder",
+        name: "Fungi with accents",
+        path: "Fungi with accents",
+        children: [
+          { type: "file", name: "Mushroom.txt",
+            path: "Fungi with accents/Mushroom.txt",
+            extension: "txt", size: 1, modified: "2024-01-01T00:00:00" },
+        ],
+      },
+    ],
+  };
+  const accented = kernel.annotateMatches(tree, "Fungi with accents");
+  assert.ok(accented.matches.has("Fungi with accents"));
+  assert.ok(accented.ancestors.size === 0);
 }
 
 process.stdout.write("PASS\n");
