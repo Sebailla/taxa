@@ -28,6 +28,21 @@
  * import. The domain types are already reachable through the W1
  * barrel work; future work units (W4 renderers, W5 search) will
  * extend the barrel without restructuring this surface.
+ *
+ * ODD-MIGRATE-002 W4a: re-export the pure viewer-dispatch contract —
+ * `dispatchViewer` + `sanitizeSvgMarkup` + the `ViewerDispatch` /
+ * `ViewerDispatchInput` / `ViewerFileDescriptor` / `ViewerLink` /
+ * `ViewerImageAdvisory` types + the `IMAGE_BIG_FILE_BYTES` and
+ * `TAB_NOT_APPLICABLE_SUFFIX` constants — so cross-module consumers
+ * (W6 React mount, integration tests) reach the W4a contract through
+ * the barrel. The contract covers the eight no-CDN families (PDF,
+ * HTML/HTM, TXT, MD-as-text, DOC fallback, JPG/JPEG/PNG/GIF/WEBP/
+ * BMP, SVG with XSS scrub, MP4/WEBM/OGV) + the "other" extension
+ * fallback + the Table/Tree tab-not-applicable feedback. CDN-dependent
+ * families (DOCX, XLS/XLSX, EPUB, CSV/TSV, JSON) and Markdown-as-HTML
+ * stay deferred to W4b+; the dispatcher falls through to
+ * `unsupported` / `tab-not-applicable` for those combinations until
+ * the later slices extend the contract.
  */
 export {
   fetchFiles,
@@ -41,3 +56,16 @@ export type {
   ExplorerFileServeResult,
 } from "./application/ports";
 export { EXPLORER_PORT_NAME } from "./application/ports";
+export {
+  dispatchViewer,
+  sanitizeSvgMarkup,
+  IMAGE_BIG_FILE_BYTES,
+  TAB_NOT_APPLICABLE_SUFFIX,
+} from "./application/renderers";
+export type {
+  ViewerDispatch,
+  ViewerDispatchInput,
+  ViewerFileDescriptor,
+  ViewerLink,
+  ViewerImageAdvisory,
+} from "./application/renderers";
