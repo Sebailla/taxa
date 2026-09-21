@@ -79,17 +79,67 @@
 // only emits the typed source descriptor for the mount to
 // consume.
 //
-// W4b3 explicitly defers to W4b4:
-//   - CSV / TSV (legacy `renderTable` via Papa Parse CDN),
-//   - JSON (legacy `renderJsonTree` — no CDN but still deferred per
-//     the W4b split),
-//   - Markdown-as-HTML (legacy would call marked.js CDN).
+// W4b3 explicitly defers Markdown-as-HTML to a separately
+// authorized later slice (the spec's "Markdown rendering" scenario
+// with `marked.min.js` CDN). W4b4 lands the CSV / TSV (Papa
+// Parse CDN) + JSON (native, no CDN) dispatch contract that
+// closes the W4 split:
 //
-// Until those land, the dispatcher returns the `unsupported` or
-// `tab-not-applicable` branches for those format/tab combinations —
-// mirroring the legacy "Format .xyz not supported in viewer." and
-// "Table/Tree view not available for this format" fallbacks so the
-// React mount paints the same download-link / empty-state card.
+//   - CSV / TSV (W4b4): the dispatcher emits typed
+//     `table-source` / `table-offline` outcomes on the Table
+//     tab. The typed source outcome carries the descriptor +
+//     bytes + pinned Papa Parse CDN URL + window-global name +
+//     a typed `delimiter` (`","` for CSV, `"\t"` for TSV) so a
+//     future React mount (W6+) can load the legacy-pinned Papa
+//     Parse library via Next 16's `<Script src={scriptUrl}
+//     strategy="afterInteractive" onLoad={parse} onError={...}>`
+//     (see `node_modules/next/dist/docs/01-app/03-api-reference/
+//     02-components/script.md`) and call `window[scriptGlobal]
+//     .parse(text, { delimiter, skipEmptyLines: true })`. CSV /
+//     TSV on Raw still fire the existing W4a `unsupported`
+//     fallback (the user decision is authoritative: Raw uses
+//     the existing fallback/download behavior — the legacy
+//     `renderUnsupported` "Format .{ext} not supported in
+//     viewer." message + download link). CSV / TSV on Tree
+//     still fire `tab-not-applicable` (the canonical Table
+//     renderer does not apply to the Tree tab).
+//   - JSON (W4b4): the dispatcher emits typed `json-source` /
+//     `json-offline` outcomes on the Tree tab. The typed source
+//     outcome carries the descriptor + bytes ONLY (NO CDN
+//     metadata — JSON has no CDN library to pin; the future
+//     mount calls `JSON.parse(text)` natively and walks the
+//     tree iteratively per `web/file_viewer.js::renderJsonTree`).
+//     JSON on Raw still fires the existing W4a `unsupported`
+//     fallback (Raw uses the existing fallback/download
+//     behavior — the legacy `renderUnsupported` "Format .json
+//     not supported in viewer." message + download link). JSON
+//     on Table still fires `tab-not-applicable` (JSON has no
+//     Table renderer — the canonical Tree renderer does not
+//     apply to the Table tab).
+//
+// The Table/Tree gate becomes format-aware ONLY for these three
+// canonical format/tab pairings:
+//   1. (Table, csv) — dispatch `table-source` / `table-offline`.
+//   2. (Table, tsv) — dispatch `table-source` / `table-offline`.
+//   3. (Tree, json) — dispatch `json-source` / `json-offline`.
+// Every other Table/Tree combination falls through to the legacy
+// `${tab} view not available for .${ext} files — use Raw.`
+// message so the React mount's empty-state card matches the
+// legacy oracle byte-for-byte (mirrors the W4a + W4b1 + W4b2 +
+// W4b3 split shape — only the canonical spec-sanctioned
+// combinations get explicit dispatches, every other pairing
+// hits the legacy not-available branch).
+//
+// The application layer stays framework-free, browser-free, and
+// CDN-loader-free — Papa Parse is NOT imported or loaded here;
+// JSON is NOT parsed here. The dispatcher only emits the typed
+// source / offline outcomes for the mount to consume. Parsing,
+// JSON truncation (the legacy `MAX_JSON_NODES = 50_000` cap from
+// `web/file_viewer.js::renderJsonTree`), Papa Parse script
+// loading, and all DOM/React/Next rendering remain the future
+// React mount's responsibility (mirrors the W4b1 + W4b2 + W4b3
+// split — the application layer carries the typed descriptor,
+// the mount owns the rendering).
 //
 // EPUB (W4b3) and the legacy EPUB renderer lifecycle are
 // modeled only as the future-mount handoff: the dispatcher
@@ -242,6 +292,64 @@ export const EPUBJS_CDN_URL: string =
  *  different global) MUST update this constant in lock-step
  *  with `EPUBJS_CDN_URL`. */
 export const EPUBJS_GLOBAL_NAME: string = "ePub";
+
+/** W4b4 — pinned Papa Parse CDN URL. Mirrors
+ *  `web/file_viewer.js::CDN_URLS.Papa` (legacy
+ *  `loadScriptOnce("Papa")` resolves via `window[name]` then
+ *  calls `window.Papa.parse(text, { delimiter,
+ *  skipEmptyLines: true })` inside `renderTable`). The URL is
+ *  part of the W4b4 typed source outcome so the future React
+ *  mount (W6+) can load the CDN idempotently via Next 16's
+ *  `<Script src={scriptUrl} strategy="afterInteractive"
+ *  onLoad={parse} onError={...}>` (see
+ *  `node_modules/next/dist/docs/01-app/03-api-reference/02-
+ *  components/script.md`). The application layer does NOT load
+ *  the script — it only pins the URL on the typed source
+ *  descriptor so the mount knows what to inject. A future PR
+ *  that bumps Papa Parse's version MUST update this constant
+ *  AND the legacy `web/file_viewer.js::CDN_URLS.Papa` literal
+ *  AND the focused test that pins the URL — bumping the URL
+ *  without updating the legacy map key would silently diverge
+ *  the React + legacy paths. Note: Papa Parse is NOT
+ *  preloaded in `web/index.html` (only mammoth / xlsx / epubjs
+ *  are preloaded — Papa is loaded on demand by `renderTable`
+ *  on first CSV / TSV open per the legacy
+ *  `loadScriptOnce("Papa")` pattern). The W4b4 contract
+ *  follows the same on-demand pattern: the mount owns the
+ *  loader. */
+export const PAPA_CDN_URL: string =
+  "https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js";
+
+/** W4b4 — pinned window-global name Papa Parse assigns itself
+ *  once the CDN script loads. Mirrors the
+ *  `web/file_viewer.js::CDN_URLS.Papa` map key (literal
+ *  `"Papa"`, capital `P`) and the legacy
+ *  `window.Papa.parse(text, { delimiter, skipEmptyLines: true
+ *  })` call site in `web/file_viewer.js::renderTable`. The
+ *  global name is part of the W4b4 typed source outcome so
+ *  the future React mount can read the global verbatim
+ *  (via `window[scriptGlobal].parse(...)`) without hardcoding
+ *  the string. A future PR that bumps Papa Parse (or that
+ *  swaps the library for a different CSV / TSV parser that
+ *  exposes a different global) MUST update this constant in
+ *  lock-step with `PAPA_CDN_URL`. */
+export const PAPA_GLOBAL_NAME: string = "Papa";
+
+/** W4b4 — typed delimiter literal for the Papa Parse
+ *  `parse(text, { delimiter })` call site. The dispatcher
+ *  computes the delimiter from the file's format field
+ *  (`","` for CSV, `"\t"` for TSV — mirrors the legacy
+ *  `renderTable` ternary `const delimiter = ext === "tsv" ?
+ *  "\t" : ","`). The typed literal pins both possible
+ *  values so a future PR that flips the mapping (e.g. a
+ *  pipe-delimited extension lands as a separately authorized
+ *  follow-up slice) breaks the focused runtime harness before
+ *  review. The literal union also documents that Papa Parse's
+ *  `delimiter` option is exactly one character at a time —
+ *  Papa itself accepts multi-character delimiters via a
+ *  separate API, but the W4b4 contract pins the spec's
+ *  single-character CSV / TSV shape verbatim. */
+export type TableDelimiter = "," | "\t";
 
 /** Input file descriptor for the viewer-dispatch contract.
  *  Mirrors the legacy `web/file_viewer.js::render(host, file)`
@@ -639,6 +747,199 @@ export interface ViewerImageAdvisory {
  *    XLSX offline shapes (mount paints the offline wording
  *    verbatim from the typed descriptor, not from a pre-
  *    formatted message field).
+ *  - `"tab-not-applicable"` stays the Table / Tree
+ *    outcome for every format/tab combination EXCEPT the
+ *    three W4b4 canonical exceptions — (Table, csv),
+ *    (Table, tsv), (Tree, json) — which dispatch to
+ *    `table-source` / `table-offline` / `json-source` /
+ *    `json-offline` instead. EPUB has NO Table renderer
+ *    (no spreadsheet shape) and NO Tree renderer (epubjs
+ *    renders an EPUB as a paged book, not a hierarchical
+ *    outline — the future mount's EPUB viewer is the W4b3
+ *    source / offline surface itself, scoped to Raw). The
+ *    Table/Tree branch at the top of the dispatcher
+ *    short-circuits before the format switch so EPUB on
+ *    Table/Tree hits `tab-not-applicable` with the legacy
+ *    `${tab} view not available for .${ext} files — use Raw.`
+ *    message. A future mount that wants a Table or Tree
+ *    renderer for EPUB would land as a separately authorized
+ *    follow-up slice. Same for CSV / TSV on Tree (no Tree
+ *    renderer for tabular data — the canonical exception is
+ *    Table-only) and JSON on Table (JSON is a Tree renderer,
+ *    not a Table renderer — the canonical exception is
+ *    Tree-only).
+ *  - `"table-source"`  — W4b4 CSV / TSV source
+ *    descriptor. The dispatcher emits this typed outcome
+ *    when `format === "csv" || format === "tsv"` + `tab
+ *    === "Table"` + `bytes !== null`. The future React
+ *    mount (W6+) consumes it: load the legacy-pinned Papa
+ *    Parse CDN via Next 16's `<Script src={scriptUrl}
+ *    strategy="afterInteractive" onLoad={parse} onError=
+ *    {...}>` (see `node_modules/next/dist/docs/01-app/03-
+ *    api-reference/02-components/script.md`), then decode
+ *    the bytes as UTF-8 text, then call
+ *    `window[scriptGlobal].parse(text, { delimiter,
+ *    skipEmptyLines: true })` to emit the parsed rows,
+ *    then render the rows inside a sticky `<thead>` +
+ *    scrollable `<tbody>` per the spec's "CSV opens with
+ *    sticky header" scenario (`openspec/specs/research/
+ *    spec.md` "Table viewer tab"). Both CSV and TSV
+ *    dispatch through the same `table-source` outcome; the
+ *    `delimiter` field carries the typed literal
+ *    (`","` for CSV, `"\t"` for TSV — mirrors the legacy
+ *    `renderTable` ternary `const delimiter = ext === "tsv"
+ *    ? "\t" : ","`). The mount passes the delimiter
+ *    straight to Papa's parse options. Fields:
+ *      - `src`         — descriptor URL (download link +
+ *        raw-fetch fallback). Sourced from
+ *        `ViewerFileDescriptor.url` verbatim.
+ *      - `title`       — file basename for the meta strip /
+ *        open-in-new-tab gesture. Sourced from
+ *        `ViewerFileDescriptor.name`.
+ *      - `bytes`       — the SAME `Uint8Array` reference
+ *        as the input `bytes` field (the dispatcher passes
+ *        by reference, NOT by copy — Papa parses at call
+ *        time, so a copy would cost an allocation and gain
+ *        nothing). The mount treats the bytes as read-only
+ *        or copies before mutation (Uint8Array is a view
+ *        on a backing ArrayBuffer — any mutation is visible
+ *        through the dispatched reference). The
+ *        `Uint8Array` reference contract mirrors the W4b1
+ *        DOCX + W4b2 XLS / XLSX + W4b3 EPUB contracts.
+ *      - `scriptUrl`   — pinned Papa Parse CDN URL
+ *        (`PAPA_CDN_URL`). The mount injects this with
+ *        Next 16's `<Script>` component so the legacy +
+ *        React paths share the exact same CDN URL.
+ *      - `scriptGlobal` — window-global name
+ *        (`PAPA_GLOBAL_NAME` = `"Papa"`). The mount calls
+ *        `window[scriptGlobal].parse(...)` via the pinned
+ *        global so a future PR that bumps the library
+ *        doesn't silently break the parse site.
+ *      - `delimiter`   — typed `TableDelimiter` literal
+ *        (`","` for CSV, `"\t"` for TSV). The mount passes
+ *        this straight to Papa's `parse` options. The
+ *        literal union (`"," | "\t"`) documents the
+ *        single-character CSV / TSV shape pinned by the
+ *        spec — a future mount that supports pipe /
+ *        semicolon / multi-char delimiters would land as
+ *        a separately authorized follow-up slice (would
+ *        require extending `TableDelimiter` and the
+ *        dispatcher's format → delimiter mapping).
+ *  - `"table-offline"` — W4b4 CSV / TSV offline
+ *    fallback. The dispatcher emits this typed outcome
+ *    when `format === "csv" || format === "tsv"` + `tab
+ *    === "Table"` + `bytes === null`. Mirrors the legacy
+ *    `web/file_viewer.js::renderOfflineBanner` shape so
+ *    the future React mount paints the same "Viewer
+ *    offline — raw download available for X" banner with
+ *    a download affordance. Fields:
+ *      - `name`        — file basename. Sourced from
+ *        `ViewerFileDescriptor.name`.
+ *      - `download`    — typed `ViewerLink` (the W4a
+ *        pattern). `href` is `ViewerFileDescriptor.url`;
+ *        `download` is `ViewerFileDescriptor.name`.
+ *        Mirrors the legacy offline banner's `<a href
+ *        download>`.
+ *      - `scriptUrl`   — pinned Papa Parse CDN URL
+ *        (`PAPA_CDN_URL`). The mount needs the URL to
+ *        retry the loader or surface a "try again"
+ *        affordance after the offline banner renders.
+ *      - `scriptGlobal` — window-global name
+ *        (`PAPA_GLOBAL_NAME`).
+ *      - `reason`      — typed literal `"bytes-missing"`.
+ *        The dispatcher can only detect the bytes-missing
+ *        offline path at dispatch time (the dispatcher
+ *        does not fetch the URL, load the CDN, or call
+ *        `Papa.parse`). CDN-load failures and parse
+ *        failures are MOUNT responsibilities and surface
+ *        as additional typed branches in a future
+ *        iteration (W4b+ ADR). Papa Parse's parse errors
+ *        (`parsed.errors`) flow through the legacy
+ *        `renderTable` as the offline banner too — the
+ *        mount owns that recovery path.
+ *    The `"table-offline"` branch does NOT carry a free-
+ *    form `message` string (mirrors the W4b1 + W4b2 +
+ *    W4b3 offline shapes — mount paints the offline
+ *    wording verbatim from the typed descriptor, not from
+ *    a pre-formatted message field) and does NOT carry a
+ *    `delimiter` field (the descriptor's `format` field
+ *    carries "csv" or "tsv" verbatim, and the mount can
+ *    re-derive the delimiter from the format if it needs
+ *    to retry the loader after a transient CDN blip).
+ *  - `"json-source"`   — W4b4 JSON source descriptor.
+ *    The dispatcher emits this typed outcome when
+ *    `format === "json"` + `tab === "Tree"` + `bytes !==
+ *    null`. The future React mount (W6+) consumes it:
+ *    decode the bytes as UTF-8 text, then call
+ *    `JSON.parse(text)` natively (JSON is the spec's
+ *    "Tree viewer tab" native renderer — no CDN, no
+ *    third-party library — per `openspec/specs/research/
+ *    spec.md` "Tree viewer tab" / "No CDN is used."), then
+ *    walk the tree iteratively per the legacy
+ *    `web/file_viewer.js::renderJsonTree` shape (the
+ *    legacy uses an explicit stack to bound depth at heap,
+ *    not at the call stack — the iterative walk also
+ *    caps at `MAX_JSON_NODES = 50_000` per the spec's
+ *    "Large JSON is truncated with a hint" scenario; past
+ *    the cap the mount paints `"Tree truncated — open raw"`
+ *    so the user can still see the structure). Fields:
+ *      - `src`         — descriptor URL (download link +
+ *        raw-fetch fallback). Sourced from
+ *        `ViewerFileDescriptor.url` verbatim.
+ *      - `title`       — file basename for the meta strip
+ *        / open-in-new-tab gesture. Sourced from
+ *        `ViewerFileDescriptor.name`.
+ *      - `bytes`       — the SAME `Uint8Array` reference
+ *        as the input `bytes` field (the dispatcher passes
+ *        by reference, NOT by copy — JSON parses at call
+ *        time, so a copy would cost an allocation and gain
+ *        nothing). The mount treats the bytes as read-only
+ *        or copies before mutation. The `Uint8Array`
+ *        reference contract mirrors the W4b1 DOCX + W4b2
+ *        XLS / XLSX + W4b3 EPUB + W4b4 CSV / TSV
+ *        contracts.
+ *    The `"json-source"` branch carries NO CDN metadata
+ *    (no `scriptUrl`, no `scriptGlobal`) — JSON parsing
+ *    is native; the future mount does not need a CDN URL
+ *    or window-global name to call `JSON.parse`. A future
+ *    PR that adds a JSON-tree CDN library (e.g. for
+ *    syntax-highlighted JSON, or for a non-native
+ *    streaming parser) would land as a separately
+ *    authorized slice and would add `scriptUrl` +
+ *    `scriptGlobal` to the `json-source` variant — the
+ *    W4b4 contract pins the no-CDN shape verbatim.
+ *  - `"json-offline"`  — W4b4 JSON offline fallback. The
+ *    dispatcher emits this typed outcome when `format
+ *    === "json"` + `tab === "Tree"` + `bytes === null`.
+ *    Mirrors the legacy `web/file_viewer.js::
+ *    renderOfflineBanner` shape so the future React
+ *    mount paints the same "Viewer offline — raw download
+ *    available for X" banner with a download affordance.
+ *    Fields:
+ *      - `name`        — file basename. Sourced from
+ *        `ViewerFileDescriptor.name`.
+ *      - `download`    — typed `ViewerLink` (the W4a
+ *        pattern). `href` is `ViewerFileDescriptor.url`;
+ *        `download` is `ViewerFileDescriptor.name`.
+ *        Mirrors the legacy offline banner's `<a href
+ *        download>`.
+ *      - `reason`      — typed literal `"bytes-missing"`.
+ *        The dispatcher can only detect the bytes-missing
+ *        offline path at dispatch time (the dispatcher
+ *        does not fetch the URL, decode bytes, or call
+ *        `JSON.parse`). CDN-load failures do not apply to
+ *        JSON (no CDN); parse failures are MOUNT
+ *        responsibilities and surface as additional typed
+ *        branches in a future iteration (W4b+ ADR).
+ *    The `"json-offline"` branch carries NO CDN metadata
+ *    (no `scriptUrl`, no `scriptGlobal`) — JSON parsing
+ *    is native; the offline branch mirrors the no-CDN
+ *    shape of `json-source`. The branch does NOT carry a
+ *    free-form `message` string (mirrors the W4b1 DOCX +
+ *    W4b2 XLS / XLSX + W4b3 EPUB + W4b4 CSV / TSV offline
+ *    shapes — mount paints the offline wording verbatim
+ *    from the typed descriptor, not from a pre-formatted
+ *    message field).
  *  - `"tab-not-applicable"` stays the only Table / Tree
  *    outcome for EPUB. EPUB has NO Table renderer (no
  *    spreadsheet shape) and NO Tree renderer (epubjs
@@ -651,7 +952,11 @@ export interface ViewerImageAdvisory {
  *    `${tab} view not available for .${ext} files — use Raw.`
  *    message. A future mount that wants a Table or Tree
  *    renderer for EPUB would land as a separately authorized
- *    follow-up slice. */
+ *    follow-up slice. Same for CSV / TSV on Tree (no Tree
+ *    renderer for tabular data — the canonical exception is
+ *    Table-only) and JSON on Table (JSON is a Tree renderer,
+ *    not a Table renderer — the canonical exception is
+ *    Tree-only). */
 export type ViewerDispatch =
   | {
       readonly kind: "pdf-iframe";
@@ -745,6 +1050,35 @@ export type ViewerDispatch =
       readonly download: ViewerLink;
       readonly scriptUrl: string;
       readonly scriptGlobal: string;
+      readonly reason: "bytes-missing";
+    }
+  | {
+      readonly kind: "table-source";
+      readonly src: string;
+      readonly title: string;
+      readonly bytes: Uint8Array;
+      readonly scriptUrl: string;
+      readonly scriptGlobal: string;
+      readonly delimiter: TableDelimiter;
+    }
+  | {
+      readonly kind: "table-offline";
+      readonly name: string;
+      readonly download: ViewerLink;
+      readonly scriptUrl: string;
+      readonly scriptGlobal: string;
+      readonly reason: "bytes-missing";
+    }
+  | {
+      readonly kind: "json-source";
+      readonly src: string;
+      readonly title: string;
+      readonly bytes: Uint8Array;
+    }
+  | {
+      readonly kind: "json-offline";
+      readonly name: string;
+      readonly download: ViewerLink;
       readonly reason: "bytes-missing";
     }
   | {
@@ -992,6 +1326,75 @@ function buildEpubOffline(file: ViewerFileDescriptor): ViewerDispatch {
   };
 }
 
+/** Build the `table-offline` dispatch — used by the W4b4
+ *  CSV / TSV branch when the input bytes are missing.
+ *  Mirrors the W4b1 DOCX + W4b2 XLS / XLSX + W4b3 EPUB
+ *  `buildXxxOffline` helpers verbatim: the future React
+ *  mount paints the same legacy "Viewer offline — raw
+ *  download available for X" banner
+ *  (`web/file_viewer.js::renderOfflineBanner`) with a
+ *  download affordance. The branch carries the pinned Papa
+ *  Parse CDN URL + global name so the mount can retry the
+ *  loader or surface a "try again" affordance after the
+ *  offline banner renders. The typed `reason: "bytes-missing"`
+ *  literal documents the specific offline path the
+ *  dispatcher detected — the only offline path the
+ *  dispatcher can detect at dispatch time (the dispatcher
+ *  does not fetch the URL, load the CDN, or call
+ *  `Papa.parse`). CDN-load failures and Papa parse errors
+ *  (`parsed.errors` per the legacy `renderTable` shape —
+ *  Papa reports warnings for benign cases like trailing
+ *  delimiters) happen at the mount and are not part of
+ *  this contract. The offline branch does NOT carry a
+ *  `delimiter` field — the descriptor's `format` field
+ *  carries "csv" or "tsv" verbatim and the mount can
+ *  re-derive the delimiter from the format if it needs
+ *  to retry the loader after a transient CDN blip. */
+function buildTableOffline(file: ViewerFileDescriptor): ViewerDispatch {
+  return {
+    kind: "table-offline",
+    name: file.name,
+    download: { href: file.url, download: file.name },
+    scriptUrl: PAPA_CDN_URL,
+    scriptGlobal: PAPA_GLOBAL_NAME,
+    reason: "bytes-missing",
+  };
+}
+
+/** Build the `json-offline` dispatch — used by the W4b4
+ *  JSON branch when the input bytes are missing. The
+ *  branch carries NO CDN metadata (no `scriptUrl`, no
+ *  `scriptGlobal`) — JSON parsing is native per the
+ *  spec's "Tree viewer tab / No CDN is used." requirement
+ *  (`openspec/specs/research/spec.md` "Tree viewer tab"),
+ *  so there is no CDN URL to pin and no window-global to
+ *  surface for retry. The future React mount paints the
+ *  same legacy "Viewer offline — raw download available
+ *  for X" banner (`web/file_viewer.js::
+ *  renderOfflineBanner`) with a download affordance. The
+ *  typed `reason: "bytes-missing"` literal documents the
+ *  specific offline path the dispatcher detected — the
+ *  only offline path the dispatcher can detect at
+ *  dispatch time (the dispatcher does not fetch the URL,
+ *  decode bytes, or call `JSON.parse`). `JSON.parse`
+ *  failures (invalid JSON, truncation, etc.) happen at
+ *  the mount and are not part of this contract — the
+ *  legacy `renderJsonTree` catch branch paints the same
+ *  banner when the `JSON.parse` call throws. The branch
+ *  does NOT carry a free-form `message` string (mirrors
+ *  the W4b1 DOCX + W4b2 XLS / XLSX + W4b3 EPUB + W4b4 CSV
+ *  / TSV offline shapes — mount paints the offline
+ *  wording verbatim from the typed descriptor, not from a
+ *  pre-formatted message field). */
+function buildJsonOffline(file: ViewerFileDescriptor): ViewerDispatch {
+  return {
+    kind: "json-offline",
+    name: file.name,
+    download: { href: file.url, download: file.name },
+    reason: "bytes-missing",
+  };
+}
+
 /** Build the `unsupported` dispatch — used by the DOC branch
  *  (with the spec's "Legacy .doc cannot be rendered inline."
  *  message), the "other" branch (with the wire-extension
@@ -1089,16 +1492,76 @@ function extensionFromPath(path: string): string {
 export function dispatchViewer(input: ViewerDispatchInput): ViewerDispatch {
   const { file, tab, bytes } = input;
 
-  // Tab gate — Table / Tree tabs have NO W4a renderer. W4a
-  // defers the Table renderer (CSV/TSV via Papa Parse CDN)
-  // and the Tree renderer (JSON) to W4b+. Until those land,
-  // every file on Table / Tree surfaces the legacy
+  // Tab gate — Table / Tree tabs dispatch format-aware ONLY for
+  // the three W4b4 canonical exceptions: (Table, csv), (Table,
+  // tsv), (Tree, json). Every other Table / Tree format/tab
+  // combination falls through to the legacy
   // `${tab} view not available for .${ext} files — use Raw.`
   // message verbatim so the React mount's empty-state card
-  // matches the oracle byte-for-byte. W4b+ extends this
-  // branch by adding Table-on-csv/tsv and Tree-on-json cases
-  // that return their respective CDN-dependent dispatches.
+  // matches the oracle byte-for-byte. The dispatcher makes the
+  // gate format-aware for these three pairings only — a future
+  // mount that wants Table / Tree renderers for any other
+  // format (e.g. EPUB on Table, DOCX on Tree) would land as a
+  // separately authorized follow-up slice that adds an explicit
+  // pairing here.
   if (tab === "Table" || tab === "Tree") {
+    // W4b4 canonical exception 1 + 2 — CSV / TSV on the Table
+    // tab dispatch to `table-source` / `table-offline`. The
+    // delimiter is computed from the format field ("," for CSV,
+    // "\t" for TSV) so the typed source outcome carries the
+    // delimiter the future mount hands to Papa.parse. Both
+    // CSV and TSV dispatch through the same `table-source` /
+    // `table-offline` outcome shape — the format field on the
+    // `ViewerFileDescriptor` carries "csv" or "tsv" verbatim so
+    // the mount can branch on the extension for format-specific
+    // affordances if needed (e.g. legacy export warnings).
+    if (
+      tab === "Table" &&
+      (file.format === "csv" || file.format === "tsv")
+    ) {
+      if (bytes === null) return buildTableOffline(file);
+      const delimiter: TableDelimiter = file.format === "tsv" ? "\t" : ",";
+      return {
+        kind: "table-source",
+        src: file.url,
+        title: file.name,
+        // Pass-by-reference: the future mount reads the
+        // bytes at mount time and feeds them straight to
+        // `window.Papa.parse(text, { delimiter,
+        // skipEmptyLines: true })` after a UTF-8 decode.
+        // Copying the bytes at dispatch time would cost a
+        // Uint8Array allocation per dispatch and gain
+        // nothing (the mount doesn't mutate the bytes).
+        // The `Uint8Array` reference contract mirrors the
+        // W4b1 DOCX + W4b2 XLS / XLSX + W4b3 EPUB
+        // bytes-reference contracts.
+        bytes,
+        scriptUrl: PAPA_CDN_URL,
+        scriptGlobal: PAPA_GLOBAL_NAME,
+        delimiter,
+      };
+    }
+    // W4b4 canonical exception 3 — JSON on the Tree tab
+    // dispatches to `json-source` / `json-offline`. No CDN
+    // metadata on either branch — JSON parsing is native
+    // per the spec's "Tree viewer tab / No CDN is used."
+    // requirement, so the typed source outcome carries only
+    // the descriptor + bytes. The future mount calls
+    // `JSON.parse(text)` natively after a UTF-8 decode.
+    if (tab === "Tree" && file.format === "json") {
+      if (bytes === null) return buildJsonOffline(file);
+      return {
+        kind: "json-source",
+        src: file.url,
+        title: file.name,
+        // Pass-by-reference: the future mount reads the
+        // bytes at mount time and feeds them straight to
+        // `JSON.parse(text)` after a UTF-8 decode. Mirrors
+        // the W4b1 DOCX + W4b2 XLS / XLSX + W4b3 EPUB +
+        // W4b4 CSV / TSV bytes-reference contracts.
+        bytes,
+      };
+    }
     const extLabel =
       file.format === "other" ? extensionFromPath(file.path) || "?" : file.format;
     return {
@@ -1386,27 +1849,31 @@ export function dispatchViewer(input: ViewerDispatchInput): ViewerDispatch {
         `Format .${extensionFromPath(file.path) || "?"} not supported in viewer.`,
       );
     default:
-      // Still-W4b+-deferred formats: CSV, TSV,
-      // JSON. These require CDN-dependent or
-      // native renderers (Papa Parse, native JSON
-      // tree) and land in separately authorized
-      // W4b+ slices. DOCX is OWNED by W4b1 (the
-      // explicit `case "docx":` arm above) and is
-      // no longer part of this deferred set; XLS /
-      // XLSX are OWNED by W4b2 (the explicit
-      // `case "xls":` + `case "xlsx":` arm above)
-      // and are also no longer part of this
-      // deferred set; EPUB is OWNED by W4b3 (the
-      // explicit `case "epub":` arm above) and is
-      // no longer part of this deferred set. The
-      // default arm returns the `unsupported`
-      // branch with the format-literal message so
-      // the React mount paints the same
-      // download-link card as the legacy
-      // `renderUnsupported` oracle. W4b4 replaces
-      // this arm by adding explicit `case "csv":`,
-      // `case "tsv":`, `case "json":` arms above
-      // it.
+      // W4b4-deferred-on-Raw formats: CSV, TSV,
+      // JSON. These formats NOW OWN Table / Tree
+      // renderers via the W4b4 canonical
+      // exceptions at the top of the dispatcher
+      // (Table on CSV / TSV; Tree on JSON). On Raw
+      // they fall through to the existing W4a
+      // `unsupported` fallback / download so the
+      // React mount paints the same download-link
+      // card as the legacy `renderUnsupported`
+      // oracle (the user decision is authoritative:
+      // Raw uses the existing fallback/download
+      // behavior for CSV / TSV / JSON). The
+      // format-literal "Format .{ext} not supported
+      // in viewer." message matches the legacy
+      // `renderUnsupported` wording byte-for-byte.
+      // DOCX is OWNED by W4b1; XLS / XLSX are
+      // OWNED by W4b2; EPUB is OWNED by W4b3;
+      // CSV / TSV / JSON are OWNED by W4b4 (Table
+      // / Tree only — Raw stays on the W4a
+      // fallback). A future PR that wants a Raw
+      // renderer for CSV / TSV / JSON would land
+      // as a separately authorized follow-up slice
+      // (a textual CSV preview, a JSON pretty-
+      // print, etc.) and would add explicit arms
+      // here.
       return renderUnsupported(
         file,
         `Format .${file.format} not supported in viewer.`,
