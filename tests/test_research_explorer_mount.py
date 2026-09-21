@@ -144,6 +144,7 @@ VIEWER_FILE = RESEARCH_DIR / "presentation" / "Viewer.tsx"
 ERROR_BOUNDARY_FILE = (
     RESEARCH_DIR / "presentation" / "ExplorerErrorBoundary.tsx"
 )
+SPLITTER_FILE = RESEARCH_DIR / "presentation" / "Splitter.tsx"
 BARREL_FILE = RESEARCH_DIR / "index.ts"
 DOMAIN_FILE = RESEARCH_DIR / "domain" / "explorer.ts"
 RENDERERS_FILE = RESEARCH_DIR / "application" / "renderers.ts"
@@ -283,6 +284,97 @@ _PAGE_FORBIDDEN: tuple[str, ...] = (
 )
 
 
+# W6.3 — Browser-tab Explorer splitter forbidden tokens.
+# The Splitter is a DOM-bound Client Component (NOT the
+# framework-free kernel). It walks the DOM from its
+# `parentElement` + manipulates the `.fex-tree-pane`
+# sibling via class selector, attaches document-level
+# mousedown / mousemove / mouseup / dblclick listeners,
+# and reads / writes / removes the localStorage key
+# `taxa.fex.treeWidth`. The forbidden tokens list below
+# is intentionally DIFFERENT from the kernel list above:
+#
+#   - `document.`, `window.`, `localStorage` are ALLOWED
+#     (the Splitter is DOM-bound; storage failures are
+#     swallowed per the W6.3 contract).
+#   - `fetch(` is FORBIDDEN (the Splitter is a pure UI
+#     component; the React mount's `fetchFiles` owns the
+#     network lifecycle).
+#   - Cross-module imports into `@taxa/browser-state`,
+#     `@taxa/taxonomy`, `@taxa/design-system`,
+#     `@taxa/app-shell` are FORBIDDEN (the Splitter is
+#     local to Research presentation; the storage key
+#     `taxa.fex.treeWidth` is a raw localStorage key per
+#     the user-authorized W6.3 decision — no browser-
+#     state scope creep).
+#   - Deep imports into `@taxa/research/domain/*`,
+#     `@taxa/research/application/*`,
+#     `@taxa/research/infrastructure/*`,
+#     `@taxa/research/presentation/*` (other than the
+#     Splitter's own module) are FORBIDDEN (spec.md rule
+#     5 keeps cross-module imports anchored at the public
+#     barrel; the Splitter only needs React).
+#   - Framework imports OTHER than React are FORBIDDEN
+#     (no Vue / Svelte / React Native / Solid / Preact;
+#     no react-router / next/router; no Next Script
+#     component; no CDN-script surface).
+#   - `web/`, `src/app/page.tsx`, settings reset, server
+#     surface, materialization, CDN viewers are FORBIDDEN
+#     (the W6.3 isolation contract).
+#   - `process.`, `require(`, `globalThis` (the Splitter
+#     uses `globalThis.localStorage` for SSR-safety; the
+#     `globalThis.localStorage` reference is ALLOWED, but
+#     bare `globalThis` for state mutations is FORBIDDEN).
+#
+# Comments are stripped before scanning so JSDoc can
+# reference forbidden-token words.
+_SPLITTER_FORBIDDEN: tuple[str, ...] = (
+    # I/O — Splitter is a pure UI component (the React
+    # mount's fetchFiles owns the network lifecycle).
+    "fetch(",
+    # Framework other than React.
+    "from 'next'",    'from "next"',
+    "from 'react-router'", 'from "react-router"',
+    "from 'vue'",     'from "vue"',
+    "from 'svelte'",  'from "svelte"',
+    "from 'solid-js'", 'from "solid-js"',
+    # CDN-script surface — the Splitter does NOT load
+    # CDN libraries. Future W6+ slices that wire CDN
+    # viewers land as separately authorized follow-ups.
+    "loadScriptOnce",
+    "<Script",
+    "dangerouslySetInnerHTML",
+    # Reverse deep imports — Splitter only imports React.
+    # spec.md rule 5 keeps cross-module imports anchored
+    # at the public barrel.
+    "@taxa/research/domain",
+    "@taxa/research/application",
+    "@taxa/research/infrastructure",
+    "@taxa/research/presentation/",
+    # Cross-module imports outside Research — the Splitter
+    # is local to Research presentation. The storage key
+    # `taxa.fex.treeWidth` is a raw localStorage key per
+    # the user-authorized W6.3 decision (no
+    # `@taxa/browser-state` scope creep).
+    "@taxa/browser-state",
+    "@taxa/taxonomy",
+    "@taxa/design-system",
+    "@taxa/app-shell",
+    # Legacy + isolation.
+    "src/app/page",
+    "../web", "../../web", "web/",
+    # Process / CommonJS guards — Splitter is ESM-only.
+    "process.",
+    "require(",
+    # FastAPI / Starlette / settings reset / materialization
+    # / CDN viewers — out of scope for W6.3.
+    "fastapi", "starlette",
+    "settings.reset",
+    "materialize",
+    "epubjs", "mammoth", "XLSX", "papaparse", "Papa",
+)
+
+
 # ---------------------------------------------------------------------------
 # File presence + extension contracts.
 # ---------------------------------------------------------------------------
@@ -295,6 +387,7 @@ _PAGE_FORBIDDEN: tuple[str, ...] = (
         (FILE_TREE_FILE, "FileTree.tsx", ".tsx"),
         (VIEWER_FILE, "Viewer.tsx", ".tsx"),
         (ERROR_BOUNDARY_FILE, "ExplorerErrorBoundary.tsx", ".tsx"),
+        (SPLITTER_FILE, "Splitter.tsx", ".tsx"),
     ],
 )
 def test_w6_1_file_present(path: Path, label: str, suffix: str) -> None:
@@ -433,7 +526,7 @@ def test_explorer_page_purity() -> None:
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize(
     "path",
-    [EXPLORER_FILE, FILE_TREE_FILE, VIEWER_FILE, ERROR_BOUNDARY_FILE],
+    [EXPLORER_FILE, FILE_TREE_FILE, VIEWER_FILE, ERROR_BOUNDARY_FILE, SPLITTER_FILE],
 )
 def test_w6_1_react_component_declares_use_client(path: Path) -> None:
     """Every W6.1 React component MUST declare `"use client"`
@@ -1410,6 +1503,734 @@ process.stdout.write("PASS\n");
 """
 
 
+# ---------------------------------------------------------------------------
+# W6.3 — Explorer splitter (Browser-tab tree / viewer drag handle).
+# Mirrors the legacy `web/file_explorer.js::renderSplitter()` byte-for-byte:
+# mouse drag adjusts the tree width; double-click clears the localStorage
+# key + the inline width so the legacy CSS default takes over again; all
+# storage failures are swallowed. The Splitter is intentionally DOM-bound
+# (NOT the framework-free kernel): it walks the DOM from its
+# `parentElement` + manipulates the `.fex-tree-pane` sibling via class
+# selector, attaches document-level mouse listeners, and reads / writes /
+# removes the single global localStorage key `taxa.fex.treeWidth`. The
+# pure helpers (`clampTreeWidth`, `readSavedTreeWidth`,
+# `writeSavedTreeWidth`, `clearSavedTreeWidth`) + the constants
+# (`TREE_WIDTH_STORAGE_KEY`, `MIN_TREE_WIDTH_PX`, `VIEWER_RESERVED_PX`)
+# are named exports on the same module so the focused test harness
+# exercises them under Node without React or the DOM event system.
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# W6.3 — Splitter source-level purity. The Splitter is
+# DOM-bound (NOT framework-free), so the forbidden-tokens
+# list is intentionally DIFFERENT from the kernel's
+# `_KERNEL_FORBIDDEN` tuple above. The list forbids:
+#   - `fetch(` (the Splitter is a pure UI component).
+#   - Framework imports other than React.
+#   - CDN-script surface (no `<Script>`, no
+#     `loadScriptOnce`, no `dangerouslySetInnerHTML`).
+#   - Reverse deep imports into any other layer of
+#     `@taxa/research` (the Splitter only needs React).
+#   - Cross-module imports outside Research (no
+#     `@taxa/browser-state`, no `@taxa/taxonomy`, no
+#     `@taxa/design-system`, no `@taxa/app-shell`).
+#   - Legacy + isolation tokens (`web/`, `src/app/page`,
+#     `settings.reset`, `materialize`, etc.).
+#   - CommonJS / process / CDN-library tokens.
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("token", _SPLITTER_FORBIDDEN)
+def test_w6_3_splitter_source_purity(token: str) -> None:
+    """W6.3 — the Splitter stays free of forbidden tokens
+    (no fetch, no cross-layer imports, no CDN-script
+    surface, no legacy mutation, no cross-module scope
+    creep, no settings reset, no materialization, no
+    framework imports other than React). Comments are
+    stripped before scanning so JSDoc can reference
+    forbidden-token words without tripping the guard."""
+    if not SPLITTER_FILE.is_file():
+        pytest.skip("Splitter.tsx not present yet")
+    text = _strip_ts_comments(SPLITTER_FILE.read_text())
+    assert token not in text, (
+        f"Splitter.tsx must stay free of {token!r}; the "
+        f"W6.3 isolation contract forbids it. The Splitter "
+        f"is a DOM-bound Client Component (uses "
+        f"`document.`, `window.`, `localStorage`) but does "
+        f"NOT touch the network, the CDN script surface, "
+        f"the legacy `web/` directory, the `src/app/page.tsx` "
+        f"route, the FastAPI server, the materialization "
+        f"pipeline, the settings reset, or any cross-module "
+        f"chunk outside `@taxa/research`."
+    )
+
+
+def test_w6_3_splitter_imports_only_react() -> None:
+    """W6.3 — the Splitter's only runtime import is
+    `react` (and its `react/jsx-runtime` hook). No
+    deep imports into any other layer of
+    `@taxa/research` (the Splitter is presentation-local;
+    the pure helpers + storage constants are exported
+    from the same module so the focused test harness
+    exercises them through the public barrel). No
+    cross-module imports outside Research (no
+    `@taxa/browser-state`, no `@taxa/taxonomy`, no
+    `@taxa/design-system`, no `@taxa/app-shell`).
+    spec.md rule 5 keeps cross-module imports anchored
+    at the public barrel; the Splitter reaches the
+    React mount through `@taxa/research`'s default
+    re-export."""
+    if not SPLITTER_FILE.is_file():
+        pytest.skip("Splitter.tsx not present yet")
+    text = SPLITTER_FILE.read_text()
+    imports = re.findall(r'from\s+["\']([^"\']+)["\']', text)
+    assert imports, "Splitter.tsx must import something (React)"
+    for src in imports:
+        assert src.startswith("react") or src == "react", (
+            f"Splitter.tsx imports from {src!r}; must be `react` "
+            f"only (the Splitter is a DOM-bound Client "
+            f"Component that reaches its peer components + the "
+            f"public barrel through `@taxa/research`'s default "
+            f"re-export). spec.md rule 5 keeps cross-module "
+            f"imports anchored at the public barrel."
+        )
+
+
+def test_w6_3_splitter_exports_named_pure_helpers_and_constants() -> None:
+    """W6.3 — the Splitter must export the pure helpers +
+    storage constants as named exports so the focused
+    test harness exercises them under Node without React
+    or the DOM event system. Each helper + constant is
+    reachable through the public barrel so cross-module
+    consumers (future tests, a hypothetical React mount
+    that wants to compose the helpers without spinning
+    up the React event system) read them through
+    `@taxa/research`."""
+    if not SPLITTER_FILE.is_file():
+        pytest.skip("Splitter.tsx not present yet")
+    text = SPLITTER_FILE.read_text()
+    for symbol in (
+        "TREE_WIDTH_STORAGE_KEY",
+        "MIN_TREE_WIDTH_PX",
+        "VIEWER_RESERVED_PX",
+        "clampTreeWidth",
+        "readSavedTreeWidth",
+        "writeSavedTreeWidth",
+        "clearSavedTreeWidth",
+    ):
+        assert re.search(
+            rf"export\s+(?:const|function)\s+{symbol}\b", text,
+        ), (
+            f"Splitter.tsx must export `{symbol}` as a named "
+            f"constant or function (the W6.3 pure-handler / "
+            f"storage helper surface)."
+        )
+
+
+def test_w6_3_splitter_default_export_is_default() -> None:
+    """W6.3 — the Splitter component is the file's
+    default export (the React mount consumes it via
+    `import Splitter from "@taxa/research"` through the
+    barrel's `export { default as Splitter }` re-export).
+    A future PR that flips to a named export would
+    silently break the Explorer's `import { Splitter }`
+    wiring (which reads it as a named re-export from the
+    barrel)."""
+    if not SPLITTER_FILE.is_file():
+        pytest.skip("Splitter.tsx not present yet")
+    text = SPLITTER_FILE.read_text()
+    assert re.search(r"export\s+default\s+function\s+Splitter\b", text), (
+        "Splitter.tsx must declare `export default function "
+        "Splitter` so the React mount + the public barrel "
+        "can re-export it as `default as Splitter`."
+    )
+
+
+def test_w6_3_splitter_renders_legacy_separator_semantics() -> None:
+    """W6.3 — the Splitter component MUST render
+    `role="separator"` + `aria-orientation="vertical"` +
+    the legacy `title="Drag to resize · double-click to
+    reset"` literal. These three attributes are the
+    accessibility contract for vertical separator
+    semantics (matches the W3C ARIA `separator` role
+    spec + the legacy `web/file_explorer.js::renderSplitter`
+    shape verbatim). The test guards the three literals
+    against accidental whitespace drift (`title` carries
+    the legacy `·` U+00B7 middle-dot character) so the
+    React mount's accessibility surface stays in
+    lock-step with the legacy oracle."""
+    if not SPLITTER_FILE.is_file():
+        pytest.skip("Splitter.tsx not present yet")
+    text = SPLITTER_FILE.read_text()
+    assert 'role="separator"' in text, (
+        "Splitter.tsx must render `role=\"separator\"` so the "
+        "drag handle exposes vertical-separator ARIA "
+        "semantics (W3C ARIA `separator` role)."
+    )
+    assert 'aria-orientation="vertical"' in text, (
+        "Splitter.tsx must render `aria-orientation=\"vertical\"` "
+        "so the drag handle's orientation is explicit (the "
+        "W3C ARIA `separator` role's default is horizontal)."
+    )
+    assert 'title="Drag to resize \u00b7 double-click to reset"' in text, (
+        "Splitter.tsx must render the legacy `title` literal "
+        "`Drag to resize \u00b7 double-click to reset` (the "
+        "`\u00b7` middle-dot character is byte-equal against "
+        "the legacy `web/file_explorer.js::renderSplitter` "
+        "string)."
+    )
+
+
+def test_w6_3_splitter_wires_mousedown_with_prevent_default() -> None:
+    """W6.3 — the Splitter's mousedown handler MUST call
+    `preventDefault` so the mousedown doesn't trigger
+    text selection drag (mirrors the legacy
+    `web/file_explorer.js::renderSplitter` `e.preventDefault()`
+    shape verbatim — the legacy explicitly calls this so a
+    user accidentally clicking on a row of text inside
+    the splitter doesn't start a text selection that
+    fights the drag)."""
+    if not SPLITTER_FILE.is_file():
+        pytest.skip("Splitter.tsx not present yet")
+    text = SPLITTER_FILE.read_text()
+    # Find the mousedown handler body. The pattern matches
+    # `onMouseDown={handleMouseDown}` on the rendered
+    # `<div>` so the test pins both the handler attachment
+    # AND the preventDefault call inside the handler body.
+    assert "onMouseDown={handleMouseDown}" in text, (
+        "Splitter.tsx must wire `onMouseDown={handleMouseDown}` "
+        "on the rendered `<div>` so the React mount's drag "
+        "lifecycle matches the legacy `addEventListener` "
+        "attachment."
+    )
+    assert "e.preventDefault()" in text, (
+        "Splitter.tsx's mousedown handler must call "
+        "`e.preventDefault()` so the mousedown doesn't "
+        "trigger text selection drag (mirrors the legacy "
+        "`web/file_explorer.js::renderSplitter` "
+        "`e.preventDefault()` shape verbatim)."
+    )
+
+
+def test_w6_3_splitter_wires_doubleclick_handler() -> None:
+    """W6.3 — the Splitter's `<div>` MUST wire an
+    `onDoubleClick` handler so a double-click clears the
+    localStorage key + the inline width so the legacy CSS
+    default takes over again (mirrors the legacy
+    `web/file_explorer.js::renderSplitter` `dblclick`
+    branch verbatim). The handler is a separate
+    `useCallback` (the legacy uses two distinct
+    `addEventListener` calls)."""
+    if not SPLITTER_FILE.is_file():
+        pytest.skip("Splitter.tsx not present yet")
+    text = SPLITTER_FILE.read_text()
+    assert "onDoubleClick={handleDoubleClick}" in text, (
+        "Splitter.tsx must wire `onDoubleClick={handleDoubleClick}` "
+        "on the rendered `<div>` so the React mount's "
+        "double-click reset matches the legacy "
+        "`addEventListener(\"dblclick\", …)` shape."
+    )
+
+
+def test_w6_3_splitter_storage_key_is_pinned_literal() -> None:
+    """W6.3 — the `TREE_WIDTH_STORAGE_KEY` constant MUST
+    equal the literal `"taxa.fex.treeWidth"` (pinned
+    byte-for-byte against the legacy
+    `web/file_explorer.js::TREE_WIDTH_STORAGE_KEY`). The
+    runtime harness exercises the literal value end-to-end;
+    this source-level guard catches a future PR that
+    renames the constant without renaming the localStorage
+    key (which would silently lose persistence across
+    reloads)."""
+    if not SPLITTER_FILE.is_file():
+        pytest.skip("Splitter.tsx not present yet")
+    text = SPLITTER_FILE.read_text()
+    m = re.search(
+        r'export\s+const\s+TREE_WIDTH_STORAGE_KEY\s*=\s*"([^"]+)"',
+        text,
+    )
+    assert m, (
+        "Splitter.tsx must declare `export const "
+        "TREE_WIDTH_STORAGE_KEY = \"...\"` as a named "
+        "constant (the W6.3 localStorage-key surface)."
+    )
+    assert m.group(1) == "taxa.fex.treeWidth", (
+        f"TREE_WIDTH_STORAGE_KEY must equal the literal "
+        f"`\"taxa.fex.treeWidth\"` (legacy verbatim); got "
+        f"{m.group(1)!r}. Renaming the key would silently "
+        f"lose persistence across reloads."
+    )
+
+
+def test_w6_3_barrel_reexports_splitter_and_pure_helpers() -> None:
+    """W6.3 — the public barrel MUST re-export the
+    Splitter default export + the pure helpers + the
+    storage key constant + the width-bound constants so
+    cross-module consumers (the W6.3 React mount,
+    integration tests) reach the W6.3 contract through
+    the barrel. spec.md rule 5 keeps cross-module
+    imports anchored at the public barrel."""
+    if not BARREL_FILE.is_file():
+        pytest.skip("barrel not present yet")
+    text = BARREL_FILE.read_text()
+    # Default-export re-export for the Splitter component.
+    assert re.search(
+        r'export\s+\{\s*default\s+as\s+Splitter\b',
+        text,
+    ), (
+        "barrel must re-export `Splitter` as a default "
+        "export so cross-module consumers can mount it "
+        "through `import { Splitter } from \"@taxa/research\"`."
+    )
+    # Named-export re-exports for the pure helpers + the
+    # storage key + the width-bound constants.
+    for symbol in (
+        "TREE_WIDTH_STORAGE_KEY",
+        "MIN_TREE_WIDTH_PX",
+        "VIEWER_RESERVED_PX",
+        "clampTreeWidth",
+        "readSavedTreeWidth",
+        "writeSavedTreeWidth",
+        "clearSavedTreeWidth",
+    ):
+        assert symbol in text, (
+            f"barrel must re-export the W6.3 helper or "
+            f"constant `{symbol}`."
+        )
+
+
+def test_w6_3_explorer_mounts_splitter_between_tree_and_viewer() -> None:
+    """W6.3 — the Explorer.tsx React mount MUST render
+    `<Splitter />` between the `.fex-tree-pane` sibling
+    + the `.fex-viewer-pane` sibling (the splitter is a
+    direct child of the `.fex-shell` two-pane layout, in
+    the same DOM-order position the legacy
+    `web/file_explorer.js::rerender()` paints it). The
+    Splitter's `parentElement.querySelector(".fex-tree-pane")`
+    lookup depends on the Splitter's parent being the
+    `.fex-shell` element with both panes as siblings; a
+    future PR that nests the Splitter under a different
+    parent would silently break the drag lifecycle (the
+    querySelector would return `null`)."""
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = EXPLORER_FILE.read_text()
+    # The Explorer must import Splitter from the public
+    # barrel (spec.md rule 5).
+    assert re.search(
+        r'import\s+\{[^}]*\bSplitter\b[^}]*\}\s+from\s+'
+        r'["\']@taxa/research["\']',
+        text,
+    ), (
+        "Explorer.tsx must import `Splitter` from "
+        "`@taxa/research` (spec.md rule 5 keeps "
+        "cross-module imports anchored at the public "
+        "barrel)."
+    )
+    # The Splitter's render position is between the
+    # `.fex-tree-pane` JSX block + the `.fex-viewer-pane`
+    # JSX block. The test scans for the triplet shape so
+    # a future PR that reorders the panes (e.g. putting
+    # the viewer on the left) is caught.
+    tree_pane_idx = text.find('fex-tree-pane')
+    splitter_idx = text.find("<Splitter")
+    viewer_pane_idx = text.find('fex-viewer-pane')
+    assert tree_pane_idx > 0 and splitter_idx > 0 and viewer_pane_idx > 0, (
+        "Explorer.tsx must render `<Splitter />` between "
+        "the `.fex-tree-pane` sibling + the `.fex-viewer-pane` "
+        "sibling (the splitter walks the DOM from its "
+        "`parentElement` and queries `.fex-tree-pane` — "
+        "the querySelector shape depends on both panes "
+        "being direct siblings under the `.fex-shell` "
+        "container)."
+    )
+    assert tree_pane_idx < splitter_idx < viewer_pane_idx, (
+        "Explorer.tsx must render `<Splitter />` AFTER "
+        "the `.fex-tree-pane` JSX block + BEFORE the "
+        "`.fex-viewer-pane` JSX block. The current order "
+        f"is tree_pane={tree_pane_idx}, "
+        f"splitter={splitter_idx}, viewer_pane={viewer_pane_idx}."
+    )
+
+
+# ---------------------------------------------------------------------------
+# W6.3 — compile + runtime contract for the Splitter.
+# The Splitter is DOM-bound (uses `document.body`,
+# `globalThis.localStorage`, `MouseEvent`), so the
+# focused compile uses `--lib ES2022,DOM` (not
+# `--lib ES2022` alone like the framework-free kernel).
+# The runtime harness stubs `globalThis.localStorage` so
+# every storage helper can be exercised under Node
+# without a real browser. The harness also exercises
+# `clampTreeWidth` end-to-end so the legacy bounds
+# (12rem min, 20rem reserved) stay pinned.
+# ---------------------------------------------------------------------------
+def _run_tsc_isolated_splitter(
+    out_dir: Path,
+    sources: list[Path],
+    extra: list[str] | None = None,
+) -> subprocess.CompletedProcess:
+    """Compile the W6.3 Splitter + the W6.1 framework-free
+    kernel + the W1 domain + the W4a–W4b4 renderers in
+    isolation. Flags mirror the W6.1 kernel contract but
+    extend `--lib` with `DOM` so the Splitter's
+    `document.body`, `MouseEvent`, and
+    `globalThis.localStorage` references compile under
+    TypeScript without `--strict` falling back to
+    implicit-any. Adds `--jsx react-jsx` so the React
+    JSX in `Splitter.tsx` compiles under the new JSX
+    transform (the runtime harness loads the compiled
+    output via `require()` and the new transform emits
+    `_jsx` calls against `react/jsx-runtime`).
+
+    The kernel + W1 domain + W4a–W4b4 renderers stay in
+    the compile graph so the inline
+    `import("../application/renderers").ViewerDispatch`
+    type-only import in `explorer-state.ts` resolves
+    cleanly."""
+    return subprocess.run(
+        [
+            "npx", "--yes", "-p", "typescript@5.7", "tsc",
+            "--strict",
+            "--target", "ES2022",
+            "--module", "commonjs",
+            "--lib", "ES2022,DOM",
+            "--jsx", "react-jsx",
+            "--skipLibCheck",
+            "--esModuleInterop",
+            "--rootDir", "src/modules/research",
+            "--outDir", str(out_dir),
+            *[str(p) for p in sources],
+            *(extra or []),
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+@pytest.fixture()
+def compiled_w6_3_splitter(
+    tmp_path: Path, require_toolchain: None,
+) -> Path:
+    """Compile the W6.3 Splitter alongside the W6.1
+    framework-free kernel + the W1 domain + the W4a–W4b4
+    renderers. Returns the compiled Splitter path; the
+    runtime harness loads it and exercises every pure
+    helper + every storage helper under Node's
+    ES2022+DOM environment (no React runtime)."""
+    for p in (
+        DOMAIN_FILE, RENDERERS_FILE, EXPLORER_STATE_FILE, SPLITTER_FILE,
+    ):
+        if not p.is_file():
+            pytest.skip(f"missing required source: {p}")
+    out_dir = tmp_path / "build"
+    out_dir.mkdir()
+    result = _run_tsc_isolated_splitter(
+        out_dir,
+        [DOMAIN_FILE, RENDERERS_FILE, EXPLORER_STATE_FILE, SPLITTER_FILE],
+    )
+    assert result.returncode == 0, (
+        f"Splitter.tsx failed to compile in isolated strict "
+        f"mode.\nstdout: {result.stdout}\n"
+        f"stderr: {result.stderr}"
+    )
+    compiled_splitter = (
+        out_dir / "presentation" / "Splitter.js"
+    )
+    assert compiled_splitter.is_file(), (
+        f"tsc did not emit `presentation/Splitter.js` at "
+        f"{compiled_splitter}.\nstdout: {result.stdout}\n"
+        f"stderr: {result.stderr}"
+    )
+    return compiled_splitter
+
+
+# W6.3 runtime harness — exercises the Splitter's pure
+# helpers + storage helpers under Node's ES2022+DOM
+# environment. The harness stubs `globalThis.localStorage`
+# (a Map-backed mock + a throwing variant) so every
+# storage branch (happy path, getItem throws, setItem
+# throws, removeItem throws, localStorage undefined) can
+# be exercised end-to-end without a real browser.
+_SPLITTER_RUNTIME_HARNESS = r"""
+// CJS does not support top-level await (only ESM does), so
+// the harness wraps the assertions in a sync body — every
+// W6.3 Splitter helper is pure (no async, no I/O).
+const path = require("path");
+const assert = require("assert");
+const splitter = require(path.resolve(process.argv[2]));
+
+// 1. Constants — every W6.3 width-bound + storage-key
+//    constant is pinned byte-for-byte against the legacy
+//    `web/file_explorer.js::TREE_WIDTH_STORAGE_KEY` +
+//    `MIN_WIDTH` + `MAX_WIDTH` (which the legacy computes
+//    as `shellWidth - 20 * 16`).
+{
+  assert.strictEqual(
+    splitter.TREE_WIDTH_STORAGE_KEY, "taxa.fex.treeWidth",
+    "TREE_WIDTH_STORAGE_KEY must equal the legacy literal \"taxa.fex.treeWidth\"",
+  );
+  assert.strictEqual(
+    splitter.MIN_TREE_WIDTH_PX, 12 * 16,
+    "MIN_TREE_WIDTH_PX must equal 12 * 16 = 192px (legacy verbatim)",
+  );
+  assert.strictEqual(
+    splitter.VIEWER_RESERVED_PX, 20 * 16,
+    "VIEWER_RESERVED_PX must equal 20 * 16 = 320px (legacy verbatim)",
+  );
+}
+
+// 2. clampTreeWidth — pure helper. Mirrors the legacy
+//    `Math.max(MIN_WIDTH, Math.min(next, MAX_WIDTH))`
+//    shape verbatim, with the `Math.max(min, …)` upper-
+//    bound guard so a too-narrow shell can never pin the
+//    tree to a negative width.
+//
+//    Cases:
+//    a. candidate within bounds → return candidate.
+//    b. candidate below MIN_TREE_WIDTH_PX → return MIN.
+//    c. candidate above (shellWidth - VIEWER_RESERVED_PX) → return MAX.
+//    d. shellWidth smaller than 2*MIN_TREE_WIDTH_PX → MAX
+//       clamps to MIN so the user is pinned to MIN (the
+//       viewer would otherwise be negative).
+{
+  // 2a — happy path (500 in a 1000-wide shell).
+  assert.strictEqual(
+    splitter.clampTreeWidth(500, 1000), 500,
+    "candidate within bounds must return candidate",
+  );
+  // 2b — below min (100 in a 1000-wide shell).
+  assert.strictEqual(
+    splitter.clampTreeWidth(100, 1000), splitter.MIN_TREE_WIDTH_PX,
+    "candidate below MIN must return MIN_TREE_WIDTH_PX",
+  );
+  // 2c — above max (900 in a 1000-wide shell; max = 680).
+  assert.strictEqual(
+    splitter.clampTreeWidth(900, 1000), 680,
+    "candidate above MAX must return shellWidth - VIEWER_RESERVED_PX",
+  );
+  // 2d — too-narrow shell (300-wide shell; max would be
+  // -20, but the Math.max(MIN, …) guard clamps max to MIN
+  // so the user stays pinned to MIN_TREE_WIDTH_PX).
+  assert.strictEqual(
+    splitter.clampTreeWidth(500, 300), splitter.MIN_TREE_WIDTH_PX,
+    "too-narrow shell must pin candidate to MIN_TREE_WIDTH_PX (max clamps to min)",
+  );
+  // 2e — exactly at MIN.
+  assert.strictEqual(
+    splitter.clampTreeWidth(splitter.MIN_TREE_WIDTH_PX, 1000),
+    splitter.MIN_TREE_WIDTH_PX,
+    "candidate exactly at MIN must return MIN",
+  );
+  // 2f — exactly at MAX.
+  assert.strictEqual(
+    splitter.clampTreeWidth(680, 1000), 680,
+    "candidate exactly at MAX must return MAX",
+  );
+}
+
+// 3. readSavedTreeWidth — happy path + error swallow +
+//    localStorage undefined. Mirrors the legacy
+//    `readSavedTreeWidth` shape byte-for-byte (try/catch
+//    around `localStorage.getItem`; returns `null` on
+//    every failure mode).
+{
+  // 3a — key set returns the stored string verbatim.
+  globalThis.localStorage = {
+    getItem: (key) => key === splitter.TREE_WIDTH_STORAGE_KEY ? "350px" : null,
+    setItem: () => {},
+    removeItem: () => {},
+  };
+  assert.strictEqual(
+    splitter.readSavedTreeWidth(), "350px",
+    "readSavedTreeWidth must return the stored value verbatim",
+  );
+  // 3b — key absent returns null.
+  globalThis.localStorage = {
+    getItem: () => null,
+    setItem: () => {},
+    removeItem: () => {},
+  };
+  assert.strictEqual(
+    splitter.readSavedTreeWidth(), null,
+    "readSavedTreeWidth must return null when the key is absent",
+  );
+  // 3c — getItem throws → swallow + return null.
+  globalThis.localStorage = {
+    getItem: () => { throw new Error("QuotaExceededError"); },
+    setItem: () => {},
+    removeItem: () => {},
+  };
+  assert.strictEqual(
+    splitter.readSavedTreeWidth(), null,
+    "readSavedTreeWidth must swallow getItem errors and return null",
+  );
+  // 3d — localStorage undefined → return null (SSR / Node).
+  delete globalThis.localStorage;
+  assert.strictEqual(
+    splitter.readSavedTreeWidth(), null,
+    "readSavedTreeWidth must return null when localStorage is undefined",
+  );
+}
+
+// 4. writeSavedTreeWidth — happy path + setItem-throw
+//    swallow + localStorage undefined.
+{
+  let lastKey = null;
+  let lastValue = null;
+  globalThis.localStorage = {
+    getItem: () => null,
+    setItem: (key, value) => { lastKey = key; lastValue = value; },
+    removeItem: () => {},
+  };
+  splitter.writeSavedTreeWidth("420px");
+  assert.strictEqual(
+    lastKey, splitter.TREE_WIDTH_STORAGE_KEY,
+    "writeSavedTreeWidth must persist under TREE_WIDTH_STORAGE_KEY",
+  );
+  assert.strictEqual(
+    lastValue, "420px",
+    "writeSavedTreeWidth must persist the value verbatim (pixel-string shape)",
+  );
+  // 4b — setItem throws → swallow + no throw.
+  globalThis.localStorage = {
+    getItem: () => null,
+    setItem: () => { throw new Error("QuotaExceededError"); },
+    removeItem: () => {},
+  };
+  // The helper must NOT throw — it swallows silently so
+  // the splitter still works in private-browsing contexts.
+  splitter.writeSavedTreeWidth("500px");
+  // 4c — localStorage undefined → no-op.
+  delete globalThis.localStorage;
+  splitter.writeSavedTreeWidth("600px");
+}
+
+// 5. clearSavedTreeWidth — happy path + removeItem-throw
+//    swallow + localStorage undefined.
+{
+  let removedKey = null;
+  globalThis.localStorage = {
+    getItem: () => "350px",
+    setItem: () => {},
+    removeItem: (key) => { removedKey = key; },
+  };
+  splitter.clearSavedTreeWidth();
+  assert.strictEqual(
+    removedKey, splitter.TREE_WIDTH_STORAGE_KEY,
+    "clearSavedTreeWidth must remove TREE_WIDTH_STORAGE_KEY",
+  );
+  // 5b — removeItem throws → swallow.
+  globalThis.localStorage = {
+    getItem: () => "350px",
+    setItem: () => {},
+    removeItem: () => { throw new Error("SecurityError"); },
+  };
+  splitter.clearSavedTreeWidth();
+  // 5c — localStorage undefined → no-op.
+  delete globalThis.localStorage;
+  splitter.clearSavedTreeWidth();
+}
+
+// 6. Round-trip — write + read + clear under the SAME
+//    localStorage stub. Mirrors the legacy's
+//    `readSavedTreeWidth` → drag → `writeSavedTreeWidth`
+//    → double-click → `clearSavedTreeWidth` lifecycle
+//    end-to-end.
+{
+  const store = new Map();
+  globalThis.localStorage = {
+    getItem: (key) => store.has(key) ? store.get(key) : null,
+    setItem: (key, value) => { store.set(key, String(value)); },
+    removeItem: (key) => { store.delete(key); },
+  };
+  // Initially absent.
+  assert.strictEqual(splitter.readSavedTreeWidth(), null);
+  // Drag commits the width.
+  splitter.writeSavedTreeWidth("275px");
+  assert.strictEqual(splitter.readSavedTreeWidth(), "275px");
+  // Double-click clears.
+  splitter.clearSavedTreeWidth();
+  assert.strictEqual(splitter.readSavedTreeWidth(), null);
+}
+
+process.stdout.write("PASS\n");
+"""
+
+
+def test_compiled_w6_3_splitter_passes_runtime_contract(
+    compiled_w6_3_splitter: Path,
+    tmp_path: Path,
+) -> None:
+    """Under Node (ES2022 + DOM, with `react/jsx-runtime`
+    resolved via `NODE_PATH`), the compiled W6.3 Splitter
+    satisfies the legacy splitter contract end-to-end:
+
+      1. `TREE_WIDTH_STORAGE_KEY` equals `"taxa.fex.treeWidth"`
+         (pinned byte-for-byte).
+      2. `MIN_TREE_WIDTH_PX` equals `12 * 16` (legacy
+         verbatim).
+      3. `VIEWER_RESERVED_PX` equals `20 * 16` (legacy
+         verbatim).
+      4. `clampTreeWidth` clamps to MIN on the lower
+         bound, to `(shellWidth - VIEWER_RESERVED_PX)` on
+         the upper bound, and pins to MIN when the shell
+         is too narrow for both bounds (the Math.max(MIN,
+         …) upper-bound guard).
+      5. `readSavedTreeWidth` returns the stored value
+         verbatim, returns null on absent key, swallows
+         getItem throws, returns null when localStorage
+         is undefined.
+      6. `writeSavedTreeWidth` persists under the pinned
+         key, swallows setItem throws, no-ops when
+         localStorage is undefined.
+      7. `clearSavedTreeWidth` removes the pinned key,
+         swallows removeItem throws, no-ops when
+         localStorage is undefined.
+      8. Round-trip — write + read + clear under the
+         SAME localStorage stub mirrors the legacy's
+         read → drag → write → double-click → clear
+         lifecycle end-to-end.
+
+    The runtime harness sets `NODE_PATH` to the
+    project's `node_modules` so Node can resolve
+    `react` + `react/jsx-runtime` from the compiled
+    Splitter's location under `tmp_path` (the harness
+    itself lives under pytest's tmp directory, which has
+    no local `node_modules`). The harness only calls the
+    pure helpers + constants; the React component is
+    never instantiated so the React runtime is purely a
+    module-resolution dependency."""
+    import os
+    harness = tmp_path / "harness.cjs"
+    harness.write_text(_SPLITTER_RUNTIME_HARNESS)
+    node_modules_path = REPO_ROOT / "node_modules"
+    env = {
+        **os.environ,
+        "NODE_PATH": str(node_modules_path),
+    }
+    result = subprocess.run(
+        ["node", str(harness), str(compiled_w6_3_splitter)],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, (
+        f"W6.3 runtime harness failed.\nstdout: {result.stdout}\n"
+        f"stderr: {result.stderr}"
+    )
+    assert result.stdout.strip() == "PASS", (
+        f"unexpected W6.3 harness output: {result.stdout!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# W6.1 — runtime contract for the framework-free kernel.
+# The kernel + W1 domain + W4a–W4b4 renderers compile in
+# isolation under `--lib ES2022` (no DOM, no React) and
+# satisfy the W6.1 pure contract end-to-end under Node.
+# ---------------------------------------------------------------------------
 def test_compiled_w6_1_kernel_passes_runtime_contract(
     compiled_w6_1_kernel: tuple[Path, Path],
     tmp_path: Path,

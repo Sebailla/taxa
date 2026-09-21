@@ -86,6 +86,7 @@ FEX_EXPLORER_BASES: tuple[str, ...] = (
     ".fex-snippet-actions", ".fex-snippet-body",
     ".fex-snippet-btn", ".fex-snippet-dots",
     ".fex-snippet-frame", ".fex-snippet-title",
+    ".fex-splitter",
     ".fex-tab-strip",
     ".fex-tree-header", ".fex-tree-header-search",
     ".fex-tree-leaf", ".fex-tree-pane",
@@ -192,6 +193,59 @@ def test_layer_components_declares_every_research_chrome_selector(selector):
     assert body, "globals.css must declare @layer components { ... }"
     assert _rule(body, selector).strip(), (
         f"@layer components must declare {selector} with a non-empty block"
+    )
+
+
+# W6.3 — every Browser-tab explorer splitter selector MUST
+# resolve to a non-empty block under @layer components. The
+# W6.3 contract extends the cascade with the vertical
+# drag-handle selectors the React splitter mounts between
+# the tree pane + the viewer pane: base + ::after hit-area
+# extension + :hover + .dragging compound state +
+# focus-visible keyboard a11y ring. Mirrors the legacy
+# `web/index.html::.fex-splitter` rules byte-equal so the
+# React mount's visual contract stays in lock-step with the
+# legacy oracle.
+W6_3_SPLITTER_SELECTORS: tuple[str, ...] = (
+    ".fex-splitter",
+    ".fex-splitter::after",
+    ".fex-splitter:hover",
+    ".fex-splitter.dragging",
+    ".fex-splitter:focus-visible",
+)
+
+
+@pytest.mark.parametrize("selector", W6_3_SPLITTER_SELECTORS)
+def test_layer_components_declares_every_w6_3_splitter_selector(selector):
+    """W6.3 — every Browser-tab splitter selector MUST resolve
+    to a non-empty block under @layer components. Catches a
+    future PR that drops the splitter cascade (the drag handle
+    would silently lose its col-resize cursor + primary-color
+    tint + hit-area extension) or moves it under @layer base
+    (the Tailwind 4 utility surface could override the
+    splitter's affordance at runtime).
+    """
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare @layer components { ... }"
+    assert _rule(body, selector).strip(), (
+        f"@layer components must declare {selector} with a non-empty block"
+    )
+
+
+@pytest.mark.parametrize("selector", W6_3_SPLITTER_SELECTORS)
+def test_layer_base_does_not_own_w6_3_splitter_selectors(selector):
+    """W6.3 — splitter selectors MUST live under @layer
+    components, NOT @layer base. The splitter cascade is a
+    React-mount surface (PR 3c-c contract); Tailwind 4
+    utilities (PR 3c-e) must still be able to override via
+    @layer components. The same guard pattern as the W6.1
+    research / chrome selectors."""
+    body = _block(_read(GLOBALS_CSS), "@layer base")
+    if not body:
+        return
+    assert not re.search(r"(?:^|[\s,{}>+~])" + re.escape(selector) + r"(?=[\s,{:>+~]|$)", body), (
+        f"{selector} MUST NOT live under @layer base; the splitter "
+        f"cascade is a @layer components surface."
     )
 
 

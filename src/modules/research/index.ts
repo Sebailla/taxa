@@ -237,3 +237,38 @@ export { default as Explorer } from "./presentation/Explorer";
 export { default as Viewer } from "./presentation/Viewer";
 export { default as FileTree } from "./presentation/FileTree";
 export { default as ExplorerErrorBoundary } from "./presentation/ExplorerErrorBoundary";
+
+// ODD-MIGRATE-003 W6.3 — re-export the Browser-tab Explorer
+// splitter (the drag handle between the tree pane + the
+// viewer pane) as a default export so cross-module consumers
+// (the W6.3 React mount + integration tests) reach the W6.3
+// contract through the barrel. The splitter is intentionally
+// DOM-bound (it walks the DOM from its `parentElement` +
+// manipulates the `.fex-tree-pane` sibling via class
+// selector, mirroring the legacy
+// `web/file_explorer.js::renderSplitter` shape verbatim) —
+// not a pure framework-free kernel. The pure helpers
+// (`clampTreeWidth`, `readSavedTreeWidth`,
+// `writeSavedTreeWidth`, `clearSavedTreeWidth`) + the storage
+// key constant (`TREE_WIDTH_STORAGE_KEY`) + the width-bound
+// constants (`MIN_TREE_WIDTH_PX`, `VIEWER_RESERVED_PX`) are
+// named exports on the same module; they reach the focused
+// test harness through the barrel's sibling export below so
+// the W6.3 contract is testable under Node without React or
+// the DOM event system. The storage helpers only touch the
+// single `TREE_WIDTH_STORAGE_KEY` localStorage key — no
+// scope creep into `@taxa/browser-state`, no domain state,
+// no settings reset, no server surface, no CDN viewers, no
+// materialization, no `web/` mutation (the W6.3 isolation
+// contract). spec.md rule 5 keeps cross-module imports
+// anchored at the public barrel.
+export { default as Splitter } from "./presentation/Splitter";
+export {
+  TREE_WIDTH_STORAGE_KEY,
+  MIN_TREE_WIDTH_PX,
+  VIEWER_RESERVED_PX,
+  clampTreeWidth,
+  readSavedTreeWidth,
+  writeSavedTreeWidth,
+  clearSavedTreeWidth,
+} from "./presentation/Splitter";

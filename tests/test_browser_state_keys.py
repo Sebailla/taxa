@@ -531,12 +531,137 @@ def test_browser_state_infrastructure_owns_local_storage_calls() -> None:
     )
 
 
+# ODD-MIGRATE-003 / W6.3 — Explorer Splitter carveout. The single
+# raw localStorage key `taxa.fex.treeWidth` is owned by
+# `src/modules/research/presentation/Splitter.tsx` per the user-
+# authorized W6.3 decision. The OpenSpec boundary
+# (`openspec/changes/complete-taxa-frontend-migration/specs/browser-state-hydration/spec.md`
+# Notes) explicitly excludes this key from `@taxa/browser-state`;
+# the W6.3 design decision keeps storage local to the Explorer
+# presentation layer to avoid browser-state chunk scope expansion.
+# The carveout is scoped to (a) a single source file, (b) a single
+# raw key, and (c) a single gated call shape. Every other Research
+# source MUST stay free of raw `localStorage` access; every other
+# capability module MUST stay free too. Anything outside that
+# shape — a bare `localStorage.X` reference (no `globalThis` /
+# `window` gate), a different key, or a non-gated prefix — trips
+# the assertion below.
+RESEARCH_DIR = REPO_ROOT / "src" / "modules" / "research"
+SPLITTER_FILE = RESEARCH_DIR / "presentation" / "Splitter.tsx"
+SPLITTER_OWNED_KEY = "taxa.fex.treeWidth"
+SPLITTER_KEY_CONSTANT = "TREE_WIDTH_STORAGE_KEY"
+_LOCALSTORAGE_NEEDLES: tuple[str, ...] = (
+    "localStorage.getItem",
+    "localStorage.setItem",
+    "localStorage.removeItem",
+)
+# Every `localStorage.{getItem,setItem,removeItem}` reference in
+# Splitter.tsx MUST live inside a gated call expression
+# `(globalThis|window).localStorage.{getItem,setItem,removeItem}(TREE_WIDTH_STORAGE_KEY, ...)`.
+# The constant `TREE_WIDTH_STORAGE_KEY` is pinned at the Splitter
+# boundary (its value is the Splitter-owned key literal
+# `taxa.fex.treeWidth`); a regression that passes a different key,
+# drops the `globalThis`/`window` gate, or introduces a second
+# localStorage key trips the assertion below.
+_SPLITTER_LEGAL_CALL = re.compile(
+    r"(?:globalThis|window)\s*\.\s*localStorage\s*\.\s*"
+    r"(?:getItem|setItem|removeItem)\s*\(\s*"
+    + re.escape(SPLITTER_KEY_CONSTANT)
+    + r"\b"
+)
+
+
+def _assert_research_localstorage_policy() -> None:
+    """ODD-MIGRATE-003 / W6.3 — per-file Research localStorage
+    policy with the Splitter carveout.
+
+    Every Research source other than `Splitter.tsx` MUST stay free
+    of raw `localStorage.getItem` / `localStorage.setItem` /
+    `localStorage.removeItem` references — the typed store is the
+    only legal storage surface for every other key.
+
+    `Splitter.tsx` is the lone documented exception. It owns the
+    single raw key `taxa.fex.treeWidth` per the OpenSpec boundary.
+    Every `localStorage.{getItem,setItem,removeItem}` reference in
+    the file MUST be inside a gated call expression
+    `(globalThis|window).localStorage.{getItem,setItem,removeItem}(TREE_WIDTH_STORAGE_KEY, ...)`.
+    A bare `localStorage.X` reference (no gate), a call that passes
+    a different key, or any reference in any other Research source
+    trips the assertion below.
+    """
+    root = RESEARCH_DIR
+    if not root.exists():
+        pytest.skip("research module not present yet")
+    for path in sorted(root.rglob("*.ts")) + sorted(root.rglob("*.tsx")):
+        if not path.is_file():
+            continue
+        stripped = _strip_ts_comments(path.read_text(encoding="utf-8"))
+        if path == SPLITTER_FILE:
+            # Substitute every legal gated call expression with
+            # whitespace of equal length (preserve diagnostic line
+            # numbers + column alignment) so the residual scan
+            # catches any bare `localStorage.X` reference, any
+            # non-gated prefix, or any call that passes a different
+            # key.
+            residual = _SPLITTER_LEGAL_CALL.sub(
+                lambda m: re.sub(r"[^\n]", " ", m.group(0)),
+                stripped,
+            )
+            for needle in _LOCALSTORAGE_NEEDLES:
+                assert needle not in residual, (
+                    f"Splitter.tsx contains an illegal `{needle}` "
+                    f"reference outside a "
+                    f"`(globalThis|window).localStorage.{needle[len('localStorage.'):]}(TREE_WIDTH_STORAGE_KEY, ...)` "
+                    f"gate. Every raw localStorage reference in the "
+                    f"Splitter MUST target the Splitter-owned "
+                    f"`taxa.fex.treeWidth` key (the W6.3 OpenSpec "
+                    f"boundary)."
+                )
+            continue
+        # Every other Research source MUST stay free of raw
+        # `localStorage` access. The typed store is the only legal
+        # storage surface for every key other than
+        # `taxa.fex.treeWidth`.
+        rel = path.relative_to(root).as_posix()
+        for needle in _LOCALSTORAGE_NEEDLES:
+            assert needle not in stripped, (
+                f"research/{rel} must NOT call {needle!r} "
+                f"directly; storage ownership belongs to the "
+                f"browser-state typed store. The lone documented "
+                f"exception is the Explorer Splitter's "
+                f"`taxa.fex.treeWidth` key — see "
+                f"`openspec/changes/complete-taxa-frontend-migration/specs/browser-state-hydration/spec.md` "
+                f"Notes."
+            )
+
+
 @pytest.mark.parametrize("other_module", OTHER_CAPABILITIES)
 def test_other_module_does_not_touch_localstorage(other_module: str) -> None:
     """No capability module outside `browser-state` is allowed to
     read or write `localStorage` directly. The typed store is the
     only legal storage surface.
+
+    ODD-MIGRATE-003 / W6.3 carveout (user-authorized): the
+    Explorer Splitter (`src/modules/research/presentation/Splitter.tsx`)
+    is the ONE documented exception outside `browser-state`. It
+    owns the single raw localStorage key `taxa.fex.treeWidth` per
+    the OpenSpec boundary
+    (`openspec/changes/complete-taxa-frontend-migration/specs/browser-state-hydration/spec.md`
+    Notes: `taxa.fex.treeWidth key (used by the splitter) is out of
+    scope for browser-state`). The carveout is scoped to:
+      - a single source file (`Splitter.tsx`);
+      - a single raw key (`taxa.fex.treeWidth`); and
+      - a single gated call shape
+        `(globalThis|window).localStorage.{getItem,setItem,removeItem}(TREE_WIDTH_STORAGE_KEY, ...)`.
+    Every other Research source MUST stay free of raw `localStorage`
+    access; every other capability module MUST stay free too.
     """
+    if other_module == "research":
+        # ODD-MIGRATE-003 / W6.3 — per-file Research policy with
+        # the Splitter carveout. See the test docstring above for
+        # the OpenSpec boundary rationale.
+        _assert_research_localstorage_policy()
+        return
     text = _module_text(other_module)
     if not text:
         pytest.skip(f"module not present yet: {other_module}")
@@ -547,7 +672,7 @@ def test_other_module_does_not_touch_localstorage(other_module: str) -> None:
     blank = lambda m: re.sub(r"[^\n]", " ", m.group(0))  # noqa: E731
     stripped = block.sub(blank, text)
     stripped = line.sub(blank, stripped)
-    for needle in ("localStorage.getItem", "localStorage.setItem", "localStorage.removeItem"):
+    for needle in _LOCALSTORAGE_NEEDLES:
         assert needle not in stripped, (
             f"{other_module} must NOT call {needle!r} directly; storage "
             f"ownership belongs to the browser-state typed store."

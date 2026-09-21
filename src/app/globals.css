@@ -1161,6 +1161,45 @@
     font-size: 12px;
     color: var(--on-surface-variant);
   }
+  /* Splitter — vertical drag handle between the tree pane
+     and the viewer pane. `splitter` (s-p) sorts AFTER
+     `snippet-title` (s-n) and BEFORE `tab-strip` (t).
+     Mirrors the legacy `web/index.html::.fex-splitter`
+     rules: 4px transparent bar with `col-resize` cursor,
+     `flex-shrink: 0` so it never gets squashed, an
+     `::after` that extends the hit area 3px outside the
+     visible bar so the drag stays discoverable on the
+     very-thin visual surface, and a primary-color tint
+     on `:hover` / `.dragging` so the affordance lights
+     up without forcing the user to commit. The
+     `:focus-visible` rule matches the existing
+     `.fex-row:focus-visible` outline so the keyboard
+     a11y affordance stays in lock-step with the legacy
+     oracle. The W6.3 React mount owns the drag
+     listeners (mouse drag clamps + persists the tree
+     width to localStorage under `taxa.fex.treeWidth`,
+     double-click clears the key + the inline width so
+     the legacy CSS default takes over again). */
+  .fex-splitter {
+    width: 4px;
+    background: transparent;
+    cursor: col-resize;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .fex-splitter::after {
+    content: "";
+    position: absolute;
+    inset: 0 -3px;
+  }
+  .fex-splitter:hover,
+  .fex-splitter.dragging {
+    background: var(--primary);
+  }
+  .fex-splitter:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
   /* Tab strip — Raw / Table / Tree segmented control.
      Mirrors the legacy `web/index.html::.fex-tab-strip`
      rule. */
