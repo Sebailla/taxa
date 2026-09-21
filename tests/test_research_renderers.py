@@ -1,45 +1,76 @@
 """
-Research viewer-dispatch contract tests (W4a of `complete-frontend-migration`).
+Research viewer-dispatch contract tests (W4a + W4b1 of
+`complete-frontend-migration`).
 
-Pins the pure typed viewer-dispatch contract introduced in W4a:
+Pins the pure typed viewer-dispatch contract in
 `src/modules/research/application/renderers.ts`. The contract is
 the application-layer renderer-dispatch decision for the eight
 no-CDN families (`pdf`, `html`/`htm`, `txt`, `md` legacy-as-text,
 `doc` fallback, `jpg`/`jpeg`/`png`/`gif`/`webp`/`bmp`, `svg`
 with XSS scrub, `mp4`/`webm`/`ogv`) plus the `"other"` extension
-fallback plus the Table/Tree tab-not-applicable feedback.
+fallback plus the Table/Tree tab-not-applicable feedback, plus
+the W4b1 DOCX source/offline branch.
 
-The W4a contract is the first slice of the W4 work unit: the user
-explicitly chose a split — W4a owns the framework-free, no-CDN
-preview dispatch and the legacy Markdown-as-text behavior; W4b+
-owns the CDN-dependent families (DOCX via mammoth, XLS/XLSX via
-SheetJS, EPUB via epubjs, CSV/TSV via Papa Parse, JSON) and the
-Markdown-as-HTML work. Until those later slices land, the W4a
-dispatcher returns `unsupported` / `tab-not-applicable` for the
-deferred format + tab combinations, mirroring the legacy
-"Format .xyz not supported in viewer." and
-"${tab} view not available for .${ext} files — use Raw." fallbacks
-so the React cutover paints the same download-link / empty-state
-cards the legacy `web/file_viewer.js` paints.
+The W4 split is owned by reviewable slices:
+
+  - W4a — framework-free, no-CDN preview dispatch; preserves
+    legacy Markdown-as-text behavior. The dispatcher returns
+    `unsupported` / `tab-not-applicable` for the deferred
+    format + tab combinations, mirroring the legacy "Format
+    .xyz not supported in viewer." and "${tab} view not
+    available for .${ext} files — use Raw." fallbacks.
+  - W4b1 — DOCX only. The dispatcher emits a typed `docx-source`
+    outcome that carries the descriptor + bytes + pinned
+    mammoth CDN URL + global name so a future React mount
+    (W6+) can load the legacy-pinned mammoth library and
+    convert the bytes to HTML. When bytes are missing, the
+    dispatcher emits a typed `docx-offline` branch with the
+    download link + pinned CDN URL so the mount paints the
+    same legacy "Viewer offline" banner with a download
+    affordance. The application layer stays framework-free,
+    browser-free, and CDN-loader-free — mammoth is NOT
+    imported or loaded here; the dispatcher only emits the
+    source descriptor for the mount to consume.
+  - W4b2 / W4b3 / W4b4 — XLS/XLSX (SheetJS), EPUB (epubjs),
+    and CSV/TSV + JSON (Papa Parse + native). Each owns one
+    CDN library or the native JSON renderer; each lands as a
+    separately authorized slice that adds its own arm to the
+    dispatcher.
+
+Until W4b2–W4b4 land, the dispatcher returns `unsupported` /
+`tab-not-applicable` for the still-deferred format + tab
+combinations, mirroring the legacy "Format .xyz not supported
+in viewer." and "${tab} view not available for .${ext} files —
+use Raw." fallbacks so the React cutover paints the same
+download-link / empty-state cards the legacy
+`web/file_viewer.js` paints.
 
 The contract is the third pure Research work unit (W1 domain +
-W2 ports + W3 infra + W4a renderers). It depends on W1 domain
-types (`FileFormat`, `ViewerTab`) and W2 port types
-(`ViewerFileDescriptor`'s `Uint8Array` bytes), but does NOT
-import W3 infrastructure — the dispatcher derives URLs from the
-explicit `ViewerFileDescriptor.url` input field, mirroring the
-layered architecture (spec.md rule 4 — application depends on
-domain ONLY) and the W4a split directive ("derive URLs from
-explicit typed input rather than importing W3 implementation").
-The contract is value-typed, framework-free, browser-free, and
-fetch-free — a pure function from `(file, tab, bytes)` to a
-typed `ViewerDispatch` outcome.
+W2 ports + W3 infra + W4a renderers + W4b1 DOCX). It depends
+on W1 domain types (`FileFormat`, `ViewerTab`) and W2 port
+types (`ViewerFileDescriptor`'s `Uint8Array` bytes), but does
+NOT import W3 infrastructure — the dispatcher derives URLs
+from the explicit `ViewerFileDescriptor.url` input field,
+mirroring the layered architecture (spec.md rule 4 —
+application depends on domain ONLY) and the W4a split
+directive ("derive URLs from explicit typed input rather than
+importing W3 implementation"). The W4b1 contract does NOT
+import or load mammoth, Next, React, DOM, or browser globals
+either — the dispatcher's only job for DOCX is to emit the
+typed source descriptor (URL + bytes + pinned CDN URL +
+global name) so a future mount can pick it up.
+The contract is value-typed, framework-free, browser-free,
+CDN-loader-free, and fetch-free — a pure function from
+`(file, tab, bytes)` to a typed `ViewerDispatch` outcome.
 
 The contract must be:
 
   - Pure (spec.md rule 4) — no React, no Next, no HTTP transport,
     no DOM, no DOMParser, no browser state, no process state, no
-    `fetch(`, no `require(`, no `globalThis`.
+    `fetch(`, no `require(`, no `globalThis`, no mammoth import
+    or load (the application layer only carries the pinned CDN
+    URL on the typed source outcome — the future React mount
+    does the actual CDN load via Next 16's `<Script>` component).
   - Domain-dependent only — the dispatcher imports `FileFormat` +
     `ViewerTab` from `../domain/explorer` and nothing else from
     the research module (no inward import from `../infrastructure`,
@@ -47,12 +78,13 @@ The contract must be:
   - Type-stable — a port-compat fixture (compiled alongside the
     dispatcher) proves the dispatcher's typed surface is reachable
     end-to-end; the runtime harness exercises every W4a-supported
-    format + every W4a-deferred format + the SVG sanitizer's
-    every branch.
+    format + every W4b1 DOCX branch + every still-W4b+-deferred
+    format + the SVG sanitizer's every branch.
 
 References:
-    odd/tasks/complete-frontend-migration.md          §ODD-MIGRATE-002 / W4a
+    odd/tasks/complete-frontend-migration.md          §ODD-MIGRATE-002 / W4a + W4b1
     openspec/specs/research/spec.md                   §Multi-format file viewer,
+                                                       §DOCX rendering,
                                                        §Legacy DOC fallback,
                                                        §Table viewer tab,
                                                        §Tree viewer tab,
@@ -61,11 +93,17 @@ References:
     web/file_viewer.js::RENDERERS                     Legacy dispatcher oracle
     web/file_viewer.js::renderPdf / renderHtml /      Per-format legacy oracles
       renderText / renderMd / renderImage /
-      renderSvg / renderVideo / renderUnsupported
+      renderSvg / renderVideo / renderUnsupported /
+      renderDocx
     web/file_explorer.js::handleTabClick              Legacy tab-not-applicable
                                                        oracle (`${tab} view not
                                                        available for .${ext}
                                                        files — use Raw.`)
+    web/file_viewer.js::CDN_URLS.mammoth              Pinned mammoth CDN URL
+    web/index.html (mammoth.js <script> tag)          CDN-pinning companion
+    next/dist/docs/01-app/03-api-reference/02-        Next 16 `<Script>` component
+      components/script.md                            (future mount reference —
+                                                       NOT consumed here)
 """
 from __future__ import annotations
 
@@ -412,29 +450,185 @@ def test_renderers_file_does_not_export_default() -> None:
 
 
 # ---------------------------------------------------------------------------
+# W4b1 — DOCX source / offline branch surface
+#
+# The W4b1 contract is the first W4b+ slice: it owns the DOCX
+# format. The contract emits a typed `docx-source` outcome that
+# carries the descriptor + bytes + pinned mammoth CDN URL +
+# global name so a future React mount (W6+) can load the
+# legacy-pinned mammoth library and convert the bytes to
+# HTML. When bytes are missing, the contract emits a typed
+# `docx-offline` branch with the download link + pinned CDN
+# URL + global name so the mount paints the same legacy
+# "Viewer offline" banner with a download affordance. The
+# application layer stays framework-free, browser-free, and
+# CDN-loader-free — mammoth is NOT imported or loaded here;
+# the dispatcher only emits the typed source descriptor for
+# the mount to consume.
+# ---------------------------------------------------------------------------
+def test_renderers_file_has_no_docx_renderer_or_loader_imports() -> None:
+    """TRIANGULATE — the W4b1 contract is the typed SOURCE
+    outcome for a future mount; the dispatcher MUST NOT import
+    or load mammoth, MUST NOT inject a `<script>` tag, MUST NOT
+    call `loadScriptOnce` (the legacy `web/file_viewer.js`
+    CDN-loader helper that touches `document` + `window`), and
+    MUST NOT inline the mammoth bundle. The contract only
+    pins the CDN URL + global name on the typed source
+    outcome — the future React mount (W6+) consumes the URL
+    through Next 16's `<Script>` component (see
+    `node_modules/next/dist/docs/01-app/03-api-reference/02-
+    components/script.md`) with the `onLoad` / `onError`
+    callbacks. A future PR that imports mammoth into the
+    application layer breaks the layered architecture at
+    review."""
+    if not RENDERERS_FILE.exists():
+        pytest.skip("renderers file not present yet")
+    text = _strip_ts_comments(RENDERERS_FILE.read_text())
+    for token in (
+        # mammoth import (any spelling — default, named,
+        # sub-path, or the legacy global read).
+        "from 'mammoth'",
+        'from "mammoth"',
+        "from 'mammoth/mammoth.browser'",
+        'from "mammoth/mammoth.browser"',
+        "import('mammoth')",
+        'import("mammoth")',
+        "window.mammoth",
+        # `<script>` injection / CDN loader — the dispatcher
+        # stays framework-free; the mount owns the loader.
+        "loadScriptOnce",
+        "createElement('script')",
+        'createElement("script")',
+        "createElement('SCRIPT')",
+        'createElement("SCRIPT")',
+        ".appendChild(s",
+        # Conversion call site. The dispatcher does NOT
+        # invoke mammoth — it only emits the typed source
+        # outcome for the mount to convert.
+        "convertToHtml",
+    ):
+        assert token not in text, (
+            f"renderers.ts must stay free of {token!r}; the W4b1 "
+            f"contract is a typed source descriptor only — the "
+            f"future React mount loads mammoth via Next 16's "
+            f"`<Script>` component and calls "
+            f"`window.mammoth.convertToHtml(...)` itself."
+        )
+
+
+def test_renderers_file_exports_named_mammoth_cdn_url() -> None:
+    """The W4b1 contract commits to the `MAMMOTH_CDN_URL`
+    constant — the legacy-pinned mammoth CDN URL
+    (`web/file_viewer.js::CDN_URLS.mammoth` +
+    `web/index.html` <script> tag — the matching companion
+    comment block calls the URL "Pinned URL: do not unpin.").
+    The URL is part of the W4b1 source descriptor so the
+    future React mount can load the CDN idempotently. A
+    future PR that bumps the version MUST update this constant
+    AND the matching `web/index.html` <script> tag AND the
+    focused test that pins the URL. Bumping the URL without
+    updating the comment + the `<script>` tag would silently
+    diverge the legacy + React paths."""
+    if not RENDERERS_FILE.exists():
+        pytest.skip("renderers file not present yet")
+    text = RENDERERS_FILE.read_text()
+    assert re.search(
+        r"export\s+const\s+MAMMOTH_CDN_URL\b\s*:\s*string\b",
+        text,
+    ), (
+        "renderers.ts must export `MAMMOTH_CDN_URL: string` "
+        "as the pinned mammoth CDN URL constant."
+    )
+    m = re.search(
+        r"export\s+const\s+MAMMOTH_CDN_URL\b[^;]*;",
+        text,
+    )
+    assert m, "MAMMOTH_CDN_URL must be declared as a const string."
+    declaration = m.group(0)
+    # Pinned URL — `cdn.jsdelivr.net/npm/mammoth@1.8.0/
+    # mammoth.browser.min.js`. The version pin is a content
+    # hash, not a moving tag — `web/index.html`'s mammoth
+    # comment block ("Pinned URL: do not unpin.") +
+    # `openspec/specs/research/spec.md` "CDN URLs … MUST be
+    # pinned to specific versions" enforce this.
+    assert (
+        "https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"
+        in declaration
+    ), (
+        "MAMMOTH_CDN_URL must be the legacy-pinned URL "
+        '"https://cdn.jsdelivr.net/npm/mammoth@1.8.0/'
+        'mammoth.browser.min.js" (matches '
+        "web/file_viewer.js::CDN_URLS.mammoth + "
+        "web/index.html's mammoth.js <script> tag)."
+    )
+
+
+def test_renderers_file_exports_named_mammoth_global_name() -> None:
+    """The W4b1 contract commits to the `MAMMOTH_GLOBAL_NAME`
+    constant — the window-global name mammoth assigns itself
+    once the CDN script loads (the legacy
+    `web/file_viewer.js::loadScriptOnce("mammoth")` resolves
+    via `window[name]`, then the `renderDocx` call site calls
+    `window.mammoth.convertToHtml(...)`). The global name is
+    part of the W4b1 source descriptor so the future React
+    mount can read the global verbatim without hardcoding
+    the string. A future PR that bumps the library or the
+    CDN pin (e.g. mammoth releases a v2 with a different
+    global) MUST update this constant too."""
+    if not RENDERERS_FILE.exists():
+        pytest.skip("renderers file not present yet")
+    text = RENDERERS_FILE.read_text()
+    assert re.search(
+        r"export\s+const\s+MAMMOTH_GLOBAL_NAME\b\s*:\s*string\b",
+        text,
+    ), (
+        "renderers.ts must export `MAMMOTH_GLOBAL_NAME: string` "
+        "as the window-global name constant."
+    )
+    m = re.search(
+        r"export\s+const\s+MAMMOTH_GLOBAL_NAME\b[^;]*;",
+        text,
+    )
+    assert m, "MAMMOTH_GLOBAL_NAME must be declared as a const string."
+    declaration = m.group(0)
+    # Pinned global — `mammoth` (matches the legacy
+    # `window.mammoth.convertToHtml` site +
+    # `CDN_URLS.mammoth` map key in `web/file_viewer.js`).
+    assert '"mammoth"' in declaration or "'mammoth'" in declaration, (
+        "MAMMOTH_GLOBAL_NAME must be the literal \"mammoth\" "
+        "(matches web/file_viewer.js::CDN_URLS.mammoth key + "
+        "window.mammoth.convertToHtml call site)."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public barrel — W4a must re-export the dispatcher surface through
 # the module's barrel so cross-module consumers (W6 React mount,
 # integration tests) reach the W4a contract through the public surface
 # (spec.md rule 5).
 # ---------------------------------------------------------------------------
 def test_barrel_reexports_research_renderers_surface() -> None:
-    """ODD-MIGRATE-002 W4a: the public barrel must re-export
+    """ODD-MIGRATE-002 W4a + W4b1: the public barrel must re-export
     `dispatchViewer`, `sanitizeSvgMarkup` (as values) and
-    `IMAGE_BIG_FILE_BYTES`, `TAB_NOT_APPLICABLE_SUFFIX` (as values)
-    plus the five W4a types (`ViewerDispatch`, `ViewerDispatchInput`,
+    `IMAGE_BIG_FILE_BYTES`, `TAB_NOT_APPLICABLE_SUFFIX`,
+    `MAMMOTH_CDN_URL`, `MAMMOTH_GLOBAL_NAME` (as values) plus
+    the five W4a types (`ViewerDispatch`, `ViewerDispatchInput`,
     `ViewerFileDescriptor`, `ViewerLink`, `ViewerImageAdvisory`)
     via `export type { … }` so cross-module consumers reach the
-    W4a contract through the barrel."""
+    W4a + W4b1 contract through the barrel."""
     if not BARREL_FILE.exists():
         pytest.skip("research barrel not present yet")
     text = BARREL_FILE.read_text()
     # Value re-exports — `dispatchViewer`, `sanitizeSvgMarkup`,
-    # `IMAGE_BIG_FILE_BYTES`, `TAB_NOT_APPLICABLE_SUFFIX`.
+    # `IMAGE_BIG_FILE_BYTES`, `TAB_NOT_APPLICABLE_SUFFIX` (W4a)
+    # + `MAMMOTH_CDN_URL`, `MAMMOTH_GLOBAL_NAME` (W4b1).
     for name in (
         "dispatchViewer",
         "sanitizeSvgMarkup",
         "IMAGE_BIG_FILE_BYTES",
         "TAB_NOT_APPLICABLE_SUFFIX",
+        "MAMMOTH_CDN_URL",
+        "MAMMOTH_GLOBAL_NAME",
     ):
         pattern = (
             rf"export\s*\{{\s*[^}}]*\b{name}\b[^}}]*\s*\}}\s*from\s*"
@@ -443,10 +637,16 @@ def test_barrel_reexports_research_renderers_surface() -> None:
         assert re.search(pattern, text), (
             f"research barrel must re-export `{name}` from "
             f"'./application/renderers' so cross-module consumers "
-            f"reach the W4a contract through the barrel "
+            f"reach the W4a + W4b1 contract through the barrel "
             f"(spec.md rule 5)."
         )
-    # Type re-exports — five W4a types.
+    # Type re-exports — five W4a types. The W4b1 DOCX contract
+    # does NOT add new exported types — the docx-source /
+    # docx-offline variants live inside the existing
+    # `ViewerDispatch` discriminated union, which the React
+    # mount consumes via the same `ViewerDispatch` import.
+    # Future W4b2–W4b4 slices follow the same pattern: add
+    # variants to `ViewerDispatch`, not new top-level types.
     for name in (
         "ViewerDispatch",
         "ViewerDispatchInput",
@@ -847,14 +1047,19 @@ function makeFile(overrides) {
   assert.strictEqual(d.download.href, "/api/files/serve?path=data.zip");
   assert.strictEqual(d.download.download, "data.zip");
 
-  // 20. W4a-deferred formats on Raw — DOCX / XLS / XLSX / EPUB /
-  //     CSV / TSV / JSON all fall through to the default arm with
-  //     the format-literal "Format .{ext} not supported in viewer."
-  //     message. W4b+ extends the dispatcher by adding explicit
-  //     arms for each of these formats; W4a's contract commits to
-  //     the unsupported fallback so the React mount paints the
-  //     same download-link card as the legacy renderUnsupported.
-  for (const ext of ["docx", "xls", "xlsx", "epub", "csv", "tsv", "json"]) {
+  // 20. Still-W4b+-deferred formats on Raw — XLS / XLSX /
+  //     EPUB / CSV / TSV / JSON all fall through to the default
+  //     arm with the format-literal "Format .{ext} not supported
+  //     in viewer." message. W4b+ extends the dispatcher by
+  //     adding explicit arms for each of these formats; the
+  //     W4a + W4b1 contract commits to the unsupported fallback
+  //     so the React mount paints the same download-link card
+  //     as the legacy renderUnsupported. DOCX is OWNED by W4b1
+  //     — the dispatcher emits the typed `docx-source` outcome
+  //     instead (with bytes-missing falling back to
+  //     `docx-offline`). The DOCX dispatch is exercised in
+  //     steps 30+ below.
+  for (const ext of ["xls", "xlsx", "epub", "csv", "tsv", "json"]) {
     d = renderers.dispatchViewer({
       file: makeFile({
         format: ext,
@@ -1014,10 +1219,16 @@ function makeFile(overrides) {
     throw new Error("domain initial-state factory is not reachable from W4a context");
   }
 
-  // 27. W4a-deferred formats on Table/Tree also fire
+  // 27. Still-W4b+-deferred formats on Table/Tree fire
   //     tab-not-applicable — the Table / Tree branches gate
   //     BEFORE the format switch so the deferred formats never
-  //     reach the W4b+ arms. This pins the W4a split contract.
+  //     reach the W4b+ arms. DOCX is OWNED by W4b1 but the
+  //     W4b1 contract does NOT add Table/Tree renderers — DOCX
+  //     is Raw-only via mammoth. DOCX therefore stays in this
+  //     loop (the Table/Tree gate short-circuits before the
+  //     format switch), pinning the W4b1 split shape: DOCX
+  //     dispatches to `docx-source` / `docx-offline` on Raw,
+  //     and to `tab-not-applicable` on Table/Tree.
   for (const tab of ["Table", "Tree"]) {
     for (const ext of ["docx", "xls", "xlsx", "epub", "csv", "tsv", "json"]) {
       d = renderers.dispatchViewer({
@@ -1110,6 +1321,288 @@ function makeFile(overrides) {
   assert.ok(/circle/i.test(mixedCaseCleaned),
     "SVG sanitizer MUST preserve non-event SVG content: got "
     + JSON.stringify(mixedCaseCleaned));
+
+  // 30. W4b1 DOCX — Raw tab + format="docx" + injected bytes
+  //     dispatches to `docx-source` with the descriptor +
+  //     bytes + pinned mammoth CDN URL + global name. The
+  //     future React mount (W6+) consumes the typed source
+  //     outcome via Next 16's `<Script src={scriptUrl}
+  //     strategy="afterInteractive" onLoad={convert}>` then
+  //     calls `window[scriptGlobal].convertToHtml({arrayBuffer:
+  //     bytes})` then injects the HTML via
+  //     `Range.createContextualFragment` (mirrors the legacy
+  //     `web/file_viewer.js::renderDocx` shape). The dispatcher
+  //     does NOT load the script, fetch the URL, or call
+  //     convert — it only emits the typed source descriptor.
+  const docxBytes = makeBytes("PK\x03\x04fake-docx-bytes");
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "docx",
+      name: "Mammalia.docx",
+      path: "Animalia/Chordata/Mammalia.docx",
+      url: "/api/files/serve?path=Animalia%2FChordata%2FMammalia.docx",
+      size: docxBytes.length,
+    }),
+    tab: "Raw",
+    bytes: docxBytes,
+  });
+  assert.strictEqual(d.kind, "docx-source",
+    "DOCX + Raw + bytes must dispatch to docx-source: got " + d.kind);
+  assert.strictEqual(d.src, "/api/files/serve?path=Animalia%2FChordata%2FMammalia.docx",
+    "DOCX src must come from the descriptor.url verbatim");
+  assert.strictEqual(d.title, "Mammalia.docx",
+    "DOCX title must come from the descriptor.name verbatim");
+  assert.ok(d.bytes instanceof Uint8Array,
+    "DOCX source must carry bytes as a Uint8Array: got "
+    + typeof d.bytes);
+  assert.strictEqual(d.bytes, docxBytes,
+    "DOCX source bytes must be the SAME Uint8Array reference "
+    + "as the input bytes (the dispatcher passes by reference, "
+    + "does NOT copy — mirrors the W2 port's value-typed "
+    + "contract, doc: tests/test_research_application.py::"
+    + "test_compiled_application_passes_runtime_contract step 7)");
+  assert.strictEqual(d.scriptUrl,
+    "https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js",
+    "DOCX source scriptUrl must be the legacy-pinned mammoth "
+    + "CDN URL (matches web/file_viewer.js::CDN_URLS.mammoth "
+    + "and web/index.html's mammoth.js <script> tag)");
+  assert.strictEqual(d.scriptGlobal, "mammoth",
+    "DOCX source scriptGlobal must be the literal 'mammoth' "
+    + "(matches web/file_viewer.js::window.mammoth.convertToHtml "
+    + "call site + CDN_URLS.mammoth map key)");
+
+  // 31. W4b1 DOCX — Raw tab + format="docx" + bytes=null
+  //     falls back to `docx-offline` with the download link
+  //     + pinned CDN URL + global name + reason. The future
+  //     React mount paints the legacy "Viewer offline — raw
+  //     download available" banner verbatim — the same
+  //     shape `web/file_viewer.js::renderOfflineBanner`
+  //     paints, just sourced from the typed offline
+  //     descriptor. The bytes-missing reason is the ONLY
+  //     offline path the dispatcher can detect (the
+  //     dispatcher does not fetch the URL, load the CDN,
+  //     or call convertToHtml — those failures happen at
+  //     the mount and are not part of the dispatcher
+  //     contract).
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "docx",
+      name: "missing.docx",
+      path: "missing.docx",
+      url: "/api/files/serve?path=missing.docx",
+      size: 0,
+    }),
+    tab: "Raw",
+    bytes: null,
+  });
+  assert.strictEqual(d.kind, "docx-offline",
+    "DOCX + Raw + bytes=null must fall back to docx-offline: "
+    + "got " + d.kind);
+  assert.strictEqual(d.name, "missing.docx",
+    "DOCX offline name must come from descriptor.name");
+  assert.strictEqual(d.download.href,
+    "/api/files/serve?path=missing.docx",
+    "DOCX offline download.href must come from descriptor.url");
+  assert.strictEqual(d.download.download, "missing.docx",
+    "DOCX offline download.download must carry the basename");
+  assert.strictEqual(d.scriptUrl,
+    "https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js",
+    "DOCX offline scriptUrl must be the legacy-pinned CDN URL "
+    + "(the mount needs the URL to retry the loader or to "
+    + "surface a 'try again' affordance)");
+  assert.strictEqual(d.scriptGlobal, "mammoth",
+    "DOCX offline scriptGlobal must be the literal 'mammoth'");
+  assert.strictEqual(d.reason, "bytes-missing",
+    "DOCX offline reason MUST be the typed 'bytes-missing' "
+    + "literal — the dispatcher can only detect this offline "
+    + "path at dispatch time. CDN-load + convertToHtml failures "
+    + "are MOUNT responsibilities and are NOT part of this "
+    + "contract: got " + JSON.stringify(d.reason));
+
+  // 32. W4b1 DOCX — bytes-missing framing on the offline
+  //     branch — the dispatcher uses the descriptor's path
+  //     field as the extension label so the offline framing
+  //     matches the legacy "Failed to load docx — bytes
+  //     not available." convention observed by the W4a TXT
+  //     bytes-missing fallback (step 8). The W4b1 DOCX
+  //     branch does NOT carry a free-form message string
+  //     — the offline branch is a typed descriptor (kind +
+  //     name + download + scriptUrl + scriptGlobal + reason)
+  //     and the future mount paints the message itself. The
+  //     "message" field check is intentionally skipped —
+  //     pin the typed surface only.
+  assert.ok(!("message" in d),
+    "DOCX offline branch MUST NOT carry a free-form 'message' "
+    + "field — the legacy offline wording is painted by the "
+    + "mount from the typed descriptor (kind + name + "
+    + "download), not pre-formatted by the dispatcher");
+
+  // 33. W4b1 DOCX — Table / Tree tab on DOCX fires
+  //     tab-not-applicable — the Table/Tree gate runs BEFORE
+  //     the format switch so DOCX never reaches the W4b1
+  //     `case "docx":` arm. This pins the W4b1 split shape:
+  //     DOCX has a Raw-only renderer (mammoth produces HTML,
+  //     not a table or tree). Step 27 already covers this
+  //     case for the broader deferred loop; here we re-assert
+  //     it for DOCX explicitly + verify the message uses the
+  //     "docx" literal (NOT the wire-extension variant — the
+  //     descriptor's `format` field carries "docx" verbatim).
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "docx",
+      name: "f.docx",
+      path: "f.docx",
+      url: "/api/files/serve?path=f.docx",
+      size: 100,
+    }),
+    tab: "Table",
+    bytes: docxBytes,
+  });
+  assert.strictEqual(d.kind, "tab-not-applicable",
+    "DOCX + Table + bytes must fire tab-not-applicable "
+    + "(DOCX has no Table renderer): got " + d.kind);
+  assert.strictEqual(d.message,
+    "Table view not available for .docx "
+    + renderers.TAB_NOT_APPLICABLE_SUFFIX,
+    "DOCX + Table message must use the 'docx' format literal "
+    + "as the extension label (the descriptor.format is "
+    + "'docx', not 'other'): got " + JSON.stringify(d.message));
+  d = renderers.dispatchViewer({
+    file: makeFile({
+      format: "docx",
+      name: "f.docx",
+      path: "f.docx",
+      url: "/api/files/serve?path=f.docx",
+      size: 100,
+    }),
+    tab: "Tree",
+    bytes: docxBytes,
+  });
+  assert.strictEqual(d.kind, "tab-not-applicable",
+    "DOCX + Tree + bytes must fire tab-not-applicable "
+    + "(DOCX has no Tree renderer): got " + d.kind);
+
+  // 34. W4b1 DOCX — dispatcher purity — the W4b1 source /
+  //     offline branches are pure: same input yields the
+  //     same output on every call (no Date.now(), no
+  //     Math.random(), no side effects on the input).
+  const docxFile = makeFile({
+    format: "docx",
+    name: "Mammalia.docx",
+    path: "Animalia/Chordata/Mammalia.docx",
+    url: "/api/files/serve?path=Animalia%2FChordata%2FMammalia.docx",
+    size: docxBytes.length,
+  });
+  const docxA = renderers.dispatchViewer({
+    file: docxFile, tab: "Raw", bytes: docxBytes,
+  });
+  const docxB = renderers.dispatchViewer({
+    file: docxFile, tab: "Raw", bytes: docxBytes,
+  });
+  assert.deepStrictEqual(
+    JSON.parse(JSON.stringify(docxA)),
+    JSON.parse(JSON.stringify(docxB)),
+    "DOCX dispatcher MUST be pure — same input → same output",
+  );
+  assert.strictEqual(docxA.kind, "docx-source");
+  assert.strictEqual(docxB.kind, "docx-source");
+  assert.strictEqual(docxA.scriptUrl, docxB.scriptUrl);
+  assert.strictEqual(docxA.scriptGlobal, docxB.scriptGlobal);
+
+  // 35. W4b1 — offline-branch purity (same input → same
+  //     output on the bytes=null path too — mirrors the
+  //     source-branch purity check above).
+  const docxMissingFile = makeFile({
+    format: "docx",
+    name: "missing.docx",
+    path: "missing.docx",
+    url: "/api/files/serve?path=missing.docx",
+    size: 0,
+  });
+  const offlineA = renderers.dispatchViewer({
+    file: docxMissingFile, tab: "Raw", bytes: null,
+  });
+  const offlineB = renderers.dispatchViewer({
+    file: docxMissingFile, tab: "Raw", bytes: null,
+  });
+  assert.deepStrictEqual(
+    JSON.parse(JSON.stringify(offlineA)),
+    JSON.parse(JSON.stringify(offlineB)),
+    "DOCX offline branch MUST be pure — same input → same output",
+  );
+  assert.strictEqual(offlineA.kind, "docx-offline");
+  assert.strictEqual(offlineB.kind, "docx-offline");
+  assert.strictEqual(offlineA.scriptUrl, offlineB.scriptUrl);
+  assert.strictEqual(offlineA.reason, offlineB.reason);
+
+  // 36. W4b1 — bytes-reference contract — the dispatcher
+  //     passes the input bytes reference through to
+  //     `docx-source.bytes` (NO copy, NO decode — the
+  //     dispatcher doesn't load mammoth or do any conversion).
+  //     This is intentional: the future mount reads the
+  //     bytes at mount time and feeds them straight to
+  //     `window.mammoth.convertToHtml({arrayBuffer: bytes})`.
+  //     Copying the bytes at dispatch time would cost a
+  //     Uint8Array allocation per dispatch and gain nothing
+  //     (the mount doesn't mutate the bytes). The pinned
+  //     contract: docx-source.bytes === input bytes
+  //     reference, by-reference.
+  const refBytes = makeBytes("PK\x03\x04reference-test");
+  const docxRef = renderers.dispatchViewer({
+    file: makeFile({
+      format: "docx",
+      name: "ref.docx",
+      path: "ref.docx",
+      url: "/api/files/serve?path=ref.docx",
+      size: refBytes.length,
+    }),
+    tab: "Raw",
+    bytes: refBytes,
+  });
+  assert.strictEqual(docxRef.kind, "docx-source");
+  assert.strictEqual(docxRef.bytes, refBytes,
+    "DOCX source bytes MUST be the SAME Uint8Array reference "
+    + "as the input bytes (pass-by-reference contract — the "
+    + "mount reads bytes at mount time, not dispatch time): "
+    + "got different reference");
+  // A second dispatch on the SAME descriptor + bytes
+  // returns the SAME reference (the dispatcher does not
+  // memoize or copy between calls).
+  const docxRef2 = renderers.dispatchViewer({
+    file: makeFile({
+      format: "docx",
+      name: "ref.docx",
+      path: "ref.docx",
+      url: "/api/files/serve?path=ref.docx",
+      size: refBytes.length,
+    }),
+    tab: "Raw",
+    bytes: refBytes,
+  });
+  assert.strictEqual(docxRef2.bytes, refBytes,
+    "Second DOCX dispatch must also return the SAME bytes "
+    + "reference — the dispatcher does not memoize or copy");
+
+  // 37. W4b1 — bytes mutation visible through the dispatched
+  //     reference (because the dispatcher passes by
+  //     reference, mutating the input bytes after dispatch
+  //     is visible through the dispatched reference). This
+  //     is a documented contract — the dispatcher does NOT
+  //     freeze the bytes, it passes them through verbatim.
+  //     The future mount is responsible for treating the
+  //     bytes as read-only or copying before mutation.
+  refBytes[0] = 0x58; // 'X' — mutate input bytes after dispatch
+  // The first dispatch's `d.bytes` is the SAME reference,
+  // so it now sees the mutation too (Uint8Array is a view
+  // on a backing ArrayBuffer — the bytes field IS the
+  // input bytes).
+  assert.strictEqual(docxRef.bytes[0], 0x58,
+    "DOCX bytes-reference contract: mutating input bytes "
+    + "after dispatch is visible through the dispatched "
+    + "reference (the dispatcher passes by reference, not "
+    + "by copy). The mount MUST treat the bytes as "
+    + "read-only or copy before mutation: got byte 0 = "
+    + JSON.stringify(docxRef.bytes[0]));
 
   process.stdout.write("PASS\n");
 })().catch((err) => {
