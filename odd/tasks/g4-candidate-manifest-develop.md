@@ -34,9 +34,9 @@ Current `develop` has the G4 parity composition but lacks both `scripts/generate
 - [x] ODD-G4-MANIFEST-DEVELOP-004 Resolve the oversized delivery strategy.
   Route: user decision.
   Evidence: user explicitly accepted one documented size-exception PR, keeping the generator, Make target, and all hermetic proofs together.
-- [ ] ODD-G4-MANIFEST-DEVELOP-005 Commit and publish the approved size-exception delivery.
+- [x] ODD-G4-MANIFEST-DEVELOP-005 Commit and publish the approved size-exception delivery.
   Route: user-authorized delivery.
-  Evidence: Conventional Commit and PR link #246, carry exactly `type:bug`, document the size exception, and remain unmerged.
+  Evidence: `3785c8b fix(g4): generate candidate manifest` contains the generator, Make target, package script, both focused suites, and task record. PR publication is authorized next; it must link #246, carry exactly `type:bug`, document the size exception, and remain unmerged.
 
 ## Acceptance criteria
 - `make g4-candidate-manifest CANDIDATE_URL=<http(s) URL> CANDIDATE_MANIFEST=<path>` uses an already-built candidate HTML file and produces a strict manifest.
@@ -55,3 +55,4 @@ Current `develop` has the G4 parity composition but lacks both `scripts/generate
 ## Progress
 - #245 merged as PR #350 (`670d9af`).
 - Independent verification is GREEN. The user explicitly accepted one documented size-exception PR for the 1,113-line implementation; commit and publication are authorized, but merging remains a separate decision.
+- Committed implementation as `3785c8b fix(g4): generate candidate manifest`. RDD is clone-locally off; native assessment was unavailable, so the writer and independent-verifier evidence is the verification record.
