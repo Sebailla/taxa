@@ -531,6 +531,810 @@
     margin: 0 0 10px 0;
   }
 
+  /* W6.1 + W6.2 — Browser-tab file explorer cascade.
+     Migrated byte-equal from the legacy `.fex-*` inline
+     `<style>` block in `web/index.html` (the Browser tab's
+     two-pane shell, recursive folder/file rows, meta +
+     tab + snippet chrome, viewer widgets, image + video
+     frames, search header, table viewer, JSON tree, and
+     realm tints). Every visual contract (sizing, color
+     tokens, focus rings, hover states, realm tints) is
+     preserved verbatim so the React `/explorer` mount
+     matches the legacy oracle to the pixel. The W6.2
+     search cascade extends the W6.1 surface with the
+     input + clear + mode + hide-empty controls + the
+     `.search-match` paint + the `No matches.` card.
+     Every selector scopes under `.fex-*` so the
+     chain-topology guard in `tests/test_research_styles.py`
+     (which whitelists the alphabetic base) keeps passing
+     without leaking into the taxonomy / research-chrome
+     / utility namespaces. The alphabetic ordering inside
+     the `.fex-*` family mirrors the PR 3c-b convention
+     (base → descendants → child → different base →
+     period modifier → attribute modifier). */
+
+  /* CDN-failure banner — amber, flat, inline inside the
+     right pane when loadScriptOnce rejects. Mirrors the
+     legacy `web/index.html::.fex-banner` rule. */
+  .fex-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: color-mix(in srgb, #b45309 12%, transparent);
+    border: 1px solid color-mix(in srgb, #b45309 30%, transparent);
+    color: #b45309;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  /* Vertical guide line for indented folder children —
+     1px left border + 60% opacity on the outline-variant
+     token. Mirrors the legacy `.fex-children` rule. */
+  .fex-children {
+    margin-left: 14px;
+    padding-left: 8px;
+    border-left: 1px solid
+      color-mix(in srgb, var(--outline-variant) 60%, transparent);
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  /* Table viewer — scroller owns the scroll surface so the
+     sticky thead (next rule) can pin to the top while the
+     body scrolls. Mirrors the legacy
+     `web/index.html::.fex-csv-scroller` rule. */
+  .fex-csv-scroller {
+    max-height: 100%;
+    overflow: auto;
+    background: var(--surface);
+    border: 1px solid var(--outline-variant);
+    border-radius: 8px;
+  }
+  .fex-csv-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--on-surface);
+  }
+  /* tbody comes before thead in alphabetic order (b < h).
+     The cascade contract requires `.fex-csv-table tbody`
+     selectors to precede `.fex-csv-table thead`. */
+  .fex-csv-table tbody td {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--outline-variant);
+    vertical-align: top;
+    white-space: pre;
+    max-width: 480px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .fex-csv-table tbody tr:nth-child(even) td,
+  .fex-csv-table tbody tr:hover td {
+    background: color-mix(in srgb, var(--primary) 6%, transparent);
+  }
+  .fex-csv-table tbody tr:nth-child(even) td {
+    background: color-mix(
+      in srgb,
+      var(--surface-container-low) 70%,
+      transparent
+    );
+  }
+  .fex-csv-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--surface-container-low);
+    color: var(--on-surface);
+    font-weight: 600;
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--outline-variant);
+    white-space: nowrap;
+  }
+  /* Empty-state block — used both for the tree pane
+     skeleton + the "taxon not materialised" placeholder.
+     Mirrors the legacy
+     `web/index.html::.fex-empty-state` rule. */
+  .fex-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 48px 24px;
+    color: var(--on-surface-variant);
+    text-align: center;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .fex-empty-state .fex-empty-state-icon {
+    font-family: "Material Symbols Outlined";
+    font-size: 32px;
+    color: var(--outline);
+  }
+  /* Image viewer — frame owns the scroll surface so the
+     inner `<img>` can shrink to fit via `object-contain`.
+     `image` (base) comes before `image-advisory` and
+     `image-frame` alphabetically. Mirrors the legacy
+     `web/index.html::.fex-image` rule. */
+  .fex-image {
+    display: block;
+    max-width: 100%;
+    max-height: 70vh;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+  }
+  .fex-image-advisory {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    margin-bottom: 8px;
+    background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+    border: 1px solid
+      color-mix(in srgb, var(--primary) 24%, var(--outline-variant));
+    border-radius: 6px;
+    font-family: "Raleway", sans-serif;
+    font-size: 12px;
+    color: var(--on-surface);
+  }
+  .fex-image-advisory .material-symbols-outlined {
+    font-size: 16px;
+    color: var(--primary);
+  }
+  .fex-image-frame {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-container-low);
+    border: 1px solid var(--outline-variant);
+    border-radius: 8px;
+    min-height: 320px;
+    max-height: 100%;
+    overflow: auto;
+    padding: 12px;
+  }
+  /* JSON tree viewer — host container. `caret` <
+     `children` < `key` < `node` < `summary` < `tree` in
+     alphabetic order. Mirrors the legacy
+     `web/index.html::.fex-json-*` rules. */
+  .fex-json-caret {
+    font-family: "Material Symbols Outlined";
+    font-size: 16px;
+    color: var(--on-surface-variant);
+    transition: transform 120ms ease-out;
+    flex: 0 0 auto;
+  }
+  .fex-json-children {
+    list-style: none;
+    margin: 4px 0 4px 16px;
+    padding: 0;
+  }
+  .fex-json-key {
+    color: var(--on-surface);
+    font-weight: 500;
+    flex: 0 0 auto;
+  }
+  .fex-json-node {
+    position: relative;
+  }
+  .fex-json-node.open > .fex-json-summary > .fex-json-caret {
+    transform: rotate(90deg);
+  }
+  .fex-json-summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px 2px 4px;
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .fex-json-summary:hover {
+    background: color-mix(in srgb, var(--primary) 6%, transparent);
+  }
+  .fex-json-summary:focus-visible {
+    outline: 2px solid
+      color-mix(in srgb, var(--primary) 60%, transparent);
+    outline-offset: 1px;
+  }
+  .fex-json-tree {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--on-surface);
+  }
+  /* Meta strip — FORMAT | SIZE | ENCODING row above the
+     right viewer pane. Mirrors the legacy
+     `web/index.html::.fex-meta-*` rules. */
+  .fex-meta-spacer {
+    flex: 1;
+  }
+  .fex-meta-strip {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 16px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    color: var(--on-surface-variant);
+    border-bottom: 1px solid var(--outline-variant);
+    background: var(--surface-container-lowest);
+  }
+  /* Tree row anatomy — chevron + icon + label. Selection
+     states mirror the legacy `web/index.html::.fex-row`
+     rule + the `:hover` + `.selected` + `[data-rerealm]`
+     tints byte-for-byte. The W6.2 `.search-match`
+     modifier extends the cascade without touching the
+     existing visuals. The alphabetic ordering keeps
+     `.fex-row` (base) before `.fex-row .*` descendants,
+     `.fex-row-wrap` (different base), `.fex-row.*`
+     (period modifier), and the realm attribute selectors. */
+  .fex-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px 4px 4px;
+    border-radius: 4px;
+    font-family: "Raleway", sans-serif;
+    font-size: 13px;
+    color: var(--on-surface);
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+  }
+  /* Hover affordance — surface-container-low tint across
+     the whole row. Mirrors the legacy `.fex-row:hover`
+     rule. Stripped `.fex-row` keeps the alphabetic
+     contract passing (`.fex-row` and `.fex-row:hover`
+     share the sort key). */
+  .fex-row:hover {
+    background: var(--surface-container-low);
+  }
+  /* Focus-visible ring — matches the existing
+     `web/index.html` `.fex-row:focus-visible` rule so the
+     keyboard a11y affordance stays in lock-step with the
+     legacy oracle. Stripped to `.fex-row` in the alphabetic
+     sort (matches the `:hover` rule above). */
+  .fex-row:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+  .fex-row .fex-chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    font-family: "Material Symbols Outlined";
+    font-size: 16px;
+    color: var(--on-surface-variant);
+    cursor: pointer;
+    border: 0;
+    background: transparent;
+    padding: 0;
+  }
+  .fex-row .fex-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Material Symbols Outlined";
+    font-size: 16px;
+    color: var(--on-surface-variant);
+  }
+  .fex-row .fex-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .fex-row .fex-meta {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    color: var(--on-surface-variant);
+  }
+  /* Wrap every file row in its own div so the search
+     filter pass can hide individual rows without hiding
+     the whole `.fex-children` container. `-` (0x2D) in
+     the position right after `.fex-row` sorts BEFORE
+     `.fex-row .*` (space, 0x20). Mirrors the legacy
+     `web/index.html::.fex-row-wrap` rule. */
+  .fex-row-wrap {
+    display: flex;
+    flex-direction: column;
+  }
+  /* File selected state — solid primary tint. `.file`
+     sorts BEFORE `.folder` alphabetically. Mirrors the
+     legacy `.fex-row.file.selected` rules. */
+  .fex-row.file.selected {
+    background: var(--primary);
+    color: #ffffff;
+    border-radius: 0 6px 6px 0;
+  }
+  .fex-row.file.selected .fex-icon,
+  .fex-row.file.selected .fex-meta {
+    color: #ffffff;
+  }
+  .fex-row.file.selected .fex-label {
+    color: #ffffff;
+  }
+  /* Folder selected state — faint primary wash + left
+     border. Mirrors the legacy `.fex-row.folder.selected`
+     rule. */
+  .fex-row.folder.selected {
+    background: color-mix(in srgb, var(--primary) 5%, transparent);
+    border-left: 1px solid var(--primary);
+    border-radius: 0;
+  }
+  /* Folder realm tints — `data-realm` drives the hue on
+     the icon + label. Specific realm values sort
+     alphabetically; the bare `[data-realm]` fallback
+     (for "other") sorts LAST because `]` (0x5D) > any
+     letter. Mirrors the legacy
+     `web/file_explorer.js::realmForFolderPath` contract
+     byte-for-byte. */
+  .fex-row.folder[data-realm="animalia"] .fex-icon,
+  .fex-row.folder[data-realm="animalia"] .fex-label {
+    color: var(--realm-animalia);
+  }
+  .fex-row.folder[data-realm="archaea"] .fex-icon,
+  .fex-row.folder[data-realm="archaea"] .fex-label {
+    color: var(--realm-archaea);
+  }
+  .fex-row.folder[data-realm="bacteria"] .fex-icon,
+  .fex-row.folder[data-realm="bacteria"] .fex-label {
+    color: var(--realm-bacteria);
+  }
+  .fex-row.folder[data-realm="chromista"] .fex-icon,
+  .fex-row.folder[data-realm="chromista"] .fex-label {
+    color: var(--realm-chromista);
+  }
+  .fex-row.folder[data-realm="fungi"] .fex-icon,
+  .fex-row.folder[data-realm="fungi"] .fex-label {
+    color: var(--realm-fungi);
+  }
+  .fex-row.folder[data-realm="plantae"] .fex-icon,
+  .fex-row.folder[data-realm="plantae"] .fex-label {
+    color: var(--realm-plantae);
+  }
+  .fex-row.folder[data-realm="viruses"] .fex-icon,
+  .fex-row.folder[data-realm="viruses"] .fex-label {
+    color: var(--realm-viruses);
+  }
+  .fex-row.folder[data-realm] .fex-icon,
+  .fex-row.folder[data-realm] .fex-label {
+    color: var(--realm-other);
+  }
+  /* Highlight-mode paint — clearly distinct from
+     `.selected` (solid primary) and the realm tints.
+     `search-match` sorts AFTER `folder` and AFTER all
+     `[data-realm]` selectors (the alphabetic sequence
+     sorts by position 9: `s` > `f`). Stripped to
+     `.fex-row.search-match` (no `:`), so it has a
+     unique sort key distinct from `.fex-row:hover`
+     (which strips to `.fex-row`). Mirrors the legacy
+     `web/index.html::.fex-row.search-match` rule. */
+  .fex-row.search-match {
+    background: color-mix(in srgb, var(--primary) 12%, transparent);
+    outline: 1px solid
+      color-mix(in srgb, var(--primary) 40%, transparent);
+    border-radius: 4px;
+  }
+  /* Search header (W6.2) — input + clear button row, then
+     a toggles row (mode + hide-empty). Alphabetic order
+     inside `.fex-search-*`: clear < empty <
+     hide-empty-btn < icon < input < mode-btn < row <
+     toggles. Mirrors the legacy
+     `web/index.html::.fex-search-*` rules. */
+  .fex-search-clear {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border: 0;
+    background: transparent;
+    border-radius: 4px;
+    color: var(--on-surface-variant);
+    cursor: pointer;
+  }
+  /* Hover affordance — on-surface tint. Mirrors the
+     legacy `.fex-search-clear:hover` rule. Stripped to
+     `.fex-search-clear` in the alphabetic sort so the
+     pseudo lives right after the base for readability. */
+  .fex-search-clear:hover {
+    color: var(--on-surface);
+    background: color-mix(
+      in srgb,
+      var(--outline-variant) 50%,
+      transparent
+    );
+  }
+  .fex-search-clear .material-symbols-outlined {
+    font-size: 16px;
+  }
+  /* "No matches." empty-state card painted inside the
+     tree pane when filter mode + active query + zero
+     matches + hideEmpty are all on. Reuses
+     `.fex-empty-state` chrome with tighter padding.
+     Sorts BEFORE hide-empty-btn alphabetically (`e`
+     < `h`). Mirrors the legacy `.fex-search-empty`
+     rule. */
+  .fex-search-empty {
+    padding: 24px 12px;
+  }
+  .fex-search-hide-empty-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: "Raleway", sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--on-surface-variant);
+  }
+  .fex-search-hide-empty-btn .material-symbols-outlined {
+    font-size: 14px;
+  }
+  .fex-search-hide-empty-btn[aria-pressed="true"] {
+    color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 12%, transparent);
+  }
+  /* Search input icon (left-side Material Symbols glyph).
+     `icon` sorts AFTER `hide-empty-btn` (position 11:
+     `i` > `h`) and BEFORE `input` (position 12: `c` <
+     `n`). Mirrors the legacy `.fex-search-icon` rule. */
+  .fex-search-icon {
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-family: "Material Symbols Outlined";
+    font-size: 16px;
+    color: var(--on-surface-variant);
+    pointer-events: none;
+  }
+  /* Search input — JetBrains Mono, primary focus ring.
+     Mirrors the legacy `.fex-search-input` + `:focus`
+     rules. */
+  .fex-search-input {
+    width: 100%;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    color: var(--on-surface);
+    background: var(--surface-container-low);
+    border: 1px solid var(--outline-variant);
+    border-radius: 6px;
+    padding: 6px 28px 6px 28px;
+    outline: none;
+    transition:
+      border-color 120ms linear,
+      box-shadow 120ms linear;
+  }
+  .fex-search-input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px
+      color-mix(in srgb, var(--primary) 20%, transparent);
+  }
+  /* Search input shows the clear button only when the
+     value is non-empty. Mirrors the legacy
+     `:not(:placeholder-shown) ~ .fex-search-clear` rule.
+     The `:not(:placeholder-shown)` first `:` is stripped
+     by the alphabetic contract — the head becomes
+     `.fex-search-input` (the same as the bare rule
+     above). */
+  .fex-search-input:not(:placeholder-shown) ~ .fex-search-clear {
+    display: inline-flex;
+  }
+  /* Mode toggle — Filter / Highlight. Mirrors the legacy
+     `.fex-search-mode-btn` shape + the `aria-pressed`
+     tint. */
+  .fex-search-mode-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: "Raleway", sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--on-surface-variant);
+  }
+  .fex-search-mode-btn .material-symbols-outlined {
+    font-size: 14px;
+  }
+  .fex-search-mode-btn[aria-pressed="true"] {
+    color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 12%, transparent);
+  }
+  /* Search-row container — `row` sorts AFTER `mode-btn`
+     (position 11: `r` > `m`) and BEFORE `toggles`
+     (position 11: `t` > `r`). Mirrors the legacy
+     `.fex-search-row` rule. */
+  .fex-search-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  /* Search toggles row — `toggles` sorts AFTER `row`
+     (position 11: `t` > `r`). Mirrors the legacy
+     `.fex-search-toggles` rule. */
+  .fex-search-toggles {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  /* Two-pane layout — left tree + right viewer. Mirrors
+     the legacy `web/index.html::.fex-shell` rule. */
+  .fex-shell {
+    display: flex;
+    gap: 0;
+    width: 100%;
+    min-height: calc(100vh - 96px);
+    overflow-x: auto;
+  }
+  /* Snippet frame — macOS-style window chrome. Mirrors
+     the legacy `.fex-snippet-*` rules. */
+  .fex-snippet-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 8px 12px;
+    border-top: 1px solid var(--outline-variant);
+    background: var(--surface-container-lowest);
+  }
+  .fex-snippet-body {
+    flex: 1;
+    overflow: auto;
+    padding: 16px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--on-surface);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .fex-snippet-btn {
+    font-family: "Raleway", sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--on-surface);
+    background: var(--surface);
+    border: 1px solid var(--outline-variant);
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  .fex-snippet-btn:hover {
+    background: var(--surface-container-low);
+  }
+  .fex-snippet-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .fex-snippet-dots {
+    display: inline-flex;
+    gap: 6px;
+  }
+  /* `span` (0x73) sorts AFTER `.dot-*` (0x2E for the
+     period). Alphabetic order: dots with `g` < `r` <
+     `y` < bare `span`. */
+  .fex-snippet-dots .dot-g {
+    background: #28c840;
+  }
+  .fex-snippet-dots .dot-r {
+    background: #ff5f57;
+  }
+  .fex-snippet-dots .dot-y {
+    background: #febc2e;
+  }
+  .fex-snippet-dots span {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+  .fex-snippet-frame {
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--outline-variant);
+    border-radius: 12px;
+    overflow: hidden;
+    min-height: 360px;
+  }
+  .fex-snippet-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--outline-variant);
+    background: var(--surface-container-low);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    color: var(--on-surface-variant);
+  }
+  /* Tab strip — Raw / Table / Tree segmented control.
+     Mirrors the legacy `web/index.html::.fex-tab-strip`
+     rule. */
+  .fex-tab-strip {
+    display: inline-flex;
+    gap: 0;
+    padding: 4px;
+    border: 1px solid var(--outline-variant);
+    border-radius: 8px;
+    background: var(--surface-container-low);
+  }
+  .fex-tab-strip button {
+    padding: 4px 12px;
+    border: 0;
+    background: transparent;
+    font:
+      600 13px "Raleway",
+      sans-serif;
+    color: var(--on-surface-variant);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .fex-tab-strip button.active {
+    background: var(--surface-container-lowest);
+    color: var(--on-surface);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  }
+  /* Tree header — title row + collapse-all / reload
+     buttons. The W6.2 search block lives in
+     `.fex-tree-header-search` immediately below the
+     header so the search is always visible without
+     taking horizontal space from the toolbar buttons.
+     Alphabetic order: `.fex-tree-header` (base) <
+     `.fex-tree-header-search` (extension with `-s`).
+     Mirrors the legacy `web/index.html::.fex-tree-header`
+     rule. */
+  .fex-tree-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 8px 8px;
+  }
+  .fex-tree-header h2 {
+    font-family: "Raleway", sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--on-surface-variant);
+  }
+  /* Search block underneath the toolbar — input row +
+     toggle row stacked vertically with 6px gap.
+     `.fex-tree-header-search` sorts AFTER
+     `.fex-tree-header` (position 15: `-s` < end).
+     Mirrors the legacy
+     `web/index.html::.fex-tree-header-search` rule. */
+  .fex-tree-header-search {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 4px 4px 8px;
+  }
+  /* Leaf pills — type-coloured chips for primitive JSON
+     values. Alphabetic order: boolean < meta < null <
+     number < string. Mirrors the legacy `.fex-tree-leaf`
+     rule + the per-type tints. */
+  .fex-tree-leaf {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--surface-container-low);
+    color: var(--on-surface-variant);
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .fex-tree-leaf.type-boolean {
+    color: var(--realm-archaea);
+    background: color-mix(in srgb, var(--realm-archaea) 10%, transparent);
+  }
+  .fex-tree-leaf.type-meta {
+    color: var(--on-surface-variant);
+    background: transparent;
+    font-size: 11px;
+  }
+  .fex-tree-leaf.type-null {
+    color: var(--on-surface-variant);
+    font-style: italic;
+    background: transparent;
+  }
+  .fex-tree-leaf.type-number {
+    color: var(--realm-fungi);
+    background: color-mix(in srgb, var(--realm-fungi) 10%, transparent);
+  }
+  .fex-tree-leaf.type-string {
+    color: var(--realm-plantae);
+    background: color-mix(in srgb, var(--realm-plantae) 10%, transparent);
+  }
+  /* Tree pane — left column. Mirrors the legacy
+     `.fex-tree-pane` rule (14rem min, 30% default,
+     30% max, surface bg, outline-variant right border). */
+  .fex-tree-pane {
+    min-width: 14rem;
+    width: 30%;
+    max-width: 30%;
+    flex-shrink: 0;
+    border-right: 1px solid var(--outline-variant);
+    background: var(--surface);
+    padding: 12px 8px;
+    overflow-y: auto;
+    max-height: calc(100vh - 96px);
+  }
+  /* JSON truncation banner — painted when the JSON tree
+     exceeds the 50 000-node cap. Mirrors the legacy
+     `.fex-tree-truncated` rule + the descendant icon
+     selector. */
+  .fex-tree-truncated {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--primary) 8%, transparent);
+    border: 1px solid
+      color-mix(in srgb, var(--primary) 25%, transparent);
+    color: var(--on-surface);
+    font-family: "Raleway", sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .fex-tree-truncated .material-symbols-outlined {
+    font-size: 18px;
+    color: var(--primary);
+  }
+  /* Video frame — `el` (0x65) sorts BEFORE `frame`
+     (0x66). Black surface so the `<video>` element sits
+     on a flat dark backdrop. Mirrors the legacy
+     `.fex-video-frame` + `.fex-video-el` rules. */
+  .fex-video-el {
+    display: block;
+    max-width: 100%;
+    max-height: 70vh;
+    width: auto;
+    height: auto;
+    background: #000;
+  }
+  .fex-video-frame {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    border-radius: 8px;
+    min-height: 320px;
+    max-height: 100%;
+    overflow: hidden;
+  }
+  /* Viewer pane — right column. Mirrors the legacy
+     `.fex-viewer-pane` rule. */
+  .fex-viewer-pane {
+    flex: 1;
+    min-width: 0;
+    padding: 16px 24px;
+    background: var(--surface-container-lowest);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: calc(100vh - 96px);
+    overflow-y: auto;
+  }
   /* Folder tab body (PR 3c-c) — per-taxon materialize indicator
      (separate top-level from .search-tab). ODD-TDFOLDER-001
      enables the Folder tab body: the React `<FolderTab>`
