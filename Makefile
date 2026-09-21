@@ -7,7 +7,7 @@
 # assignment. All three are false positives when shellcheck runs against
 # a Makefile that uses .ONESHELL: + $(VAR) expansion + URL variables.
 
-.PHONY: venv download etl coldp worms col load api clean test smoke css parity-navigation parity capture-react-e2e
+.PHONY: venv download etl coldp worms col load api clean test smoke css parity-navigation parity capture-react-e2e g4-candidate-manifest
 
 # Pass each recipe to a single shell invocation so multi-line shell
 # constructs (if/then/else/fi, for/done) parse cleanly without `\<newline>`
@@ -245,3 +245,46 @@ parity:
 	bash "$(PARITY_URL)" "$(PARITY_OUT)" "$(PARITY_QUERIES_FILE)" \
 	&& (cd tools/g4-capture && node scripts/capture.mjs --url "$(PARITY_URL)" --manifest "$(PARITY_MANIFEST)" --out "$(PARITY_OUT)") \
 	&& python3 scripts/capture_a11y_report.py --evidence "$(PARITY_OUT)/evidence.json" --out-dir "$(PARITY_OUT)"
+
+# G4 candidate-manifest producer wiring (PR #246 / ODD-G4-MANIFEST-001).
+#
+# Generates a strict `taxa.g4-capture.manifest/1` from a previously built
+# static-export HTML and a caller-supplied candidate URL. The output is
+# consumable by the existing `make parity` pipeline as PARITY_MANIFEST.
+#
+# Contract:
+#   - Default CANDIDATE_HTML=out/index.html (a static export built earlier
+#     by `make api` or `npm run build:web`). Caller may override.
+#   - Required: CANDIDATE_URL (absolute http(s) URL) and CANDIDATE_MANIFEST
+#     (path). Missing either aborts fail-closed BEFORE any producer runs.
+#   - Preflight gates (BEFORE producer): `node` on PATH, the generator
+#     script present, CANDIDATE_HTML exists and is a regular file, and
+#     CANDIDATE_URL begins with http:// or https://. Each missing gate
+#     aborts fail-closed with a stderr message naming the problem.
+#   - Producer invocation is the literal npm-script form:
+#       npm run manifest:generate -- --html "<X> --url <U> --out <M>
+#     No direct `node scripts/...` line, no shell wrappers that swallow
+#     argv. Caller-supplied variables are double-quoted so shell
+#     metacharacters never escape into the producer command line.
+#   - The manifest's parent directory is created with `mkdir -p` so the
+#     caller can drop the file under any tree.
+#   - MUST NOT install deps, run `next build`, or start any service.
+#     The caller owns the static-export build and the candidate URL;
+#     this target only routes inputs into the existing producer.
+#
+#   make g4-candidate-manifest \
+#       CANDIDATE_URL=https://taxa.example/candidate/ \
+#       CANDIDATE_MANIFEST=out/g4-candidate.manifest.json
+CANDIDATE_HTML ?= out/index.html
+g4-candidate-manifest:
+	@if [ -z "$(CANDIDATE_URL)" ]; then echo "CANDIDATE_URL is required"; exit 1; fi
+	@if [ -z "$(CANDIDATE_MANIFEST)" ]; then echo "CANDIDATE_MANIFEST is required"; exit 1; fi
+	@command -v node >/dev/null || { echo "node missing from PATH"; exit 1; }
+	@test -f scripts/generate_g4_candidate_manifest.mjs || { echo "scripts/generate_g4_candidate_manifest.mjs missing"; exit 1; }
+	@test -f "$(CANDIDATE_HTML)" || { echo "CANDIDATE_HTML not found or not a regular file: $(CANDIDATE_HTML)"; exit 1; }
+	@case "$(CANDIDATE_URL)" \
+		in http://*|https://*) ;; \
+		*) echo "CANDIDATE_URL must be an absolute http(s) URL: $(CANDIDATE_URL)"; exit 1 ;; \
+	esac
+	@mkdir -p "$(dir $(CANDIDATE_MANIFEST))"
+	npm run manifest:generate -- --html "$(CANDIDATE_HTML)" --url "$(CANDIDATE_URL)" --out "$(CANDIDATE_MANIFEST)"
