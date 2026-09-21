@@ -7,7 +7,7 @@
 # assignment. All three are false positives when shellcheck runs against
 # a Makefile that uses .ONESHELL: + $(VAR) expansion + URL variables.
 
-.PHONY: venv download etl coldp worms col load api clean test smoke parity css dev
+.PHONY: venv download etl coldp worms col load api clean test smoke parity css dev g4-candidate-manifest
 
 # Pass each recipe to a single shell invocation so multi-line shell
 # constructs (if/then/else/fi, for/done) parse cleanly without `\<newline>`
@@ -19,6 +19,10 @@
 TEXTREE_URL  := https://api.checklistbank.org/dataset/315777/export.zip?format=TextTree
 TEXTREE_ZIP  := data/raw/textree_base.zip
 TEXTREE_FILE := data/raw/textree_base/dataset-315777.txtree
+
+# Default input for `make g4-candidate-manifest`. The caller can override
+# via `CANDIDATE_HTML=...` on the command line.
+CANDIDATE_HTML ?= out/index.html
 # ColDP enrichments: 1 GB compressed, several GB extracted.
 COLDP_URL    := https://api.checklistbank.org/dataset/315777/export.zip?extended=true&format=ColDP
 COLDP_DIR    := data/raw/coldp/extracted
@@ -113,6 +117,40 @@ $(WORMS_ZIP):
 
 api:
 	.venv/bin/python3 -m uvicorn api.server:app --host 127.0.0.1 --port 8765
+
+# G4 candidate-manifest generator — offline ESM producer that validates an
+# already-built candidate HTML and emits the strict manifest consumed by
+# `make parity`. Approved issue #246.
+#
+# Contract:
+#   - Requires CANDIDATE_URL (clean HTTP(S) URL) and CANDIDATE_MANIFEST
+#     (output path). CANDIDATE_HTML defaults to out/index.html so the
+#     standard Next.js static export is the implicit input. All three
+#     vars are checked BEFORE the generator runs; the target aborts
+#     fail-closed with a stderr message naming the missing variable.
+#   - Preflights: `node` on PATH + scripts/generate_g4_candidate_manifest.mjs
+#     exists. Each missing tool/script aborts fail-closed.
+#   - The recipe shells out to the offline generator ONLY. No
+#     install / lifecycle / server-start / next build commands are
+#     issued (the caller owns the build pipeline). Only the named
+#     manifest is published; pre-existing files in CANDIDATE_MANIFEST's
+#     parent directory are untouched (the generator's atomic-write
+#     contract).
+#   - `make parity` is preserved byte-for-byte — this slice is additive.
+#
+# Usage:
+#   make g4-candidate-manifest \
+#     CANDIDATE_URL=http://127.0.0.1:8765/index.html \
+#     CANDIDATE_MANIFEST=out/candidate.manifest.json
+g4-candidate-manifest:
+	@if [ -z "$(CANDIDATE_URL)" ]; then echo "CANDIDATE_URL is required"; exit 1; fi
+	@if [ -z "$(CANDIDATE_MANIFEST)" ]; then echo "CANDIDATE_MANIFEST is required"; exit 1; fi
+	@command -v node >/dev/null || { echo "node missing from PATH"; exit 1; }
+	@test -f scripts/generate_g4_candidate_manifest.mjs || { echo "scripts/generate_g4_candidate_manifest.mjs missing"; exit 1; }
+	node scripts/generate_g4_candidate_manifest.mjs \
+	  --candidate-html "$(CANDIDATE_HTML)" \
+	  --candidate-url "$(CANDIDATE_URL)" \
+	  --candidate-manifest "$(CANDIDATE_MANIFEST)"
 
 # Single-command local dev: starts FastAPI on 127.0.0.1:8765, waits for
 # /api/health to return 2xx, then launches the Next.js dev server with
