@@ -39,4 +39,5 @@ The G4 corpus manifest requires `data-testid="g4-probe-marker"`, while the candi
 
 ## Progress
 - Mapping confirmed the upstream slice is commit `ddeec79` and changes only the candidate layout plus its focused app-shell tests.
-- Slice implementation and independent verification are GREEN. No commit, push, or PR is authorized yet.
+- Delivery: committed as `1f0f596 feat(g4): align candidate probe marker`; the six pre-existing G4 integration commits were fast-forwarded to `origin/chore/g4-candidate-evidence-integration` under the user's ordered-delivery authorization; PR #348 (`fix/g4-probe-marker-integration` → `chore/g4-candidate-evidence-integration`) is published with `Closes #245` and `type:bug`.
+- The PR's automation state is not yet reported; merge remains a separate user decision.
