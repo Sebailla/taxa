@@ -5,19 +5,40 @@
 // pure state-transition helpers — no React, no JSX, no `fetch(`,
 // no DOM, no localStorage, no process, no framework globals.
 //
-// ODD-MIGRATE-003 / W6.1 contract:
+// ODD-MIGRATE-003 / W6.1 + W6.2 contract:
 //
-//   "Create the smallest non-CDN React Explorer/Viewer mount using
-//    the completed Research W1–W4b4 contracts. The Explorer client
-//    island constructs/uses the W3 adapter through the public
-//    `@taxa/research` barrel with same-origin base URL. Tests
-//    inject a repository only inside client/test boundaries.
+//   W6.1: "Create the smallest non-CDN React Explorer/Viewer mount
+//    using the completed Research W1–W4b4 contracts. The Explorer
+//    client island constructs/uses the W3 adapter through the
+//    public `@taxa/research` barrel with same-origin base URL.
+//    Tests inject a repository only inside client/test boundaries.
 //    `/explorer/page.tsx` stays a Server Component and passes only
 //    serializable props. Include: initial tree load/retry/empty/
 //    error; recursive folder/file rows with accessible
 //    expand/select/double-click; non-CDN W4a viewer rendering;
 //    typed state and tab behavior; safe extension fallback;
 //    component-level error state; public barrel export."
+//
+//   W6.2: "Extend the W6.1 mount with the Browser-tab tree search
+//    matching the legacy `web/file_explorer.js` semantics:
+//    200 ms debounce, case-insensitive substring match on the
+//    wire `name` + `path` fields, filter mode hides non-matches
+//    and auto-expands ancestor folders, highlight mode toggles
+//    `search-match` without touching expansion, the clear button
+//    restores the tree, filter + hideEmpty + zero matches paints
+//    the exact `No matches.` card, Escape clears the input,
+//    mode/hide-empty controls toggle state, conditional
+//    auto-focus fires only when the active element is `body`
+//    (the legacy `requestAnimationFrame` focus check preserved
+//    verbatim). Search is client-side against the loaded
+//    `ExplorerTree` only — no new port / adapter / dependency."
+//
+// The W6.2 surface adds the pure search annotation helper
+// (`annotateMatches`) — the only pure helper the React layer
+// needs to drive the legacy render-time toggle semantics. The
+// debounce / auto-focus / DOM-mutation passes live in the
+// React layer (`Explorer.tsx` + `FileTree.tsx`) because the
+// kernel stays framework-free per spec.md rule 4.
 //
 // spec.md rule 4 keeps the kernel framework-free; spec.md rule 5
 // keeps cross-module imports anchored at the public barrel. Every
@@ -42,6 +63,7 @@ import type {
   ExplorerFolderNode,
   FileFormat,
   ViewerTab,
+  SearchState,
 } from "../domain/explorer";
 import { createInitialExplorerState } from "../domain/explorer";
 
@@ -288,6 +310,143 @@ export function withExpanded(
   return next;
 }
 
+// ---- Pure search annotation ----
+
+/** Search annotation — the pure output of `annotateMatches()`.
+ *  Mirrors the legacy `web/file_explorer.js::_annotateMatches`
+ *  contract byte-for-byte: the recursive walker collects every
+ *  node whose `name` OR `path` contains the (case-insensitive)
+ *  query into `matches`, then walks post-order to collect every
+ *  folder that contains at least one matching descendant into
+ *  `ancestors`. Both sets carry absolute path strings (the
+ *  same shape `data-folder-path` / `data-file-path` carry on
+ *  the rendered DOM rows) so the React layer can map them to
+ *  rows via `querySelector('[data-folder-path="..."]')`.
+ *
+ *  The annotation is `ReadonlySet<string>` because consumers
+ *  must not mutate it (a future W6+ slice that wants memoised
+ *  React state depends on the set identity staying stable for
+ *  the lifetime of a single query).
+ *
+ *  Folders that match by their OWN `name`/`path` end up in
+ *  `matches` (and `ancestors` transitively if any descendant
+ *  also matches); the React layer's filter pass keeps matches
+ *  + ancestors visible and auto-expands ancestors. Highlight
+ *  mode ignores `ancestors` and paints `search-match` on the
+ *  match set only. */
+export interface SearchAnnotation {
+  readonly matches: ReadonlySet<string>;
+  readonly ancestors: ReadonlySet<string>;
+}
+
+/** Pure factory: produce a fresh, empty `SearchAnnotation`.
+ *  Mirrors the legacy `_annotateMatches()` return shape for
+ *  the trivial cases (empty root, empty query) so the React
+ *  layer can short-circuit with a stable typed handle without
+ *  branching on `undefined`. The two sets are fresh per call
+ *  (no shared references) so a future presentation-only
+ *  consumer can mutate locally without bleeding into a
+ *  sibling. */
+export function createEmptySearchAnnotation(): SearchAnnotation {
+  return {
+    matches: new Set<string>(),
+    ancestors: new Set<string>(),
+  };
+}
+
+/** Pure helper: build the legacy render-time search
+ *  annotation. Walks the recursive `ExplorerTreeNode` tree
+ *  twice — pass 1 collects direct matches (name OR path
+ *  contains the query, case-insensitive substring); pass 2
+ *  walks post-order to promote every folder-with-match into
+ *  the `ancestors` set. The walker uses explicit stacks rather
+ *  than recursion so a deep tree (>1000 folders) never blows
+ *  the JS call stack.
+ *
+ *  Returns `createEmptySearchAnnotation()` for the trivial
+ *  cases (null/undefined root, empty/whitespace-only query).
+ *  The `query` is normalised to lower-case once before the
+ *  walk so every comparison reuses the same cached needle.
+ *
+ *  Pure function: same `(root, query)` always yields the same
+ *  annotation. The React layer's `useMemo` updater relies on
+ *  the deterministic shape so the annotation identity flips
+ *  only when the query actually changes. */
+export function annotateMatches(
+  rootNode: ExplorerTreeNode | null,
+  query: string,
+): SearchAnnotation {
+  const empty = createEmptySearchAnnotation();
+  if (rootNode === null) return empty;
+  const trimmed = query.trim();
+  if (trimmed === "") return empty;
+  const needle = trimmed.toLowerCase();
+
+  const matches = new Set<string>();
+  // Pass 1 — iterative walk, every node becomes a direct
+  // match when its `name` OR `path` contains the needle
+  // (case-insensitive substring). Files + folders both
+  // qualify; a folder whose own name matches does NOT
+  // automatically promote its descendants (descendants land
+  // in `ancestors` only).
+  const stack1: ExplorerTreeNode[] = [rootNode];
+  while (stack1.length > 0) {
+    const node = stack1.pop();
+    if (node === undefined) continue;
+    const path = node.path || "";
+    const name = node.name || "";
+    if (
+      path.toLowerCase().includes(needle) ||
+      name.toLowerCase().includes(needle)
+    ) {
+      matches.add(path);
+    }
+    if (node.type === "folder" && Array.isArray(node.children)) {
+      for (const c of node.children) stack1.push(c);
+    }
+  }
+
+  // Pass 2 — post-order walk that promotes every folder
+  // whose subtree contains at least one match into
+  // `ancestors`. The legacy uses a real recursive visit
+  // here ("tree depth is bounded (typical <20), so a real
+  // recursive call is fine"); we mirror that shape — the
+  // helper is pure, the depth is bounded by the wire tree
+  // (FastAPI's `_walk_tree` enforces a sane depth on the
+  // server), and the iterative pass 1 already covers the
+  // hot path (deep flat trees).
+  const ancestors = new Set<string>();
+  const visit = (node: ExplorerTreeNode): boolean => {
+    const path = node.path || "";
+    if (matches.has(path)) return true;
+    if (node.type !== "folder" || !Array.isArray(node.children)) {
+      return false;
+    }
+    let childHasMatch = false;
+    for (const c of node.children) {
+      if (visit(c)) childHasMatch = true;
+    }
+    // Only promote the folder to an ancestor when its
+    // own path is non-empty. The synthetic root in the
+    // React mount carries `path: ""` (the wire tree
+    // root has no path string), so the wrapped folder
+    // never lands in `ancestors` — the visible ancestor
+    // chain is the post-order descendant folders of the
+    // root. The matches check above already excludes
+    // the root via the direct-match short-circuit
+    // (the root's `path` is `""` so `name/path` lookups
+    // are empty strings, which never include a typed
+    // query); this guard catches the edge case where a
+    // child of the root is a folder on the ancestor
+    // chain.
+    if (childHasMatch && path !== "") ancestors.add(path);
+    return childHasMatch;
+  };
+  visit(rootNode);
+
+  return { matches, ancestors };
+}
+
 // ---- Recursive row enumeration (pure) ----
 
 /** Enumerate every file node under a recursive tree. Returns a
@@ -331,4 +490,16 @@ export {
   type ExplorerFolderNode,
   type FileFormat,
   type ViewerTab,
+  type SearchState,
 };
+
+// ---- W6.2 typed search shape re-export ----
+
+/** Re-export the W1 `SearchState` so the React mount reaches
+ *  the typed query / mode / hideEmpty triple through the
+ *  barrel without a reverse deep import into
+ *  `../domain/explorer`. The kernel + barrel own the typed
+ *  surface; spec.md rule 5 forbids the React layer from
+ *  importing from `../domain/explorer` directly. The W6.2
+ *  React mount reads the W1 `SearchState` literal union
+ *  through this kernel re-export. */

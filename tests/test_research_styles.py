@@ -59,6 +59,40 @@ UTILITY_CLASSES_OWNED_BY_3C_E2: tuple[str, ...] = (
     ".rounded-r-md", ".shadow-sm", ".text-on-primary-fixed",
     ".text-on-surface",
 )
+# W6.1 + W6.2 — Browser-tab file explorer cascade. Migrated
+# byte-equal from the legacy `web/index.html::.fex-*` inline
+# `<style>` block (shell, panes, header, rows, children,
+# meta strip, tab strip, snippet frame, snippet buttons,
+# snippet dots, search input + clear + mode + hide-empty
+# controls, No-matches card, search-match row paint, image
+# / video / table / JSON viewer widgets, realm tint
+# selectors). The chain-topology guard below whitelists the
+# `.fex-*` bases; descendant + attribute selectors are
+# reachable via the base rule in the alphabetic cascade.
+FEX_EXPLORER_BASES: tuple[str, ...] = (
+    ".fex-banner", ".fex-children",
+    ".fex-csv-scroller", ".fex-csv-table",
+    ".fex-empty-state",
+    ".fex-image", ".fex-image-advisory", ".fex-image-frame",
+    ".fex-json-caret", ".fex-json-children", ".fex-json-key",
+    ".fex-json-node", ".fex-json-summary", ".fex-json-tree",
+    ".fex-meta-spacer", ".fex-meta-strip",
+    ".fex-row", ".fex-row-wrap",
+    ".fex-search-clear", ".fex-search-empty",
+    ".fex-search-hide-empty-btn", ".fex-search-icon",
+    ".fex-search-input", ".fex-search-mode-btn",
+    ".fex-search-row", ".fex-search-toggles",
+    ".fex-shell",
+    ".fex-snippet-actions", ".fex-snippet-body",
+    ".fex-snippet-btn", ".fex-snippet-dots",
+    ".fex-snippet-frame", ".fex-snippet-title",
+    ".fex-tab-strip",
+    ".fex-tree-header", ".fex-tree-header-search",
+    ".fex-tree-leaf", ".fex-tree-pane",
+    ".fex-tree-truncated",
+    ".fex-video-el", ".fex-video-frame",
+    ".fex-viewer-pane",
+)
 # Search tab category sections in fixed order, matching
 # ``web/search_urls.js::CATEGORIES``.
 SEARCH_TAB_CATEGORIES_IN_ORDER: tuple[str, ...] = (
@@ -175,20 +209,27 @@ def test_layer_base_does_not_own_research_chrome_selectors(selector):
 
 def test_layer_components_research_chrome_block_does_not_leak_taxonomy():
     """PR 3c-c MUST NOT introduce a new top-level taxonomy selector — every
-    top-level rule's base selector MUST belong to PR 3c-b, PR 3c-c, or the
-    nine PR 3c-e2 utility classes."""
+    top-level rule's base selector MUST belong to PR 3c-b, PR 3c-c, the
+    nine PR 3c-e2 utility classes, or the W6.1+W6.2 Browser-tab
+    `.fex-*` explorer bases (see `FEX_EXPLORER_BASES`)."""
     body = _block(_read(GLOBALS_CSS), "@layer components")
-    allowed = set(TAXONOMY_OWNED_BY_3C_B) | set(UTILITY_CLASSES_OWNED_BY_3C_E2) | {
-        ".folder-tab", ".header-browser-tab", ".research-explorer", ".search-tab",
-        ".synonym-tab", ".vernacular-tab", ".distribution-tab",
-    }
+    allowed = (
+        set(TAXONOMY_OWNED_BY_3C_B)
+        | set(UTILITY_CLASSES_OWNED_BY_3C_E2)
+        | set(FEX_EXPLORER_BASES)
+        | {
+            ".folder-tab", ".header-browser-tab",
+            ".research-explorer", ".search-tab",
+            ".synonym-tab", ".vernacular-tab", ".distribution-tab",
+        }
+    )
     for head in _top_level(body):
         m = re.match(r"^\.([^\s:>+~\.\[]+)", head)
         base = f".{m.group(1)}" if m else head
         assert base in allowed, (
             f"top-level @layer components rule starts with {base!r} — neither a "
             f"PR 3c-b taxonomy selector, a PR 3c-c research/chrome selector, "
-            f"nor a PR 3c-e2 utility class"
+            f"a PR 3c-e2 utility class, nor a W6.1+W6.2 `.fex-*` explorer base"
         )
 
 

@@ -197,6 +197,25 @@ export { createInitialExplorerState } from "./domain/explorer";
 // React components (`Explorer.tsx`, `Viewer.tsx`,
 // `FileTree.tsx`) are re-exported below as the W6.1
 // client island surface.
+//
+// ODD-MIGRATE-003 W6.2 — extends the kernel with the pure
+// `annotateMatches` helper + the `SearchAnnotation` typed
+// shape + the `createEmptySearchAnnotation` factory. The
+// React layer (Explorer + FileTree) calls `annotateMatches`
+// with the (debounced) query + the loaded tree's root and
+// uses the returned `{matches, ancestors}` annotation to
+// drive the legacy `render-time toggle, not re-mount`
+// search semantics. The debounce (200 ms), the filter /
+// highlight DOM-mutation passes, the auto-focus, the
+// Escape-clear, the mode / hide-empty toggles, and the
+// "No matches." placeholder live in the React layer
+// because the kernel stays framework-free per spec.md
+// rule 4. The barrel is the single typed hand-off surface
+// between the presentation layer and the rest of the
+// capability module; a future W6+ slice that wants
+// additional pure search helpers (e.g. a deterministic
+// result-sorted walker) extends the kernel + barrel
+// without restructuring the consumer contract.
 export {
   createInitialLoadStatus,
   createInitialViewerState,
@@ -206,10 +225,13 @@ export {
   enumerateFiles,
   toggleExpansion,
   withExpanded,
+  annotateMatches,
+  createEmptySearchAnnotation,
 } from "./presentation/explorer-state";
 export type {
   ExplorerLoadStatus,
   ViewerState,
+  SearchAnnotation,
 } from "./presentation/explorer-state";
 export { default as Explorer } from "./presentation/Explorer";
 export { default as Viewer } from "./presentation/Viewer";
