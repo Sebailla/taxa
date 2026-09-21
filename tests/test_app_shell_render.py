@@ -194,6 +194,68 @@ def test_layout_uses_next_font_for_raleway():
     )
 
 
+# ---------------------------------------------------------------------------
+# G4 probe marker (G4 strict candidate-manifest capture contract)
+#
+# The capture producer (``tools/g4-capture/scripts/capture.mjs::verifyTarget``)
+# re-fetches the candidate URL and asserts that ``expectedDOMMarker`` is a
+# substring of the served body. The corpus pin in
+# ``tests/fixtures/g4/corpus/manifest.json`` sets
+# ``expectedDOMMarker = 'data-testid="g4-probe-marker"'``. For the strict
+# candidate-manifest path to validate the production build, the SAME substring
+# MUST appear in ``out/index.html``. The probe must be:
+#   - hidden  : never reachable from user-visible DOM (no children, no text)
+#   - aria-hidden : removed from the accessibility tree
+# These two attributes together keep the layout visually and semantically
+# inert — the marker exists ONLY so the capture producer can locate it.
+# ---------------------------------------------------------------------------
+
+_G4_PROBE_MARKER = 'data-testid="g4-probe-marker"'
+
+
+def test_layout_has_g4_probe_marker():
+    """RED gate: ``src/app/layout.tsx`` MUST emit the exact G4 probe marker.
+
+    The capture producer's ``verifyTarget`` looks for the literal substring
+    ``data-testid="g4-probe-marker"``. The marker is a single source of truth
+    owned by the App Router host so every static-export page inherits it
+    through the layout.
+    """
+    text = _read_text(SRC_LAYOUT)
+    assert _G4_PROBE_MARKER in text, (
+        f"layout.tsx must declare the G4 probe marker as a substring; "
+        f"missing {_G4_PROBE_MARKER!r}. The capture producer's verifyTarget() "
+        "refuses any candidate whose served body lacks it."
+    )
+
+
+def test_layout_g4_probe_marker_is_aria_hidden():
+    """Triangulate: the probe MUST be hidden from the accessibility tree.
+
+    ``aria-hidden="true"`` removes the element from the accessibility tree
+    without changing user-visible layout. Screen readers skip the probe and
+    React Testing Library user-facing assertions are not confused by an extra
+    accessible node.
+    """
+    text = _read_text(SRC_LAYOUT)
+    assert _G4_PROBE_MARKER in text, (
+        "layout.tsx is missing the G4 probe marker (see prior test)"
+    )
+    # Find the element carrying the marker and confirm it also carries
+    # ``aria-hidden="true"``. Match the whole opening tag so a stray
+    # attribute on an unrelated tag cannot satisfy this contract.
+    m = re.search(
+        r"<[a-zA-Z]+\b[^>]*?" + re.escape(_G4_PROBE_MARKER) + r"[^>]*?>",
+        text,
+    )
+    assert m, (
+        f"could not find an opening tag carrying {_G4_PROBE_MARKER!r} in layout.tsx"
+    )
+    assert 'aria-hidden="true"' in m.group(0), (
+        f"G4 probe element must carry aria-hidden=\"true\"; got: {m.group(0)}"
+    )
+
+
 @pytest.mark.parametrize(
     "src_path, label, forbidden_imports",
     [
@@ -264,6 +326,19 @@ def test_out_index_html_has_raleway_preload(built_index_html):
     css_body = "\n".join(c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks)
     assert "@font-face" in css_body and "font-family:Raleway" in css_body, (
         "CSS chunk must declare @font-face rules for the Raleway family"
+    )
+
+
+def test_out_index_html_has_g4_probe_marker(built_index_html):
+    """Build witness: the marker MUST survive ``next build`` into ``out/index.html``.
+
+    Static export preserves the layout's literal markup, so the marker appears
+    verbatim. This is the substring the capture producer's ``verifyTarget()``
+    checks against the corpus manifest.
+    """
+    assert _G4_PROBE_MARKER in built_index_html, (
+        f"out/index.html must carry {_G4_PROBE_MARKER!r} so the capture "
+        "producer's verifyTarget() accepts the candidate"
     )
 
 
