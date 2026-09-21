@@ -12,7 +12,8 @@
     "build:web": "next build",
     "dev": "next dev",
     "dev:local": "NEXT_PUBLIC_TAXA_API_ORIGIN=http://127.0.0.1:8765 next dev",
-    "check-runtime": "node scripts/check-runtime.mjs"
+    "check-runtime": "node scripts/check-runtime.mjs",
+    "g4:candidate-manifest": "node scripts/generate_g4_candidate_manifest.mjs --candidate-html out/index.html --candidate-url http://127.0.0.1:8765/index.html --candidate-manifest out/candidate.manifest.json"
   },
   "dependencies": {
     "next": "^16.0.0",
