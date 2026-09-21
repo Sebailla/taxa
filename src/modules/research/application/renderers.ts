@@ -1,6 +1,6 @@
 // Research application — pure viewer-dispatch contract for the Browser-tab
-// file viewer. W4a of ODD-MIGRATE-002 (`odd/tasks/complete-frontend-
-// migration.md::ODD-MIGRATE-002 / W4a`).
+// file viewer. W4a + W4b1 of ODD-MIGRATE-002 (`odd/tasks/complete-
+// frontend-migration.md::ODD-MIGRATE-002 / W4a + W4b1`).
 //
 // spec.md rule 4: application depends on domain ONLY. This file is
 // purely TypeScript types + pure helper functions + one pure
@@ -37,13 +37,31 @@
 //     message — W4a preserves that wording verbatim so the React
 //     mount's empty-state card matches the legacy oracle)
 //
-// W4a explicitly defers to W4b+:
-//   - DOCX (legacy `renderDocx` via mammoth CDN),
+// W4b1 (this slice) owns DOCX only. The dispatcher emits a typed
+// `docx-source` outcome that carries the descriptor + bytes +
+// pinned mammoth CDN URL + global name so a future React mount
+// (W6+) can load the legacy-pinned mammoth library via Next 16's
+// `<Script>` component (`node_modules/next/dist/docs/01-app/03-
+// api-reference/02-components/script.md`), call `window.mammoth.
+// convertToHtml({arrayBuffer})`, and inject the resulting HTML
+// via `Range.createContextualFragment` (mirrors the legacy
+// `web/file_viewer.js::renderDocx` shape — mammoth already strips
+// `<script>` + event handlers per `design.md` §8). When bytes
+// are missing the dispatcher emits a typed `docx-offline`
+// branch carrying the download link + pinned CDN URL + global
+// name + reason, so the mount paints the same legacy "Viewer offline
+// — raw download available" banner (`web/file_viewer.js::
+// renderOfflineBanner`) verbatim. The application layer stays
+// framework-free, browser-free, and CDN-loader-free — mammoth is
+// NOT imported or loaded here; the dispatcher only emits the typed
+// source descriptor for the mount to consume.
+//
+// W4b1 explicitly defers to W4b2+:
 //   - XLS / XLSX (legacy `renderSheet` via SheetJS CDN),
 //   - EPUB (legacy `renderEpub` via epubjs CDN),
 //   - CSV / TSV (legacy `renderTable` via Papa Parse CDN),
 //   - JSON (legacy `renderJsonTree` — no CDN but still deferred per
-//     the W4a split),
+//     the W4b split),
 //   - Markdown-as-HTML (legacy would call marked.js CDN).
 //
 // Until those land, the dispatcher returns the `unsupported` or
@@ -62,6 +80,10 @@
 // the layered architecture (spec.md rule 4 — application depends on
 // domain ONLY) and the W4a split directive ("derive URLs from
 // explicit typed input rather than importing W3 implementation").
+// The W4b1 contract follows the same rule: the mammoth CDN URL +
+// global name are pinned constants on the typed source outcome
+// — the dispatcher does NOT load the script, fetch the URL, or
+// invoke `convertToHtml`.
 
 import type { FileFormat, ViewerTab } from "../domain/explorer";
 
@@ -86,6 +108,38 @@ export const IMAGE_BIG_FILE_BYTES: number = 50 * 1024 * 1024;
  *  not a half-message prefix). */
 export const TAB_NOT_APPLICABLE_SUFFIX: string =
   "files — use Raw.";
+
+/** W4b1 — pinned mammoth CDN URL. Mirrors `web/file_viewer.js::
+ *  CDN_URLS.mammoth` and the matching `<script>` tag in
+ *  `web/index.html` (whose comment block calls the URL "Pinned
+ *  URL: do not unpin."). The URL is part of the W4b1 typed
+ *  source outcome so the future React mount (W6+) can load the
+ *  CDN idempotently via Next 16's `<Script src={scriptUrl}
+ *  strategy="afterInteractive" onLoad={convert} onError={...}>`
+ *  (see `node_modules/next/dist/docs/01-app/03-api-reference/02-
+ *  components/script.md`). The application layer does NOT load
+ *  the script — it only pins the URL on the typed source
+ *  descriptor so the mount knows what to inject. A future PR
+ *  that bumps mammoth's version MUST update this constant AND
+ *  the matching `web/index.html` <script> tag AND the focused
+ *  test that pins the literal — bumping the URL without updating
+ *  the legacy `<script>` tag would silently diverge the React
+ *  + legacy paths. */
+export const MAMMOTH_CDN_URL: string =
+  "https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js";
+
+/** W4b1 — pinned window-global name mammoth assigns itself once
+ *  the CDN script loads. Mirrors the `web/file_viewer.js::
+ *  CDN_URLS.mammoth` map key and the legacy `window.mammoth.
+ *  convertToHtml(...)` call site in `web/file_viewer.js::
+ *  renderDocx`. The global name is part of the W4b1 typed source
+ *  outcome so the future React mount can read the global verbatim
+ *  (via `window[scriptGlobal].convertToHtml({arrayBuffer:
+ *  bytes.buffer})`) without hardcoding the string. A future PR
+ *  that bumps mammoth (or that swaps the library for a different
+ *  DOCX renderer that exposes a different global) MUST update
+ *  this constant in lock-step with `MAMMOTH_CDN_URL`. */
+export const MAMMOTH_GLOBAL_NAME: string = "mammoth";
 
 /** Input file descriptor for the viewer-dispatch contract.
  *  Mirrors the legacy `web/file_viewer.js::render(host, file)`
@@ -221,9 +275,9 @@ export interface ViewerImageAdvisory {
  *    "Format .xyz not supported in viewer." (or "Legacy .doc
  *    cannot be rendered inline.") message + download link.
  *    Covers BOTH the legacy "unknown extension" path (e.g.
- *    `.zip`, `.exe`) AND the W4a-deferred formats (DOCX, XLS,
- *    XLSX, EPUB, CSV, TSV, JSON) until W4b+ extends the
- *    dispatcher.
+ *    `.zip`, `.exe`) AND the still-W4b+-deferred formats
+ *    (XLS, XLSX, EPUB, CSV, TSV, JSON) until W4b+ extends
+ *    the dispatcher.
  *  - `"tab-not-applicable"` — the legacy
  *    `handleTabClick`'s `${tab} view not available for .${ext}
  *    files — use Raw.` message for any file on the Table or
@@ -237,7 +291,80 @@ export interface ViewerImageAdvisory {
  *    message (the literal `"Table/Tree"` static text in the
  *    spec is a shorthand description; the legacy observable
  *    behavior is the dynamic version, and W4a preserves the
- *    observable behavior). */
+ *    observable behavior).
+ *  - `"docx-source"`    — W4b1 DOCX source descriptor. The
+ *    dispatcher emits this typed outcome when `format ===
+ *    "docx"` + `tab === "Raw"` + `bytes !== null`. The future
+ *    React mount (W6+) consumes it: load the legacy-pinned
+ *    mammoth CDN via Next 16's `<Script src={scriptUrl}
+ *    strategy="afterInteractive" onLoad={convert} onError=
+ *    {...}>` (see `node_modules/next/dist/docs/01-app/03-api-
+ *    reference/02-components/script.md`), then call
+ *    `window[scriptGlobal].convertToHtml({arrayBuffer:
+ *    bytes.buffer})`, then inject the resulting HTML via
+ *    `Range.createContextualFragment` (mirrors the legacy
+ *    `web/file_viewer.js::renderDocx` shape — mammoth
+ *    already strips `<script>` + event handlers per
+ *    `design.md` §8). Fields:
+ *      - `src`         — descriptor URL (download link +
+ *        raw-fetch fallback). Sourced from
+ *        `ViewerFileDescriptor.url` verbatim.
+ *      - `title`       — file basename for the meta strip /
+ *        `<iframe title>` / open-in-new-tab gesture. Sourced
+ *        from `ViewerFileDescriptor.name`.
+ *      - `bytes`       — the SAME `Uint8Array` reference as
+ *        the input `bytes` field (the dispatcher passes by
+ *        reference, NOT by copy — `mammoth.convertToHtml`
+ *        reads the bytes at call time, so a copy would cost
+ *        an allocation and gain nothing). The mount treats
+ *        the bytes as read-only or copies before mutation
+ *        (Uint8Array is a view on a backing ArrayBuffer —
+ *        any mutation is visible through the dispatched
+ *        reference).
+ *      - `scriptUrl`   — pinned mammoth CDN URL
+ *        (`MAMMOTH_CDN_URL`). The mount injects this with
+ *        Next 16's `<Script>` component so the legacy +
+ *        React paths share the exact same CDN URL.
+ *      - `scriptGlobal` — window-global name
+ *        (`MAMMOTH_GLOBAL_NAME` = `"mammoth"`). The mount
+ *        calls `window[scriptGlobal].convertToHtml(...)`
+ *        via the pinned global so a future PR that bumps
+ *        the library doesn't silently break the conversion
+ *        site.
+ *  - `"docx-offline"`   — W4b1 DOCX offline fallback. The
+ *    dispatcher emits this typed outcome when `format ===
+ *    "docx"` + `tab === "Raw"` + `bytes === null`. Mirrors
+ *    the legacy `web/file_viewer.js::renderOfflineBanner`
+ *    shape so the future React mount paints the same
+ *    "Viewer offline — raw download available for X"
+ *    banner with a download affordance. Fields:
+ *      - `name`        — file basename. Sourced from
+ *        `ViewerFileDescriptor.name`.
+ *      - `download`    — typed `ViewerLink` (the W4a
+ *        pattern). `href` is `ViewerFileDescriptor.url`;
+ *        `download` is `ViewerFileDescriptor.name`. Mirrors
+ *        the legacy offline banner's `<a href download>`.
+ *      - `scriptUrl`   — pinned mammoth CDN URL
+ *        (`MAMMOTH_CDN_URL`). The mount needs the URL to
+ *        retry the loader or surface a "try again"
+ *        affordance after the offline banner renders.
+ *      - `scriptGlobal` — window-global name
+ *        (`MAMMOTH_GLOBAL_NAME`).
+ *      - `reason`      — typed literal `"bytes-missing"`.
+ *        The dispatcher can only detect the bytes-missing
+ *        offline path at dispatch time (the dispatcher
+ *        does not fetch the URL, load the CDN, or call
+ *        `convertToHtml`). CDN-load failures and
+ *        conversion failures are MOUNT responsibilities
+ *        and surface as additional typed branches in a
+ *        future iteration (W4b+ ADR).
+ *    The `"docx-offline"` branch does NOT carry a free-form
+ *    `message` string — the mount paints the offline
+ *    wording verbatim from the typed descriptor (kind +
+ *    name + download), not from a pre-formatted message
+ *    field. Mirrors the W4a `image-error` shape, which
+ *    also omits a `message` string so the mount owns the
+ *    wording. */
 export type ViewerDispatch =
   | {
       readonly kind: "pdf-iframe";
@@ -284,6 +411,22 @@ export type ViewerDispatch =
       readonly kind: "unsupported";
       readonly message: string;
       readonly download: ViewerLink;
+    }
+  | {
+      readonly kind: "docx-source";
+      readonly src: string;
+      readonly title: string;
+      readonly bytes: Uint8Array;
+      readonly scriptUrl: string;
+      readonly scriptGlobal: string;
+    }
+  | {
+      readonly kind: "docx-offline";
+      readonly name: string;
+      readonly download: ViewerLink;
+      readonly scriptUrl: string;
+      readonly scriptGlobal: string;
+      readonly reason: "bytes-missing";
     }
   | {
       readonly kind: "tab-not-applicable";
@@ -453,13 +596,37 @@ function buildImageError(file: ViewerFileDescriptor): ViewerDispatch {
   };
 }
 
+/** Build the `docx-offline` dispatch — used by the W4b1 DOCX
+ *  branch when the input bytes are missing. Mirrors the legacy
+ *  `web/file_viewer.js::renderOfflineBanner` recovery path:
+ *  the future React mount paints the same "Viewer offline —
+ *  raw download available for X" banner with a download
+ *  affordance. The branch carries the pinned mammoth CDN URL
+ *  + global name so the mount can retry the loader or surface
+ *  a "try again" affordance after the offline banner renders.
+ *  The typed `reason: "bytes-missing"` literal documents the
+ *  specific offline path the dispatcher detected — the only
+ *  offline path the dispatcher can detect at dispatch time
+ *  (CDN-load + convertToHtml failures happen at the mount and
+ *  are not part of this contract). */
+function buildDocxOffline(file: ViewerFileDescriptor): ViewerDispatch {
+  return {
+    kind: "docx-offline",
+    name: file.name,
+    download: { href: file.url, download: file.name },
+    scriptUrl: MAMMOTH_CDN_URL,
+    scriptGlobal: MAMMOTH_GLOBAL_NAME,
+    reason: "bytes-missing",
+  };
+}
+
 /** Build the `unsupported` dispatch — used by the DOC branch
  *  (with the spec's "Legacy .doc cannot be rendered inline."
  *  message), the "other" branch (with the wire-extension
- *  message), and the W4a-deferred format default branch (with
- *  the format-literal message). The message text is the
- *  dispatcher's responsibility — the React mount emits it
- *  verbatim via `<p>`. */
+ *  message), and the still-W4b+-deferred format default
+ *  branch (with the format-literal message). The message text
+ *  is the dispatcher's responsibility — the React mount emits
+ *  it verbatim via `<p>`. */
 function renderUnsupported(
   file: ViewerFileDescriptor,
   message: string,
@@ -634,6 +801,51 @@ export function dispatchViewer(input: ViewerDispatchInput): ViewerDispatch {
         controls: true,
         preload: "metadata",
       };
+    case "docx":
+      // W4b1 — DOCX source descriptor. The dispatcher emits
+      // a typed `docx-source` outcome carrying the
+      // descriptor + bytes + pinned mammoth CDN URL +
+      // global name so the future React mount (W6+) can
+      // load the legacy-pinned mammoth library via Next 16's
+      // `<Script src={scriptUrl} strategy="afterInteractive"
+      // onLoad={convert} onError={...}>` and call
+      // `window[scriptGlobal].convertToHtml({arrayBuffer:
+      // bytes.buffer})`. The application layer does NOT
+      // load mammoth, fetch the URL, or invoke
+      // `convertToHtml` — it only emits the typed source
+      // descriptor for the mount to consume.
+      //
+      // Bytes-missing fallback: when `bytes === null` the
+      // dispatcher emits `docx-offline` (typed `name` +
+      // `download` + `scriptUrl` + `scriptGlobal` +
+      // `reason: "bytes-missing"`) so the future mount
+      // paints the same legacy "Viewer offline — raw
+      // download available for X" banner (`web/file_viewer.
+      // js::renderOfflineBanner`) verbatim. Mirrors the
+      // W4a SVG / TXT bytes-missing fallbacks (the
+      // dispatcher detects the failure at dispatch time;
+      // CDN-load + convertToHtml failures happen at the
+      // mount and are not part of this contract).
+      if (bytes === null) return buildDocxOffline(file);
+      return {
+        kind: "docx-source",
+        src: file.url,
+        title: file.name,
+        // Pass-by-reference: the future mount reads the
+        // bytes at mount time and feeds them straight to
+        // `window.mammoth.convertToHtml`. Copying the bytes
+        // at dispatch time would cost a Uint8Array
+        // allocation per dispatch and gain nothing (the
+        // mount doesn't mutate the bytes). The future mount
+        // is responsible for treating the bytes as
+        // read-only or copying before mutation. The
+        // `Uint8Array` reference contract is pinned by
+        // `tests/test_research_renderers.py::test_compiled_
+        // renderers_passes_runtime_contract` step 36-37.
+        bytes,
+        scriptUrl: MAMMOTH_CDN_URL,
+        scriptGlobal: MAMMOTH_GLOBAL_NAME,
+      };
     case "other":
       // Unknown extensions (e.g. .zip, .exe) — the message
       // uses the wire extension from the descriptor's `path`
@@ -645,16 +857,18 @@ export function dispatchViewer(input: ViewerDispatchInput): ViewerDispatch {
         `Format .${extensionFromPath(file.path) || "?"} not supported in viewer.`,
       );
     default:
-      // W4a-deferred formats: DOCX, XLS, XLSX, EPUB, CSV,
+      // Still-W4b+-deferred formats: XLS, XLSX, EPUB, CSV,
       // TSV, JSON. These require CDN-dependent renderers
-      // (mammoth, SheetJS, epubjs, Papa Parse) and land in
-      // separately authorized W4b+ slices. The default arm
-      // returns the `unsupported` branch with the
-      // format-literal message so the React mount paints the
-      // same download-link card as the legacy
+      // (SheetJS, epubjs, Papa Parse) and land in
+      // separately authorized W4b+ slices. DOCX is OWNED by
+      // W4b1 (the explicit `case "docx":` arm above) and is
+      // no longer part of this deferred set. The default
+      // arm returns the `unsupported` branch with the
+      // format-literal message so the React mount paints
+      // the same download-link card as the legacy
       // `renderUnsupported` oracle. W4b+ replaces this arm
-      // by adding explicit `case "docx":`, `case "xls":`,
-      // etc. arms above it.
+      // by adding explicit `case "xls":`, `case "xlsx":`,
+      // `case "epub":`, etc. arms above it.
       return renderUnsupported(
         file,
         `Format .${file.format} not supported in viewer.`,
