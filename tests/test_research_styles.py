@@ -92,6 +92,22 @@ FEX_EXPLORER_BASES: tuple[str, ...] = (
     # `.fex-sheet-*` wrappers carry the layout + spacing).
     ".fex-sheet-picker", ".fex-sheet-picker-label",
     ".fex-sheet-table-host", ".fex-sheet-host",
+    # W64D-EPUB-004 — EPUB viewer cascade. The W64D React
+    # mount materializes EPUBs through Next 16's `<Script>`
+    # loader + the pinned epubjs CDN (`EPUBJS_CDN_URL` +
+    # `EPUBJS_GLOBAL_NAME = "ePub"` — the case-sensitive
+    # UMD global). The legacy `web/file_viewer.js::
+    # renderEpub` shape is mirrored byte-for-byte: the
+    # outer host is a vertical flex that lays out the
+    # book render host + the prev/next navigation row;
+    # the dedicated `.fex-epub-*` wrappers carry the
+    # layout + spacing + the host `min-h-[480px]` floor
+    # (so the paged book has a stable target to render
+    # into regardless of viewport). The `.fex-epub-*`
+    # selectors sit AFTER `.fex-empty-state` (since
+    # `e`mpty < `e`pub alphabetically) and BEFORE
+    # `.fex-image` in the alphabetic chain.
+    ".fex-epub-host", ".fex-epub-frame", ".fex-epub-nav",
     ".fex-snippet-actions", ".fex-snippet-body",
     ".fex-snippet-btn", ".fex-snippet-dots",
     ".fex-snippet-frame", ".fex-snippet-title",
@@ -460,3 +476,55 @@ def test_parent_collapses_descendants_into_single_rule(parent, children):
             f"@layer components must collapse {parent} + {child} into a "
             f"descendant rule (3c-c.4)"
         )
+
+
+# W64D-EPUB-004 — EPUB viewer cascade. The W64D slice
+# extends the W6.4b cascade with the EPUB viewer
+# selectors. Mirrors the legacy
+# `web/file_viewer.js::renderEpub` shape verbatim: the
+# host is a vertical flex + the `min-h-[480px]` floor
+# (so the paged book has a stable target to render into
+# regardless of viewport). Every W64D selector lives
+# under `@layer components` (the W6.4b React-mount
+# surface contract) and is whitelisted in
+# `FEX_EXPLORER_BASES` so the chain-topology guard stays
+# green.
+W64D_EPUB_SELECTORS: tuple[str, ...] = (
+    ".fex-epub-host",
+    ".fex-epub-frame",
+    ".fex-epub-nav",
+)
+
+
+@pytest.mark.parametrize("selector", W64D_EPUB_SELECTORS)
+def test_layer_components_declares_every_w64d_epub_selector(selector):
+    """W64D-EPUB-004 — every EPUB viewer selector MUST
+    resolve to a non-empty block under `@layer components`.
+    Catches a future PR that drops the EPUB cascade (the
+    host / frame / nav would silently lose their layout +
+    spacing) or moves it under `@layer base` (the Tailwind
+    4 utility surface could override the EPUB affordance
+    at runtime). The same guard pattern as the W64C
+    SheetJS cascade."""
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare @layer components { ... }"
+    assert _rule(body, selector).strip(), (
+        f"@layer components must declare {selector} with a non-empty block"
+    )
+
+
+@pytest.mark.parametrize("selector", W64D_EPUB_SELECTORS)
+def test_layer_base_does_not_own_w64d_epub_selectors(selector):
+    """W64D-EPUB-004 — EPUB viewer selectors MUST live
+    under `@layer components`, NOT `@layer base`. The EPUB
+    cascade is a React-mount surface (PR 3c-c contract);
+    Tailwind 4 utilities (PR 3c-e) must still be able to
+    override via `@layer components`. The same guard
+    pattern as the W64C SheetJS selectors."""
+    body = _block(_read(GLOBALS_CSS), "@layer base")
+    if not body:
+        return
+    assert not re.search(r"(?:^|[\s,{}>+~])" + re.escape(selector) + r"(?=[\s,{:>+~]|$)", body), (
+        f"{selector} MUST NOT live under @layer base; the "
+        f"EPUB cascade is a @layer components surface."
+    )

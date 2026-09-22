@@ -656,6 +656,61 @@
     font-size: 32px;
     color: var(--outline);
   }
+  /* W64D-EPUB-004 — EPUB viewer cascade. The W64D
+     React mount materializes EPUBs through Next 16's
+     <Script> loader + the pinned epubjs CDN pin
+     (`EPUBJS_CDN_URL` + `EPUBJS_GLOBAL_NAME = "ePub"` —
+     the case-sensitive UMD global). The legacy
+     `web/file_viewer.js::renderEpub` shape is mirrored
+     byte-for-byte:
+       - the outer host is a vertical flex with a nav
+       gap so the prev/next buttons can sit below the
+       book;
+       - the frame is the book.renderTo host with a
+       `min-h-[480px]` floor so the paged book has a
+       stable target to render into regardless of
+       viewport (matches the legacy
+       `el("div", { class: "flex-1 min-h-[480px]" })`
+       shape verbatim — the `min-h-[480px]` lives in
+       the host so the cascade owns the floor);
+       - the nav row reuses the existing
+       `.fex-snippet-actions` styling for the prev /
+       next buttons (matches the legacy
+       `el("div", { class: "frog-actions" }, ...)`
+       shape verbatim — the dedicated `.fex-epub-nav`
+       wrapper carries the gap + layout).
+
+     Every selector lives under `@layer components` so
+     the Tailwind 4 utility surface (PR 3c-e) can still
+     override at runtime. Note: `.fex-epub-*` sits AFTER
+     `.fex-empty-state` in the alphabetic chain
+     (`.fex-empty-state` is `e m p t y` — `m` (0x6D) <
+     `p` (0x70) of `.fex-epub-*`) and BEFORE `.fex-image`
+     (`.fex-epub-*` is `e p` < `.fex-image` is `i`). */
+  .fex-epub-frame {
+    flex: 1;
+    min-height: 480px;
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--outline-variant);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .fex-epub-host {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+  }
+  .fex-epub-nav {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 8px 12px;
+    border-top: 1px solid var(--outline-variant);
+    background: var(--surface-container-lowest);
+  }
   /* Image viewer — frame owns the scroll surface so the
      inner `<img>` can shrink to fit via `object-contain`.
      `image` (base) comes before `image-advisory` and

@@ -1271,7 +1271,13 @@ const kernel = require(path.resolve(process.argv[2]));
   assert.strictEqual(kernel.bytesRequiredForFormat("html"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("htm"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("jpg"), false);
-  assert.strictEqual(kernel.bytesRequiredForFormat("epub"), false);
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("epub"), true,
+    "W64D-EPUB-004: bytesRequiredForFormat('epub') must "
+    + "return true so the bytes-fetch effect in Viewer.tsx "
+    + "reads EPUB bytes through the same seam the TXT / MD "
+    + "/ SVG / JSON / DOCX / XLS / XLSX effects already use",
+  );
   assert.strictEqual(
     kernel.bytesRequiredForFormat("docx"), true,
     "W64B-DOCX-002: bytesRequiredForFormat('docx') must return "
@@ -1304,7 +1310,13 @@ const kernel = require(path.resolve(process.argv[2]));
   );
   assert.strictEqual(kernel.bytesRequiredForFormat("csv"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("tsv"), false);
-  assert.strictEqual(kernel.bytesRequiredForFormat("epub"), false);
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("epub"), true,
+    "W64D-EPUB-004: bytesRequiredForFormat('epub') must "
+    + "return true so the bytes-fetch effect in Viewer.tsx "
+    + "reads EPUB bytes through the same seam the TXT / MD "
+    + "/ SVG / JSON / DOCX / XLS / XLSX effects already use",
+  );
   assert.strictEqual(kernel.bytesRequiredForFormat("mp4"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("other"), false);
 }
@@ -3161,7 +3173,13 @@ const kernel = require(path.resolve(process.argv[2]));
   assert.strictEqual(kernel.bytesRequiredForFormat("jpg"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("csv"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("tsv"), false);
-  assert.strictEqual(kernel.bytesRequiredForFormat("epub"), false);
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("epub"), true,
+    "W64D-EPUB-004: bytesRequiredForFormat('epub') must "
+    + "return true so the bytes-fetch effect in Viewer.tsx "
+    + "reads EPUB bytes through the same seam the TXT / MD "
+    + "/ SVG / JSON / DOCX / XLS / XLSX effects already use",
+  );
   assert.strictEqual(kernel.bytesRequiredForFormat("mp4"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("other"), false);
 }
@@ -3513,7 +3531,13 @@ const kernel = require(path.resolve(process.argv[2]));
   assert.strictEqual(kernel.bytesRequiredForFormat("jpg"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("csv"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("tsv"), false);
-  assert.strictEqual(kernel.bytesRequiredForFormat("epub"), false);
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("epub"), true,
+    "W64D-EPUB-004: bytesRequiredForFormat('epub') must "
+    + "return true so the bytes-fetch effect in Viewer.tsx "
+    + "reads EPUB bytes through the same seam the TXT / MD "
+    + "/ SVG / JSON / DOCX / XLS / XLSX effects already use",
+  );
   assert.strictEqual(kernel.bytesRequiredForFormat("mp4"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("other"), false);
 }
@@ -3920,17 +3944,23 @@ def test_w64c_viewer_preserves_json_docx_sheet_offline_pins() -> None:
         )
 
     # 4. The other CDN-backed source variants
-    #    (`epub-source`, `table-source`) stay in the W6.1
-    #    cdn-pending catch-all.
-    for source_literal in ("epub-source", "table-source"):
+    #    (`table-source`) stay in the W6.1 cdn-pending
+    #    catch-all. (`epub-source` is NOT in the catch-all
+    #    anymore — the W64D-EPUB-004 slice extracted it so
+    #    the typed source descriptor routes through the
+    #    dedicated `EpubRender` sub-component. The
+    #    pre-W64D `epub-offline` (bytes-missing) dispatch
+    #    stays in the catch-all so the existing download-
+    #    link affordance is preserved verbatim.)
+    for source_literal in ("table-source",):
         assert f'"{source_literal}"' in catch_all_body, (
             f"Viewer.tsx's cdn-pending catch-all MUST still "
             f"list `{source_literal}` so the W6.1 non-CDN "
-            f"surface stays in place for the EPUB / CSV / "
-            f"TSV deferred families. W64C only extracts "
-            f"`sheet-source` from the catch-all; EPUB / "
-            f"CSV / TSV materialization lands as "
-            f"separately authorized later slices."
+            f"surface stays in place for the CSV / TSV "
+            f"deferred families. W64D extracts "
+            f"`epub-source` (EPUB) from the catch-all; CSV / "
+            f"TSV materialization lands as separately "
+            f"authorized later slices."
         )
 
     # 5. `sheet-source` MUST NOT appear in the cdn-pending
@@ -3944,4 +3974,663 @@ def test_w64c_viewer_preserves_json_docx_sheet_offline_pins() -> None:
         "all so the typed source routes through the "
         "`SheetRender` sub-component (NOT the W6.1 "
         "download-link affordance)."
+    )
+
+
+# ---------------------------------------------------------------------------
+# W64D-EPUB-004 — EPUB viewer materialization via Next `Script`
+# + the pinned epubjs CDN (the W6.4d React mount counterpart of
+# the W4b3 typed source descriptor). The W64D slice closes the
+# remaining CDN-backed EPUB materialization:
+#
+#   - `bytesRequiredForFormat("epub")` flips from `false` to
+#     `true` so the existing bytes-fetch effect in Viewer.tsx
+#     reads EPUB bytes through the same seam the TXT / MD /
+#     SVG / JSON / DOCX / XLS / XLSX effects already use (the
+#     matrix stays honest end-to-end).
+#   - Viewer.tsx gains a Next `Script` loader for the
+#     legacy-pinned epubjs CDN (`EPUBJS_CDN_URL` +
+#     `EPUBJS_GLOBAL_NAME = "ePub"` — the case-sensitive
+#     UMD global — lowercase `e`, capital `P`) using Next 16's
+#     `<Script src={d.scriptUrl} strategy="afterInteractive"
+#     onLoad={mount} onError={...}>` shape (see
+#     `node_modules/next/dist/docs/01-app/03-api-reference/02-
+#     components/script.md`).
+#   - On successful script load the mount calls
+#     `window[d.scriptGlobal](d.bytes.buffer)` to construct the
+#     book (NOT `new ePub(...)` — the UMD global IS the
+#     constructor), then `book.renderTo(hostEl, ...)` to mount
+#     it, then surfaces prev / next click handlers that call
+#     `book.prev()` / `book.next()` (mirrors the legacy
+#     `web/file_viewer.js::renderEpub` gotoPrev / gotoNext
+#     shape verbatim).
+#   - The mount owns a module-scoped "previous book" reference
+#     (the legacy uses `_currentBook`; the React mount mirrors
+#     the same lifecycle verbatim — see
+#     `web/file_viewer.js::renderEpub` lines 429–438) and tears
+#     down that previous book BEFORE rendering the new one so
+#     listeners don't leak per `design.md` §8. The same cleanup
+#     runs on unmount AND on any change of the EPUB dispatch.
+#   - On `Script.onError` OR any exception from
+#     `ePub(arrayBuffer)` / `book.renderTo(...)` /
+#     `book.prev()` / `book.next()` the mount flips to a typed
+#     `"cdn-failed"` recovery state that's distinct from the
+#     `bytes-missing` offline path the dispatcher emits at
+#     dispatch time. The mount synthesizes an
+#     `epub-offline` dispatch with `reason: "cdn-failed"` and
+#     routes through `renderOfflineCard` so the existing
+#     download affordance stays in place while the typed
+#     `reason` literal is first-class (the W64B-DOCX-002 typed
+#     union `reason: "bytes-missing" | "cdn-failed"` on the
+#     `epub-offline` variant — extended on `renderers.ts` — lets
+#     the surface distinguish the two failure sources).
+#
+# The W64D surface preserves all existing pins:
+#   - JSON Tree viewer (W64A-JSON-001) — untouched.
+#   - DOCX mount (W64B-DOCX-002) — untouched.
+#   - SheetJS mount (W64C-XLS-003) — untouched.
+#   - The pre-W64D `epub-offline` (bytes-missing) dispatch
+#     stays in the W6.1 cdn-pending catch-all so the existing
+#     W6.1 download-link affordance is preserved verbatim.
+#   - The CSV / TSV / JSON source variants stay in the W6.1
+#     cdn-pending catch-all (W64D is EPUB-only materialization).
+#   - `aria-expanded` / `role="button"` / `tabIndex={0}` /
+#     Enter/Space on the JSON Tree disclosure row — untouched.
+#   - `bytesRequiredForFormat` for non-EPUB formats — the
+#     matrix flips ONLY for `epub`.
+# ---------------------------------------------------------------------------
+
+
+# W64D-EPUB-004 — kernel contract: bytes are now required
+# for EPUB so the existing bytes-fetch effect in Viewer.tsx
+# reads them through the same seam TXT / MD / SVG / JSON /
+# DOCX / XLS / XLSX already use. Mirrors the W64A JSON +
+# W64B DOCX + W64C XLS / XLSX flips — the matrix stays
+# honest end-to-end.
+def test_w64d_kernel_bytes_required_for_format_epub_is_true(
+    compiled_w6_1_kernel: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    """W64D-EPUB-004 — under Node (ES2022 only, no DOM,
+    no React), the compiled framework-free kernel's
+    `bytesRequiredForFormat("epub")` returns `true` (the
+    W64D flip from the W6.1 `false` default). The flip
+    keeps the bytes-required matrix honest end-to-end:
+    EPUB is a CDN-backed source descriptor that requires
+    bytes the same way TXT / MD / SVG / JSON / DOCX / XLS
+    / XLSX do, so the existing Viewer.tsx bytes-fetch
+    effect reads the EPUB bytes through the same seam."""
+    _compiled_kernel, _compiled_renderers = compiled_w6_1_kernel
+    harness = tmp_path / "harness-w64d.cjs"
+    harness.write_text(_W64D_RUNTIME_HARNESS)
+    result = subprocess.run(
+        ["node", str(harness), str(_compiled_kernel)],
+        cwd=REPO_ROOT,
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, (
+        f"W64D runtime harness failed.\nstdout: {result.stdout}\n"
+        f"stderr: {result.stderr}"
+    )
+    assert result.stdout.strip() == "PASS", (
+        f"unexpected W64D harness output: {result.stdout!r}"
+    )
+
+
+_W64D_RUNTIME_HARNESS = r"""
+// W64D-EPUB-004 — focused harness asserting the
+// bytesRequiredForFormat flip for EPUB + the matrix
+// stays honest end-to-end. CJS does not support top-level
+// await, so the assertions run inside sync blocks.
+const path = require("path");
+const assert = require("assert");
+const kernel = require(path.resolve(process.argv[2]));
+
+// 1. bytesRequiredForFormat — W64D-EPUB-004 flips the
+//    EPUB literal from `false` to `true` so the bytes-
+//    fetch effect in Viewer.tsx reads EPUB bytes through
+//    the same seam TXT / MD / SVG / JSON / DOCX / XLS /
+//    XLSX already use.
+{
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("epub"), true,
+    "W64D-EPUB-004: bytesRequiredForFormat('epub') must "
+    + "return true so the bytes-fetch effect in Viewer.tsx "
+    + "reads EPUB bytes through the same seam the TXT / MD "
+    + "/ SVG / JSON / DOCX / XLS / XLSX effects already use",
+  );
+  // The matrix stays honest end-to-end — every other
+  // literal is unchanged from the W6.1 + W64A + W64B +
+  // W64C contract.
+  assert.strictEqual(kernel.bytesRequiredForFormat("txt"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("md"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("svg"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("json"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("docx"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("xls"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("xlsx"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("pdf"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("html"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("htm"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("jpg"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("csv"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("tsv"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("mp4"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("other"), false);
+}
+
+process.stdout.write("PASS\n");
+"""
+
+
+# W64D-EPUB-004 — viewer source-level checks. The
+# Viewer.tsx React mount materializes the typed EPUB
+# source descriptor via Next 16's `<Script>` component +
+# a typed `cdn-failed` recovery state on
+# `Script.onError` + `ePub(arrayBuffer)` construction /
+# `book.renderTo(...)` / `book.prev()` / `book.next()`
+# exception. The checks below pin the source-level shape
+# so a future PR that silently drops the loader trips a
+# focused test before review.
+def test_w64d_viewer_epub_source_uses_script_loader() -> None:
+    """W64D-EPUB-004 — Viewer.tsx MUST have an EXPLICIT
+    `case "epub-source":` branch in `renderDispatch`
+    that's NOT routed through the W6.1 cdn-pending
+    catch-all (the EPUB variant now materializes via the
+    Next `Script` loader + `window[ePub](bytes.buffer)`
+    + `book.renderTo(...)`, not the download-link card).
+    The W64D contract places the `<Script>` JSX + the
+    `onLoad` / `onError` handlers inside a dedicated
+    `EpubRender` sub-component that's mounted from the
+    `case "epub-source":` branch (the sub-component owns
+    its own `loading` / `loaded` / `error` state — see the
+    W64B-DOCX-002 typed `cdn-failed` recovery pattern
+    that W64D mirrors). The case branch hands off to
+    `EpubRender` so the typed `ViewerDispatch` switch
+    stays exhaustive; the `<Script>` surface is verified
+    by extracting the entire `EpubRender` block (NOT just
+    the case-branch body)."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    assert re.search(r'case\s+"epub-source"\s*:', text), (
+        "Viewer.tsx MUST have an explicit `case "
+        "\"epub-source\":` branch in `renderDispatch` so "
+        "the typed EPUB source descriptor materializes "
+        "via the Next `Script` loader + "
+        "`window[ePub](bytes.buffer)` + `book.renderTo(...)` "
+        "(NOT the W6.1 cdn-pending catch-all — "
+        "W64D-EPUB-004 contract)."
+    )
+    # The case branch hands off to an EpubRender component.
+    # Pin the handoff shape so the W64D separation between
+    # the typed dispatch surface + the React lifecycle stays
+    # honest.
+    case_branch_match = re.search(
+        r'case\s+"epub-source"\s*:(.*?)(?=case\s+"|\}\s*\n\s*\})',
+        text, re.DOTALL,
+    )
+    assert case_branch_match, (
+        "Viewer.tsx must have an extractable epub-source "
+        "branch body in renderDispatch."
+    )
+    case_branch = case_branch_match.group(1)
+    assert "EpubRender" in case_branch, (
+        "Viewer.tsx's `case \"epub-source\":` branch MUST "
+        "hand off to the dedicated `EpubRender` sub-"
+        "component (W64D-EPUB-004 separation — the typed "
+        "switch stays exhaustive; the `<Script>` + state "
+        "lifecycle live in `EpubRender`)."
+    )
+    # The EpubRender component MUST render a `<Script>` JSX
+    # element with `src`, `onLoad`, and `onError` props.
+    # Extract the EpubRender function body so the assertion
+    # looks at the loader surface (not the case branch
+    # hand-off, which only routes to the sub-component).
+    epub_fn_match = re.search(
+        r'function\s+EpubRender\b[\s\S]*?\n\}\n',
+        text,
+    )
+    assert epub_fn_match, (
+        "Viewer.tsx must define a `function EpubRender(...)` "
+        "sub-component for the W64D-EPUB-004 materialization "
+        "(the dedicated lifecycle lives there)."
+    )
+    epub_fn = epub_fn_match.group(0)
+    assert re.search(r'<Script\b', epub_fn), (
+        "Viewer.tsx's EpubRender sub-component MUST render "
+        "a `<Script>` JSX element from the `next/script` "
+        "default import (W64D-EPUB-004 contract — the EPUB "
+        "materialization owns the Next 16 `<Script src "
+        "onLoad onError>` loader)."
+    )
+    assert re.search(r'\bonLoad=', epub_fn) or re.search(
+        r'\bonLoad =', epub_fn,
+    ), (
+        "Viewer.tsx's EpubRender sub-component MUST wire the "
+        "`<Script>` `onLoad` handler to call "
+        "`window[dispatch.scriptGlobal](dispatch.bytes.buffer)` + "
+        "`book.renderTo(hostEl, ...)`."
+    )
+    assert re.search(r'\bonError=', epub_fn) or re.search(
+        r'\bonError =', epub_fn,
+    ), (
+        "Viewer.tsx's EpubRender sub-component MUST wire "
+        "the `<Script>` `onError` handler so the script-"
+        "load failure surfaces through the typed "
+        "`cdn-failed` recovery state."
+    )
+
+
+def test_w64d_viewer_epub_source_constructs_book_via_window_call() -> None:
+    """W64D-EPUB-004 — the EpubRender onLoad handler MUST
+    construct the epubjs book via
+    `window[dispatch.scriptGlobal](dispatch.bytes.buffer)`
+    (the UMD global IS the constructor — `ePub` itself
+    is a function, NOT a class — so the call is `ePub(buf)`
+    not `new ePub(buf)`). The call MUST reach the pinned
+    global through `dispatch.scriptGlobal` (NOT a
+    hardcoded `"ePub"` literal — case-sensitive) so a
+    future PR that bumps the CDN pin lands in lock-step
+    across the dispatcher constant + the loader site. The
+    bytes are passed via `dispatch.bytes.buffer` so the
+    epubjs UMD constructor receives an `ArrayBuffer` (the
+    underlying buffer the `Uint8Array` view wraps — the
+    same shape the legacy `web/file_viewer.js::renderEpub`
+    `window.ePub(arrayBuffer)` call site uses verbatim)."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    # The mount MUST reach the global through the pinned
+    # `window[dispatch.scriptGlobal](...)` call site — NOT
+    # `new ePub(...)`. The UMD global is a function, so
+    # `new` would throw at runtime. The presence of
+    # `new ePub` would silently break the construction site.
+    assert "new ePub" not in text, (
+        "Viewer.tsx MUST NOT call `new ePub(...)` — the "
+        "epubjs UMD global is a function, NOT a class. The "
+        "W64D-EPUB-004 contract constructs the book via "
+        "`window[dispatch.scriptGlobal](dispatch.bytes.buffer)` "
+        "verbatim (matches the legacy `web/file_viewer.js::"
+        "renderEpub` `window.ePub(arrayBuffer)` call site)."
+    )
+    # The mount MUST reach the pinned callback through
+    # `dispatch.scriptGlobal` (NOT a hardcoded `"ePub"`
+    # literal) so a future PR that bumps the CDN pin
+    # lands in lock-step across the dispatcher constant
+    # + the loader site.
+    assert re.search(
+        r"window\s*\[\s*\w+\.scriptGlobal\s*\]"
+        r"|window\s*\[\s*\w+\s*\]\s*\(",
+        text,
+    ), (
+        "Viewer.tsx must reach the pinned epubjs global "
+        "through `window[dispatch.scriptGlobal](...)` — "
+        "NOT a hardcoded `\"ePub\"` literal — so a future "
+        "PR that bumps the CDN pin lands in lock-step "
+        "across the dispatcher constant + the loader site."
+    )
+    # The mount MUST pass `dispatch.bytes.buffer` so the
+    # epubjs UMD constructor receives the underlying
+    # ArrayBuffer (the same shape the legacy
+    # `window.ePub(arrayBuffer)` site uses).
+    assert re.search(
+        r"dispatch\.bytes\.buffer|\w+\.bytes\.buffer",
+        text,
+    ), (
+        "Viewer.tsx must pass `dispatch.bytes.buffer` "
+        "to `window[dispatch.scriptGlobal](...)` so the "
+        "epubjs UMD constructor receives the underlying "
+        "ArrayBuffer (matches the legacy "
+        "`window.ePub(arrayBuffer)` site)."
+    )
+
+
+def test_w64d_viewer_epub_source_calls_render_to() -> None:
+    """W64D-EPUB-004 — the EpubRender mount MUST call
+    `book.renderTo(hostEl, ...)` to mount the EPUB into
+    the React tree (mirrors the legacy
+    `web/file_viewer.js::renderEpub`
+    `book.renderTo(epubHost, { width: "100%", height: "100%" })`
+    shape verbatim). The host element is a stable React ref
+    so the mount has a typed target to render into (the
+    legacy uses `el("div", { class: "flex-1 min-h-[480px]" })`
+    — the React mount uses a `useRef<HTMLDivElement>` for
+    the same purpose so the lifecycle stays React-y)."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    assert re.search(r"\.renderTo\s*\(", text), (
+        "Viewer.tsx must reference `.renderTo(...)` so "
+        "the W64D-EPUB-004 mount materializes the EPUB "
+        "into the React tree (mirrors the legacy "
+        "`web/file_viewer.js::renderEpub` "
+        "`book.renderTo(epubHost, { width: \"100%\", "
+        "height: \"100%\" })` shape verbatim)."
+    )
+
+
+def test_w64d_viewer_epub_source_surfaces_prev_next_navigation() -> None:
+    """W64D-EPUB-004 — the EpubRender mount MUST surface
+    prev / next click handlers that call `book.prev()` /
+    `book.next()` (mirrors the legacy
+    `web/file_viewer.js::renderEpub` gotoPrev / gotoNext
+    shape verbatim). The mount wires two `<button>`
+    elements (or equivalent clickable controls) that call
+    the book's navigation API. A future PR that
+    accidentally drops the navigation handlers would
+    leave the user unable to flip pages — this guard
+    pins the affordance."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    assert re.search(r"\.prev\s*\(\s*\)", text), (
+        "Viewer.tsx must reference `.prev()` so the "
+        "W64D-EPUB-004 prev-page click handler routes "
+        "through `book.prev()` (mirrors the legacy "
+        "`web/file_viewer.js::renderEpub` gotoPrev shape)."
+    )
+    assert re.search(r"\.next\s*\(\s*\)", text), (
+        "Viewer.tsx must reference `.next()` so the "
+        "W64D-EPUB-004 next-page click handler routes "
+        "through `book.next()` (mirrors the legacy "
+        "`web/file_viewer.js::renderEpub` gotoNext shape)."
+    )
+
+
+def test_w64d_viewer_epub_source_owns_previous_book_lifecycle() -> None:
+    """W64D-EPUB-004 — the EpubRender mount MUST own a
+    module-scoped "previous book" reference and tear down
+    that previous book BEFORE rendering the new one so
+    listeners don't leak (mirrors the legacy
+    `web/file_viewer.js::renderEpub` lines 429–438
+    `_currentBook.destroy()` lifecycle verbatim). The
+    cleanup MUST also run on unmount AND on any change of
+    the EPUB dispatch (the `useEffect` cleanup path
+    preserves the React-mount equivalence of the
+    legacy's "next open tears down the previous" shape).
+
+    A future PR that drops the lifecycle would let
+    listeners leak per `design.md` §8 EPUB render
+    lifecycle; this guard pins the module-scoped
+    previous-book slot + the destroy call + the
+    useEffect cleanup wiring."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    epub_fn_match = re.search(
+        r'function\s+EpubRender\b[\s\S]*?\n\}\n',
+        text,
+    )
+    assert epub_fn_match, (
+        "Viewer.tsx must define a `function EpubRender(...)` "
+        "sub-component for the W64D-EPUB-004 materialization."
+    )
+    epub_fn = epub_fn_match.group(0)
+    # The mount MUST reference `.destroy()` to call the
+    # previous book's teardown.
+    assert re.search(r"\.destroy\s*\(\s*\)", epub_fn), (
+        "Viewer.tsx's EpubRender sub-component MUST "
+        "reference `.destroy()` so the module-scoped "
+        "previous-book slot tears down listeners before "
+        "the new book mounts (mirrors the legacy "
+        "`web/file_viewer.js::renderEpub` "
+        "`_currentBook.destroy()` lifecycle verbatim)."
+    )
+    # The mount MUST own a module-scoped `previousBook`
+    # (or `currentBook` / `_currentBook`) reference so the
+    # next open can tear down the previous one. The legacy
+    # uses `_currentBook`; the React mount mirrors the
+    # same shape with a module-scoped `let previousBook:`
+    # declaration (the React mount can't rely on a hook
+    # because the previous-book reference must outlive
+    # the per-render closure).
+    assert re.search(
+        r"(?:^|\n)\s*(?:let|var)\s+(?:previousBook|currentBook|_currentBook)\b",
+        epub_fn,
+    ) or re.search(
+        r"(?:previousBook|currentBook|_currentBook)\s*[=:]",
+        epub_fn,
+    ), (
+        "Viewer.tsx's EpubRender sub-component MUST own a "
+        "module-scoped `previousBook` (or `currentBook` / "
+        "`_currentBook`) reference so the next open can "
+        "tear down the previous book BEFORE rendering the "
+        "new one (mirrors the legacy `web/file_viewer.js::"
+        "renderEpub` `_currentBook.destroy()` lifecycle "
+        "verbatim — the previous-book reference must "
+        "outlive the per-render closure)."
+    )
+    # The cleanup MUST run on unmount OR on dispatch change.
+    # The React `useEffect` cleanup is the typed surface
+    # that mirrors the legacy "tear down on the NEXT open"
+    # lifecycle; the cleanup body MUST call the destroy
+    # path so listeners don't leak per `design.md` §8.
+    assert re.search(
+        r"return\s*\(\s*\)\s*=>\s*\{[\s\S]*?(?:destroy|cleanup)",
+        epub_fn,
+    ) or re.search(
+        r"return\s*\(\s*\)\s*=>\s*\{[\s\S]*?(?:previousBook|currentBook|_currentBook)",
+        epub_fn,
+    ), (
+        "Viewer.tsx's EpubRender sub-component MUST wire a "
+        "`useEffect` cleanup that tears down the previous "
+        "book so listeners don't leak on unmount OR on any "
+        "change of the EPUB dispatch (mirrors the legacy "
+        "`web/file_viewer.js::renderEpub` "
+        "`_currentBook.destroy()` lifecycle verbatim)."
+    )
+
+
+def test_w64d_viewer_epub_source_emits_cdn_failed_recovery_state() -> None:
+    """W64D-EPUB-004 — the EPUB materialization MUST emit a
+    typed `cdn-failed` recovery state when EITHER
+    `Script.onError` fires (the CDN script fails to load)
+    OR `ePub(arrayBuffer)` construction throws OR
+    `book.renderTo(...)` throws OR `book.prev()` /
+    `book.next()` throws. The recovery state is distinct
+    from the `bytes-missing` offline path the dispatcher
+    emits at dispatch time. The mount synthesizes an
+    `epub-offline` dispatch with `reason: "cdn-failed"`
+    and routes through `renderOfflineCard` so the existing
+    download affordance stays in place while the typed
+    `reason` literal is first-class."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    assert '"cdn-failed"' in text, (
+        "Viewer.tsx must carry the literal `\"cdn-failed\"` "
+        "so the typed recovery state surfaces a distinct "
+        "value from the bytes-missing offline path "
+        "(W64D-EPUB-004 contract — Script.onError + "
+        "ePub(arrayBuffer) construction / "
+        "book.renderTo / book.prev / book.next exception "
+        "routes through the mount's typed recovery state "
+        "whose `reason` literal is `\"cdn-failed\"`)."
+    )
+    # The recovery state must synthesize an epub-offline
+    # dispatch — the W64B-DOCX-002 typed union
+    # `reason: "bytes-missing" | "cdn-failed"` on the
+    # `epub-offline` variant (extended by W64B on
+    # `renderers.ts`) is the common contract.
+    epub_fn_match = re.search(
+        r'function\s+EpubRender\b[\s\S]*?\n\}\n',
+        text,
+    )
+    assert epub_fn_match, (
+        "Viewer.tsx must define a `function EpubRender(...)` "
+        "sub-component for the W64D-EPUB-004 materialization."
+    )
+    epub_fn = epub_fn_match.group(0)
+    assert '"epub-offline"' in epub_fn or 'epub-offline' in epub_fn, (
+        "Viewer.tsx's EpubRender sub-component MUST "
+        "synthesize an `epub-offline` dispatch with "
+        "`reason: \"cdn-failed\"` so the existing "
+        "`renderOfflineCard` paints the download affordance "
+        "with a typed `reason` literal distinct from the "
+        "`bytes-missing` path the dispatcher emits."
+    )
+
+
+def test_w64d_viewer_preserves_json_docx_sheet_epub_offline_pins() -> None:
+    """W64D-EPUB-004 — the EPUB materialization adds a new
+    `case \"epub-source\":` branch but MUST NOT silently
+    drop or rewrite the W6.4a + W6.4b + W6.4c pins:
+
+      1. The W64A-JSON-001 JSON Tree pins (`case
+         \"json-source\":` branch + the `[root]` literal +
+         the `Tree truncated — open raw` banner text).
+      2. The W64B-DOCX-002 DOCX mount pins (the
+         `case \"docx-source\":` branch + the `DocxRender`
+         sub-component + the `convertToHtml` call +
+         `arrayBuffer` wrapper).
+      3. The W64C-XLS-003 XLS / XLSX mount pins (the
+         `case \"sheet-source\":` branch + the
+         `SheetRender` sub-component + the `.read` /
+         `sheet_to_html` call sites + the `<select>`
+         picker).
+      4. The pre-W64D `epub-offline` (bytes-missing)
+         dispatch stays in the W6.1 cdn-pending catch-all
+         — the W64D slice only extracts `epub-source` from
+         the catch-all; `epub-offline` keeps the existing
+         W6.1 download-link affordance.
+      5. The other CDN-backed source variants
+         (`table-source`, `json-source`) stay in the W6.1
+         cdn-pending catch-all.
+
+    A future PR that adds the EPUB materialization while
+    accidentally dropping a JSON / DOCX / XLS / XLSX /
+    epub-offline pin breaks multiple contracts at review.
+    """
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+
+    # 1. W64A-JSON-001 pins.
+    assert re.search(r'case\s+"json-source"\s*:', text), (
+        "Viewer.tsx MUST keep its W64A-JSON-001 "
+        "`case \"json-source\":` branch — W64D must NOT "
+        "silently drop the JSON Tree viewer while adding "
+        "the EPUB materialization."
+    )
+    assert '"[root]"' in text, (
+        "Viewer.tsx must keep the legacy `[root]` literal "
+        "(the W64A-JSON-001 synthetic root key)."
+    )
+    assert "Tree truncated — open raw" in text, (
+        "Viewer.tsx must keep the legacy "
+        "`Tree truncated — open raw` banner text "
+        "(the W64A-JSON-001 truncation banner)."
+    )
+
+    # 2. W64B-DOCX-002 pins.
+    assert re.search(r'case\s+"docx-source"\s*:', text), (
+        "Viewer.tsx MUST keep its W64B-DOCX-002 "
+        "`case \"docx-source\":` branch — W64D must NOT "
+        "silently drop the DOCX mount while adding the "
+        "EPUB materialization."
+    )
+    assert "DocxRender" in text, (
+        "Viewer.tsx must keep its W64B-DOCX-002 "
+        "`DocxRender` sub-component — W64D mirrors the "
+        "W64B separation between the typed dispatch surface "
+        "+ the React lifecycle; both sub-components stay "
+        "alive in lock-step."
+    )
+    assert "convertToHtml" in text, (
+        "Viewer.tsx must keep the W64B-DOCX-002 "
+        "`convertToHtml(...)` reference so the DOCX "
+        "materialization stays intact."
+    )
+    assert "arrayBuffer" in text, (
+        "Viewer.tsx must keep the W64B-DOCX-002 "
+        "`arrayBuffer` wrapper so the DOCX bytes are "
+        "passed to mammoth through the typed "
+        "`{arrayBuffer: bytes.buffer}` shape."
+    )
+
+    # 3. W64C-XLS-003 pins.
+    assert re.search(r'case\s+"sheet-source"\s*:', text), (
+        "Viewer.tsx MUST keep its W64C-XLS-003 "
+        "`case \"sheet-source\":` branch — W64D must NOT "
+        "silently drop the XLS / XLSX mount while adding "
+        "the EPUB materialization."
+    )
+    assert "SheetRender" in text, (
+        "Viewer.tsx must keep its W64C-XLS-003 "
+        "`SheetRender` sub-component — W64D mirrors the "
+        "W64C separation between the typed dispatch surface "
+        "+ the React lifecycle; both sub-components stay "
+        "alive in lock-step."
+    )
+    assert "sheet_to_html" in text, (
+        "Viewer.tsx must keep the W64C-XLS-003 "
+        "`sheet_to_html(...)` reference so the XLS / XLSX "
+        "materialization stays intact."
+    )
+
+    # 4. The pre-W64D epub-offline (bytes-missing) dispatch
+    #    stays in the W6.1 cdn-pending catch-all. The test
+    #    asserts `epub-offline` is still listed in the
+    #    catch-all alongside `docx-offline` + `sheet-offline`
+    #    + `table-offline` + `json-offline`.
+    cdn_pending_catch_all_match = re.search(
+        r'(case\s+"docx-offline"\s*:[\s\S]*?)return\s+renderOfflineCard',
+        text,
+    )
+    assert cdn_pending_catch_all_match, (
+        "Viewer.tsx must keep its W6.1 cdn-pending catch-"
+        "all `return renderOfflineCard(...)` branch so the "
+        "`*-offline` variants (docx-offline / sheet-offline "
+        "/ epub-offline / table-offline / json-offline) "
+        "all funnel through the existing download-link "
+        "recovery card. W64D extracts `epub-source` from "
+        "this catch-all but leaves `epub-offline` in place."
+    )
+    catch_all_body = cdn_pending_catch_all_match.group(1)
+    for offline_literal in (
+        "docx-offline",
+        "sheet-offline",
+        "epub-offline",
+        "table-offline",
+        "json-offline",
+    ):
+        assert f'"{offline_literal}"' in catch_all_body, (
+            f"Viewer.tsx's cdn-pending catch-all MUST still "
+            f"list `{offline_literal}` so the pre-W64D bytes-"
+            f"missing offline path is preserved verbatim "
+            f"(W64D-EPUB-004 acceptance: 'the pre-W64D "
+            f"epub-offline dispatch (bytes-missing) stays "
+            f"in the cdn-pending catch-all'). Got: "
+            f"{catch_all_body!r}"
+        )
+
+    # 5. The other CDN-backed source variants
+    #    (`table-source`) stay in the W6.1 cdn-pending
+    #    catch-all. (`json-source` is NOT in the catch-all —
+    #    it's routed through `renderJsonTree` outside the
+    #    catch-all, which the W64A-JSON-001 case branch
+    #    pins above.)
+    for source_literal in ("table-source",):
+        assert f'"{source_literal}"' in catch_all_body, (
+            f"Viewer.tsx's cdn-pending catch-all MUST still "
+            f"list `{source_literal}` so the W6.1 non-CDN "
+            f"surface stays in place for the CSV / TSV "
+            f"deferred family. W64D only extracts "
+            f"`epub-source` from the catch-all; CSV / TSV "
+            f"materialization lands as separately authorized "
+            f"later slices."
+        )
+
+    # 6. `epub-source` MUST NOT appear in the cdn-pending
+    #    catch-all anymore — the W64D slice extracts it so
+    #    the typed source descriptor routes through
+    #    `EpubRender` instead.
+    assert '"epub-source"' not in catch_all_body, (
+        "Viewer.tsx's cdn-pending catch-all MUST NOT list "
+        "`epub-source` anymore — W64D-EPUB-004 extracts "
+        "the EPUB source descriptor from the catch-all so "
+        "the typed source routes through the `EpubRender` "
+        "sub-component (NOT the W6.1 download-link "
+        "affordance)."
     )
