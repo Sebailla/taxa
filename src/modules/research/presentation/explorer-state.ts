@@ -603,3 +603,84 @@ export {
  *  importing from `../domain/explorer` directly. The W6.2
  *  React mount reads the W1 `SearchState` literal union
  *  through this kernel re-export. */
+
+// ---- W6.5-BRIDGE-006 — FolderTab → Explorer refresh bridge ----
+
+/** W6.5-BRIDGE-006 — canonical window-scoped CustomEvent
+ *  name that the FolderTab dispatches when
+ *  `materializeResearch` (or `openFolder`) succeeds, and
+ *  that the Explorer route listens for to re-fetch the
+ *  `/api/files` tree. Pinned verbatim — a future PR that
+ *  bumps the event name MUST update BOTH the kernel export
+ *  here AND the FolderTab + Explorer consumer literals (and
+ *  re-run the W6.5 focused tests so the pinned literals
+ *  stay in lock-step). The dispatch is `window`-scoped so
+ *  the Explorer route subscription site matches the
+ *  FolderTab dispatch site without a custom EventTarget
+ *  abstraction. The signal is intentionally NOT routed
+ *  through `@taxa/browser-state` (the W6.5 contract forbids
+ *  browser-state expansion) — a window CustomEvent is the
+ *  smallest surface that lets two separate routes (the
+ *  TaxonomyTree-mounted FolderTab + the /explorer route's
+ *  Explorer client island) cross-signal without a shared
+ *  parent context. */
+export const EXPLORER_REFRESH_EVENT_NAME = "taxa:explorer:refresh";
+
+/** W6.5-BRIDGE-006 — union of FolderTab status `kind`
+ *  literals that represent a successful transition (the
+ *  state where `materializeResearch` or `openFolder`
+ *  completed without error). The Explorer route should
+ *  re-fetch its `/api/files` tree when EITHER transition
+ *  flips to its success kind:
+ *
+ *  - `"created"` — the FolderCreateStatus success literal;
+ *    the `materializeResearch` POST returned a 2xx +
+ *    the canonical `MaterializeResult` payload, so the
+ *    root→taxon folder structure now exists on disk.
+ *  - `"opened"`  — the FolderOpenStatus success literal;
+ *    the `openFolder` POST returned a 2xx + the canonical
+ *    `OpenFolderResult` payload, so the OS file manager
+ *    was spawned (typically `open` on macOS, `xdg-open`
+ *    on Linux, `explorer` on Windows).
+ *
+ *  Every other FolderCreateStatus / FolderOpenStatus kind
+ *  (`"idle"` / `"creating"` / `"opening"` / `"error"` /
+ *  `"copied"`) MUST NOT trigger the explorer refresh — the
+ *  predicate `isFolderSuccessStatusKind` enforces this
+ *  bound at the kernel surface so the React layer never
+ *  branches on the full kind string directly. */
+export type FolderSuccessStatusKind = "created" | "opened";
+
+/** W6.5-BRIDGE-006 — pure predicate that returns `true`
+ *  IFF the supplied FolderTab status `kind` literal
+ *  represents a success transition that should trigger an
+ *  Explorer refresh dispatch. Mirrors the
+ *  `FolderSuccessStatusKind` literal union above.
+ *
+ *  Returns `true` for the two success literals:
+ *  - `"created"` (FolderCreateStatus success — the
+ *    `materializeResearch` POST returned a 2xx +
+ *    `MaterializeResult` payload).
+ *  - `"opened"` (FolderOpenStatus success — the
+ *    `openFolder` POST returned a 2xx + `OpenFolderResult`
+ *    payload).
+ *
+ *  Returns `false` for every other input (the non-success
+ *  FolderCreateStatus / FolderOpenStatus kinds — `idle` /
+ *  `creating` / `opening` / `error` / `copied` — plus any
+ *  non-string input / `null` / `undefined` / case-mismatched
+ *  would-be synonyms like `CREATED` / `succeeded`).
+ *  A future PR that accidentally widens the dispatch
+ *  surface (e.g. to `"creating"` so the Explorer
+ *  refetches mid-materialize) trips this predicate's
+ *  negative assertions.
+ *
+ *  Pure, framework-free, importable through the kernel +
+ *  barrel. The TypeScript `kind is FolderSuccessStatusKind`
+ *  return type lets the React layer narrow the literal
+ *  without a follow-up cast. */
+export function isFolderSuccessStatusKind(
+  kind: string,
+): kind is FolderSuccessStatusKind {
+  return kind === "created" || kind === "opened";
+}

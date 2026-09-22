@@ -19,6 +19,7 @@ TREE_STATE_FILE = MODULE_DIR / "presentation" / "tree-state.ts"
 ROW_FORMAT_FILE = MODULE_DIR / "presentation" / "row-format.ts"
 BARREL_FILE = MODULE_DIR / "index.ts"
 DOMAIN_FILE = MODULE_DIR / "domain" / "taxon.ts"
+FOLDER_TAB_FILE = MODULE_DIR / "presentation" / "FolderTab.tsx"
 
 
 @pytest.fixture()
@@ -742,3 +743,345 @@ def test_compiled_tree_state_passes_runtime_contract(
     assert result.returncode == 0 and result.stdout.strip() == "PASS", (
         f"tree-state runtime harness failed.\nstdout: {result.stdout}\nstderr: {result.stderr}"
     )
+
+
+# ---------------------------------------------------------------------------
+# W6.5-BRIDGE-006 — FolderTab → Explorer refresh bridge.
+# The FolderTab dispatches a
+# `window.CustomEvent("taxa:explorer:refresh")` when
+# `materializeResearch` (or `openFolder`) succeeds in
+# the React taxonomy detail panel. The Explorer route
+# subscribes to that event on mount and re-fetches the
+# /api/files tree so the tree mirrors the new folder
+# structure without dropping the existing
+# ExplorerLoadStatus / expanded set / selected-path /
+# ViewerState.
+#
+# Acceptance (verbatim from the W6.5 task brief):
+#  - Signal is a window-scoped CustomEvent named
+#    `"taxa:explorer:refresh"` (verbatim).
+#  - Dispatched from FolderTab once the create / open
+#    transitions reach the success state
+#    (`createStatus.kind === "created"` /
+#    `openStatus.kind === "opened"`).
+#  - No dispatch on `idle` / `creating` / `opening` /
+#    `error` / `copied` states.
+#  - Dispatch target is `window` (not `document`, not
+#    a custom EventTarget).
+#  - No @taxa/browser-state key expansion.
+#  - No router-key re-mount.
+#  - No legacy web/ mutation.
+#
+# The FolderTab contract surfaces through:
+#  - Local `EXPLORER_REFRESH_EVENT_NAME = "taxa:explorer:refresh"`
+#    constant (the verbatim canonical literal).
+#  - Two `useEffect`s that watch `createStatus` +
+#    `openStatus` and dispatch
+#    `window.dispatchEvent(new CustomEvent(EXPLORER_REFRESH_EVENT_NAME))`
+#    on the success transitions only.
+# ---------------------------------------------------------------------------
+
+
+def test_w65_folder_tab_defines_local_event_name_literal() -> None:
+    """W6.5-BRIDGE-006 — FolderTab.tsx MUST define a local
+    `EXPLORER_REFRESH_EVENT_NAME = "taxa:explorer:refresh"`
+    constant so the FolderTab dispatches with the verbatim
+    canonical literal. The constant is local (the
+    FolderTab is in the taxonomy module — no cross-module
+    import from `@taxa/research` is allowed for the
+    cross-route event name). A future PR that renames the
+    event MUST update the kernel constant + the
+    Explorer.tsx literal + the FolderTab.tsx literal in
+    lock-step."""
+    if not FOLDER_TAB_FILE.is_file():
+        pytest.skip("FolderTab.tsx not present yet")
+    text = FOLDER_TAB_FILE.read_text()
+    assert re.search(
+        r'EXPLORER_REFRESH_EVENT_NAME\s*=\s*["\']taxa:explorer:refresh["\']',
+        text,
+    ), (
+        "FolderTab.tsx MUST define a local "
+        "`EXPLORER_REFRESH_EVENT_NAME = \"taxa:explorer:refresh\"` "
+        "constant so the dispatch uses the verbatim canonical "
+        "literal (W6.5-BRIDGE-006 contract)."
+    )
+
+
+def test_w65_folder_tab_dispatches_on_create_success() -> None:
+    """W6.5-BRIDGE-006 — FolderTab.tsx MUST dispatch
+    `window.dispatchEvent(new CustomEvent(EXPLORER_REFRESH_EVENT_NAME))`
+    when `createStatus.kind === "created"` (i.e. the
+    `materializeResearch` POST succeeded). The dispatch is
+    bound to the success transition only — a mid-flight
+    `"creating"` state MUST NOT fire the dispatch (the
+    Explorer would refetch before the new folders hit
+    disk).
+
+    The implementation may use either:
+      - `if (createStatus.kind === "created") { dispatch }`
+      - `if (createStatus.kind !== "created") return; dispatch`
+      - `if (!isFolderSuccessStatusKind(createStatus.kind)) return; dispatch`
+
+    All three shapes satisfy the contract. The lenient
+    match accepts any of them by looking for the
+    success-status check + the dispatch within the same
+    useEffect body (extracted via brace-counting)."""
+    if not FOLDER_TAB_FILE.is_file():
+        pytest.skip("FolderTab.tsx not present yet")
+    text = FOLDER_TAB_FILE.read_text()
+    # The useEffect keyed on `createStatus` MUST branch on
+    # the success literal. Accept BOTH `=== "created"`
+    # and `!== "created"` patterns (the implementation
+    # uses early-return on the non-success branch).
+    assert re.search(
+        r"createStatus\.kind\s*(?:!==|===)\s*[\"']created[\"']",
+        text,
+    ), (
+        "FolderTab.tsx MUST branch on "
+        "`createStatus.kind (===|!==) \"created\"` so the "
+        "dispatch fires ONLY on the materializeResearch "
+        "success transition (W6.5-BRIDGE-006 contract)."
+    )
+    # Locate the useEffect that branches on
+    # `createStatus` + extract its body via
+    # brace-counting so the dispatch + the success-status
+    # check both live in the same effect.
+    effect_match = re.search(
+        r"useEffect\s*\(\s*\(\s*\)\s*=>\s*\{", text,
+    )
+    assert effect_match, (
+        "FolderTab.tsx MUST have a `useEffect` (W6.5 "
+        "contract: the dispatch lifecycle lives in a "
+        "useEffect so React dedupes per-status-instance)."
+    )
+    effect_open = effect_match.end() - 1  # the `{` index
+    # Walk forward to find the matching `}`.
+    depth = 0
+    body_end = -1
+    for i in range(effect_open, len(text)):
+        c = text[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                body_end = i + 1
+                break
+    assert body_end > effect_open, (
+        "FolderTab.tsx's createStatus useEffect body MUST "
+        "close with a matching `}` (brace-counting "
+        "traversal failed — the effect body is malformed)."
+    )
+    body = text[effect_open:body_end]
+    # The dispatch site MUST live in the same useEffect
+    # block as the success-status check. The lenient
+    # match tolerates whitespace / newlines around
+    # `new CustomEvent(...)`.
+    body_stripped = re.sub(r"\s+", "", body)
+    assert (
+        "createStatus.kind" in body
+        and "newCustomEvent(EXPLORER_REFRESH_EVENT_NAME)" in body_stripped
+        and "window.dispatchEvent" in body_stripped
+    ), (
+        "FolderTab.tsx's createStatus useEffect MUST call "
+        "`window.dispatchEvent(new CustomEvent(EXPLORER_REFRESH_EVENT_NAME))` "
+        "when `createStatus.kind === \"created\"` "
+        "(W6.5-BRIDGE-006 contract: dispatch the typed "
+        "CustomEvent on the success transition so the "
+        "Explorer route re-fetches /api/files)."
+    )
+
+
+def test_w65_folder_tab_dispatches_on_open_success() -> None:
+    """W6.5-BRIDGE-006 — FolderTab.tsx MUST dispatch
+    `window.dispatchEvent(new CustomEvent(EXPLORER_REFRESH_EVENT_NAME))`
+    when `openStatus.kind === "opened"` (i.e. the
+    `openFolder` POST succeeded). The dispatch is
+    bound to the success transition only — a mid-flight
+    `"opening"` state MUST NOT fire the dispatch.
+
+    The implementation may use either `=== "opened"` or
+    `!== "opened"` patterns; the lenient match accepts
+    any of them."""
+    if not FOLDER_TAB_FILE.is_file():
+        pytest.skip("FolderTab.tsx not present yet")
+    text = FOLDER_TAB_FILE.read_text()
+    # Accept BOTH `=== "opened"` and `!== "opened"`
+    # patterns (the implementation uses early-return on
+    # the non-success branch).
+    assert re.search(
+        r"openStatus\.kind\s*(?:!==|===)\s*[\"']opened[\"']",
+        text,
+    ), (
+        "FolderTab.tsx MUST branch on "
+        "`openStatus.kind (===|!==) \"opened\"` so the "
+        "dispatch fires ONLY on the openFolder success "
+        "transition (W6.5-BRIDGE-006 contract)."
+    )
+    # Find the SECOND useEffect in the file (the one
+    # keyed on openStatus). Brace-counting extracts the
+    # body so the dispatch + the success-status check
+    # both live in the same effect.
+    effect_matches = list(
+        re.finditer(r"useEffect\s*\(\s*\(\s*\)\s*=>\s*\{", text),
+    )
+    assert len(effect_matches) >= 2, (
+        "FolderTab.tsx MUST have at least two `useEffect` "
+        "blocks (one for createStatus + one for openStatus "
+        "— W6.5-BRIDGE-006 contract)."
+    )
+    # Use the LAST useEffect block (openStatus's
+    # dispatch effect — it's defined AFTER createStatus's
+    # in the implementation).
+    last_effect = effect_matches[-1]
+    effect_open = last_effect.end() - 1
+    depth = 0
+    body_end = -1
+    for i in range(effect_open, len(text)):
+        c = text[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                body_end = i + 1
+                break
+    assert body_end > effect_open, (
+        "FolderTab.tsx's openStatus useEffect body MUST "
+        "close with a matching `}` (brace-counting "
+        "traversal failed — the effect body is malformed)."
+    )
+    body = text[effect_open:body_end]
+    body_stripped = re.sub(r"\s+", "", body)
+    assert (
+        "openStatus.kind" in body
+        and "newCustomEvent(EXPLORER_REFRESH_EVENT_NAME)" in body_stripped
+        and "window.dispatchEvent" in body_stripped
+    ), (
+        "FolderTab.tsx's openStatus useEffect MUST call "
+        "`window.dispatchEvent(new CustomEvent(EXPLORER_REFRESH_EVENT_NAME))` "
+        "when `openStatus.kind === \"opened\"` "
+        "(W6.5-BRIDGE-006 contract: dispatch the typed "
+        "CustomEvent on the success transition so the "
+        "Explorer route re-fetches /api/files)."
+    )
+
+
+def test_w65_folder_tab_dispatches_via_window_only() -> None:
+    """W6.5-BRIDGE-006 — FolderTab.tsx MUST dispatch the
+    event on `window` (NOT `document`, NOT a custom
+    EventTarget). The Explorer route subscribes on
+    `window`; a different target would silently break
+    the bridge."""
+    if not FOLDER_TAB_FILE.is_file():
+        pytest.skip("FolderTab.tsx not present yet")
+    text = FOLDER_TAB_FILE.read_text()
+    # The dispatch site MUST use `window.dispatchEvent(`.
+    assert re.search(
+        r"window\.dispatchEvent\s*\(\s*new\s+CustomEvent\s*\(\s*EXPLORER_REFRESH_EVENT_NAME",
+        text,
+    ), (
+        "FolderTab.tsx MUST dispatch via "
+        "`window.dispatchEvent(new CustomEvent(EXPLORER_REFRESH_EVENT_NAME))` "
+        "— the W6.5-BRIDGE-006 contract pins `window` as "
+        "the dispatch target so the Explorer route "
+        "subscription site matches."
+    )
+    # The dispatch site MUST NOT use `document.dispatchEvent`
+    # (the bridge target is window, not document).
+    assert "document.dispatchEvent" not in text, (
+        "FolderTab.tsx MUST NOT dispatch via "
+        "`document.dispatchEvent(...)` — the W6.5-BRIDGE-006 "
+        "contract pins `window` as the dispatch target "
+        "(the Explorer route subscribes on `window`). "
+        "A document-scoped dispatch would silently break "
+        "the bridge."
+    )
+
+
+def test_w65_folder_tab_dispatch_uses_new_custom_event_with_canonical_name() -> None:
+    """W6.5-BRIDGE-006 — FolderTab.tsx MUST construct the
+    dispatch as `new CustomEvent(EXPLORER_REFRESH_EVENT_NAME)`
+    so the event carries the verbatim canonical name. A
+    bare `new Event(...)` would carry a different event
+    type; a string-typed `new CustomEvent(\"some-other-name\")`
+    would break the bridge."""
+    if not FOLDER_TAB_FILE.is_file():
+        pytest.skip("FolderTab.tsx not present yet")
+    text = FOLDER_TAB_FILE.read_text()
+    # The dispatch MUST use `new CustomEvent(EXPLORER_REFRESH_EVENT_NAME)`.
+    # The literal `"taxa:explorer:refresh"` MUST NOT appear
+    # inline in the dispatch — the W6.5 contract pins the
+    # constant as the canonical source.
+    assert re.search(
+        r"new\s+CustomEvent\s*\(\s*EXPLORER_REFRESH_EVENT_NAME\b",
+        text,
+    ), (
+        "FolderTab.tsx MUST construct the dispatch via "
+        "`new CustomEvent(EXPLORER_REFRESH_EVENT_NAME)` "
+        "so the event carries the verbatim canonical name "
+        "(W6.5-BRIDGE-006 contract)."
+    )
+    # The dispatch MUST NOT inline `"taxa:explorer:refresh"`
+    # (the canonical name flows through the constant so a
+    # future rename updates one place).
+    assert not re.search(
+        r'new\s+CustomEvent\s*\(\s*["\']taxa:explorer:refresh["\']',
+        text,
+    ), (
+        "FolderTab.tsx MUST construct "
+        "`new CustomEvent(EXPLORER_REFRESH_EVENT_NAME)` (via "
+        "the local constant) — NOT inline "
+        "`new CustomEvent(\"taxa:explorer:refresh\")`. "
+        "The W6.5-BRIDGE-006 contract pins the constant as "
+        "the canonical source so a future rename updates "
+        "one place."
+    )
+
+
+def test_w65_folder_tab_dispatch_is_idempotent_via_status_kind_change() -> None:
+    """W6.5-BRIDGE-006 — the FolderTab dispatch MUST be
+    idempotent per status transition: the `useEffect`
+    keyed on `createStatus` (or `openStatus`) only re-
+    fires when the discriminated union's `.kind`
+    changes. A re-render with the SAME status (e.g. a
+    parent re-render passing the same `createStatus`
+    object reference) MUST NOT trigger a duplicate
+    dispatch.
+
+    React's `useEffect` primitive-equality dedupe on the
+    dependency array handles this naturally when the
+    parent passes a stable `createStatus` / `openStatus`
+    reference. The FolderTab contract relies on the
+    parent passing a discriminated union whose `.kind`
+    is the dependency surface — the W6.5 implementation
+    keys the effect on `createStatus` / `openStatus`
+    directly (so React dedupes on reference equality).
+
+    The lenient match tolerates whitespace / newlines
+    between the useEffect body + the deps array (the
+    implementation wraps the deps on their own line
+    under Prettier's wrap heuristic)."""
+    if not FOLDER_TAB_FILE.is_file():
+        pytest.skip("FolderTab.tsx not present yet")
+    text = FOLDER_TAB_FILE.read_text()
+    stripped = re.sub(r"\s+", "", text)
+    for dependency in ("createStatus", "openStatus"):
+        # Match the deps array literal at the end of the
+        # useEffect call: `}, [<dep>(.kind)?])`. The
+        # stripped form collapses the implementation's
+        # newline + indent wrap so the regex stays
+        # robust. The `\[ ... \]` form rejects accidental
+        # matches inside the effect body (e.g. an object
+        # literal that mentions the dependency).
+        assert re.search(
+            rf",\[{re.escape(dependency)}(?:\.kind)?\]\)",
+            stripped,
+        ), (
+            f"FolderTab.tsx MUST key the dispatch "
+            f"`useEffect` on `{dependency}` (or "
+            f"`{dependency}.kind`) so React dedupes "
+            f"per-status-instance and a re-render with "
+            f"the same status does NOT fire a duplicate "
+            f"dispatch. W6.5-BRIDGE-006 contract."
+        )

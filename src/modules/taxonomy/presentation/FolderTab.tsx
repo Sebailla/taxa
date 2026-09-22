@@ -57,7 +57,7 @@
  * island needs the create / open / copy handlers + the
  * confirmation gate to stay interactive after hydration).
  */
-import { Fragment } from "react";
+import { Fragment, useEffect } from "react";
 import type { ReactNode } from "react";
 import type {
   MaterializePreview,
@@ -65,6 +65,22 @@ import type {
   MaterializeResult,
   OpenFolderResult,
 } from "../infrastructure/api";
+
+/** W6.5-BRIDGE-006 — verbatim local constant for the
+ *  FolderTab → Explorer refresh bridge event name. The
+ *  Explorer route (in `@taxa/research/presentation/Explorer.tsx`)
+ *  pins the same literal through a separate focused test;
+ *  the kernel export `EXPLORER_REFRESH_EVENT_NAME` in
+ *  `@taxa/research/presentation/explorer-state` is the
+ *  canonical source for cross-module consumers. The
+ *  FolderTab dispatches `new CustomEvent(EXPLORER_REFRESH_EVENT_NAME)`
+ *  on `window` once `materializeResearch` or `openFolder`
+ *  reaches the success state; the Explorer route listens
+ *  on mount and re-fetches the `/api/files` tree so the
+ *  tree mirrors the new folder structure without dropping
+ *  the existing ExplorerLoadStatus / expanded set /
+ *  selected-path / ViewerState. */
+const EXPLORER_REFRESH_EVENT_NAME = "taxa:explorer:refresh";
 
 /** Status of the materialize-preview fetch for the currently
  *  selected taxon. Mirrors `SearchTabStatus` + `VernacularTabStatus`
@@ -214,6 +230,42 @@ export default function FolderTab({
   onArmCreate,
   onDisarmCreate,
 }: FolderTabProps): React.ReactElement {
+  // W6.5-BRIDGE-006 — FolderTab → Explorer refresh bridge.
+  // Two `useEffect`s dispatch a
+  // `window.CustomEvent(EXPLORER_REFRESH_EVENT_NAME)` once
+  // the create / open transitions reach their success
+  // state. The Explorer route subscribes to that event on
+  // mount and re-fetches the `/api/files` tree so the
+  // right-pane tree mirrors the new folder structure
+  // without dropping the existing ExplorerLoadStatus /
+  // expanded set / selected-path / ViewerState / search
+  // state (the Explorer handler calls ONLY `loadTree()`,
+  // which flips `loadStatus` to `"loading"` then resolves
+  // without touching the user's interactive state).
+  //
+  // Each effect is keyed on the discriminated union
+  // (`createStatus` / `openStatus`) so React's
+  // primitive-equality dedupe fires exactly once per status
+  // transition. The pre-W6.5 contract never dispatched
+  // the event — a mid-flight `"creating"` state MUST NOT
+  // trigger the Explorer re-fetch (the folder structure
+  // hasn't hit disk yet). The success transition is the
+  // only dispatch surface, so the explorer refresh
+  // mirrors the exact moment the side effect lands.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (createStatus.kind !== "created") return;
+    window.dispatchEvent(
+      new CustomEvent(EXPLORER_REFRESH_EVENT_NAME),
+    );
+  }, [createStatus]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (openStatus.kind !== "opened") return;
+    window.dispatchEvent(
+      new CustomEvent(EXPLORER_REFRESH_EVENT_NAME),
+    );
+  }, [openStatus]);
   if (status.kind === "idle" || status.kind === "loading") {
     return (
       <div

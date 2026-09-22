@@ -122,6 +122,19 @@ export interface ExplorerProps {
   readonly apiOrigin: string;
 }
 
+/** W6.5-BRIDGE-006 — verbatim local constant for the
+ *  FolderTab → Explorer refresh bridge event name. The
+ *  FolderTab (in the taxonomy module) and the Explorer
+ *  client island (this file) both pin the same literal
+ *  through separate focused tests; the kernel export in
+ *  `./explorer-state` (`EXPLORER_REFRESH_EVENT_NAME`) is
+ *  the canonical source for cross-module consumers. The
+ *  FolderTab dispatches `new CustomEvent(EXPLORER_REFRESH_EVENT_NAME)`
+ *  on `window` once `materializeResearch` or `openFolder`
+ *  reaches the success state; this Explorer subscribes on
+ *  mount + unsubscribes on unmount. */
+const EXPLORER_REFRESH_EVENT_NAME = "taxa:explorer:refresh";
+
 /** Public top-level Explorer component. Renders the two-pane
  *  layout (recursive tree on the left, viewer on the right)
  *  inside a typed error boundary. The state + lifecycle
@@ -237,6 +250,44 @@ export default function Explorer(props: ExplorerProps): ReactNode {
   // the route's lifetime).
   useEffect(() => {
     void loadTree();
+  }, [loadTree]);
+
+  // W6.5-BRIDGE-006 — FolderTab → Explorer refresh bridge.
+  // The native FolderTab (ODD-TDFOLDER-001, in the taxonomy
+  // module) dispatches a
+  // `window.CustomEvent("taxa:explorer:refresh")` when
+  // `materializeResearch` (or `openFolder`) succeeds. This
+  // Explorer route subscribes to that event on mount and
+  // re-fires `loadTree()` so the right-pane tree mirrors
+  // the new folder structure without dropping the existing
+  // ExplorerLoadStatus / expanded set / selected-path /
+  // ViewerState / search state (the handler calls ONLY
+  // `loadTree()` — the `loadTree` `useCallback` flips the
+  // `loadStatus` state to `"loading"` then resolves to
+  // `"loaded"` / `"empty"` / `"error"` without touching
+  // the user's interactive state).
+  //
+  // The subscription cleanup runs `removeEventListener` on
+  // unmount so a route change doesn't leak listeners and
+  // the dispatch doesn't fire on a defunct Explorer
+  // instance after navigation. The dependency is `loadTree`
+  // (the stable callback wrapped in `useCallback([apiOrigin])`)
+  // so the effect re-subscribes only when `apiOrigin`
+  // changes — across re-renders, `loadTree` keeps the same
+  // reference so React's `useEffect` dedupes and the
+  // listener is registered exactly once per mount.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handler = (): void => {
+      void loadTree();
+    };
+    window.addEventListener(EXPLORER_REFRESH_EVENT_NAME, handler);
+    return (): void => {
+      window.removeEventListener(
+        EXPLORER_REFRESH_EVENT_NAME,
+        handler,
+      );
+    };
   }, [loadTree]);
 
   /** Memoised folder toggle. The set transition goes through

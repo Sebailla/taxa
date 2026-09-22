@@ -5398,3 +5398,493 @@ def test_w64e_viewer_preserves_json_docx_sheet_epub_offline_pins() -> None:
         "`TableRender` sub-component (NOT the W6.1 "
         "download-link affordance)."
     )
+
+
+# ---------------------------------------------------------------------------
+# W6.5-BRIDGE-006 — FolderTab → Explorer refresh bridge.
+# The native FolderTab (ODD-TDFOLDER-001) dispatches a
+# `window.CustomEvent("taxa:explorer:refresh")` when
+# `materializeResearch` (or `openFolder`) succeeds. The
+# Explorer route subscribes to that event on mount and
+# re-fetches `/api/files` so the tree mirrors the new
+# folder structure without dropping `ExplorerLoadStatus`
+# / expanded set / selected-path / `ViewerState`.
+#
+# Acceptance (verbatim from the W6.5 task brief):
+#  - Signal is a window-scoped `CustomEvent` named
+#    `"taxa:explorer:refresh"` (verbatim).
+#  - Dispatched from `FolderTab` once the create / open
+#    transitions reach the success state.
+#  - Explorer subscribes on mount + unsubscribes on unmount.
+#  - Re-fetches `/api/files` on every event (idempotent —
+#    multiple events fire multiple re-fetches).
+#  - Does NOT drop `ExplorerLoadStatus` / expanded set /
+#    selected-path / `ViewerState` / search state.
+#  - No `@taxa/browser-state` key expansion.
+#  - No router-key re-mount.
+#  - No legacy `web/` mutation.
+#
+# The W6.5 contract surfaces through:
+#  - `src/modules/research/presentation/explorer-state.ts`
+#    — exports `EXPLORER_REFRESH_EVENT_NAME` (the canonical
+#    literal) + `isFolderSuccessStatusKind` (pure predicate).
+#  - `src/modules/research/presentation/Explorer.tsx` —
+#    local `EXPLORER_REFRESH_EVENT_NAME` literal + a
+#    `useEffect` that subscribes via
+#    `window.addEventListener(...)` on mount and returns
+#    a cleanup `window.removeEventListener(...)` on unmount.
+#  - `src/modules/taxonomy/presentation/FolderTab.tsx` —
+#    local `EXPLORER_REFRESH_EVENT_NAME` literal + two
+#    `useEffect`s that dispatch
+#    `new CustomEvent(EXPLORER_REFRESH_EVENT_NAME)` from
+#    `window` when `createStatus.kind === "created"` or
+#    `openStatus.kind === "opened"`.
+# ---------------------------------------------------------------------------
+
+
+def test_w65_kernel_exports_explorer_refresh_event_name_constant() -> None:
+    """W6.5-BRIDGE-006 — `explorer-state.ts` MUST export
+    `EXPLORER_REFRESH_EVENT_NAME` with the verbatim literal
+    `"taxa:explorer:refresh"`. The kernel owns the canonical
+    event-name constant so a future consumer (test harness,
+    integration test, or cross-module bridge) reaches the
+    typed literal through the kernel export. The Explorer +
+    FolderTab literals are pinned to the same value via
+    separate tests; a future PR that bumps the event name
+    MUST update the kernel export AND both consumer
+    literals AND re-run the W6.5 focused tests."""
+    if not EXPLORER_STATE_FILE.is_file():
+        pytest.skip("explorer-state.ts not present yet")
+    text = EXPLORER_STATE_FILE.read_text()
+    assert re.search(
+        r"export\s+const\s+EXPLORER_REFRESH_EVENT_NAME\b",
+        text,
+    ), (
+        "explorer-state.ts must export "
+        "`EXPLORER_REFRESH_EVENT_NAME` as a constant (the "
+        "canonical W6.5-BRIDGE-006 event name). The W6.5 "
+        "contract surfaces this typed literal to tests + "
+        "cross-module bridges."
+    )
+    # The verbatim literal `"taxa:explorer:refresh"` MUST
+    # appear as the constant's value (single or double
+    # quotes both OK). No concatenation, no template
+    # literal, no runtime derivation — the canonical
+    # literal is the only contract.
+    assert re.search(
+        r'EXPLORER_REFRESH_EVENT_NAME\s*=\s*["\']taxa:explorer:refresh["\']',
+        text,
+    ), (
+        "EXPLORER_REFRESH_EVENT_NAME must be assigned the "
+        "verbatim literal `\"taxa:explorer:refresh\"` (the "
+        "W6.5-BRIDGE-006 canonical event name). A future "
+        "rename MUST update the kernel constant AND the "
+        "Explorer.tsx + FolderTab.tsx literals in lock-step."
+    )
+
+
+def test_w65_kernel_exports_is_folder_success_status_kind_predicate() -> None:
+    """W6.5-BRIDGE-006 — `explorer-state.ts` MUST export a
+    pure `isFolderSuccessStatusKind(kind: string): kind is
+    FolderSuccessStatusKind` predicate that returns `true`
+    for the two success literals (`"created"` / `"opened"`)
+    and `false` for every other status. Pure, framework-
+    free, importable through the kernel. Mirrors the
+    FolderTab discriminated union surface so the React
+    layer can call the predicate without a cross-module
+    type import."""
+    if not EXPLORER_STATE_FILE.is_file():
+        pytest.skip("explorer-state.ts not present yet")
+    text = EXPLORER_STATE_FILE.read_text()
+    assert re.search(
+        r"export\s+function\s+isFolderSuccessStatusKind\b",
+        text,
+    ), (
+        "explorer-state.ts must export "
+        "`isFolderSuccessStatusKind` as a pure predicate. "
+        "The W6.5-BRIDGE-006 contract surfaces the "
+        "`createStatus.kind === 'created'` / "
+        "`openStatus.kind === 'opened'` dispatch decision "
+        "through a focused, testable helper."
+    )
+    # Type-narrowing predicate — the return type MUST use
+    # the type guard syntax (`kind is FolderSuccessStatusKind`)
+    # so the React layer's narrowing survives the call.
+    # The lenient match tolerates whitespace / newline
+    # between the parameter list and the return type
+    # (the implementation's signature spans multiple
+    # lines under Prettier's wrap heuristic + may carry a
+    # trailing comma after `kind: string,`).
+    stripped = re.sub(r"\s+", "", text)
+    assert re.search(
+        r"isFolderSuccessStatusKind\(kind:string,?\):kindisFolderSuccessStatusKind",
+        stripped,
+    ), (
+        "isFolderSuccessStatusKind must be a TypeScript "
+        "type guard (`kind is FolderSuccessStatusKind`) so "
+        "the React layer's narrowing survives the call. A "
+        "plain boolean return would force the React layer "
+        "to re-cast the kind literal."
+    )
+
+
+# Runtime harness — exercises the W6.5 pure helpers
+# (`EXPLORER_REFRESH_EVENT_NAME` constant +
+# `isFolderSuccessStatusKind` predicate) under Node
+# ES2022-only (no DOM, no React). The harness re-uses
+# the same `compiled_w6_1_kernel` fixture as the W6.1 /
+# W64A / W64B / W64C / W64D / W64E harnesses; the
+# W6.5 kernel additions land in the same compiled
+# module without rebuilding.
+_W6_5_RUNTIME_HARNESS = r"""
+// CJS does not support top-level await (only ESM does), so
+// the harness wraps the assertions in a sync body — every
+// W6.5 kernel helper is pure (no async, no I/O).
+const path = require("path");
+const assert = require("assert");
+const kernel = require(path.resolve(process.argv[2]));
+
+// 1. EXPLORER_REFRESH_EVENT_NAME — verbatim literal. The
+//    W6.5 contract pins the literal `"taxa:explorer:refresh"`
+//    byte-for-byte. A future PR that bumps the event name
+//    must update the kernel constant AND the Explorer.tsx
+//    + FolderTab.tsx consumer literals AND re-run the
+//    focused tests; this runtime assertion guarantees the
+//    kernel constant is the verbatim canonical literal.
+{
+  assert.strictEqual(
+    typeof kernel.EXPLORER_REFRESH_EVENT_NAME,
+    "string",
+    "EXPLORER_REFRESH_EVENT_NAME must be a string constant",
+  );
+  assert.strictEqual(
+    kernel.EXPLORER_REFRESH_EVENT_NAME,
+    "taxa:explorer:refresh",
+    "EXPLORER_REFRESH_EVENT_NAME must equal the verbatim "
+    + "literal \"taxa:explorer:refresh\" (the W6.5-BRIDGE-006 "
+    + "canonical event name)",
+  );
+}
+
+// 2. isFolderSuccessStatusKind — success-state predicate.
+//    The two FolderTab success literals (`"created"` for
+//    materializeResearch, `"opened"` for openFolder) MUST
+//    return true. Every other status kind MUST return
+//    false so the FolderTab dispatch is bound to the
+//    success transition only — a mid-flight `"creating"` /
+//    `"opening"` state MUST NOT fire the dispatch.
+{
+  assert.strictEqual(
+    kernel.isFolderSuccessStatusKind("created"), true,
+    "isFolderSuccessStatusKind('created') must return true "
+    + "(materializeResearch success -> explorer refresh dispatch)",
+  );
+  assert.strictEqual(
+    kernel.isFolderSuccessStatusKind("opened"), true,
+    "isFolderSuccessStatusKind('opened') must return true "
+    + "(openFolder success -> explorer refresh dispatch)",
+  );
+  // FolderCreateStatus / FolderOpenStatus non-success
+  // kinds + the null / undefined edge cases + a few
+  // would-be synonyms ("succeeded", "materialized") that
+  // MUST NOT trigger the dispatch. The exhaustive list
+  // pins the predicate's negative surface.
+  for (const kind of [
+    "idle", "creating", "opening", "error", "copied",
+    "", "CREATED", "Created", "open", "succeeded",
+    "materialized", "true", "false", "1", "0", null, undefined,
+  ]) {
+    assert.strictEqual(
+      kernel.isFolderSuccessStatusKind(kind), false,
+      `isFolderSuccessStatusKind(${JSON.stringify(kind)}) must return false `
+      + "(non-success status MUST NOT trigger the explorer refresh dispatch)",
+    );
+  }
+}
+
+process.stdout.write("PASS\n");
+"""
+
+
+def test_compiled_w6_5_kernel_passes_runtime_contract(
+    compiled_w6_1_kernel: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    """W6.5-BRIDGE-006 — under Node (ES2022 only, no DOM,
+    no React), the compiled W6.5 kernel additions
+    (`EXPLORER_REFRESH_EVENT_NAME` constant +
+    `isFolderSuccessStatusKind` predicate) satisfy the
+    pure contract end-to-end:
+
+      1. `EXPLORER_REFRESH_EVENT_NAME` equals the
+         verbatim literal `"taxa:explorer:refresh"`
+         (the W6.5 canonical event name).
+      2. `isFolderSuccessStatusKind("created")` returns
+         `true` (the FolderTab materialize success
+         literal).
+      3. `isFolderSuccessStatusKind("opened")` returns
+         `true` (the FolderTab open-folder success
+         literal).
+      4. `isFolderSuccessStatusKind(<every-other>)`
+         returns `false` (the dispatch is bound to the
+         success transition only — `idle` / `creating` /
+         `opening` / `error` / `copied` MUST NOT trigger
+         the dispatch).
+
+    The harness reuses the existing
+    `compiled_w6_1_kernel` fixture; the kernel compile
+    already pulls `explorer-state.ts` so the W6.5
+    additions land in the same compiled module without
+    rebuilding."""
+    _compiled_kernel, _compiled_renderers = compiled_w6_1_kernel
+    harness = tmp_path / "harness.cjs"
+    harness.write_text(_W6_5_RUNTIME_HARNESS)
+    result = subprocess.run(
+        ["node", str(harness), str(_compiled_kernel)],
+        cwd=REPO_ROOT,
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, (
+        f"W6.5 runtime harness failed.\nstdout: {result.stdout}\n"
+        f"stderr: {result.stderr}"
+    )
+    assert result.stdout.strip() == "PASS", (
+        f"unexpected W6.5 harness output: {result.stdout!r}"
+    )
+
+
+def test_w65_explorer_defines_local_event_name_literal() -> None:
+    """W6.5-BRIDGE-006 — `Explorer.tsx` MUST define a
+    local `EXPLORER_REFRESH_EVENT_NAME = "taxa:explorer:refresh"`
+    constant so the React layer subscribes with the
+    verbatim canonical literal. The constant is local
+    (not imported from the kernel — the barrel is out
+    of scope for W6.5) so a focused test pins the literal
+    byte-for-byte. A future PR that renames the event
+    MUST update the kernel constant + the Explorer.tsx
+    literal + the FolderTab.tsx literal in lock-step."""
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = EXPLORER_FILE.read_text()
+    assert re.search(
+        r'EXPLORER_REFRESH_EVENT_NAME\s*=\s*["\']taxa:explorer:refresh["\']',
+        text,
+    ), (
+        "Explorer.tsx MUST define a local "
+        "`EXPLORER_REFRESH_EVENT_NAME = \"taxa:explorer:refresh\"` "
+        "constant so the React layer subscribes with the "
+        "verbatim canonical literal (W6.5-BRIDGE-006 contract)."
+    )
+
+
+def test_w65_explorer_subscribes_via_window_add_event_listener() -> None:
+    """W6.5-BRIDGE-006 — `Explorer.tsx` MUST register
+    `window.addEventListener(EXPLORER_REFRESH_EVENT_NAME, ...)`
+    inside a `useEffect` so the route subscribes to the
+    FolderTab dispatch on mount. A bare call (outside
+    `useEffect`) would run on every render and leak
+    listeners."""
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = EXPLORER_FILE.read_text()
+    assert re.search(
+        r"window\.addEventListener\s*\(\s*EXPLORER_REFRESH_EVENT_NAME",
+        text,
+    ), (
+        "Explorer.tsx MUST call "
+        "`window.addEventListener(EXPLORER_REFRESH_EVENT_NAME, ...)` "
+        "so the route subscribes to the FolderTab dispatch "
+        "(W6.5-BRIDGE-006 contract)."
+    )
+    # The addEventListener call MUST live inside a
+    # `useEffect` block. The lenient heuristic: the
+    # `useEffect(` opener appears within 1500 chars before
+    # the addEventListener call (catches the typical
+    # `useEffect(() => { ... })` shape, plus the SSR
+    # guard + the handler arrow body + the
+    # addEventListener call site). A bare
+    # `window.addEventListener` call outside a useEffect
+    # would have no `useEffect(` opener nearby — the
+    # heuristic trips.
+    add_idx = text.find("window.addEventListener(EXPLORER_REFRESH_EVENT_NAME")
+    assert add_idx > 0, "addEventListener not located"
+    effect_open_idx = text.rfind("useEffect(", 0, add_idx)
+    assert effect_open_idx > 0 and (add_idx - effect_open_idx) < 1500, (
+        "Explorer.tsx's addEventListener call MUST live "
+        "inside a `useEffect` block (no nearby "
+        "`useEffect(` opener appears within 1500 chars "
+        "before the call site). W6.5-BRIDGE-006 contract: "
+        "the listener MUST be registered inside a "
+        "`useEffect` so the route subscribes on mount."
+    )
+
+
+def test_w65_explorer_unregisters_via_window_remove_event_listener() -> None:
+    """W6.5-BRIDGE-006 — `Explorer.tsx` MUST call
+    `window.removeEventListener(EXPLORER_REFRESH_EVENT_NAME, ...)`
+    so the listener is removed on unmount. Without the
+    cleanup, a route change would leak listeners and the
+    dispatch would fire on a defunct Explorer instance
+    after navigation. The removeEventListener MUST use
+    the same `EXPLORER_REFRESH_EVENT_NAME` identifier
+    so React's listener identity check matches.
+
+    The lenient match tolerates whitespace / newlines
+    between `window.removeEventListener` and the
+    identifier — the implementation wraps the call
+    across multiple lines for readability."""
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = EXPLORER_FILE.read_text()
+    stripped = re.sub(r"\s+", "", text)
+    assert "window.removeEventListener(EXPLORER_REFRESH_EVENT_NAME," in stripped, (
+        "Explorer.tsx MUST call "
+        "`window.removeEventListener(EXPLORER_REFRESH_EVENT_NAME, ...)` "
+        "so the listener is removed on unmount "
+        "(W6.5-BRIDGE-006 contract)."
+    )
+    # Order: addEventListener MUST appear BEFORE
+    # removeEventListener in the file (the listener is
+    # registered on mount, then removed on unmount). The
+    # search uses the stripped form to tolerate the
+    # implementation's newline + indent wrap.
+    add_idx = stripped.find("window.addEventListener(EXPLORER_REFRESH_EVENT_NAME,")
+    remove_idx = stripped.find("window.removeEventListener(EXPLORER_REFRESH_EVENT_NAME,")
+    assert add_idx > 0 and remove_idx > 0, (
+        "Explorer.tsx must contain both addEventListener "
+        "and removeEventListener for EXPLORER_REFRESH_EVENT_NAME "
+        "(W6.5-BRIDGE-006 contract: subscribe on mount, "
+        "unsubscribe on unmount)."
+    )
+    assert add_idx < remove_idx, (
+        "Explorer.tsx's addEventListener call MUST appear "
+        "BEFORE the removeEventListener call (subscribe on "
+        "mount, unsubscribe on unmount — W6.5-BRIDGE-006 "
+        "contract)."
+    )
+
+
+def test_w65_explorer_listener_invokes_load_tree() -> None:
+    """W6.5-BRIDGE-006 — the Explorer.tsx listener MUST
+    invoke `loadTree()` so the /api/files tree re-fetches
+    on every FolderTab dispatch. The listener is the
+    bridge between the FolderTab → Explorer signal and
+    the existing `ExplorerLoadStatus` lifecycle; calling
+    `loadTree` flips `loadStatus` to `"loading"` then
+    resolves to `"loaded"` / `"empty"` / `"error"`.
+
+    The handler body lives INSIDE the same useEffect
+    block as the addEventListener call — typically as a
+    named arrow (`const handler = () => { void loadTree(); };`)
+    defined BEFORE the addEventListener call site. The
+    test scans a 1500-char window BEFORE the
+    addEventListener call (inside the enclosing useEffect)
+    to capture the handler definition."""
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = EXPLORER_FILE.read_text()
+    add_idx = text.find("window.addEventListener(EXPLORER_REFRESH_EVENT_NAME")
+    assert add_idx > 0, (
+        "Explorer.tsx's addEventListener must reference "
+        "EXPLORER_REFRESH_EVENT_NAME."
+    )
+    # Scan the 1500 chars BEFORE the addEventListener call
+    # to capture the handler definition. The handler lives
+    # in the same useEffect block as the addEventListener
+    # call site, so this window reaches it.
+    effect_open_idx = text.rfind("useEffect(", 0, add_idx)
+    assert effect_open_idx > 0, (
+        "Explorer.tsx's addEventListener must live inside "
+        "a useEffect block (no useEffect opener nearby)."
+    )
+    window = text[effect_open_idx : add_idx + 200]
+    assert re.search(r"\b(?:void\s+)?loadTree\s*\(\s*\)", window), (
+        "Explorer.tsx's useEffect block MUST contain a "
+        "`loadTree()` call (with or without `void` prefix) "
+        "so the FolderTab dispatch triggers a /api/files "
+        "re-fetch. W6.5-BRIDGE-006 contract: the bridge "
+        "calls the existing tree-fetch callback (the "
+        "`loadTree` `useCallback` wired by the W6.1 mount)."
+    )
+
+
+def test_w65_explorer_listener_does_not_touch_other_state() -> None:
+    """W6.5-BRIDGE-006 — the Explorer.tsx listener MUST
+    ONLY invoke `loadTree()`. It MUST NOT touch
+    `setExpanded` / `setSelectedPath` / `setViewerState` /
+    `setSearchQuery` / `setSearchMode` /
+    `setSearchHideEmpty` so a refresh preserves the
+    existing ExplorerLoadStatus / expanded set /
+    selected-path / ViewerState / search state. The
+    handler body is intentionally narrow — typically just
+    `void loadTree()` — so the bridge stays idempotent +
+    side-effect-free for everything except the tree
+    refresh.
+
+    The handler body lives INSIDE the same useEffect
+    block as the addEventListener call. The test
+    extracts the subscription useEffect block via
+    brace-counting so the scan stays bounded to the
+    effect body (handler def + addEventListener + cleanup
+    return) and does NOT reach the surrounding code
+    that legitimately uses the state setters."""
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = EXPLORER_FILE.read_text()
+    add_idx = text.find("window.addEventListener(EXPLORER_REFRESH_EVENT_NAME")
+    assert add_idx > 0, (
+        "Explorer.tsx's addEventListener must reference "
+        "EXPLORER_REFRESH_EVENT_NAME."
+    )
+    effect_open_idx = text.rfind("useEffect(", 0, add_idx)
+    assert effect_open_idx > 0, (
+        "Explorer.tsx's addEventListener must live inside "
+        "a useEffect block."
+    )
+    # Find the opening `{` of the useEffect body — the
+    # arrow function body opens after `() =>`.
+    body_open = text.find("{", effect_open_idx)
+    assert body_open > 0, (
+        "Explorer.tsx's subscription useEffect must open "
+        "an arrow body with `{`."
+    )
+    # Brace-counting — walk forward to find the matching
+    # `}` that closes the arrow body. Nested arrows
+    # (the handler + cleanup) increment + decrement
+    # symmetrically so the depth returns to 0 at the
+    # end of the effect body.
+    depth = 0
+    body_end = -1
+    for i in range(body_open, len(text)):
+        c = text[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                body_end = i + 1
+                break
+    assert body_end > body_open, (
+        "Explorer.tsx's subscription useEffect body MUST "
+        "close with a matching `}` (brace-counting "
+        "traversal failed — the effect body is malformed)."
+    )
+    window = text[effect_open_idx:body_end]
+    forbidden_setters = (
+        "setExpanded", "setSelectedPath", "setViewerState",
+        "setSearchQuery", "setDebouncedQuery", "setSearchMode",
+        "setSearchHideEmpty",
+    )
+    for setter in forbidden_setters:
+        assert setter not in window, (
+            f"Explorer.tsx's subscription useEffect block "
+            f"MUST NOT call `{setter}` — the W6.5-BRIDGE-006 "
+            f"contract preserves ExplorerLoadStatus / "
+            f"expanded set / selected-path / ViewerState / "
+            f"search state on every FolderTab dispatch. "
+            f"The handler is intended to ONLY call "
+            f"`loadTree()` so the existing loadStatus "
+            f"lifecycle runs to `loading` -> `loaded` / "
+            f"`empty` / `error` without touching the "
+            f"user's interactive state."
+        )
