@@ -74,17 +74,48 @@ def _dry_run_recipe(*targets: str) -> str:
 
 
 def test_make_api_recipe_runs_uvicorn_only():
-    """The `make api` recipe body MUST contain exactly one command:
-    the Uvicorn invocation. No css / npm / pnpm prerequisite recipes
-    are allowed to leak into the dry-run output."""
+    """The `make api` recipe body MUST couple the Next.js static-export
+    build with the Uvicorn invocation in a single command. The legacy
+    Tailwind `build:css` step is no longer part of `make api` because
+    the static export at `out/` is the source of truth after the
+    ODD-MIGRATE-006 atomic cutover.
+
+    ODD-MIGRATE-006 (atomic cutover) pre-pinning: after commit (b) lands,
+    `make api` couples `pnpm install` + `pnpm build` with the Uvicorn
+    invocation in one recipe. The legacy `pnpm install` prohibition is
+    carved out (the build step needs `pnpm install` to hydrate the
+    workspace); the prohibitions on raw `npm install`, raw `npm run`,
+    and the retired `build:css` script stay intact. Until commit (b)
+    lands, the positive `pnpm install` + `pnpm build` assertions fail
+    RED with "test expects post-cut state but production is still
+    pre-cut" — the explicit carveout that re-anchors the assertion
+    target to the build + uvicorn shape.
+    """
     out = _dry_run_recipe("api")
-    # The expected Uvicorn command is the only thing that should appear.
+    # The expected Uvicorn command MUST still be present (the API
+    # server contract is unchanged — only the build prerequisite is
+    # added in front of it).
     expected = ".venv/bin/python3 -m uvicorn api.server:app"
     assert expected in out, (
         f"uvicorn invocation missing from `make -n api`:\n{out}"
     )
-    # No npm anywhere in the api recipe chain. The search regex uses a
-    # word boundary so `pnpm install` does not match `npm install`.
+    # Post-cut `pnpm install` IS required (the build step needs the
+    # hydrated workspace). Carved out from the pre-cut prohibition so
+    # the post-cut recipe couples install + build + uvicorn.
+    assert "pnpm install" in out, (
+        f"pnpm install missing from `make -n api` (post-cut "
+        f"ODD-MIGRATE-006 build prerequisite required):\n{out}"
+    )
+    # Post-cut `pnpm build` IS required (the Next.js static export at
+    # `out/` must be regenerated before the API server starts).
+    assert "pnpm build" in out, (
+        f"pnpm build missing from `make -n api` (post-cut "
+        f"ODD-MIGRATE-006 static-export build required):\n{out}"
+    )
+    # No raw npm anywhere in the api recipe chain. The search regex uses
+    # a word boundary so `pnpm install` / `pnpm build` do NOT match
+    # `npm install` / `npm run` (the leading `p` of `pnpm` is outside
+    # the boundary).
     npm_install = re.search(r"(?:^|\s)npm\s+install\b", out, re.MULTILINE)
     assert not npm_install, (
         f"npm install leaked into `make -n api`:\n{out}"
@@ -93,11 +124,8 @@ def test_make_api_recipe_runs_uvicorn_only():
     assert not npm_run, (
         f"npm run leaked into `make -n api`:\n{out}"
     )
-    # No pnpm install (pnpm install is invocation, not just the binary).
-    assert "pnpm install" not in out, (
-        f"pnpm install leaked into `make -n api`:\n{out}"
-    )
-    # No build:css invocation.
+    # The legacy `build:css` Tailwind script is retired by the cutover —
+    # the static export at `out/` replaces `web/dist/tailwind.css`.
     assert "build:css" not in out, (
         f"build:css leaked into `make -n api`:\n{out}"
     )

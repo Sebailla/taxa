@@ -723,7 +723,17 @@ def test_g4_asgi_launcher_rewires_db_path_and_research_dir_only():
     """The launcher MUST set api.server.DB_PATH and api.server.RESEARCH_DIR
     to the G4 fixture paths and MUST leave other api.server module globals
     (WEB_DIR) untouched. We probe via subprocess so api.server's in-process
-    state from earlier tests cannot mask a leak."""
+    state from earlier tests cannot mask a leak.
+
+    ODD-MIGRATE-006 (atomic cutover) pre-pinning: after commit (b) lands,
+    api.server.WEB_DIR will point at the Next.js static export at `out/`
+    (not the legacy `web/` directory). This test pre-authorizes the
+    post-cut expectation so commit (b) lands cleanly. Until then the
+    assertion fails RED with "test expects post-cut state but production
+    is still pre-cut" — the explicit carveout that lets the launcher
+    keep rewiring only DB_PATH + RESEARCH_DIR without dragging the
+    WEB_DIR rewrite into the launcher patch itself.
+    """
     proc = _import_g4_asgi()
     assert proc.returncode == 0, (
         f"subprocess failed; stderr={proc.stderr!r}"
@@ -742,13 +752,15 @@ def test_g4_asgi_launcher_rewires_db_path_and_research_dir_only():
         f"api.server.RESEARCH_DIR must be under the G4 fixture tree; "
         f"got {out['research_dir']!r}"
     )
-    # WEB_DIR must NOT be touched — the launcher rewires only DB_PATH and
-    # RESEARCH_DIR. Anything else would mean api/server.py was implicitly
-    # modified, which the parent task forbids.
-    expected_web_dir = str((REPO_ROOT / "web").resolve())
+    # WEB_DIR points at the Next.js static export (`out/`) after the
+    # ODD-MIGRATE-006 atomic cutover — NOT the legacy `web/` directory.
+    # The launcher rewires only DB_PATH and RESEARCH_DIR; the WEB_DIR
+    # value reflects the post-cut production state.
+    expected_web_dir = str((REPO_ROOT / "out").resolve())
     assert out["web_dir"] == expected_web_dir, (
-        f"launcher must NOT modify api.server.WEB_DIR "
-        f"(production change forbidden); got {out['web_dir']!r}, want {expected_web_dir!r}"
+        f"launcher must report api.server.WEB_DIR pointed at the Next.js "
+        f"static export after the ODD-MIGRATE-006 cutover "
+        f"(test expects post-cut state); got {out['web_dir']!r}, want {expected_web_dir!r}"
     )
     # The re-exported `app` is the same FastAPI instance api.server built —
     # the launcher does not construct a duplicate.

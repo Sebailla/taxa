@@ -155,10 +155,26 @@ def test_static_index_html_served():
 
 
 def test_static_app_js_served():
-    """Frontend bundle is reachable from the same origin."""
-    resp = client.get("/app.js")
-    assert resp.status_code == 200
-    assert len(resp.text) > 1000, "app.js looks suspiciously small"
+    """Frontend bundle is reachable from the same origin.
+
+    ODD-MIGRATE-006 (atomic cutover) pre-pinning: after commit (b) lands,
+    FastAPI serves the Next.js static export at `out/`, so GET / returns
+    the Next-rendered HTML (which references `/_next/static/chunks/...`
+    for the React bundle). The legacy `/app.js` assertion is dropped
+    because the static export replaces the legacy hand-rolled bundle.
+    Until commit (b) lands, the `_next/static/chunks` substring check
+    fails RED with "test expects post-cut state but production is still
+    pre-cut" — the explicit carveout that re-anchors the assertion
+    target to the React export bundle shape.
+    """
+    resp = client.get("/")
+    assert resp.status_code == 200, (
+        f"React static export must be served at GET / (got {resp.status_code})"
+    )
+    assert "_next/static/chunks" in resp.text, (
+        "React static export must reference _next/static/chunks "
+        "(production is still serving the legacy web/ instead of out/)"
+    )
 
 
 def test_health_endpoint_returns_503_without_db():

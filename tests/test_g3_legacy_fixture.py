@@ -405,7 +405,7 @@ def launcher_client(launcher_module):
 
 @pytest.mark.parametrize("case_id", [
     "import_contract_is_api_server_app",
-    "web_dir_unchanged",
+    "web_dir_is_post_cut_export_dir",
     "index_html_is_fixture_bytes",
     "api_health_uses_fixture_db",
     "missing_static_returns_404",
@@ -413,17 +413,34 @@ def launcher_client(launcher_module):
 def test_g5_launcher_contract(case_id, launcher_module, launcher_client):
     """Compact contract block: the 5 launch-time guarantees chain PR 2
     relies on (import contract, WEB_DIR preserved, fixture static wins,
-    /api/health reads fixture DB, missing static returns 404)."""
+    /api/health reads fixture DB, missing static returns 404).
+
+    ODD-MIGRATE-006 (atomic cutover) pre-pinning: after commit (b) lands,
+    api.server.WEB_DIR will point at the Next.js static export at `out/`
+    (not the legacy `web/` directory). This test pre-authorizes the
+    post-cut expectation so commit (b) lands cleanly. Until then the
+    `web_dir_is_post_cut_export_dir` case fails RED with "test expects
+    post-cut state but production is still pre-cut" — the explicit
+    carveout that flips the parametrize case_id from the pre-cut
+    `web_dir_unchanged` name while keeping the negative
+    `g3-legacy-fixture` guard intact (the guard protects against an
+    accidental fixture-path leak regardless of the cut state).
+    """
     import api.server as srv
     if case_id == "import_contract_is_api_server_app":
         assert launcher_module.app is srv.app, (
             f"launcher.app must be api.server.app "
             f"(got {launcher_module.app!r})"
         )
-    elif case_id == "web_dir_unchanged":
-        assert srv.WEB_DIR == REPO_ROOT / "web", (
-            f"api.server.WEB_DIR must be unchanged "
-            f"(got {srv.WEB_DIR}, expected {REPO_ROOT / 'web'})"
+    elif case_id == "web_dir_is_post_cut_export_dir":
+        # After the ODD-MIGRATE-006 atomic cutover, api.server.WEB_DIR
+        # points at the Next.js static export directory at `out/`,
+        # not the legacy `web/` directory. The negative guard against
+        # an accidental fixture-path leak is preserved verbatim.
+        assert srv.WEB_DIR == REPO_ROOT / "out", (
+            f"api.server.WEB_DIR must point at the Next.js static "
+            f"export after the ODD-MIGRATE-006 cutover "
+            f"(got {srv.WEB_DIR}, expected {REPO_ROOT / 'out'})"
         )
         assert "g3-legacy-fixture" not in str(srv.WEB_DIR), (
             f"api.server.WEB_DIR must not reference fixture path "
