@@ -161,8 +161,33 @@ function defaultFetch(): FetchLike {
  *  `path` argument is assumed to begin with `/` (the FastAPI
  *  routes are absolute under the API origin); the helper does
  *  NOT normalize the path itself — caller-supplied query strings
- *  (`/api/files/serve?path=…`) pass through unchanged. */
+ *  (`/api/files/serve?path=…`) pass through unchanged.
+ *
+ *  ODD-MIGRATE-006 carveout (API origin default) — symmetric
+ *  with the taxonomy infra helper (PR #378): the static export
+ *  at `out/` ships WITHOUT a `.env` file, so the React build's
+ *  `process.env.NEXT_PUBLIC_TAXA_API_ORIGIN` resolves to
+ *  `undefined` and the consumer's `?? "/api"` fallback can hand
+ *  us the literal `"/api"` baseUrl. The path itself already
+ *  starts with `/api/...` (the FastAPI endpoint shape), so the
+ *  legacy concat-style helper would otherwise duplicate the
+ *  leading `/api` segment (`"/api"` + `"/api/files"` =
+ *  `"/api/api/files"`, which 404s against FastAPI's
+ *  `/api/files` route). The adapter therefore absorbs BOTH the
+ *  empty-string edge case AND the literal `"/api"` baseUrl as
+ *  equivalent relative-baseUrl indicators — when `baseUrl` is
+ *  either `""` (the legacy env-var fallback) or `"/api"` (the
+ *  post-f708a15 fallback), the helper returns the path as-is
+ *  so the resulting URL stays `/api/files` instead of
+ *  `/api/api/files`. Any other non-empty baseUrl (e.g.
+ *  `http://127.0.0.1:8765`) keeps the existing concat +
+ *  trailing-slash trim behaviour. Both literals are pinned as
+ *  a single intentional behaviour by the
+ *  `test_infra_file_url_builder_absorbs_relative_baseurl_literals`
+ *  test, so a future PR that bumps either literal must update
+ *  the test alongside the helper. */
 function url(baseUrl: string, path: string): string {
+  if (baseUrl === "" || baseUrl === "/api") return path;
   return baseUrl.replace(/\/+$/, "") + path;
 }
 

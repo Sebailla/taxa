@@ -441,6 +441,81 @@ def test_infra_file_url_builder_encodes_path_query() -> None:
     )
 
 
+def test_infra_file_url_builder_absorbs_relative_baseurl_literals() -> None:
+    """ODD-MIGRATE-006 (symmetric to taxonomy PR #378): the
+    `url(baseUrl, path)` helper MUST absorb BOTH the empty-string
+    edge case AND the literal `"/api"` baseUrl as equivalent
+    relative-baseUrl indicators, returning `path` as-is for
+    either. The carveout pins the contract that the React mount's
+    `?? "/api"` fallback (post-f708a15) and the legacy empty-
+    string fallback both compose `/api/files` instead of the
+    would-be `/api/api/files` concatenation that 404s against
+    FastAPI's `/api/files` route. Mirrors the taxonomy infra
+    helper's `if (baseUrl === "" || baseUrl === "/api") return
+    path;` carveout byte-for-byte so the React port sees the
+    same URL-construction convention across adapters. A future
+    PR that drops either literal OR changes the concat to a
+    different normalisation breaks the Explorer route's
+    `/api/files` fetch — see `src/modules/taxonomy/infrastructure/
+    api.ts::url` for the matching carveout."""
+    if not INFRA_FILE.exists():
+        pytest.skip("infra file not present yet")
+    text = INFRA_FILE.read_text()
+    # The carveout branch must be present verbatim. The two
+    # relative-baseUrl literals (empty string + "/api") MUST be
+    # checked together so a future PR can't drop one without
+    # dropping the other — they're equivalent indicators, not
+    # two distinct carveouts.
+    url_block = re.search(
+        r"function\s+url\s*\(\s*baseUrl\s*:\s*string\s*,\s*path\s*:\s*string\s*\)\s*:\s*string\s*\{[^}]*\}",
+        text,
+        re.DOTALL,
+    )
+    assert url_block, (
+        "infra/api.ts must declare the `url(baseUrl, path)` helper "
+        "with the typed signature `(baseUrl: string, path: string): string`."
+    )
+    body = url_block.group(0)
+    # Both literals MUST be absorbed (in either order) and the
+    # helper MUST short-circuit on either match by returning
+    # `path` as-is. The regex tolerates the order so a future
+    # refactor that swaps the `||` operands doesn't break the
+    # pin.
+    assert re.search(
+        r"""(?:baseUrl\s*===\s*(?:["']["']|["']/api["'])\s*\|\|\s*baseUrl\s*===\s*(?:["']["']|["']/api["']))""",
+        body,
+    ), (
+        "ODD-MIGRATE-006 (symmetric to taxonomy PR #378): the "
+        "url() helper MUST absorb BOTH `baseUrl === ''` AND "
+        "`baseUrl === '/api'` as equivalent relative-baseUrl "
+        "indicators. Got body: " + body
+    )
+    # The carveout branch MUST return `path` as-is — the literal
+    # `/api/files` route must NOT be doubled into `/api/api/files`.
+    assert re.search(
+        r"""(?:baseUrl\s*===\s*["']["']\s*\|\|\s*baseUrl\s*===\s*["']/api["']|baseUrl\s*===\s*["']/api["']\s*\|\|\s*baseUrl\s*===\s*["']["'])""",
+        body,
+    ), (
+        "ODD-MIGRATE-006 (symmetric to taxonomy PR #378): the "
+        "url() helper MUST absorb BOTH `baseUrl === ''` AND "
+        "`baseUrl === '/api'` as equivalent relative-baseUrl "
+        "indicators. Got body: " + body
+    )
+    # The carveout branch MUST return `path` as-is — the literal
+    # `/api/files` route must NOT be doubled into `/api/api/files`.
+    # The regex tolerates the order of the `||` operands so a
+    # future refactor that swaps them doesn't break the pin.
+    assert re.search(
+        r"""if\s*\(\s*(?:baseUrl\s*===\s*["']["']\s*\|\|\s*baseUrl\s*===\s*["']/api["']|baseUrl\s*===\s*["']/api["']\s*\|\|\s*baseUrl\s*===\s*["']["'])\s*\)\s*return\s+path\s*;""",
+        body,
+    ), (
+        "ODD-MIGRATE-006: the `url()` carveout branch MUST "
+        "`return path;` for both literals so the resulting URL "
+        "stays `/api/files` instead of the would-be "
+        "`/api/api/files` concatenation. Got body: " + body
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public barrel — W3 must re-export the adapter surface through the
 # module's barrel so cross-module consumers (W6 React mount,
@@ -777,6 +852,17 @@ const EMPTY_TREE = {
   assert.strictEqual(f4.calls[0].input, "/api/files",
     "fetchFiles without baseUrl must stay relative-origin: " +
     f4.calls[0].input);
+  // baseUrl="/api" (post-f708a15 relative-origin alias) — URL
+  // must also stay /api/files, NOT /api/api/files. Mirrors the
+  // ODD-MIGRATE-006 carveout in the taxonomy infra helper (PR
+  // #378) so the React mount's `?? "/api"` fallback composes
+  // the canonical /api/files route byte-for-byte.
+  const f4api = makeFetch([{ ok: true, status: 200, statusText: "OK",
+    json: EMPTY_TREE }]);
+  await api.fetchFiles({ fetch: f4api, baseUrl: "/api" });
+  assert.strictEqual(f4api.calls[0].input, "/api/files",
+    "fetchFiles with baseUrl=/api must stay relative-origin (no /api/api duplication): " +
+    f4api.calls[0].input);
 
   // ---- fetchFiles — HTTP non-OK (404) -----------------------
   const f5 = makeFetch([{ ok: false, status: 404, statusText: "Not Found",
