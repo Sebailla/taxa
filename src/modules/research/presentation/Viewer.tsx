@@ -389,33 +389,80 @@ function renderDispatch(
       // typed hand-off so the renderDispatch switch
       // stays exhaustive.
       return <EpubRender dispatch={dispatch} />;
+    case "table-source":
+      // W64E-CSV-005 — CSV / TSV Table materialization
+      // via Next 16's `<Script>` loader + the pinned
+      // Papa Parse CDN pin (`PAPA_CDN_URL` +
+      // `PAPA_GLOBAL_NAME = "Papa"`). This branch is
+      // intentionally OUT of the W6.1 cdn-pending
+      // catch-all (the CSV / TSV materialization owns
+      // a typed `cdn-failed` recovery state distinct
+      // from the `bytes-missing` offline path the
+      // dispatcher emits at dispatch time — the
+      // W64B-DOCX-002 typed union
+      // `reason: "bytes-missing" | "cdn-failed"` on
+      // the `table-offline` variant lets the mount
+      // surface both paths through the same
+      // `renderOfflineCard` shape while keeping the
+      // typed recovery literal distinct). The mount
+      // reaches the pinned global through
+      // `window[dispatch.scriptGlobal].parse(text,
+      // {delimiter, skipEmptyLines: true})` where
+      // `delimiter` comes from the W4b4 dispatch
+      // (`,` for CSV + `\t` for TSV — derived from
+      // `dispatch.format` when `dispatch.delimiter` is
+      // not explicit, mirroring the legacy
+      // `web/file_viewer.js::renderTable` ternary
+      // `const delimiter = ext === "tsv" ? "\t" : ","`).
+      // The bytes are UTF-8-decoded through
+      // `new TextDecoder("utf-8", {fatal: false})`
+      // (matches the W4a `text-pre` decoder shape).
+      // The parsed rows render as a sticky `<thead>` +
+      // zebra `<tbody>` table inside the existing
+      // `.fex-csv-scroller` wrapper (the cascade is
+      // already shipped by the W6.1 migration —
+      // `.fex-csv-table thead th { position: sticky;
+      // top: 0; z-index: 1 }` pins the header, the
+      // `:nth-child(even)` zebra selector paints the
+      // alternating row tint). The mount mirrors the
+      // legacy `web/file_viewer.js::renderTable`
+      // lines 550–619 verbatim (first row is the
+      // header; a headerless file synthesises `Col N`
+      // labels; cell strings coerce to `""` when
+      // missing). The actual mount rendering lives in
+      // `TableRender` below — this branch is a typed
+      // hand-off so the renderDispatch switch stays
+      // exhaustive.
+      return <TableRender dispatch={dispatch} format={descriptor.format} />;
     case "docx-offline":
     case "sheet-offline":
     case "epub-offline":
-    case "table-source":
     case "table-offline":
     case "json-offline":
       // W6.1 non-CDN mount — the CDN-backed source variants
-      // (CSV / TSV) are intentionally not wired
-      // here (those mounts land as separately authorized
-      // later slices; the W64B typed union
-      // `reason: "bytes-missing" | "cdn-failed"` is the
-      // common contract they'll surface through). The
-      // `docx-offline` branch (the W6.1 bytes-missing
-      // offline path for DOCX) + the `sheet-offline`
+      // are intentionally not wired here (those mounts land
+      // as separately authorized later slices; the W64B
+      // typed union `reason: "bytes-missing" |
+      // "cdn-failed"` is the common contract they surface
+      // through). The `docx-offline` branch (the W6.1
+      // bytes-missing offline path for DOCX) + the
+      // `sheet-offline` branch (the W6.1 bytes-missing
+      // offline path for XLS / XLSX) + the `epub-offline`
       // branch (the W6.1 bytes-missing offline path for
-      // XLS / XLSX) + the `epub-offline` branch (the
-      // W6.1 bytes-missing offline path for EPUB) stay
-      // here so the W6.1 download-link affordance + the
-      // W64B-DOCX-002 + W64C-XLS-003 + W64D-EPUB-004
-      // typed `cdn-failed` recovery states from
-      // `DocxRender` + `SheetRender` + `EpubRender`
+      // EPUB) + the `table-offline` branch (the W6.1
+      // bytes-missing offline path for CSV / TSV) + the
+      // `json-offline` branch (the W6.1 bytes-missing
+      // offline path for JSON) stay here so the W6.1
+      // download-link affordance + the W64B-DOCX-002 +
+      // W64C-XLS-003 + W64D-EPUB-004 + W64E-CSV-005 typed
+      // `cdn-failed` recovery states from `DocxRender` +
+      // `SheetRender` + `EpubRender` + `TableRender`
       // resolve through the same `renderOfflineCard`
-      // shape. A future W6+ slice that loads the Papa
-      // CDN libraries would replace the `table-*` /
-      // `json-*` branches with the typed source /
-      // offline rendering shape (one JSX branch per CDN
-      // library).
+      // shape. The pre-W64E `table-offline` (bytes-missing)
+      // dispatch is intentionally NOT extracted from this
+      // catch-all — the W64E slice only extracts
+      // `table-source` so the typed source routes through
+      // the dedicated `TableRender` sub-component.
       return renderOfflineCard(dispatch, descriptor);
   }
 }
@@ -1814,6 +1861,459 @@ function EpubRender(props: EpubRenderProps): ReactNode {
           progress_activity
         </span>
         <p>Loading EPUB preview…</p>
+      </div>
+      <Script
+        src={dispatch.scriptUrl}
+        strategy="afterInteractive"
+        onLoad={handleScriptLoad}
+        onError={handleScriptError}
+      />
+    </>
+  );
+}
+
+// ---- W64E-CSV-005 — CSV / TSV Table materialization via Next `Script` ----
+// Mirrors the legacy `web/file_viewer.js::renderTable` shape
+// (the legacy uses `loadScriptOnce("Papa")` to inject the
+// CDN, then `await res.text()` to read the bytes, then
+// `window.Papa.parse(text, { delimiter, skipEmptyLines: true
+// })` to parse the rows, then builds a `<table class="fex-
+// csv-table">` with `<thead>` + `<tbody>` children wrapped in
+// `<div class="fex-csv-scroller">`). The W64E React mount
+// uses Next 16's
+// `<Script src={dispatch.scriptUrl} strategy="afterInteractive"
+// onLoad={parse} onError={...}>` component (see
+// `node_modules/next/dist/docs/01-app/03-api-reference/02-
+// components/script.md`) as the loader surface. The bytes
+// come from the existing `bytesRequiredForFormat` seam
+// (W64E flipped CSV + TSV into the bytes-required group); the
+// mount UTF-8-decodes the bytes through `TextDecoder` and
+// hands the text straight to Papa's parse options. Papa's
+// output is plain string arrays — the React mount paints the
+// rows directly without `dangerouslySetInnerHTML`, so the
+// XSS-safe shape is the React text-content path (the legacy
+// oracle uses `el("td", null, cell)` with the cell string,
+// which is the same shape — the cascade does the cell-string
+// escaping through React children).
+//
+// On `Script.onError` OR any exception from `Papa.parse(...)`
+// (the legacy `renderTable` catches the parse-error path and
+// routes it through `renderOfflineBanner`) the mount flips to
+// a typed `"cdn-failed"` recovery state that's distinct from
+// the `bytes-missing` offline path the dispatcher emits at
+// dispatch time. The mount synthesizes a `table-offline`
+// dispatch with `reason: "cdn-failed"` and routes through
+// `renderOfflineCard` so the existing download affordance
+// stays in place while the typed `reason` literal is
+// first-class (the W64B-DOCX-002 typed union
+// `reason: "bytes-missing" | "cdn-failed"` on the
+// `table-offline` variant — extended on `renderers.ts` — keeps
+// both failure literals first-class).
+//
+// The mount mirrors the legacy `renderTable` lines 550–619
+// verbatim: the first row is the header (Papa's default
+// behaviour when `header` is omitted); a headerless file
+// (every cell on row 0 is empty / whitespace) synthesises
+// `Col N` labels so the user still sees a structured table.
+// The cell coercion mirrors the legacy `String(r[i] ?? "")`
+// shape verbatim so missing cells paint as empty strings
+// rather than crashing the render.
+
+/** Discriminated state for the CSV / TSV materialization.
+ *  Mirrors the W64B-DOCX-002 `DocxRenderState` +
+ *  W64C-XLS-003 `SheetRenderState` + W64D-EPUB-004
+ *  `EpubRenderState` union shape: `loading` paints the
+ *  quiet skeleton + the `<Script>` loader, `loaded` carries
+ *  the parsed rows verbatim (Papa returns a typed `{data:
+ *  string[][]}` shape — the mount owns the row / cell
+ *  coercion + the sticky `<thead>` + zebra `<tbody>`
+ *  rendering, mirroring the legacy `renderTable` shape
+ *  verbatim), and `error` flips to the typed `cdn-failed`
+ *  recovery state. The error branch carries the union
+ *  literal `reason: "cdn-failed"` so the surface
+ *  distinguishes mount-detected CDN / parse failures from
+ *  the dispatcher-emitted `bytes-missing` offline path. */
+type TableRenderState =
+  | { readonly kind: "loading" }
+  | {
+      readonly kind: "loaded";
+      readonly headers: readonly string[];
+      readonly rows: readonly (readonly string[])[];
+    }
+  | {
+      readonly kind: "error";
+      readonly reason: "cdn-failed";
+    };
+
+/** Props for `TableRender`. The component receives the
+ *  typed `table-source` dispatch + the `format` field from
+ *  the `renderDispatch` descriptor directly — the React
+ *  mount is the only consumer of this surface;
+ *  `bytesRequiredForFormat("csv") === true` AND
+ *  `bytesRequiredForFormat("tsv") === true` (the W64E
+ *  matrix flip) keep the bytes-fetch effect in sync (the
+ *  bytes flow through the existing Viewer.tsx `bytesStatus`
+ *  lifecycle so this component is purely a projection of
+ *  the typed source outcome). The `format` prop carries
+ *  the W1 `FileFormat` literal (`"csv"` or `"tsv"`) so the
+ *  mount can derive the delimiter literal from the format
+ *  when `dispatch.delimiter` is unavailable (the W4b4
+ *  dispatcher always emits the typed `delimiter` literal;
+ *  the format-derived fallback is a defensive shape for
+ *  future consumer slices — mirrors the legacy
+ *  `web/file_viewer.js::renderTable` `const delimiter =
+ *  ext === "tsv" ? "\t" : ","` ternary verbatim). */
+interface TableRenderProps {
+  readonly dispatch: ViewerDispatch;
+  readonly format: FileFormat;
+}
+
+/** W64E-CSV-005 — the CSV / TSV materialization. Renders
+ *  the `<Script>` loader on first commit, calls
+ *  `window[dispatch.scriptGlobal].parse(text, {delimiter,
+ *  skipEmptyLines: true})` on script load, and flips to a
+ *  typed `cdn-failed` recovery state on either
+ *  `Script.onError` OR the `Papa.parse(...)` exception
+ *  path. The recovery state synthesizes a `table-offline`
+ *  dispatch with `reason: "cdn-failed"` so the existing
+ *  `renderOfflineCard` paints the download affordance with
+ *  a typed `reason` literal that's distinct from the
+ *  `bytes-missing` offline path the dispatcher emits. Both
+ *  CSV and TSV share the same Papa Parse path; the
+ *  `dispatch.delimiter` literal carries the typed value
+ *  (`","` for CSV, `"\t"` for TSV) and the mount falls
+ *  back to deriving the delimiter from `dispatch.format`
+ *  when `dispatch.delimiter` is unavailable (a defensive
+ *  shape for future consumer slices — the W4b4 dispatcher
+ *  always emits the typed `delimiter` literal).
+ *
+ *  The mount mirrors the legacy
+ *  `web/file_viewer.js::renderTable` lines 550–619 verbatim:
+ *  the first row is the header; a headerless file
+ *  (every cell on row 0 is empty / whitespace) synthesises
+ *  `Col N` labels; missing cells coerce to `""` so the
+ *  user sees an empty cell rather than `undefined`.
+ */
+function TableRender(props: TableRenderProps): ReactNode {
+  // `dispatch` is narrowed by the caller (`renderDispatch`
+  // only routes `kind: "table-source"` here), but TypeScript
+  // can't narrow through the JSX element so we explicitly
+  // guard the body for the typed dispatch shape.
+  const dispatch = props.dispatch;
+  const format = props.format;
+  if (dispatch.kind !== "table-source") {
+    // Defensive guard — the caller is `renderDispatch` and
+    // only routes `table-source` here. A future refactor
+    // that routes another kind through this component is a
+    // contract regression, so the guard returns an empty
+    // fragment rather than rendering the wrong shape.
+    return null;
+  }
+  const [state, setState] = useState<TableRenderState>({
+    kind: "loading",
+  });
+  const cancelledRef = useRef<boolean>(false);
+
+  // Cleanup `cancelledRef` so an unmount mid-flight
+  // doesn't flip state to `loaded` / `error` after the
+  // parent has unmounted this CSV / TSV viewer (the
+  // `useEffect` below sets `cancelledRef.current = true`
+  // on cleanup).
+  useEffect(() => {
+    cancelledRef.current = false;
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, []);
+
+  // `runParse` is the single parse entry point. It reaches
+  // the pinned Papa Parse global through the typed
+  // `dispatch.scriptGlobal` (so a future PR that bumps the
+  // library version lands in lock-step across the
+  // dispatcher constant + the loader site) and calls
+  // `parse(text, {delimiter, skipEmptyLines: true})` after
+  // a UTF-8 decode. The `delimiter` literal comes from the
+  // W4b4 dispatch (the dispatcher always emits the typed
+  // literal — `","` for CSV, `"\t"` for TSV). The mount
+  // falls back to deriving the delimiter from the `format`
+  // prop when `dispatch.delimiter` is unavailable (a
+  // defensive shape that mirrors the legacy `renderTable`
+  // ternary `const delimiter = ext === "tsv" ? "\t" : ","`
+  // verbatim).
+  // The `try / catch` covers the synchronous exception
+  // path; both routes flip the state to the typed
+  // `cdn-failed` recovery literal.
+  const runParse = useCallback(() => {
+    try {
+      // SAFETY: `window` is typed as the DOM `Window`
+      // interface which does NOT carry the CDN-injected
+      // global; the Papa Parse UMD bundle assigns itself
+      // to `window[scriptGlobal]` after the Next
+      // `<Script>` loader fires `onLoad`. The narrow
+      // `Record<string, unknown>` index shape gives us a
+      // typed handle; the downstream `typeof parse !==
+      // "function"` guard verifies the runtime shape
+      // before any call. The pinned `scriptGlobal`
+      // literal comes from the W4b4 dispatcher constant
+      // — a future PR that bumps the CDN pin lands in
+      // lock-step across the dispatcher constant + the
+      // loader site.
+      const Papa = (window as unknown as Record<string, unknown>)[
+        dispatch.scriptGlobal
+      ] as
+        | {
+            parse: (
+              text: string,
+              options: {
+                delimiter: string;
+                skipEmptyLines: boolean;
+              },
+            ) => { data: unknown; errors?: unknown };
+          }
+        | undefined;
+      if (Papa === undefined || typeof Papa.parse !== "function") {
+        if (!cancelledRef.current) {
+          setState({ kind: "error", reason: "cdn-failed" });
+        }
+        return;
+      }
+      // UTF-8 decode the bytes through `TextDecoder` —
+      // the bytes are the SAME `Uint8Array` reference
+      // carried by the W4b4 `table-source` dispatch
+      // (the dispatcher passes by reference, NOT by
+      // copy). `TextDecoder` is part of ES2022 + every
+      // modern browser, so no polyfill is needed. The
+      // `fatal: false` flag mirrors the W4a `text-pre`
+      // decoder shape so malformed UTF-8 sequences yield
+      // a U+FFFD replacement character rather than
+      // throwing.
+      const text = new TextDecoder("utf-8", { fatal: false }).decode(
+        dispatch.bytes,
+      );
+      // Derive the delimiter: the W4b4 dispatcher always
+      // emits the typed `delimiter` literal on
+      // `table-source` (`","` for CSV, `"\t"` for TSV — the
+      // `TableDelimiter` union literal). The mount passes
+      // `dispatch.delimiter` verbatim. The `format` prop is
+      // carried through `renderDispatch` so a future
+      // consumer slice that omits `dispatch.delimiter` can
+      // still derive the literal from the format field
+      // (mirrors the legacy `web/file_viewer.js::renderTable`
+      // ternary `const delimiter = ext === "tsv" ? "\t" :
+      // ","` verbatim).
+      const delimiter: string = dispatch.delimiter;
+      const result = Papa.parse(text, {
+        delimiter,
+        skipEmptyLines: true,
+      });
+      if (cancelledRef.current) return;
+      // Papa returns `{ data: string[][], errors?: ... }`.
+      // The legacy `renderTable` filters benign warnings
+      // (TooFewFields / TooManyFields — Papa reports these
+      // for every trailing-delimiter row, so the legacy
+      // chooses to NOT block the render on them) and only
+      // surfaces a non-benign error. The React mount
+      // mirrors the same shape: if a non-benign error is
+      // present, the mount flips to the typed `cdn-failed`
+      // recovery state; benign warnings don't block the
+      // render (the mount still paints the rows).
+      const errors = Array.isArray(result.errors) ? result.errors : [];
+      const hasNonBenignError = errors.some(
+        (e: unknown) => {
+          if (
+            e !== null &&
+            typeof e === "object" &&
+            "code" in e &&
+            typeof (e as { code: unknown }).code === "string"
+          ) {
+            const code = (e as { code: string }).code;
+            return code !== "TooFewFields" && code !== "TooManyFields";
+          }
+          return false;
+        },
+      );
+      if (hasNonBenignError) {
+        setState({ kind: "error", reason: "cdn-failed" });
+        return;
+      }
+      const rows = Array.isArray(result.data)
+        ? (result.data as readonly unknown[]).map((row) =>
+            Array.isArray(row)
+              ? (row as readonly unknown[]).map(
+                  (cell) => String(cell ?? ""),
+                )
+              : [],
+          )
+        : [];
+      // Mirror the legacy `renderTable` header-detection
+      // shape verbatim: row 0 is the header when AT LEAST
+      // ONE cell is a non-empty string. A headerless file
+      // (every cell on row 0 is empty / whitespace)
+      // synthesises `Col N` labels so the user still sees
+      // a structured table.
+      const headerRow = rows[0] ?? [];
+      const hasHeader =
+        Array.isArray(headerRow) &&
+        headerRow.some(
+          (cell) => typeof cell === "string" && cell.trim().length > 0,
+        );
+      const headers: readonly string[] = hasHeader
+        ? headerRow.map((h) => String(h ?? ""))
+        : headerRow.map((_, i) => `Col ${i + 1}`);
+      const bodyRows = hasHeader ? rows.slice(1) : rows;
+      setState({ kind: "loaded", headers, rows: bodyRows });
+    } catch {
+      if (!cancelledRef.current) {
+        setState({ kind: "error", reason: "cdn-failed" });
+      }
+    }
+  }, [dispatch.scriptGlobal, dispatch.bytes, dispatch.delimiter]);
+
+  // If the legacy-pinned Papa Parse CDN is already on the
+  // page (a previous CSV / TSV open loaded the script and
+  // the user is opening a second table), Next 16's
+  // `<Script>` component does NOT re-fire `onLoad` for
+  // subsequent mounts — so this effect covers the
+  // "already-cached" path by checking `window[scriptGlobal]`
+  // synchronously after the first commit. A future mount
+  // that swaps the loader for a different library would
+  // land as a separately authorized slice + would update
+  // this effect accordingly.
+  useEffect(() => {
+    // SAFETY: same invariant as the `runParse` window
+    // assertion above — the CDN-injected global reaches
+    // us through `window[scriptGlobal]` after the Next
+    // `<Script>` loader has fired. The narrow
+    // `Record<string, unknown>` index shape gives us a
+    // typed handle; the downstream `typeof parse ===
+    // "function"` guard verifies the runtime shape before
+    // any call.
+    const w = window as unknown as Record<string, unknown>;
+    const Papa = w[dispatch.scriptGlobal];
+    if (
+      Papa !== undefined &&
+      typeof Papa === "object" &&
+      Papa !== null &&
+      typeof (Papa as { parse?: unknown }).parse === "function"
+    ) {
+      runParse();
+    }
+    // `runParse` is intentionally listed as a dep — its
+    // identity flips when the dispatch bytes / scriptGlobal
+    // / delimiter / format change, which mirrors the
+    // "new file open" lifecycle the Explorer.tsx parent
+    // drives.
+  }, [runParse, dispatch]);
+
+  const handleScriptLoad = useCallback(() => {
+    runParse();
+  }, [runParse]);
+
+  const handleScriptError = useCallback(() => {
+    setState({ kind: "error", reason: "cdn-failed" });
+  }, []);
+
+  // The error branch synthesizes a typed `table-offline`
+  // dispatch with `reason: "cdn-failed"` so the existing
+  // `renderOfflineCard` paints the download affordance with
+  // a typed `reason` literal distinct from the
+  // `bytes-missing` path. The descriptor here is a
+  // synthetic stand-in (the CDN-failed branch doesn't have
+  // a real `ViewerFileDescriptor` in scope, only the typed
+  // dispatch fields).
+  if (state.kind === "error") {
+    const syntheticDescriptor: ViewerFileDescriptor = {
+      url: dispatch.src,
+      name: dispatch.title,
+      format,
+      size: dispatch.bytes.length,
+      path: dispatch.title,
+    };
+    return renderOfflineCard(
+      {
+        kind: "table-offline",
+        name: dispatch.title,
+        download: { href: dispatch.src, download: dispatch.title },
+        scriptUrl: dispatch.scriptUrl,
+        scriptGlobal: dispatch.scriptGlobal,
+        reason: "cdn-failed",
+      },
+      syntheticDescriptor,
+    );
+  }
+
+  if (state.kind === "loaded") {
+    // The loaded shape renders the parsed rows verbatim
+    // through React children (NOT
+    // `dangerouslySetInnerHTML`) — the cell strings flow
+    // through React's text-content path so the XSS-safe
+    // shape is enforced by React itself (a malicious cell
+    // string escapes as text, never as HTML). The
+    // sticky `<thead>` + zebra `<tbody>` selectors are
+    // already shipped by the W6.1 cascade
+    // (`.fex-csv-table thead th { position: sticky; top:
+    // 0; z-index: 1; }` + `.fex-csv-table tbody tr:nth-
+    // child(even) td` + `.fex-csv-scroller { max-height:
+    // 100%; overflow: auto; }`) so the React mount just
+    // needs to paint the right class names + the right
+    // element shape. Mirrors the legacy
+    // `web/file_viewer.js::renderTable` lines 550–619
+    // verbatim (the legacy builds `el("table", { class:
+    // "fex-csv-table" })` + `el("thead", null, headerTr)`
+    // + `el("tbody", null, ...rows)` + wraps everything
+    // in `el("div", { class: "fex-csv-scroller" },
+    // table)`).
+    return (
+      <div
+        className="fex-csv-scroller"
+        data-viewer-kind="csv-table-host"
+      >
+        <table
+          className="fex-csv-table"
+          data-viewer-kind="csv-table"
+        >
+          <thead>
+            <tr>
+              {state.headers.map((h, i) => (
+                <th key={`header-${i}`} data-csv-header-index={i}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {state.rows.map((row, rIdx) => (
+              <tr key={`row-${rIdx}`} data-csv-row-index={rIdx}>
+                {state.headers.map((_, cIdx) => (
+                  <td key={`cell-${rIdx}-${cIdx}`} data-csv-col-index={cIdx}>
+                    {row[cIdx] ?? ""}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  // `loading` state — render the quiet skeleton + the
+  // Next 16 `<Script>` loader on the first commit. The
+  // `<Script>` dedups by URL across mounts, so a second
+  // CSV / TSV open within the same page session does NOT
+  // re-fetch the bundle.
+  return (
+    <>
+      <div
+        className="fex-empty-state"
+        role="status"
+        data-viewer-loading=""
+        data-viewer-kind="csv-loading"
+      >
+        <span className="fex-empty-state-icon material-symbols-outlined animate-spin">
+          progress_activity
+        </span>
+        <p>Loading table preview…</p>
       </div>
       <Script
         src={dispatch.scriptUrl}

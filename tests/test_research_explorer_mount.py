@@ -1308,8 +1308,25 @@ const kernel = require(path.resolve(process.argv[2]));
     + "share the same SheetJS path; the format field is "
     + "carried verbatim through the dispatch).",
   );
-  assert.strictEqual(kernel.bytesRequiredForFormat("csv"), false);
-  assert.strictEqual(kernel.bytesRequiredForFormat("tsv"), false);
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("csv"), true,
+    "W64E-CSV-005: bytesRequiredForFormat('csv') must "
+    + "return true so the bytes-fetch effect in Viewer.tsx "
+    + "reads CSV bytes through the same seam the TXT / MD "
+    + "/ SVG / JSON / DOCX / XLS / XLSX / EPUB effects "
+    + "already use (the mount owns the TextDecoder + "
+    + "Papa.parse(...) lifecycle)",
+  );
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("tsv"), true,
+    "W64E-CSV-005: bytesRequiredForFormat('tsv') must "
+    + "return true so the bytes-fetch effect in Viewer.tsx "
+    + "reads TSV bytes through the same seam the TXT / MD "
+    + "/ SVG / JSON / DOCX / XLS / XLSX / EPUB / CSV "
+    + "effects already use (CSV and TSV share the same "
+    + "Papa Parse path; the delimiter literal is computed "
+    + "from the format field)",
+  );
   assert.strictEqual(
     kernel.bytesRequiredForFormat("epub"), true,
     "W64D-EPUB-004: bytesRequiredForFormat('epub') must "
@@ -3171,8 +3188,25 @@ const kernel = require(path.resolve(process.argv[2]));
   assert.strictEqual(kernel.bytesRequiredForFormat("html"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("htm"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("jpg"), false);
-  assert.strictEqual(kernel.bytesRequiredForFormat("csv"), false);
-  assert.strictEqual(kernel.bytesRequiredForFormat("tsv"), false);
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("csv"), true,
+    "W64E-CSV-005: bytesRequiredForFormat('csv') must "
+    + "return true so the bytes-fetch effect in Viewer.tsx "
+    + "reads CSV bytes through the same seam the TXT / MD "
+    + "/ SVG / JSON / DOCX / XLS / XLSX / EPUB effects "
+    + "already use (the mount owns the TextDecoder + "
+    + "Papa.parse(...) lifecycle)",
+  );
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("tsv"), true,
+    "W64E-CSV-005: bytesRequiredForFormat('tsv') must "
+    + "return true so the bytes-fetch effect in Viewer.tsx "
+    + "reads TSV bytes through the same seam the TXT / MD "
+    + "/ SVG / JSON / DOCX / XLS / XLSX / EPUB / CSV "
+    + "effects already use (CSV and TSV share the same "
+    + "Papa Parse path; the delimiter literal is computed "
+    + "from the format field)",
+  );
   assert.strictEqual(
     kernel.bytesRequiredForFormat("epub"), true,
     "W64D-EPUB-004: bytesRequiredForFormat('epub') must "
@@ -3529,8 +3563,25 @@ const kernel = require(path.resolve(process.argv[2]));
   assert.strictEqual(kernel.bytesRequiredForFormat("html"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("htm"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("jpg"), false);
-  assert.strictEqual(kernel.bytesRequiredForFormat("csv"), false);
-  assert.strictEqual(kernel.bytesRequiredForFormat("tsv"), false);
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("csv"), true,
+    "W64E-CSV-005: bytesRequiredForFormat('csv') must "
+    + "return true so the bytes-fetch effect in Viewer.tsx "
+    + "reads CSV bytes through the same seam the TXT / MD "
+    + "/ SVG / JSON / DOCX / XLS / XLSX / EPUB effects "
+    + "already use (the mount owns the TextDecoder + "
+    + "Papa.parse(...) lifecycle)",
+  );
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("tsv"), true,
+    "W64E-CSV-005: bytesRequiredForFormat('tsv') must "
+    + "return true so the bytes-fetch effect in Viewer.tsx "
+    + "reads TSV bytes through the same seam the TXT / MD "
+    + "/ SVG / JSON / DOCX / XLS / XLSX / EPUB / CSV "
+    + "effects already use (CSV and TSV share the same "
+    + "Papa Parse path; the delimiter literal is computed "
+    + "from the format field)",
+  );
   assert.strictEqual(
     kernel.bytesRequiredForFormat("epub"), true,
     "W64D-EPUB-004: bytesRequiredForFormat('epub') must "
@@ -3851,10 +3902,14 @@ def test_w64c_viewer_preserves_json_docx_sheet_offline_pins() -> None:
          from the catch-all; `sheet-offline` keeps the
          existing W6.1 download-link affordance.
       4. The other CDN-backed source variants
-         (`epub-source`, `table-source`) stay in the W6.1
-         cdn-pending catch-all — W64C is XLS / XLSX-only
-         materialization; EPUB / CSV / TSV land as
-         separately authorized later slices.
+         (`epub-source`) stay in the W6.1 cdn-pending
+         catch-all — W64C is XLS / XLSX-only
+         materialization; EPUB lands as a separately
+         authorized later slice. CSV / TSV land as the
+         W64E-CSV-005 slice (Papa Parse materialization)
+         — the W64E slice extracts `table-source` from
+         the catch-all so the typed source routes through
+         the dedicated `TableRender` sub-component.
 
     A future PR that adds the XLS / XLSX materialization
     while accidentally dropping a JSON / DOCX / sheet-
@@ -3944,24 +3999,31 @@ def test_w64c_viewer_preserves_json_docx_sheet_offline_pins() -> None:
         )
 
     # 4. The other CDN-backed source variants
-    #    (`table-source`) stay in the W6.1 cdn-pending
+    #    (`epub-source`) stay in the W6.1 cdn-pending
     #    catch-all. (`epub-source` is NOT in the catch-all
     #    anymore — the W64D-EPUB-004 slice extracted it so
     #    the typed source descriptor routes through the
     #    dedicated `EpubRender` sub-component. The
     #    pre-W64D `epub-offline` (bytes-missing) dispatch
     #    stays in the catch-all so the existing download-
-    #    link affordance is preserved verbatim.)
-    for source_literal in ("table-source",):
-        assert f'"{source_literal}"' in catch_all_body, (
-            f"Viewer.tsx's cdn-pending catch-all MUST still "
-            f"list `{source_literal}` so the W6.1 non-CDN "
-            f"surface stays in place for the CSV / TSV "
-            f"deferred families. W64D extracts "
-            f"`epub-source` (EPUB) from the catch-all; CSV / "
-            f"TSV materialization lands as separately "
-            f"authorized later slices."
-        )
+    #    link affordance is preserved verbatim. The W64E
+    #    slice extracts `table-source` from the catch-all
+    #    so the typed source routes through the dedicated
+    #    `TableRender` sub-component — the W64C test
+    #    asserts the pre-W64E state where CSV / TSV were
+    #    still deferred; the W64E preservation test pins
+    #    the post-W64E state.)
+    #    NOTE: as of W64E-CSV-005, `table-source` is also
+    #    extracted from the catch-all (by the W64E slice
+    #    that materializes CSV / TSV via Papa Parse). The
+    #    W64C preservation test was authored BEFORE W64E
+    #    landed; the W64E preservation test pins the
+    #    post-W64E state where `table-source` is NOT in
+    #    the catch-all. Pre-W64E CSV / TSV was a deferred
+    #    family that surfaced through the W6.1
+    #    download-link affordance; post-W64E CSV / TSV
+    #    materializes through the dedicated `TableRender`
+    #    sub-component + Papa Parse.
 
     # 5. `sheet-source` MUST NOT appear in the cdn-pending
     #    catch-all anymore — the W64C slice extracts it so
@@ -4113,8 +4175,25 @@ const kernel = require(path.resolve(process.argv[2]));
   assert.strictEqual(kernel.bytesRequiredForFormat("html"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("htm"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("jpg"), false);
-  assert.strictEqual(kernel.bytesRequiredForFormat("csv"), false);
-  assert.strictEqual(kernel.bytesRequiredForFormat("tsv"), false);
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("csv"), true,
+    "W64E-CSV-005: bytesRequiredForFormat('csv') must "
+    + "return true so the bytes-fetch effect in Viewer.tsx "
+    + "reads CSV bytes through the same seam the TXT / MD "
+    + "/ SVG / JSON / DOCX / XLS / XLSX / EPUB effects "
+    + "already use (the mount owns the TextDecoder + "
+    + "Papa.parse(...) lifecycle)",
+  );
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("tsv"), true,
+    "W64E-CSV-005: bytesRequiredForFormat('tsv') must "
+    + "return true so the bytes-fetch effect in Viewer.tsx "
+    + "reads TSV bytes through the same seam the TXT / MD "
+    + "/ SVG / JSON / DOCX / XLS / XLSX / EPUB / CSV "
+    + "effects already use (CSV and TSV share the same "
+    + "Papa Parse path; the delimiter literal is computed "
+    + "from the format field)",
+  );
   assert.strictEqual(kernel.bytesRequiredForFormat("mp4"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("other"), false);
 }
@@ -4495,8 +4574,17 @@ def test_w64d_viewer_preserves_json_docx_sheet_epub_offline_pins() -> None:
          the catch-all; `epub-offline` keeps the existing
          W6.1 download-link affordance.
       5. The other CDN-backed source variants
-         (`table-source`, `json-source`) stay in the W6.1
-         cdn-pending catch-all.
+         (`json-source`) stay in the W6.1 cdn-pending
+         catch-all (the W64A-JSON-001 `case
+         \"json-source\":` branch routes through
+         `renderJsonTree` outside the catch-all). The
+         `table-source` family is a separately authorized
+         later slice (W64E-CSV-005 Papa Parse
+         materialization) — pre-W64E `table-source` stays
+         in the catch-all; post-W64E `table-source` is
+         extracted from the catch-all so the typed source
+         routes through the dedicated `TableRender`
+         sub-component.
 
     A future PR that adds the EPUB materialization while
     accidentally dropping a JSON / DOCX / XLS / XLSX /
@@ -4607,20 +4695,24 @@ def test_w64d_viewer_preserves_json_docx_sheet_epub_offline_pins() -> None:
 
     # 5. The other CDN-backed source variants
     #    (`table-source`) stay in the W6.1 cdn-pending
-    #    catch-all. (`json-source` is NOT in the catch-all —
-    #    it's routed through `renderJsonTree` outside the
-    #    catch-all, which the W64A-JSON-001 case branch
-    #    pins above.)
-    for source_literal in ("table-source",):
-        assert f'"{source_literal}"' in catch_all_body, (
-            f"Viewer.tsx's cdn-pending catch-all MUST still "
-            f"list `{source_literal}` so the W6.1 non-CDN "
-            f"surface stays in place for the CSV / TSV "
-            f"deferred family. W64D only extracts "
-            f"`epub-source` from the catch-all; CSV / TSV "
-            f"materialization lands as separately authorized "
-            f"later slices."
-        )
+    #    catch-all PRE-W64E; the W64E-CSV-005 slice extracts
+    #    `table-source` from the catch-all so the typed
+    #    source routes through the dedicated `TableRender`
+    #    sub-component. (`json-source` is NOT in the
+    #    catch-all — it's routed through `renderJsonTree`
+    #    outside the catch-all, which the W64A-JSON-001
+    #    case branch pins above.)
+    #    NOTE: as of W64E-CSV-005, `table-source` is also
+    #    extracted from the catch-all (by the W64E slice
+    #    that materializes CSV / TSV via Papa Parse). The
+    #    W64D preservation test was authored BEFORE W64E
+    #    landed; the W64E preservation test pins the
+    #    post-W64E state where `table-source` is NOT in
+    #    the catch-all. Pre-W64E CSV / TSV was a deferred
+    #    family that surfaced through the W6.1
+    #    download-link affordance; post-W64E CSV / TSV
+    #    materializes through the dedicated `TableRender`
+    #    sub-component + Papa Parse.
 
     # 6. `epub-source` MUST NOT appear in the cdn-pending
     #    catch-all anymore — the W64D slice extracts it so
@@ -4633,4 +4725,676 @@ def test_w64d_viewer_preserves_json_docx_sheet_epub_offline_pins() -> None:
         "the typed source routes through the `EpubRender` "
         "sub-component (NOT the W6.1 download-link "
         "affordance)."
+    )
+
+
+# ---------------------------------------------------------------------------
+# W64E-CSV-005 — CSV / TSV Table viewer materialization via Next `Script`
+# + the pinned Papa Parse CDN pin (the W6.4e React mount counterpart of
+# the W4b4 typed `table-source` source descriptor). The W64E slice closes
+# the remaining CDN-backed Table materialization:
+#
+#   - `bytesRequiredForFormat("csv")` + `bytesRequiredForFormat("tsv")`
+#     flip from `false` to `true` so the existing bytes-fetch effect in
+#     Viewer.tsx reads CSV / TSV bytes through the same seam the TXT /
+#     MD / SVG / JSON / DOCX / XLS / XLSX / EPUB effects already use (the
+#     matrix stays honest end-to-end).
+#   - Viewer.tsx gains a Next `Script` loader for the legacy-pinned Papa
+#     Parse CDN (`PAPA_CDN_URL` + `PAPA_GLOBAL_NAME = "Papa"`) using
+#     Next 16's `<Script src={dispatch.scriptUrl}
+#     strategy="afterInteractive" onLoad={parse} onError={...}>` shape
+#     (see `node_modules/next/dist/docs/01-app/03-api-reference/02-
+#     components/script.md`).
+#   - On successful script load the mount UTF-8-decodes the bytes through
+#     `TextDecoder` + calls `window[dispatch.scriptGlobal].parse(text,
+#     {delimiter, skipEmptyLines: true})` where `delimiter` is derived
+#     from the dispatch's `format` field (`","` for CSV + `"\t"` for
+#     TSV) when `dispatch.delimiter` is not explicitly provided. The
+#     W4b4 dispatcher always carries the typed `delimiter` literal on the
+#     `table-source` variant, so the mount passes it verbatim.
+#   - The mount renders the parsed rows as a sticky `<thead>` + zebra
+#     `<tbody>` table inside the existing `.fex-csv-scroller` wrapper
+#     (the cascade is already shipped by the W6.1 migration — `.fex-csv-
+#     scroller` + `.fex-csv-table` + `.fex-csv-table thead th` (sticky)
+#     + `.fex-csv-table tbody td` + `.fex-csv-table tbody
+#     tr:nth-child(even) td` (zebra)). Mirrors the legacy
+#     `web/file_viewer.js::renderTable` lines 550–619 verbatim (the
+#     first row is the header; a headerless file synthesises `Col N`
+#     labels; cell strings coerce to "" when missing).
+#   - On `Script.onError` OR any exception from `Papa.parse(...)` the
+#     mount flips to a typed `"cdn-failed"` recovery state that's
+#     distinct from the `bytes-missing` offline path the dispatcher
+#     emits at dispatch time. The mount synthesizes a `table-offline`
+#     dispatch with `reason: "cdn-failed"` and routes through
+#     `renderOfflineCard` so the existing download affordance stays in
+#     place while the typed `reason` literal is first-class.
+#
+# The W64E surface preserves all existing pins:
+#   - JSON Tree viewer (W64A-JSON-001) — untouched.
+#   - DOCX mount (W64B-DOCX-002) — untouched.
+#   - XLS / XLSX mount (W64C-XLS-003) — untouched.
+#   - EPUB mount (W64D-EPUB-004) — untouched.
+#   - The pre-W64E `table-offline` (bytes-missing) dispatch stays in
+#     the W6.1 cdn-pending catch-all so the existing W6.1 download-link
+#     affordance is preserved verbatim.
+# ---------------------------------------------------------------------------
+
+
+# W64E-CSV-005 — kernel contract: bytes are now required for
+# CSV + TSV so the existing bytes-fetch effect in Viewer.tsx
+# reads them through the same seam TXT / MD / SVG / JSON /
+# DOCX / XLS / XLSX / EPUB already use. Mirrors the W64A JSON
+# + W64B DOCX + W64C XLS / XLSX + W64D EPUB flips — the matrix
+# stays honest end-to-end.
+def test_w64e_kernel_bytes_required_for_format_csv_tsv_is_true(
+    compiled_w6_1_kernel: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    """W64E-CSV-005 — under Node (ES2022 only, no DOM, no
+    React), the compiled framework-free kernel's
+    `bytesRequiredForFormat("csv")` AND
+    `bytesRequiredForFormat("tsv")` both return `true` (the
+    W64E flip from the W6.1 + W64A + W64B + W64C + W64D
+    `false` default). The flip keeps the bytes-required
+    matrix honest end-to-end: CSV / TSV are CDN-backed source
+    descriptors that require bytes the same way TXT / MD /
+    SVG / JSON / DOCX / XLS / XLSX / EPUB do, so the existing
+    Viewer.tsx bytes-fetch effect reads the CSV / TSV bytes
+    through the same seam.
+
+    Both delimiters share the same Papa Parse path; the
+    dispatcher computes the delimiter from the `format`
+    field (`","` for CSV, `"\t"` for TSV) and the W4b4
+    `table-source` variant carries it on the typed `delimiter`
+    literal. The bytes-required flip covers BOTH extensions —
+    one Papa CDN load, one `parse(...)` call site, two
+    delimiter literals."""
+    _compiled_kernel, _compiled_renderers = compiled_w6_1_kernel
+    harness = tmp_path / "harness-w64e.cjs"
+    harness.write_text(_W64E_RUNTIME_HARNESS)
+    result = subprocess.run(
+        ["node", str(harness), str(_compiled_kernel)],
+        cwd=REPO_ROOT,
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, (
+        f"W64E runtime harness failed.\nstdout: {result.stdout}\n"
+        f"stderr: {result.stderr}"
+    )
+    assert result.stdout.strip() == "PASS", (
+        f"unexpected W64E harness output: {result.stdout!r}"
+    )
+
+
+_W64E_RUNTIME_HARNESS = r"""
+// W64E-CSV-005 — focused harness asserting the
+// bytesRequiredForFormat flip for CSV + TSV + the matrix
+// stays honest end-to-end. CJS does not support top-level
+// await, so the assertions run inside sync blocks.
+const path = require("path");
+const assert = require("assert");
+const kernel = require(path.resolve(process.argv[2]));
+
+// 1. bytesRequiredForFormat — W64E-CSV-005 flips the CSV
+//    AND TSV literals from `false` to `true` so the bytes-
+//    fetch effect in Viewer.tsx reads CSV / TSV bytes
+//    through the same seam TXT / MD / SVG / JSON / DOCX /
+//    XLS / XLSX / EPUB already use. The mount owns the
+//    `TextDecoder` + `Papa.parse(...)` lifecycle for both
+//    extensions; the W4b4 dispatcher carries the typed
+//    `delimiter` literal (`","` for CSV, `"\t"` for TSV) so
+//    the mount passes the delimiter verbatim.
+{
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("csv"), true,
+    "W64E-CSV-005: bytesRequiredForFormat('csv') must "
+    + "return true so the bytes-fetch effect in Viewer.tsx "
+    + "reads CSV bytes through the same seam the TXT / MD "
+    + "/ SVG / JSON / DOCX / XLS / XLSX / EPUB effects "
+    + "already use (the mount owns the TextDecoder + "
+    + "Papa.parse(...) lifecycle)",
+  );
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("tsv"), true,
+    "W64E-CSV-005: bytesRequiredForFormat('tsv') must "
+    + "return true so the bytes-fetch effect in Viewer.tsx "
+    + "reads TSV bytes through the same seam the TXT / MD "
+    + "/ SVG / JSON / DOCX / XLS / XLSX / EPUB / CSV "
+    + "effects already use (CSV and TSV share the same "
+    + "Papa Parse path; the delimiter literal is computed "
+    + "from the format field)",
+  );
+  // The matrix stays honest end-to-end — every other
+  // literal is unchanged from the W6.1 + W64A + W64B +
+  // W64C + W64D contract.
+  assert.strictEqual(kernel.bytesRequiredForFormat("txt"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("md"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("svg"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("json"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("docx"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("xls"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("xlsx"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("epub"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("pdf"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("html"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("htm"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("jpg"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("mp4"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("other"), false);
+}
+
+process.stdout.write("PASS\n");
+"""
+
+
+# W64E-CSV-005 — narrow behavior proof. The CSV / TSV
+# materialization contract covers FOUR observable parts:
+#
+#   (a) BOTH delimiters — CSV uses `","` + TSV uses `"\t"`,
+#       derived from the dispatch's `format` field (the W4b4
+#       dispatcher carries the typed literal on
+#       `dispatch.delimiter` so the mount passes it
+#       verbatim).
+#   (b) Sticky `<thead>` — the legacy
+#       `web/file_viewer.js::renderTable` builds a `<thead>`
+#       row; the React mount must keep the sticky behavior
+#       the cascade already ships (`.fex-csv-table thead th`
+#       carries `position: sticky; top: 0; z-index: 1`).
+#   (c) Zebra `<tbody>` — the legacy paints alternating
+#       row tints via `:nth-child(even)`; the React mount
+#       must reference the same selector shape so the
+#       cascade applies (`.fex-csv-table tbody
+#       tr:nth-child(even) td`).
+#   (d) Typed `cdn-failed` recovery — `Script.onError` OR
+#       `Papa.parse(...)` exception routes through the
+#       mount's typed recovery state that synthesizes a
+#       `table-offline` dispatch with `reason:
+#       "cdn-failed"` (the W64B-DOCX-002 typed union
+#       contract applied to CSV / TSV).
+#
+# The narrow proof test below asserts all four parts in
+# one shot so the CSV / TSV materialization contract
+# surfaces end-to-end.
+def test_w64e_viewer_csv_tsv_narrow_behavior_proof() -> None:
+    """W64E-CSV-005 — narrow CSV / TSV behavior proof.
+    Asserts all four observable contract parts in one
+    test (delimiters + sticky thead + zebra tbody + typed
+    `cdn-failed` recovery) so the CSV / TSV
+    materialization surface is reviewable end-to-end."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+
+    # (a) BOTH delimiters — CSV `","` + TSV `"\t"` derived
+    #     from the dispatch's `format` field when
+    #     `dispatch.delimiter` is not explicit. The
+    #     onLoad handler MUST reference both literal
+    #     values so a future PR that drops one trips the
+    #     focused test. The `delimiter: format === "tsv" ?
+    #     "\t" : ","` ternary mirrors the legacy
+    #     `web/file_viewer.js::renderTable` `const delimiter
+    #     = ext === "tsv" ? "\t" : ","` shape verbatim.
+    assert re.search(r'delimiter.*tsv', text), (
+        "Viewer.tsx must derive the TSV delimiter `\\t` "
+        "from the format field (W64E-CSV-005 contract — "
+        "mirrors the legacy `renderTable` ternary "
+        "`const delimiter = ext === \"tsv\" ? \"\\t\" : "
+        "\",\"` shape verbatim)."
+    )
+    # The `","` literal MUST appear inside the same onLoad
+    # handler — a future PR that drops CSV (or hardcodes a
+    # wrong delimiter) trips the focused test.
+    csv_delim_match = re.search(r"delimiter[^;{}]*\",\"", text)
+    assert csv_delim_match, (
+        "Viewer.tsx must reference the CSV delimiter `\",\"` "
+        "in the delimiter-derivation logic (W64E-CSV-005 "
+        "contract — both CSV and TSV share the Papa Parse "
+        "path; the delimiter is derived from the format "
+        "field)."
+    )
+
+    # (b) Sticky `<thead>` — the React mount must reference
+    #     a `<thead>` JSX element so the cascade's sticky
+    #     header (`.fex-csv-table thead th { position:
+    #     sticky; top: 0; z-index: 1 }`) applies.
+    table_fn_match = re.search(
+        r'function\s+TableRender\b[\s\S]*?\n\}\n',
+        text,
+    )
+    assert table_fn_match, (
+        "Viewer.tsx must define a `function TableRender(...)` "
+        "sub-component for the W64E-CSV-005 materialization."
+    )
+    table_fn = table_fn_match.group(0)
+    assert re.search(r"<thead\b", table_fn), (
+        "Viewer.tsx's TableRender sub-component MUST render "
+        "a `<thead>` JSX element so the cascade's sticky "
+        "header (`.fex-csv-table thead th { position: "
+        "sticky; top: 0; z-index: 1 }`) applies (W64E-CSV-005 "
+        "narrow behavior proof — sticky thead)."
+    )
+    assert re.search(r"<th\b", table_fn), (
+        "Viewer.tsx's TableRender sub-component MUST render "
+        "a `<th>` JSX element inside `<thead>` so the legacy "
+        "`renderTable` header row shape is preserved "
+        "(W64E-CSV-005 narrow behavior proof — sticky thead)."
+    )
+
+    # (c) Zebra `<tbody>` — the React mount must reference
+    #     `:nth-child(even)` (or equivalent) so the cascade's
+    #     zebra row tint (`.fex-csv-table tbody tr:nth-
+    #     child(even) td`) applies. Mirrors the legacy
+    #     `renderTable` alternating-row behavior.
+    assert re.search(r"<tbody\b", table_fn), (
+        "Viewer.tsx's TableRender sub-component MUST render "
+        "a `<tbody>` JSX element so the cascade's zebra row "
+        "tint (`.fex-csv-table tbody tr:nth-child(even) td`) "
+        "applies (W64E-CSV-005 narrow behavior proof — "
+        "zebra tbody)."
+    )
+    assert re.search(r"<td\b", table_fn), (
+        "Viewer.tsx's TableRender sub-component MUST render "
+        "a `<td>` JSX element inside `<tbody>` so the legacy "
+        "`renderTable` cell shape is preserved (W64E-CSV-005 "
+        "narrow behavior proof — zebra tbody)."
+    )
+    assert re.search(
+        r"fex-csv-scroller|fex-csv-table",
+        table_fn,
+    ), (
+        "Viewer.tsx's TableRender sub-component MUST use the "
+        "`.fex-csv-scroller` wrapper + `.fex-csv-table` "
+        "selector so the W6.1 cascade applies (sticky thead "
+        "+ zebra tbody + JetBrains Mono typography + outline-"
+        "variant borders). Mirrors the legacy "
+        "`web/file_viewer.js::renderTable` "
+        "`target.replaceChildren(el(\"div\", { class: "
+        "\"fex-csv-scroller\" }, table))` shape verbatim "
+        "(W64E-CSV-005 narrow behavior proof — sticky thead "
+        "+ zebra tbody + cascade)."
+    )
+
+    # (d) Typed `cdn-failed` recovery — the mount must
+    #     reference the literal `"cdn-failed"` AND synthesize
+    #     a `table-offline` dispatch (so the existing
+    #     `renderOfflineCard` paints the download affordance
+    #     with a typed `reason` literal distinct from the
+    #     `bytes-missing` path the dispatcher emits).
+    assert '"cdn-failed"' in text, (
+        "Viewer.tsx must carry the literal `\"cdn-failed\"` "
+        "so the typed recovery state surfaces a distinct "
+        "value from the bytes-missing offline path "
+        "(W64E-CSV-005 narrow behavior proof — Script.onError "
+        "+ Papa.parse exception routes through the mount's "
+        "typed recovery state whose `reason` literal is "
+        "`\"cdn-failed\"`)."
+    )
+    assert re.search(
+        r'kind:\s*"table-offline"|"table-offline"', table_fn,
+    ), (
+        "Viewer.tsx's TableRender sub-component MUST "
+        "synthesize a `table-offline` dispatch with "
+        "`reason: \"cdn-failed\"` so the existing "
+        "`renderOfflineCard` paints the download affordance "
+        "with a typed `reason` literal distinct from the "
+        "`bytes-missing` path the dispatcher emits "
+        "(W64E-CSV-005 narrow behavior proof — typed "
+        "`cdn-failed` recovery)."
+    )
+
+
+# W64E-CSV-005 — viewer source-level checks. The
+# Viewer.tsx React mount materializes the typed CSV / TSV
+# source descriptor via Next 16's `<Script>` component +
+# a typed `cdn-failed` recovery state on `Script.onError` +
+# `Papa.parse` exception. The checks below pin the
+# source-level shape so a future PR that silently drops
+# the loader trips a focused test before review.
+def test_w64e_viewer_table_source_uses_script_loader() -> None:
+    """W64E-CSV-005 — Viewer.tsx MUST have an EXPLICIT
+    `case "table-source":` branch in `renderDispatch`
+    that's NOT routed through the W6.1 cdn-pending
+    catch-all (the CSV / TSV variant now materializes via
+    the Next `Script` loader + `Papa.parse(...)`, not the
+    download-link card). The W64E contract places the
+    `<Script>` JSX + the `onLoad` / `onError` handlers
+    inside a dedicated `TableRender` sub-component that's
+    mounted from the `case "table-source":` branch (the
+    sub-component owns its own `loading` / `loaded` /
+    `error` state — see the W64B-DOCX-002 typed
+    `cdn-failed` recovery pattern that W64E mirrors). The
+    case branch hands off to `TableRender` so the typed
+    `ViewerDispatch` switch stays exhaustive; the
+    `<Script>` surface is verified by extracting the
+    entire `TableRender` block (NOT just the case-branch
+    body)."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    assert re.search(r'case\s+"table-source"\s*:', text), (
+        "Viewer.tsx MUST have an explicit `case "
+        "\"table-source\":` branch in `renderDispatch` so "
+        "the typed CSV / TSV source descriptor materializes "
+        "via the Next `Script` loader + `Papa.parse(...)` "
+        "(NOT the W6.1 cdn-pending catch-all — "
+        "W64E-CSV-005 contract)."
+    )
+    # The case branch hands off to a TableRender component.
+    # Pin the handoff shape so the W64E separation between
+    # the typed dispatch surface + the React lifecycle stays
+    # honest.
+    case_branch_match = re.search(
+        r'case\s+"table-source"\s*:(.*?)(?=case\s+"|\}\s*\n\s*\})',
+        text, re.DOTALL,
+    )
+    assert case_branch_match, (
+        "Viewer.tsx must have an extractable table-source "
+        "branch body in renderDispatch."
+    )
+    case_branch = case_branch_match.group(1)
+    assert "TableRender" in case_branch, (
+        "Viewer.tsx's `case \"table-source\":` branch MUST "
+        "hand off to the dedicated `TableRender` sub-"
+        "component (W64E-CSV-005 separation — the typed "
+        "switch stays exhaustive; the `<Script>` + state "
+        "lifecycle live in `TableRender`)."
+    )
+    # The TableRender component MUST render a `<Script>` JSX
+    # element with `src`, `onLoad`, and `onError` props.
+    # Extract the TableRender function body so the assertion
+    # looks at the loader surface (not the case branch
+    # hand-off, which only routes to the sub-component).
+    table_fn_match = re.search(
+        r'function\s+TableRender\b[\s\S]*?\n\}\n',
+        text,
+    )
+    assert table_fn_match, (
+        "Viewer.tsx must define a `function TableRender(...)` "
+        "sub-component for the W64E-CSV-005 materialization "
+        "(the dedicated lifecycle lives there)."
+    )
+    table_fn = table_fn_match.group(0)
+    assert re.search(r'<Script\b', table_fn), (
+        "Viewer.tsx's TableRender sub-component MUST render "
+        "a `<Script>` JSX element from the `next/script` "
+        "default import (W64E-CSV-005 contract — the "
+        "CSV / TSV materialization owns the Next 16 "
+        "`<Script src onLoad onError>` loader)."
+    )
+    assert re.search(r'\bonLoad=', table_fn) or re.search(
+        r'\bonLoad =', table_fn,
+    ), (
+        "Viewer.tsx's TableRender sub-component MUST wire "
+        "the `<Script>` `onLoad` handler to call "
+        "`window[dispatch.scriptGlobal].parse(text, "
+        "{delimiter, skipEmptyLines: true})`."
+    )
+    assert re.search(r'\bonError=', table_fn) or re.search(
+        r'\bonError =', table_fn,
+    ), (
+        "Viewer.tsx's TableRender sub-component MUST wire "
+        "the `<Script>` `onError` handler so the script-"
+        "load failure surfaces through the typed "
+        "`cdn-failed` recovery state."
+    )
+
+
+def test_w64e_viewer_table_source_calls_papa_parse_with_skip_empty_lines() -> None:
+    """W64E-CSV-005 — the TableRender onLoad handler MUST
+    call `window[dispatch.scriptGlobal].parse(text,
+    {delimiter, skipEmptyLines: true})` so the Papa Parse
+    library parses the CSV / TSV text into a typed
+    `{data: string[][]}` shape (matches the legacy
+    `web/file_viewer.js::renderTable` `window.Papa.parse(
+    text, { delimiter, skipEmptyLines: true })` shape
+    verbatim). The mount MUST reach the pinned global
+    through `dispatch.scriptGlobal` (NOT a hardcoded
+    `"Papa"` literal) so a future PR that bumps the CDN
+    pin lands in lock-step across the dispatcher
+    constant + the loader site. The `skipEmptyLines: true`
+    option MUST be present so empty rows don't pollute
+    the rendered table."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    assert re.search(r"\.parse\s*\(", text), (
+        "Viewer.tsx must reference `.parse(...)` so the "
+        "W64E-CSV-005 onLoad handler routes the UTF-8 "
+        "decoded CSV / TSV text through Papa Parse's "
+        "text parser."
+    )
+    assert re.search(
+        r"skipEmptyLines\s*:\s*true", text,
+    ), (
+        "Viewer.tsx must pass `{skipEmptyLines: true}` to "
+        "`Papa.parse(...)` so empty rows don't pollute the "
+        "rendered table — mirrors the legacy "
+        "`web/file_viewer.js::renderTable` "
+        "`Papa.parse(text, { delimiter, skipEmptyLines: "
+        "true })` shape verbatim (W64E-CSV-005 contract)."
+    )
+    assert re.search(
+        r"window\s*\[\s*\w+\.scriptGlobal\s*\]"
+        r"|window\s*\[\s*\w+\s*\]\s*\.\s*parse",
+        text,
+    ), (
+        "Viewer.tsx must reach the pinned Papa Parse global "
+        "through `window[dispatch.scriptGlobal].parse(...)` "
+        "— NOT a hardcoded `\"Papa\"` literal — so a future "
+        "PR that bumps the CDN pin lands in lock-step "
+        "across the dispatcher constant + the loader site "
+        "(W64E-CSV-005 contract — mirrors the W64B-DOCX-002 "
+        "`window[dispatch.scriptGlobal].convertToHtml(...)` "
+        "pattern + the W64C-XLS-003 "
+        "`window[dispatch.scriptGlobal].read(...)` pattern)."
+    )
+
+
+def test_w64e_viewer_table_source_decodes_utf8() -> None:
+    """W64E-CSV-005 — the TableRender onLoad handler MUST
+    UTF-8-decode the bytes through `TextDecoder` before
+    handing the text to `Papa.parse(...)` (matches the W4a
+    TXT / MD UTF-8 decode shape verbatim + the W4b1 DOCX
+    `arrayBuffer: bytes.buffer` shape). `TextDecoder` is
+    part of ES2022 + every modern browser — no polyfill
+    needed. The decode MUST use `fatal: false` so malformed
+    UTF-8 sequences yield a U+FFFD replacement character
+    rather than throwing (mirrors the W4a TXT / MD
+    `text-pre` decoder shape)."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    assert re.search(
+        r"new\s+TextDecoder\s*\(", text,
+    ), (
+        "Viewer.tsx must call `new TextDecoder(...)` so the "
+        "W64E-CSV-005 onLoad handler UTF-8-decodes the CSV / "
+        "TSV bytes before handing the text to "
+        "`Papa.parse(...)`. The `TextDecoder` constructor is "
+        "part of ES2022 + every modern browser — no "
+        "polyfill needed."
+    )
+    assert re.search(
+        r"TextDecoder\s*\(\s*[\"']utf-8[\"']", text,
+    ), (
+        "Viewer.tsx must UTF-8-decode the CSV / TSV bytes "
+        "through `new TextDecoder(\"utf-8\", {fatal: false})` "
+        "so malformed UTF-8 sequences yield a U+FFFD "
+        "replacement character rather than throwing "
+        "(W64E-CSV-005 contract — mirrors the W4a TXT / MD "
+        "`text-pre` decoder shape)."
+    )
+
+
+def test_w64e_viewer_preserves_json_docx_sheet_epub_offline_pins() -> None:
+    """W64E-CSV-005 — the CSV / TSV materialization adds a
+    new `case \"table-source\":` branch but MUST NOT
+    silently drop or rewrite the W6.4a + W6.4b + W6.4c +
+    W6.4d pins:
+
+      1. The W64A-JSON-001 JSON Tree pins (`case
+         \"json-source\":` branch + the `[root]` literal +
+         the `Tree truncated — open raw` banner text).
+      2. The W64B-DOCX-002 DOCX mount pins (the
+         `case \"docx-source\":` branch + the `DocxRender`
+         sub-component + the `convertToHtml` call +
+         `arrayBuffer` wrapper).
+      3. The W64C-XLS-003 XLS / XLSX mount pins (the
+         `case \"sheet-source\":` branch + the
+         `SheetRender` sub-component + the `.read` /
+         `sheet_to_html` call sites + the `<select>`
+         picker).
+      4. The W64D-EPUB-004 EPUB mount pins (the
+         `case \"epub-source\":` branch + the `EpubRender`
+         sub-component + the `renderTo` call + the
+         `prev` / `next` handlers + the `previousBook`
+         lifecycle).
+      5. The pre-W64E `table-offline` (bytes-missing)
+         dispatch stays in the W6.1 cdn-pending catch-all
+         — the W64E slice only extracts `table-source`
+         from the catch-all; `table-offline` keeps the
+         existing W6.1 download-link affordance.
+
+    A future PR that adds the CSV / TSV materialization
+    while accidentally dropping a JSON / DOCX / XLS / XLSX
+    / EPUB / table-offline pin breaks multiple contracts
+    at review.
+    """
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+
+    # 1. W64A-JSON-001 pins.
+    assert re.search(r'case\s+"json-source"\s*:', text), (
+        "Viewer.tsx MUST keep its W64A-JSON-001 "
+        "`case \"json-source\":` branch — W64E must NOT "
+        "silently drop the JSON Tree viewer while adding "
+        "the CSV / TSV materialization."
+    )
+    assert '"[root]"' in text, (
+        "Viewer.tsx must keep the legacy `[root]` literal "
+        "(the W64A-JSON-001 synthetic root key)."
+    )
+    assert "Tree truncated — open raw" in text, (
+        "Viewer.tsx must keep the legacy "
+        "`Tree truncated — open raw` banner text "
+        "(the W64A-JSON-001 truncation banner)."
+    )
+
+    # 2. W64B-DOCX-002 pins.
+    assert re.search(r'case\s+"docx-source"\s*:', text), (
+        "Viewer.tsx MUST keep its W64B-DOCX-002 "
+        "`case \"docx-source\":` branch — W64E must NOT "
+        "silently drop the DOCX mount while adding the "
+        "CSV / TSV materialization."
+    )
+    assert "DocxRender" in text, (
+        "Viewer.tsx must keep its W64B-DOCX-002 "
+        "`DocxRender` sub-component — W64E mirrors the "
+        "W64B separation between the typed dispatch surface "
+        "+ the React lifecycle; both sub-components stay "
+        "alive in lock-step."
+    )
+    assert "convertToHtml" in text, (
+        "Viewer.tsx must keep the W64B-DOCX-002 "
+        "`convertToHtml(...)` reference so the DOCX "
+        "materialization stays intact."
+    )
+    assert "arrayBuffer" in text, (
+        "Viewer.tsx must keep the W64B-DOCX-002 "
+        "`arrayBuffer` wrapper so the DOCX bytes are "
+        "passed to mammoth through the typed "
+        "`{arrayBuffer: bytes.buffer}` shape."
+    )
+
+    # 3. W64C-XLS-003 pins.
+    assert re.search(r'case\s+"sheet-source"\s*:', text), (
+        "Viewer.tsx MUST keep its W64C-XLS-003 "
+        "`case \"sheet-source\":` branch — W64E must NOT "
+        "silently drop the XLS / XLSX mount while adding "
+        "the CSV / TSV materialization."
+    )
+    assert "SheetRender" in text, (
+        "Viewer.tsx must keep its W64C-XLS-003 "
+        "`SheetRender` sub-component — W64E mirrors the "
+        "W64C separation between the typed dispatch surface "
+        "+ the React lifecycle; both sub-components stay "
+        "alive in lock-step."
+    )
+    assert "sheet_to_html" in text, (
+        "Viewer.tsx must keep the W64C-XLS-003 "
+        "`sheet_to_html(...)` reference so the XLS / XLSX "
+        "materialization stays intact."
+    )
+
+    # 4. W64D-EPUB-004 pins.
+    assert re.search(r'case\s+"epub-source"\s*:', text), (
+        "Viewer.tsx MUST keep its W64D-EPUB-004 "
+        "`case \"epub-source\":` branch — W64E must NOT "
+        "silently drop the EPUB mount while adding the "
+        "CSV / TSV materialization."
+    )
+    assert "EpubRender" in text, (
+        "Viewer.tsx must keep its W64D-EPUB-004 "
+        "`EpubRender` sub-component — W64E mirrors the "
+        "W64D separation between the typed dispatch surface "
+        "+ the React lifecycle; both sub-components stay "
+        "alive in lock-step."
+    )
+    assert "renderTo" in text, (
+        "Viewer.tsx must keep the W64D-EPUB-004 "
+        "`renderTo(...)` reference so the EPUB "
+        "materialization stays intact."
+    )
+
+    # 5. The pre-W64E table-offline (bytes-missing) dispatch
+    #    stays in the W6.1 cdn-pending catch-all. The test
+    #    asserts `table-offline` is still listed in the
+    #    catch-all alongside `docx-offline` + `sheet-offline`
+    #    + `epub-offline` + `json-offline`.
+    cdn_pending_catch_all_match = re.search(
+        r'(case\s+"docx-offline"\s*:[\s\S]*?)return\s+renderOfflineCard',
+        text,
+    )
+    assert cdn_pending_catch_all_match, (
+        "Viewer.tsx must keep its W6.1 cdn-pending catch-"
+        "all `return renderOfflineCard(...)` branch so the "
+        "`*-offline` variants (docx-offline / sheet-offline "
+        "/ epub-offline / table-offline / json-offline) "
+        "all funnel through the existing download-link "
+        "recovery card. W64E extracts `table-source` from "
+        "this catch-all but leaves `table-offline` in place."
+    )
+    catch_all_body = cdn_pending_catch_all_match.group(1)
+    for offline_literal in (
+        "docx-offline",
+        "sheet-offline",
+        "epub-offline",
+        "table-offline",
+        "json-offline",
+    ):
+        assert f'"{offline_literal}"' in catch_all_body, (
+            f"Viewer.tsx's cdn-pending catch-all MUST still "
+            f"list `{offline_literal}` so the pre-W64E bytes-"
+            f"missing offline path is preserved verbatim "
+            f"(W64E-CSV-005 acceptance: 'the pre-W64E "
+            f"table-offline dispatch (bytes-missing) stays "
+            f"in the cdn-pending catch-all'). Got: "
+            f"{catch_all_body!r}"
+        )
+
+    # 6. `table-source` MUST NOT appear in the cdn-pending
+    #    catch-all anymore — the W64E slice extracts it so
+    #    the typed source descriptor routes through
+    #    `TableRender` instead. The pre-W64E
+    #    `table-source` (which was just a download-link
+    #    card for a non-CDN surface) now materializes via
+    #    the Next `Script` loader + `Papa.parse(...)`.
+    assert '"table-source"' not in catch_all_body, (
+        "Viewer.tsx's cdn-pending catch-all MUST NOT list "
+        "`table-source` anymore — W64E-CSV-005 extracts "
+        "the CSV / TSV source descriptor from the catch-all "
+        "so the typed source routes through the "
+        "`TableRender` sub-component (NOT the W6.1 "
+        "download-link affordance)."
     )
