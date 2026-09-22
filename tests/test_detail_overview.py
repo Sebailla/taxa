@@ -210,6 +210,9 @@ def test_overview_renders_for_top_level_taxon_without_data(api_server):
     _check_playwright_available() is None,
     reason="playwright not installed (pip install playwright)",
 )
+@pytest.mark.skip(
+    reason="ODD-MIGRATE-007 retired — legacy DOM markers (#tree-view, #detail-panel, [data-tree-source], [data-tab], [data-tab-content], #search-input, #version-banner, #breadcrumb, etc.) replaced by the React static export at out/; the React mount lives on the W6+ chain (PR #350 + PR #351 + W6.1/W6.5 + AC-21 manifest) with its own React-shaped DOM contract that these legacy web/ Playwright tests do not target. The React parity coverage is the ODD-MIGRATE-005 G4 capture (docs/cutover-evidence/parity-reports/*) + W6.1/W6.2/W6.3 + W65 React tests."
+)
 def test_overview_suppressed_when_vernaculars_exist(api_server):
     """When the taxon has vernaculars (or synonyms or distribution),
     the Overview section is suppressed — the existing data tabs are
