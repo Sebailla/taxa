@@ -117,7 +117,7 @@ $(WORMS_ZIP):
 
 api:
 	pnpm install --frozen-lockfile
-	pnpm build
+	pnpm build:web
 	.venv/bin/python3 -m uvicorn api.server:app --host 127.0.0.1 --port 8765
 
 # G4 candidate-manifest generator — offline ESM producer that validates an
