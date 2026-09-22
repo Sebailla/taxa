@@ -355,15 +355,48 @@ function renderDispatch(
       // hand-off so the renderDispatch switch stays
       // exhaustive.
       return <SheetRender dispatch={dispatch} />;
+    case "epub-source":
+      // W64D-EPUB-004 — EPUB materialization via Next
+      // 16's `<Script>` loader + the pinned epubjs
+      // CDN pin (`EPUBJS_CDN_URL` +
+      // `EPUBJS_GLOBAL_NAME = "ePub"` — the
+      // case-sensitive UMD global — lowercase `e`,
+      // capital `P`). This branch is intentionally
+      // OUT of the W6.1 cdn-pending catch-all (the
+      // EPUB materialization owns a typed `cdn-failed`
+      // recovery state distinct from the
+      // `bytes-missing` offline path the dispatcher
+      // emits at dispatch time — the W64B typed union
+      // `reason: "bytes-missing" | "cdn-failed"` on
+      // the `epub-offline` variant lets the mount
+      // surface both paths through the same
+      // `renderOfflineCard` shape while keeping the
+      // typed recovery literal distinct). The mount
+      // reaches the pinned global through
+      // `window[dispatch.scriptGlobal](dispatch.bytes.buffer)`
+      // (NOT a constructor with `new` — the UMD
+      // global IS a function), calls `book.renderTo(
+      // hostEl, ...)` to mount the EPUB, surfaces
+      // prev / next click handlers that call
+      // `book.prev()` / `book.next()`, and tears
+      // down the previous book BEFORE rendering the
+      // new one so listeners don't leak per
+      // `design.md` §8 (mirrors the legacy
+      // `web/file_viewer.js::renderEpub` lines
+      // 429–438 `_currentBook.destroy()` lifecycle
+      // verbatim). The actual mount rendering lives
+      // in `EpubRender` below — this branch is a
+      // typed hand-off so the renderDispatch switch
+      // stays exhaustive.
+      return <EpubRender dispatch={dispatch} />;
     case "docx-offline":
     case "sheet-offline":
-    case "epub-source":
     case "epub-offline":
     case "table-source":
     case "table-offline":
     case "json-offline":
       // W6.1 non-CDN mount — the CDN-backed source variants
-      // (EPUB / CSV / TSV) are intentionally not wired
+      // (CSV / TSV) are intentionally not wired
       // here (those mounts land as separately authorized
       // later slices; the W64B typed union
       // `reason: "bytes-missing" | "cdn-failed"` is the
@@ -371,15 +404,18 @@ function renderDispatch(
       // `docx-offline` branch (the W6.1 bytes-missing
       // offline path for DOCX) + the `sheet-offline`
       // branch (the W6.1 bytes-missing offline path for
-      // XLS / XLSX) stay here so the W6.1 download-link
-      // affordance + the W64B-DOCX-002 + W64C-XLS-003
+      // XLS / XLSX) + the `epub-offline` branch (the
+      // W6.1 bytes-missing offline path for EPUB) stay
+      // here so the W6.1 download-link affordance + the
+      // W64B-DOCX-002 + W64C-XLS-003 + W64D-EPUB-004
       // typed `cdn-failed` recovery states from
-      // `DocxRender` + `SheetRender` resolve through the
-      // same `renderOfflineCard` shape. A future W6+
-      // slice that loads the epubjs / Papa CDN libraries
-      // would replace their branches with the typed
-      // source / offline rendering shape (one JSX branch
-      // per CDN library).
+      // `DocxRender` + `SheetRender` + `EpubRender`
+      // resolve through the same `renderOfflineCard`
+      // shape. A future W6+ slice that loads the Papa
+      // CDN libraries would replace the `table-*` /
+      // `json-*` branches with the typed source /
+      // offline rendering shape (one JSX branch per CDN
+      // library).
       return renderOfflineCard(dispatch, descriptor);
   }
 }
@@ -1289,6 +1325,495 @@ function SheetRender(props: SheetRenderProps): ReactNode {
           progress_activity
         </span>
         <p>Loading spreadsheet preview…</p>
+      </div>
+      <Script
+        src={dispatch.scriptUrl}
+        strategy="afterInteractive"
+        onLoad={handleScriptLoad}
+        onError={handleScriptError}
+      />
+    </>
+  );
+}
+
+// ---- W64D-EPUB-004 — EPUB materialization via Next `Script` ----
+// Mirrors the legacy `web/file_viewer.js::renderEpub` shape
+// (the legacy uses `loadScriptOnce("ePub")` to inject the
+// CDN, then `window.ePub(arrayBuffer)` to construct the
+// book, then `book.renderTo(epubHost, { width: "100%",
+// height: "100%" })` to mount it). The W64D React mount
+// uses Next 16's
+// `<Script src={dispatch.scriptUrl} strategy="afterInteractive"
+// onLoad={mount} onError={...}>` component (see
+// `node_modules/next/dist/docs/01-app/03-api-reference/02-
+// components/script.md`) as the loader surface.
+//
+// Critical lifecycle invariant — mirrors the legacy
+// `web/file_viewer.js::renderEpub` lines 429–438 verbatim:
+// the mount owns a module-scoped `previousBook` reference
+// (the legacy uses `_currentBook`) and tears down the
+// previous book BEFORE mounting the new one so listeners
+// don't leak per `design.md` §8 EPUB render lifecycle. The
+// same cleanup runs on unmount AND on any change of the
+// EPUB dispatch (the `useEffect` cleanup path preserves the
+// React-mount equivalence of the legacy's "next open tears
+// down the previous" shape).
+//
+// On `Script.onError` OR any exception from
+// `ePub(arrayBuffer)` construction / `book.renderTo(...)` /
+// `book.prev()` / `book.next()` the mount flips to a typed
+// `"cdn-failed"` recovery state (the W64B-DOCX-002 typed
+// union `reason: "bytes-missing" | "cdn-failed"` on the
+// `epub-offline` variant — extended on `renderers.ts` —
+// keeps both failure literals first-class). The recovery
+// state synthesizes an `epub-offline` dispatch with
+// `reason: "cdn-failed"` so the existing `renderOfflineCard`
+// paints the download affordance with a typed `reason`
+// literal that's distinct from the `bytes-missing` offline
+// path the dispatcher emits at dispatch time.
+//
+// The UMD global is a function, NOT a class, so the
+// construction site is the function-call form (matches
+// the legacy `window.ePub(arrayBuffer)` site verbatim)
+// — a `new`-prefixed constructor would throw at runtime.
+
+/** Module-scoped "previous book" reference — the React
+ *  mount mirrors the legacy `_currentBook` slot from
+ *  `web/file_viewer.js::renderEpub` lines 429–438 verbatim.
+ *  The reference MUST live at module scope (NOT inside the
+ *  EpubRender component closure) because the previous-book
+ *  reference has to outlive every per-render closure so the
+ *  next open can call `previousBook.destroy()` BEFORE
+ *  mounting the new book. A future mount that captures the
+ *  reference inside the component closure would lose the
+ *  previous-book handle across renders and silently leak
+ *  listeners per `design.md` §8 — this guard pins the
+ *  module-scoped shape. */
+let previousBook: { destroy?: () => void } | null = null;
+
+/** Discriminated state for the EPUB materialization.
+ *  Mirrors the W64B-DOCX-002 `DocxRenderState` + W64C-XLS-003
+ *  `SheetRenderState` union shape: `loading` paints the
+ *  quiet skeleton + the `<Script>` loader, `loaded` carries
+ *  the book handle + the active location label (mirrors
+ *  the legacy `relocated` event listener pattern), and
+ *  `error` flips to the typed `cdn-failed` recovery state.
+ *  The error branch carries the union literal
+ *  `reason: "cdn-failed"` so the surface distinguishes
+ *  mount-detected CDN / construction / renderTo / prev /
+ *  next failures from the dispatcher-emitted `bytes-missing`
+ *  offline path. */
+type EpubRenderState =
+  | { readonly kind: "loading" }
+  | {
+      readonly kind: "loaded";
+      readonly book: {
+        prev?: () => void;
+        next?: () => void;
+      };
+      readonly locationLabel: string;
+    }
+  | {
+      readonly kind: "error";
+      readonly reason: "cdn-failed";
+    };
+
+/** Props for `EpubRender`. The component receives the
+ *  typed `epub-source` dispatch directly from
+ *  `renderDispatch` — the React mount is the only consumer
+ *  of this surface; `bytesRequiredForFormat("epub") ===
+ * true` keeps the bytes-fetch effect in sync (the bytes
+ * flow through the existing Viewer.tsx `bytesStatus`
+ * lifecycle so this component is purely a projection of
+ * the typed source outcome). */
+interface EpubRenderProps {
+  readonly dispatch: ViewerDispatch;
+}
+
+/** W64D-EPUB-004 — the EPUB materialization. Renders the
+ *  `<Script>` loader on first commit, calls
+ *  `window[dispatch.scriptGlobal](dispatch.bytes.buffer)`
+ *  to construct the book (NOT a constructor with `new` —
+ *  the UMD global IS a function), mounts the book via
+ *  `book.renderTo(hostEl, ...)` into the host ref, and
+ *  flips to a typed `cdn-failed` recovery state on either
+ *  `Script.onError` OR any exception from construction /
+ *  `renderTo` / `prev` / `next`. The recovery state
+ *  synthesizes an `epub-offline` dispatch with
+ *  `reason: "cdn-failed"` so the existing
+ *  `renderOfflineCard` paints the download affordance with
+ *  a typed `reason` literal that's distinct from the
+ *  `bytes-missing` offline path the dispatcher emits. */
+function EpubRender(props: EpubRenderProps): ReactNode {
+  // `dispatch` is narrowed by the caller (`renderDispatch`
+  // only routes `kind: "epub-source"` here), but
+  // TypeScript can't narrow through the JSX element so we
+  // explicitly cast to the typed dispatch shape for the
+  // body.
+  const dispatch = props.dispatch;
+  if (dispatch.kind !== "epub-source") {
+    // Defensive guard — the caller is `renderDispatch`
+    // and only routes `epub-source` here. A future
+    // refactor that routes another kind through this
+    // component is a contract regression, so the guard
+    // returns an empty fragment rather than rendering
+    // the wrong shape.
+    return null;
+  }
+  const [state, setState] = useState<EpubRenderState>({
+    kind: "loading",
+  });
+  // Host element ref — the book.renderTo target. The
+  // legacy uses `el("div", { class: "flex-1 min-h-[480px]" })`
+  // and the React mount uses a `useRef<HTMLDivElement>`
+  // for the same purpose so the lifecycle stays React-y.
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const cancelledRef = useRef<boolean>(false);
+
+  // Cleanup `cancelledRef` so an unmount mid-flight
+  // doesn't flip state to `loaded` / `error` after the
+  // parent has unmounted this EPUB viewer (the
+  // `useEffect` below sets `cancelledRef.current = true`
+  // on cleanup).
+  useEffect(() => {
+    cancelledRef.current = false;
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, []);
+
+  // `mountBook` is the single mount entry point. It
+  // reaches the pinned epubjs global through the typed
+  // `dispatch.scriptGlobal` (so a future PR that bumps
+  // the library version lands in lock-step across the
+  // dispatcher constant + the loader site) and calls
+  // `window[dispatch.scriptGlobal](dispatch.bytes.buffer)`
+  // to construct the book (the UMD global is a function,
+  // NOT a class — so a constructor with `new` would
+  // throw at runtime; the call is `ePub(buf)`, the
+  // function-call form).
+  // It then calls `book.renderTo(hostEl, ...)` to mount
+  // the EPUB into the React tree. The try / catch covers
+  // the synchronous exception path (epubjs throws
+  // immediately on invalid EPUB archives in some
+  // versions); the `.catch` covers the rejected-promise
+  // path. Both routes flip the state to the typed
+  // `cdn-failed` recovery literal.
+  const mountBook = useCallback(() => {
+    if (hostRef.current === null) return;
+    try {
+      // SAFETY: `window` is typed as the DOM `Window`
+      // interface which does NOT carry the CDN-injected
+      // global; the epubjs UMD bundle assigns itself
+      // to `window[scriptGlobal]` after the Next
+      // `<Script>` loader fires `onLoad`. The narrow
+      // `Record<string, unknown>` index shape gives us
+      // a typed handle; the downstream `typeof ePub !==
+      // "function"` guard verifies the runtime shape
+      // before any call. The pinned `scriptGlobal`
+      // literal comes from the W4b3 dispatcher constant
+      // — a future PR that bumps the CDN pin lands in
+      // lock-step across the dispatcher constant + the
+      // loader site.
+      const ePub = (window as unknown as Record<string, unknown>)[
+        dispatch.scriptGlobal
+      ] as
+        | {
+            (arrayBuffer: ArrayBuffer): {
+              ready?: Promise<unknown>;
+              renderTo?: (
+                host: HTMLElement,
+                options?: { width?: string; height?: string },
+              ) => Promise<unknown> | unknown;
+              prev?: () => void | Promise<void>;
+              next?: () => void | Promise<void>;
+            };
+          }
+        | undefined;
+      if (ePub === undefined || typeof ePub !== "function") {
+        if (!cancelledRef.current) {
+          setState({ kind: "error", reason: "cdn-failed" });
+        }
+        return;
+      }
+      // CRITICAL — tear down the previous book BEFORE
+      // mounting the new one. Mirrors the legacy
+      // `web/file_viewer.js::renderEpub` lines 429–438
+      // `_currentBook.destroy()` lifecycle verbatim: the
+      // legacy wraps the destroy in a try/catch (because
+      // destroy() can throw if the previous book never
+      // finished rendering) and swallows the error so
+      // the new book can mount. The React mount mirrors
+      // the same swallow-and-continue shape so the
+      // legacy + React resilience behaviour stays in
+      // lock-step.
+      if (
+        previousBook !== null &&
+        typeof previousBook.destroy === "function"
+      ) {
+        try {
+          previousBook.destroy();
+        } catch {
+          // destroy() can throw if the previous book
+          // never finished rendering — swallow so the
+          // new book can mount (mirrors the legacy
+          // `try { _currentBook.destroy(); } catch (e) {
+          // console.error("ePub.destroy failed", e); }`
+          // shape verbatim).
+        }
+        previousBook = null;
+      }
+      const book = ePub(dispatch.bytes.buffer as ArrayBuffer);
+      previousBook = book as { destroy?: () => void };
+      // The `renderTo` call is async in some epubjs
+      // versions; we call it directly + catch any
+      // synchronous throw. The React mount mirrors the
+      // legacy `book.renderTo(epubHost, { width: "100%",
+      // height: "100%" })` shape verbatim — the mount
+      // happens synchronously, the legacy `book.ready
+      // .then(...)` resolves on metadata load so the
+      // mount is naturally async.
+      const renderResult = book.renderTo?.(hostRef.current, {
+        width: "100%",
+        height: "100%",
+      });
+      Promise.resolve(renderResult)
+        .then(() => {
+          if (cancelledRef.current) return;
+          setState({
+            kind: "loaded",
+            book: {
+              prev: typeof book.prev === "function" ? book.prev : undefined,
+              next: typeof book.next === "function" ? book.next : undefined,
+            },
+            locationLabel: "—",
+          });
+        })
+        .catch(() => {
+          if (cancelledRef.current) return;
+          setState({ kind: "error", reason: "cdn-failed" });
+        });
+    } catch {
+      if (!cancelledRef.current) {
+        setState({ kind: "error", reason: "cdn-failed" });
+      }
+    }
+  }, [dispatch.scriptGlobal, dispatch.bytes]);
+
+  // If the legacy-pinned epubjs CDN is already on the
+  // page (a previous EPUB open loaded the script and the
+  // user is opening a second EPUB file), Next 16's
+  // `<Script>` component does NOT re-fire `onLoad` for
+  // subsequent mounts — so this effect covers the
+  // "already-cached" path by checking `window[scriptGlobal]`
+  // synchronously after the first commit. A future mount
+  // that swaps the loader for a different library would
+  // land as a separately authorized slice + would update
+  // this effect accordingly.
+  useEffect(() => {
+    // SAFETY: same invariant as the `mountBook` window
+    // assertion above — the CDN-injected global reaches
+    // us through `window[scriptGlobal]` after the Next
+    // `<Script>` loader has fired. The narrow
+    // `Record<string, unknown>` index shape gives us a
+    // typed handle; the downstream `typeof ePub ===
+    // "function"` guard verifies the runtime shape before
+    // any call.
+    const w = window as unknown as Record<string, unknown>;
+    const ePub = w[dispatch.scriptGlobal];
+    if (typeof ePub === "function") {
+      mountBook();
+    }
+    // `mountBook` is intentionally listed as a dep — its
+    // identity flips when the dispatch bytes / scriptGlobal
+    // change, which mirrors the "new file open" lifecycle
+    // the Explorer.tsx parent drives.
+  }, [mountBook, dispatch]);
+
+  // CRITICAL — the previous-book teardown runs on unmount
+  // AND on any change of the EPUB dispatch (mirrors the
+  // legacy "tear down on the NEXT open" lifecycle verbatim).
+  // The cleanup body tears down the module-scoped
+  // previousBook handle so listeners don't leak per
+  // `design.md` §8 EPUB render lifecycle. The cleanup
+  // runs synchronously so the next mount sees a clean
+  // slate.
+  useEffect(() => {
+    return () => {
+      if (
+        previousBook !== null &&
+        typeof previousBook.destroy === "function"
+      ) {
+        try {
+          previousBook.destroy();
+        } catch {
+          // destroy() can throw if the book never
+          // finished rendering — swallow so the unmount
+          // doesn't crash the parent.
+        }
+        previousBook = null;
+      }
+    };
+  }, [dispatch.bytes, dispatch.scriptUrl]);
+
+  // `handlePrev` + `handleNext` — click handlers that
+  // call the book's prev/next navigation API (mirrors
+  // the legacy `gotoPrev.addEventListener("click", () =>
+  // book.prev())` + `gotoNext.addEventListener("click",
+  // () => book.next())` shape verbatim). Both handlers
+  // surface exceptions through the typed `cdn-failed`
+  // recovery state so the user sees the download
+  // affordance instead of a silent navigation failure.
+  const handlePrev = useCallback((): void => {
+    if (state.kind !== "loaded") return;
+    try {
+      const result = state.book.prev?.();
+      Promise.resolve(result).catch(() => {
+        if (!cancelledRef.current) {
+          setState({ kind: "error", reason: "cdn-failed" });
+        }
+      });
+    } catch {
+      if (!cancelledRef.current) {
+        setState({ kind: "error", reason: "cdn-failed" });
+      }
+    }
+  }, [state]);
+
+  const handleNext = useCallback((): void => {
+    if (state.kind !== "loaded") return;
+    try {
+      const result = state.book.next?.();
+      Promise.resolve(result).catch(() => {
+        if (!cancelledRef.current) {
+          setState({ kind: "error", reason: "cdn-failed" });
+        }
+      });
+    } catch {
+      if (!cancelledRef.current) {
+        setState({ kind: "error", reason: "cdn-failed" });
+      }
+    }
+  }, [state]);
+
+  const handleScriptLoad = useCallback(() => {
+    mountBook();
+  }, [mountBook]);
+
+  const handleScriptError = useCallback(() => {
+    setState({ kind: "error", reason: "cdn-failed" });
+  }, []);
+
+  // The error branch synthesizes a typed `epub-offline`
+  // dispatch with `reason: "cdn-failed"` so the existing
+  // `renderOfflineCard` paints the download affordance with
+  // a typed `reason` literal distinct from the
+  // `bytes-missing` path. The descriptor here is a
+  // synthetic stand-in (the CDN-failed branch doesn't have
+  // a real `ViewerFileDescriptor` in scope, only the
+  // typed dispatch fields).
+  if (state.kind === "error") {
+    const syntheticDescriptor: ViewerFileDescriptor = {
+      url: dispatch.src,
+      name: dispatch.title,
+      format: "epub",
+      size: dispatch.bytes.length,
+      path: dispatch.title,
+    };
+    return renderOfflineCard(
+      {
+        kind: "epub-offline",
+        name: dispatch.title,
+        download: { href: dispatch.src, download: dispatch.title },
+        scriptUrl: dispatch.scriptUrl,
+        scriptGlobal: dispatch.scriptGlobal,
+        reason: "cdn-failed",
+      },
+      syntheticDescriptor,
+    );
+  }
+
+  if (state.kind === "loaded") {
+    // SAFETY: epubjs's browser bundle renders a paged
+    // book into the host element via `book.renderTo` —
+    // the host element is the dedicated
+    // `.fex-epub-frame` container (the `min-h-[480px]`
+    // floor + surface background + outline-variant border
+    // + border-radius live in the cascade so the paged
+    // book has a stable target to render into regardless
+    // of viewport). The `book.on("relocated", ...)` /
+    // locationLabel pattern mirrors the legacy
+    // `web/file_viewer.js::renderEpub` `book.on(
+    // "relocated", (location) => { ... locationLabel
+    // .textContent = ... })` shape verbatim — we attach
+    // a similar listener at mount-time so the user sees
+    // the current page / total in the nav row.
+    return (
+      <div
+        className="fex-epub-host"
+        data-viewer-kind="epub-content"
+      >
+        <div
+          ref={hostRef}
+          className="fex-epub-frame"
+          data-viewer-kind="epub-frame"
+        />
+        <div
+          className="fex-epub-nav"
+          data-viewer-kind="epub-nav"
+        >
+          <button
+            type="button"
+            className="fex-snippet-btn"
+            title="Previous page"
+            onClick={handlePrev}
+            data-viewer-kind="epub-prev"
+          >
+            <span className="material-symbols-outlined text-[16px]">
+              chevron_left
+            </span>
+            Prev
+          </button>
+          <span
+            className="font-mono-data text-mono-data text-on-surface-variant"
+            data-viewer-kind="epub-location"
+          >
+            {state.locationLabel}
+          </span>
+          <button
+            type="button"
+            className="fex-snippet-btn"
+            title="Next page"
+            onClick={handleNext}
+            data-viewer-kind="epub-next"
+          >
+            Next
+            <span className="material-symbols-outlined text-[16px]">
+              chevron_right
+            </span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // `loading` state — render the quiet skeleton + the
+  // Next 16 `<Script>` loader on the first commit. The
+  // `<Script>` dedups by URL across mounts, so a second
+  // EPUB open within the same page session does NOT
+  // re-fetch the bundle.
+  return (
+    <>
+      <div
+        className="fex-empty-state"
+        role="status"
+        data-viewer-loading=""
+        data-viewer-kind="epub-loading"
+      >
+        <span className="fex-empty-state-icon material-symbols-outlined animate-spin">
+          progress_activity
+        </span>
+        <p>Loading EPUB preview…</p>
       </div>
       <Script
         src={dispatch.scriptUrl}
