@@ -51,7 +51,21 @@ from pydantic import BaseModel
 from etl.migrations import CURRENT_SCHEMA_VERSION, get_applied_version  # pyright: ignore
 
 DB_PATH = Path(__file__).parent.parent / "data" / "db" / "taxa.db"
-WEB_DIR = Path(__file__).parent.parent / "web"
+# Primary static-asset directory: the React/Next.js static export at
+# `out/`. ODD-MIGRATE-006 atomic cutover (Approach A) — FastAPI
+# serves the React build directly so there is exactly one local origin
+# (127.0.0.1:8765) and the legacy `web/` directory is retired from
+# the hot path. The mount at the bottom of this file consults `WEB_DIR`
+# first; only if `WEB_DIR` (the `out/` static export) is missing does
+# the `WEB_LEGACY_DIR` fallback engage so a fresh clone without a
+# `next build` still serves a usable page from the legacy frontend.
+WEB_DIR = Path(__file__).parent.parent / "out"
+# Legacy fallback path. Mounted only when `WEB_DIR` (the React static
+# export at `out/`) is missing — e.g. a fresh clone before
+# `npm run build:web` runs. `git revert <cutover-sha>` restores this
+# block atomically and re-engages the legacy `web/` mount the moment
+# `out/` is removed.
+WEB_LEGACY_DIR = Path(__file__).parent.parent / "web"
 # Where the materialize endpoint creates folder structures. Configurable via
 # env var so tests can monkeypatch to a tmp dir without touching the real
 # research folder. Resolved to absolute so the response's `absolute_path`
@@ -322,7 +336,10 @@ app.add_middleware(
 @app.get("/", include_in_schema=False)
 def root():
     """Deprecated — the StaticFiles mount at the bottom of this file serves
-    the frontend now. Kept as a fallback when the web/ dir is empty."""
+    the frontend now. Kept as a fallback when the React/Next static
+    export at `out/` (the primary `WEB_DIR`) is empty. The legacy `web/`
+    mount below engages when `out/` is missing entirely so a fresh clone
+    without a `next build` still serves a usable page."""
     index = WEB_DIR / "index.html"
     if not index.exists():
         return RedirectResponse(url="/docs")
@@ -1808,11 +1825,22 @@ f"actual {size} bytes"
     )
 
 
-# Mount the web/ directory for static assets (app.js, etc.).
-# This is intentionally at the END of the file so /api/* routes take
-# precedence over static file serving.
+# Mount the React/Next.js static export at `out/` for static assets.
+# ODD-MIGRATE-006 atomic cutover (Approach A): WEB_DIR is the primary
+# mount (`name="out"`); the legacy `web/` mount engages as a fallback
+# ONLY when `out/` is missing — e.g. a fresh clone before `next build`
+# runs. `git revert <cutover-sha>` restores this block atomically and
+# re-engages the legacy `web/` mount the moment `out/` is removed.
+#
+# Both mounts are intentionally at the END of the file so /api/* routes
+# take precedence over static file serving. The legacy fallback's
+# `name="web-legacy"` (vs. the primary's `name="out"`) preserves a
+# distinct reverse-URL handle for any future slice that needs to
+# distinguish the two mounts programmatically.
 if WEB_DIR.exists():
-    app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
+    app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="out")
+elif WEB_LEGACY_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(WEB_LEGACY_DIR), html=True), name="web-legacy")
 
 
 if __name__ == "__main__":

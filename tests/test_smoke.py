@@ -155,10 +155,35 @@ def test_static_index_html_served():
 
 
 def test_static_app_js_served():
-    """Frontend bundle is reachable from the same origin."""
-    resp = client.get("/app.js")
-    assert resp.status_code == 200
-    assert len(resp.text) > 1000, "app.js looks suspiciously small"
+    """Post-cut contract (ODD-MIGRATE-006): the React/Next.js static export
+    emits its bundled JS under `/_next/static/chunks/<hash>.js`; the legacy
+    `web/app.js` no longer exists after the atomic cutover. This test pins
+    the post-cut runtime contract by reading the first chunk reference out
+    of `out/index.html` and asserting the FastAPI TestClient returns 200
+    with non-trivial bytes — mirroring the G3 verifier shape at
+    docs/cutover-evidence/cutover-manifest.json (line 78).
+    """
+    import re
+
+    # Pick the first `/_next/static/chunks/<hash>.js` reference embedded in
+    # `out/index.html`. The hash uses `[a-z0-9-]+` per Next 16's static
+    # export (matches the focus shell outputs, e.g. `0cz1d0mv5g_q7.js`).
+    with open("out/index.html", encoding="utf-8") as _f:
+        html = _f.read()
+    m = re.search(r"/_next/static/chunks/([a-z0-9-]+\.js)", html)
+    assert m is not None, (
+        "no /_next/static/chunks/<hash>.js reference found in out/index.html; "
+        "the React/Next.js static export is missing its bundled JS chunks"
+    )
+    chunk_path = m.group(0)  # already includes the leading slash
+
+    resp = client.get(chunk_path)
+    assert resp.status_code == 200, (
+        f"expected 200 for {chunk_path}, got {resp.status_code}"
+    )
+    assert len(resp.text) > 1000, (
+        f"{chunk_path} looks suspiciously small ({len(resp.text)} bytes)"
+    )
 
 
 def test_health_endpoint_returns_503_without_db():
