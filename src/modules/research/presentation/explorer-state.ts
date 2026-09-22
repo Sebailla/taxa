@@ -181,18 +181,29 @@ export function createInitialViewerState(): ViewerState {
  *  source descriptor contract (the W4b3 `epub-source` outcome
  *  carries the bytes by reference — the mount reads them at
  *  mount time through the same seam TXT / MD / SVG / JSON /
- *  DOCX / XLS / XLSX already use). Every other family (PDF /
- *  HTML / image / video / Papa / unknown) passes the URL
- *  straight through to the renderer without reading bytes —
- *  Papa is NOT yet wired in the W6.4b mount (its CDN loader
- *  contract lands as a separately authorized later slice).
- *  JSON is special: it is the W64A contract's native tree
- *  viewer, so the bytes-fetch effect reads JSON bytes through
- *  the same seam the TXT / MD / SVG effects already use — no
- *  CDN loader, no `<Script>` surface. The contract below covers
- *  the W4a + W64a + W64b + W64c + W64d families; a future mount
- *  that wires the Papa CDN library for CSV / TSV would extend
- *  the typed predicate here. */
+ *  DOCX / XLS / XLSX already use). CSV / TSV need the bytes
+ *  to feed Next 16's `<Script>` loader +
+ *  `TextDecoder("utf-8", {fatal: false}).decode(bytes)` +
+ *  `window[PAPA_GLOBAL_NAME].parse(text, {delimiter,
+ *  skipEmptyLines: true})` per the W64E-CSV-005 typed source
+ *  descriptor contract (the W4b4 `table-source` outcome
+ *  carries the bytes by reference + the typed `delimiter`
+ *  literal — `","` for CSV + `"\t"` for TSV — so the mount
+ *  hands the delimiter straight to Papa's parse options).
+ *  CSV / TSV share the same Papa Parse path; the `format`
+ *  field carries "csv" or "tsv" verbatim so the mount can
+ *  re-derive the delimiter from the format when the
+ *  dispatcher-emitted `delimiter` is unavailable (the W4b4
+ *  dispatcher always emits the typed `delimiter` literal —
+ *  the format-derived fallback is a defensive shape for
+ *  future consumer slices). Every other family (PDF / HTML /
+ *  image / video / unknown) passes the URL straight through
+ *  to the renderer without reading bytes. JSON is special: it
+ *  is the W64A contract's native tree viewer, so the
+ *  bytes-fetch effect reads JSON bytes through the same seam
+ *  the TXT / MD / SVG effects already use — no CDN loader, no
+ *  `<Script>` surface. The contract below covers the W4a +
+ *  W64a + W64b + W64c + W64d + W64e families. */
 export function bytesRequiredForFormat(format: FileFormat): boolean {
   switch (format) {
     case "txt":
@@ -203,13 +214,13 @@ export function bytesRequiredForFormat(format: FileFormat): boolean {
     case "xls":
     case "xlsx":
     case "epub":
+    case "csv":
+    case "tsv":
       return true;
     case "pdf":
     case "html":
     case "htm":
     case "doc":
-    case "csv":
-    case "tsv":
     case "jpg":
     case "jpeg":
     case "png":
