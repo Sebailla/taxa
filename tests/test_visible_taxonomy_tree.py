@@ -197,6 +197,263 @@ def test_taxonomy_tree_emits_accessible_initial_states() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# ODD-SEARCH-001 — top-bar search input contract (the React mount mirrors
+# the legacy `web/search.js` shape so the existing legacy Playwright probe
+# + the React-shaped parity probe can both locate the surface).
+#
+# Pins the React cutover's first usable search surface:
+#   - `<input id="search-input">` carries `data-search-input=""`,
+#     `autocomplete="off"`, `spellcheck="false"`.
+#   - `<div id="search-results" data-search-results>` hosts the dropdown.
+#   - Each result row is a `<button data-taxon-id="<id>"
+#     data-action="select-taxon">` so the click handler routes through
+#     `selectTaxon(id)` (the React handleSelect primitive mirrors the
+#     legacy `web/nav.js::selectTaxon` byte-for-byte).
+#   - The input is debounced (200ms) on input change after a 2-character
+#     gate; clicking a result clears the input and drives the React tree
+#     to focus on the selected taxon.
+#
+# The ODD-MIGRATE-007 carveout (see `tests/test_search_engine_consumer_manifest.py`)
+# retires the legacy Playwright tests that targeted the legacy
+# `#search-input` selector so they don't reach the React mount by
+# accident. The React mount keeps the same selector + `data-action`
+# + `data-taxon-id` contract the legacy tests used so a future
+# Playwright probe can locate the input via the same hook.
+# ---------------------------------------------------------------------------
+
+
+def test_taxonomy_tree_renders_search_input_with_legacy_dom_contract() -> None:
+    """ODD-SEARCH-001: TaxonomyTree.tsx must render a top-bar
+    `<input id="search-input">` carrying the canonical DOM
+    contract: `data-search-input=""`, `autocomplete="off"`,
+    `spellcheck="false"`, an accessible placeholder / label,
+    and `aria-controls` pointing at the search-results
+    container."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    # The legacy #search-input selector MUST stay present so the
+    # retired legacy Playwright probes can be repointed at the
+    # React mount without a redesign pass.
+    assert re.search(
+        r'<input\b[^>]*\bid="search-input"',
+        text,
+        re.DOTALL,
+    ), (
+        "TaxonomyTree.tsx must render `<input id=\"search-input\" ...>` "
+        "matching the legacy `web/index.html` selector the ODD-MIGRATE-007 "
+        "carveout retired."
+    )
+    # The data-search-input="" attribute pins the React-shaped
+    # surface so a future Playwright probe can locate the input
+    # via the React hook.
+    assert re.search(
+        r'<input\b[^>]*\bdata-search-input\s*=\s*""',
+        text,
+        re.DOTALL,
+    ), (
+        "TaxonomyTree.tsx must stamp `data-search-input=\"\"` on the "
+        "search input (the React-shaped DOM contract)."
+    )
+    # Autocomplete + spellcheck guards mirror the legacy
+    # `web/index.html` `<input id="search-input" autocomplete="off"
+    # spellcheck="false">` shape so the React mount behaves
+    # identically (browsers must NOT cache the search query, and
+    # the red squiggle must NOT fire on a Latin scientific name).
+    # React's JSX uses the camelCase form (`autoComplete`); the
+    # regex matches either case so a future swap to a typed
+    # native element wouldn't trip the guard.
+    assert re.search(
+        r'<input\b[^>]*\bauto[Cc]omplete\s*=\s*"off"',
+        text,
+        re.DOTALL,
+    ), (
+        "TaxonomyTree.tsx must stamp `autoComplete=\"off\"` on the "
+        "search input (the legacy `web/index.html` shape)."
+    )
+    assert re.search(
+        r'<input\b[^>]*\bspell[Cc]heck\s*=\s*\{\s*false\s*\}',
+        text,
+        re.DOTALL,
+    ), (
+        "TaxonomyTree.tsx must stamp `spellCheck={false}` on the "
+        "search input (the legacy `web/index.html` shape — no red "
+        "squiggle on a Latin scientific name)."
+    )
+    # The placeholder drives the visible copy. The brief mandates
+    # "Search taxa…" or similar.
+    assert re.search(
+        r'<input\b[^>]*\bplaceholder\s*=\s*"Search taxa',
+        text,
+        re.DOTALL,
+    ), (
+        "TaxonomyTree.tsx must render a placeholder starting with "
+        "\"Search taxa\" (the brief's required copy)."
+    )
+
+
+def test_taxonomy_tree_renders_search_results_container() -> None:
+    """ODD-SEARCH-001: TaxonomyTree.tsx must render a
+    `<div id="search-results" data-search-results>` host for the
+    search dropdown. The container stays mounted even when the
+    dropdown is closed so a future Playwright probe can locate it
+    via the React hook."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert re.search(
+        r'<div\b[^>]*\bid="search-results"',
+        text,
+        re.DOTALL,
+    ), (
+        "TaxonomyTree.tsx must render `<div id=\"search-results\" ...>` "
+        "matching the legacy `web/index.html` selector the ODD-MIGRATE-007 "
+        "carveout retired."
+    )
+    assert re.search(
+        r'<div\b[^>]*\bid="search-results"[^>]*\bdata-search-results\s*=\s*""',
+        text,
+        re.DOTALL,
+    ), (
+        "TaxonomyTree.tsx must stamp `data-search-results=\"\"` on the "
+        "search-results container (the React-shaped DOM contract)."
+    )
+
+
+def test_taxonomy_tree_renders_search_result_rows_with_select_taxon_action() -> None:
+    """ODD-SEARCH-001: each search result row must be a `<button>`
+    carrying `data-taxon-id="<id>"` + `data-action="select-taxon"`.
+    The click handler routes through the existing React
+    `handleSelect(id)` primitive (mirrors the legacy
+    `web/nav.js::selectTaxon(id)` flow)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    # The render-time template MUST stamp both `data-taxon-id`
+    # AND `data-action="select-taxon"` on the result row.
+    assert re.search(
+        r'data-taxon-id\s*=\s*\{[^}]*hit\.taxon\.id',
+        text,
+    ), (
+        "TaxonomyTree.tsx search result row MUST stamp "
+        "`data-taxon-id={hit.taxon.id}` on each row (the React-shaped "
+        "DOM contract — the legacy `web/search.js::renderSearchDropdown` "
+        "shape preserved verbatim)."
+    )
+    assert re.search(
+        r'data-action\s*=\s*"select-taxon"',
+        text,
+    ), (
+        "TaxonomyTree.tsx search result row MUST stamp "
+        "`data-action=\"select-taxon\"` on each row (the React-shaped "
+        "DOM contract that mirrors the legacy `select-from-search` action)."
+    )
+    # The result row is a real `<button>` so keyboard activation
+    # (Enter / Space) drives the click handler — matches the
+    # legacy click + keyboard contract the legacy
+    # `web/nav.js::row-click` listener fired.
+    assert re.search(
+        r'<button\b[^>]*\bdata-taxon-id\s*=\s*\{[^}]*hit\.taxon\.id[^}]*\}',
+        text,
+        re.DOTALL,
+    ), (
+        "TaxonomyTree.tsx search result row MUST be a real `<button>` "
+        "element (not a `<div>`) so keyboard activation drives the "
+        "click handler."
+    )
+
+
+def test_taxonomy_tree_uses_fetch_search_via_barrel() -> None:
+    """ODD-SEARCH-001: TaxonomyTree.tsx must consume the canonical
+    typed `fetchSearch` helper re-exported by the public
+    `@taxa/taxonomy` barrel — never deep paths into the
+    infrastructure layer. spec.md rule 5 forbids deep imports via
+    the ESLint `no-restricted-imports` guard; rule 4 keeps the
+    presentation layer free of duplicated wire projection."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert "fetchSearch" in text, (
+        "TaxonomyTree.tsx must call the canonical fetchSearch helper"
+    )
+    assert "from \"@taxa/taxonomy\"" in text or "from '@taxa/taxonomy'" in text, (
+        "TaxonomyTree.tsx must import fetchSearch via the @taxa/taxonomy barrel"
+    )
+    # spec.md rule 5 + ESLint guard: no deep imports into the layer folders.
+    for bad in (
+        "../infrastructure/api",
+        "../infrastructure/api.js",
+        "@taxa/taxonomy/infrastructure",
+        "@taxa/taxonomy/domain",
+    ):
+        assert bad not in text, (
+            f"TaxonomyTree.tsx must not deep-import {bad!r} (rule 5 barrel guard)"
+        )
+
+
+def test_taxonomy_tree_search_uses_200ms_debounce_and_2_char_gate() -> None:
+    """ODD-SEARCH-001: the search input debounces by 200ms (mirrors
+    the legacy `web/search.js::runSearch` `setTimeout(..., 200)`)
+    and gates the fetch on a 2-character minimum (mirrors the
+    legacy `q.length < 2 → closeSearch()` short-circuit)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    # 200ms debounce — match `setTimeout(<callback>, 200)` even when
+    # the callback is a multi-line arrow function with commas inside.
+    assert re.search(r"setTimeout\s*\([\s\S]+?,\s*200\s*\)", text), (
+        "TaxonomyTree.tsx search effect MUST debounce by 200ms "
+        "(mirrors the legacy `web/search.js::runSearch` debounce)."
+    )
+    # 2-character gate — the legacy drops the dropdown for
+    # `q.length < 2`; the React mount applies the same gate.
+    assert re.search(r"\.length\s*<\s*2|length\s*<\s*2", text), (
+        "TaxonomyTree.tsx search effect MUST apply a 2-character "
+        "minimum gate (mirrors the legacy "
+        "`web/search.js::runSearch` `q.length < 2` close)."
+    )
+
+
+def test_taxonomy_tree_result_click_routes_through_select_primitive() -> None:
+    """ODD-SEARCH-001: the result-row click handler routes through
+    the existing React selection primitive (setFocused + setSelected
+    + setPulseNonce — the same body `handleSelect` runs) so the
+    React tree focuses + scrolls to the selected taxon after a
+    search-result click. Mirrors the legacy
+    `web/nav.js::selectTaxon(id)` flow."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    # The click handler must set `focused` + `selected` + bump the
+    # pulse nonce — the same React-shape primitives `handleSelect`
+    # uses. A future refactor that splits the click handler into a
+    # different primitive would silently break the focus + scroll
+    # affordance, so this test pins the shape.
+    handler_block = re.search(
+        r"const\s+handleSearchResultClick\s*=\s*useCallback\s*\([^)]*\)\s*=>\s*\{[^}]*setFocused[^}]*setSelected[^}]*setPulseNonce",
+        text,
+        re.DOTALL,
+    )
+    assert handler_block is not None, (
+        "TaxonomyTree.tsx `handleSearchResultClick` MUST invoke "
+        "setFocused + setSelected + setPulseNonce (the same shape "
+        "as the React `handleSelect` primitive — so clicking a "
+        "search result focuses + scrolls to the selected taxon)."
+    )
+
+
+def test_taxonomy_tree_search_input_does_not_break_existing_pins() -> None:
+    """ODD-SEARCH-001: adding the search input MUST NOT regress
+    the pre-existing TaxonomyTree contracts — the source toggle,
+    the breadcrumb, the initial loading / error / empty states,
+    and the `'use client'` directive stay intact."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert text.lstrip().startswith('"use client"'), (
+        "TaxonomyTree.tsx MUST keep the 'use client' directive "
+        "(the search input is owned by the same client island)."
+    )
+    # The source-toggle wrapper still renders after the search
+    # input — the search input sits ABOVE the breadcrumb + source
+    # toggle, never inside or after.
+    assert "renderSourceSelector()" in text, (
+        "TaxonomyTree.tsx MUST keep `renderSourceSelector()` "
+        "(the CoL / WoRMS / Freshwater selector stays intact)."
+    )
+    assert "renderBreadcrumb()" in text, (
+        "TaxonomyTree.tsx MUST keep `renderBreadcrumb()` "
+        "(the native breadcrumb stays intact below the search bar)."
+    )
+
+
 def test_tree_row_uses_semantic_disclosure_button() -> None:
     """TreeRow must use a `<button>` with accurate ``aria-expanded`` for the
     disclosure control. ``aria-controls`` is intentionally OMITTED — children

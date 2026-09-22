@@ -1193,3 +1193,163 @@ export async function openFolder(
   }
   return payload;
 }
+
+/** ODD-SEARCH-001 — wire → domain projection for `/api/search`.
+ *  Mirrors the FastAPI `api/server.py::SearchHit` Pydantic model
+ *  field-for-field: `match_type` (the typed literal "scientific" /
+ *  "authorship" / "vernacular" — the server is the source of truth for
+ *  the bucket a hit belongs to), `taxon` (the canonical `Taxon`
+ *  projection). The `Taxon` projection uses the same wire → domain
+ *  helper the rest of the adapter already wires (via
+ *  `api/server.py::_row_to_taxon`), so every field that ships on a
+ *  `/api/domains` payload is preserved verbatim on the embedded
+ *  `taxon`. The React port's search-result renderer reads `match_type`
+ *  for the legacy `tag-${h.match_type}` class the React cutover
+ *  mirrors (`tag-scientific` / `tag-authorship` / `tag-vernacular` —
+ *  the legacy `web/search.js::renderSearchDropdown` shape preserved
+ *  verbatim), and `taxon` for the rest of the row identity (id,
+ *  scientific_name, rank, authorship, path). URL composition stays
+ *  server-side — the React port never builds a search URL from the
+ *  hit; clicking a result routes through `selectTaxon(id)`, the
+ *  existing tree selection primitive. */
+export interface SearchHit {
+  readonly match_type: "scientific" | "authorship" | "vernacular";
+  readonly taxon: Taxon;
+}
+
+/** Per-hit validator. `match_type` MUST be one of the three typed
+ *  literals the server emits; `taxon` MUST validate through the
+ *  canonical `isValidTaxon` predicate (the same helper the
+ *  `fromWireList` projection uses for `/api/domains` /
+ *  `/api/taxon/{id}/children`). A wire mismatch (unknown
+ *  `match_type`, invalid `taxon`) surfaces as `TaxonomyApiError` so
+ *  a per-element shape drift cannot slip past the projection layer. */
+function isValidSearchHit(value: unknown): value is SearchHit {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (
+    v.match_type !== "scientific" &&
+    v.match_type !== "authorship" &&
+    v.match_type !== "vernacular"
+  ) {
+    return false;
+  }
+  // The embedded `taxon` must satisfy the canonical `Taxon`
+  // projection — the adapter runs the same `isValidTaxon` check
+  // every other endpoint uses so a wire-shape drift on the
+  // embedded taxon fails the same predicate.
+  const taxon = v.taxon;
+  if (typeof taxon !== "object" || taxon === null) return false;
+  // isValidTaxon runs the canonical rank / id / name predicates;
+  // we forward through it via `fromWire` so the adapter surfaces
+  // any taxon-shape drift as a `TaxonomyApiError` with the same
+  // message format the rest of the helper uses.
+  try {
+    fromWire(taxon, "search-hit.taxon");
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+/** ODD-SEARCH-001 — wire → domain projection for the search
+ *  payload. Reads the JSON array and validates each element through
+ *  `isValidSearchHit`. A non-array payload or a per-element shape
+ *  mismatch surfaces as `TaxonomyApiError` so the React mount's
+ *  search-result renderer can branch on a single `instance/name`
+ *  check. Mirrors `fromWireSearchList` / `fromWireVernacularList`
+ *  byte-for-byte: the caller-supplied `context` is interpolated
+ *  into every error message so log lines can attribute the failure
+ *  to the right endpoint. */
+function fromWireSearchHitList(
+  payload: unknown,
+  context: string,
+): readonly SearchHit[] {
+  if (!Array.isArray(payload)) {
+    throw new TaxonomyApiError(
+      `taxonomy API ${context} returned a non-array payload: ` + typeof payload,
+    );
+  }
+  const out: SearchHit[] = [];
+  for (let i = 0; i < payload.length; i++) {
+    if (!isValidSearchHit(payload[i])) {
+      throw new TaxonomyApiError(
+        `taxonomy API ${context} returned an invalid SearchHit at index ${i}: domain contract violated`,
+      );
+    }
+    out.push(payload[i] as SearchHit);
+  }
+  return out;
+}
+
+/** Public options surface for `fetchSearch`. Mirrors the
+ *  `FetchOptions` interface (transport-level `fetch` + `baseUrl`)
+ *  so the React port can drive the request with a stubbed fetch
+ *  under test. The FastAPI `/api/search` endpoint
+ *  (`api/server.py::search`) currently accepts only `q`,
+ *  `limit`, and `include_vernacular` query parameters — the
+ *  endpoint ranks hits across `taxon_fts` + `vernacular_fts`
+ *  with tier-based BM25 scoring and applies no source filter
+ *  on the wire (the source filter is applied client-side
+ *  against the cached `taxon.path` / `coldp_id` / `worms_id`
+ *  fields the wire payload carries). `limit` is forwarded
+ *  verbatim as `?limit=N` (the server clamps server-side to
+ *  `ge=1, le=100`). */
+export interface FetchSearchOptions extends FetchOptions {
+  readonly limit?: number;
+}
+
+/** ODD-SEARCH-001 — fetch the canonical `/api/search` payload for
+ *  a free-text query. The server ranks hits across scientific name,
+ *  authorship, and vernacular name with tier-based BM25 scoring
+ *  (`api/server.py::search`) — the React port surfaces every hit
+ *  verbatim so the search-result dropdown renders every server-
+ *  ranked row in the server-defined order. The wire response is a
+ *  JSON array of `SearchHit` objects; the React port's render loop
+ *  is a for-each over the response array and never re-ranks /
+ *  paginates client-side. The wire `match_type` is preserved
+ *  verbatim so the React port can stamp the legacy
+ *  `tag-${match_type}` class on each row.
+ *
+ *  URL composition: the canonical URL is
+ *  `/api/search?q=<encoded>&limit=<N>`. `q` is required (the
+ *  FastAPI endpoint enforces `min_length=1, max_length=200`);
+ *  `limit` is optional (server default 20, max 100). The helper
+ *  returns the wire payload as the typed `SearchHit[]` projection
+ *  so the React mount can render rows without re-validation. The
+ *  active source is applied client-side against the wire payload
+ *  (a future server-side `?source=` filter would land as a
+ *  separately authorized FastAPI change). */
+export async function fetchSearch(
+  q: string,
+  opts: FetchSearchOptions = {},
+): Promise<readonly SearchHit[]> {
+  if (typeof q !== "string") {
+    throw new TaxonomyApiError(
+      `fetchSearch: q must be a string; got ${typeof q}`,
+    );
+  }
+  const trimmed = q.trim();
+  if (trimmed.length === 0) {
+    // Empty query → empty result set. The React mount's debounced
+    // input handler short-circuits before calling `fetchSearch` for
+    // empty / sub-2-char queries, but the helper enforces the same
+    // contract so a future caller that bypasses the debounce cannot
+    // trigger an unnecessary round trip.
+    return [];
+  }
+  const f = opts.fetch ?? defaultFetch();
+  const params: string[] = [`q=${encodeURIComponent(trimmed)}`];
+  if (typeof opts.limit === "number" && Number.isInteger(opts.limit)) {
+    params.push(`limit=${encodeURIComponent(String(opts.limit))}`);
+  }
+  const query = `?${params.join("&")}`;
+  const r = await f(url(opts.baseUrl ?? "", `/api/search${query}`));
+  if (!r.ok) {
+    throw new TaxonomyApiError(
+      `taxonomy API GET /api/search failed: ${r.status} ${r.statusText}`,
+      { status: r.status },
+    );
+  }
+  return fromWireSearchHitList(await readJson(r), "/api/search");
+}

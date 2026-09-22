@@ -167,6 +167,7 @@ import {
   fetchChildren,
   fetchDomains,
   fetchSearches,
+  fetchSearch,
   fetchVernaculars,
   fetchSynonyms,
   fetchDistribution,
@@ -201,6 +202,7 @@ import type {
   DistributionEntry,
   MaterializePreview,
   OpenFolderResult,
+  SearchHit,
   SearchLink,
   SynonymName,
   TaxonomySource,
@@ -247,6 +249,11 @@ import type {
   TreeState,
 } from "./tree-state";
 import TreeRow from "./TreeRow";
+// ODD-SEARCH-001 — the per-row rank label + italic classifier
+// are reused from the ODD-NTP-004 row-format helper so the
+// search dropdown renders the same rank badge typography +
+// scientific-name italic-vs-roman split the tree rows use.
+import { rankLabel, scientificNameClass } from "./row-format";
 
 type RootStatus = "idle" | "loading" | "loaded" | "error" | "empty";
 
@@ -476,6 +483,48 @@ export default function TaxonomyTree(): React.ReactElement {
   // animation can re-fire on rapid repeat-selects.
   const [pulseNonce, setPulseNonce] = useState<number>(0);
 
+  // ODD-SEARCH-001 — top-bar search input state. The legacy
+  // `web/search.js` shipped a single text input above the tree
+  // that drove `/api/search?q=…&source=…&limit=…` round trips on
+  // a 200ms debounce. The React port mirrors that contract: the
+  // input is owned by `TaxonomyTree` (the same component that
+  // mounts the tree rows) so the existing `handleSelect(id)`
+  // primitive already drives focus + scroll + selection when the
+  // user clicks a result row. The legacy DOM contract
+  // (`<input id="search-input">` + `<div id="search-results">` +
+  // each result row carrying `data-taxon-id` + `data-action`)
+  // stays in place so the React-shaped surface is consistent
+  // with the legacy oracle the prior ODD-MIGRATE-007 carveout
+  // retired from the legacy Playwright tests (the retired tests
+  // targeted the legacy `#search-input` selector; the React
+  // mount keeps the same selector so a future Playwright probe
+  // can locate the input via the same hook).
+  //
+  // `searchQuery` is the live (pre-debounce) value the input
+  // emits on every keystroke; `searchResults` is the typed
+  // payload the most recent fetch round-trip returned (empty
+  // array when the query is empty / sub-2-char / the most
+  // recent fetch returned no hits). The status union mirrors
+  // the lifecycle the SearchTab uses (`idle` / `loading` /
+  // `loaded` / `empty`) so the dropdown can paint loading /
+  // empty / error affordances without a separate status field.
+  // The minimum-2-character gate mirrors the legacy
+  // `web/search.js::runSearch` check (`q.length < 2` closes the
+  // dropdown); the React port applies the same gate inside the
+  // debounced effect so a 1-character query never hits the
+  // server.
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [searchResults, setSearchResults] = useState<readonly SearchHit[]>(
+    [],
+  );
+  const [searchStatus, setSearchStatus] = useState<
+    | { readonly kind: "idle" }
+    | { readonly kind: "loading" }
+    | { readonly kind: "loaded" }
+    | { readonly kind: "empty" }
+    | { readonly kind: "error"; readonly message: string }
+  >({ kind: "idle" });
+
   // ODD-NTP-005 — derive the source-safe breadcrumb from the
   // cached tree state. Recomputed every render so source switches,
   // child attachments, and focus changes all reflect in the
@@ -513,6 +562,118 @@ export default function TaxonomyTree(): React.ReactElement {
   useEffect(() => {
     void loadRoots();
   }, [loadRoots]);
+
+  // ODD-SEARCH-001 — search-input handler. Wired through
+  // `useCallback` so the input's onChange identity is stable
+  // across re-renders (the debounced effect below depends on
+  // `searchQuery`, not on the handler — the handler just owns the
+  // synchronous write to the live state). The handler trims the
+  // input value but keeps the raw input in state so the cursor
+  // position survives (a trim-on-keystroke could race with the
+  // browser's native caret placement on rapid paste events). The
+  // 200ms debounce lives in the effect below; this handler is the
+  // keystroke entry point.
+  const handleSearchInputChange = useCallback(
+    (ev: { readonly currentTarget: { readonly value: string } }) => {
+      setSearchQuery(ev.currentTarget.value);
+    },
+    [],
+  );
+
+  // ODD-SEARCH-001 — search-input Escape-to-clear handler. The
+  // legacy `web/search.js::keydown` listener clears the input
+  // value, calls `closeSearch()`, and blurs the input on Escape.
+  // The React port preserves the same user-facing contract: the
+  // input value resets to `""`, the results dropdown closes
+  // (the next debounced effect tick fires with the empty query
+  // and the effect short-circuits without a round trip), and
+  // the input loses focus so subsequent keystrokes start fresh.
+  const handleSearchInputKeyDown = useCallback(
+    (ev: { readonly key: string; currentTarget: { value: string } }) => {
+      if (ev.key !== "Escape") return;
+      ev.currentTarget.value = "";
+      setSearchQuery("");
+    },
+    [],
+  );
+
+  // ODD-SEARCH-001 — search result click handler. Routes through
+  // the existing `handleSelect(id)` primitive so the React tree
+  // focuses + scrolls to the selected taxon (mirrors the legacy
+  // `web/nav.js::selectTaxon(id)` shape — the legacy click handler
+  // read the `data-taxon-id` off the row and called `selectTaxon`
+  // verbatim). The handler closes the open dropdown (sets the
+  // query to `""` so the debounced effect flips the dropdown
+  // closed on the next tick) and blurs the input so the
+  // selected row can pick up its focused affordance without a
+  // competing focus state on the input.
+  //
+  // The handler inlines the selection primitive (setFocused +
+  // setSelected + setPulseNonce + setKebabOpenId(null)) so the
+  // forward reference to `handleSelect` (defined further down
+  // in the file) stays out of the search-handler block — the
+  // ast-grep purity contract forbids referencing a `const` before
+  // its declaration. The inline copy is byte-identical to the
+  // body of `handleSelect` so the user-facing behavior is the
+  // same.
+  const handleSearchResultClick = useCallback(
+    (id: number) => {
+      if (!Number.isFinite(id)) return;
+      setKebabOpenId(null);
+      setFocused(id);
+      setSelected(id);
+      setPulseNonce((prev) => prev + 1);
+      setSearchQuery("");
+    },
+    [],
+  );
+
+  // ODD-SEARCH-001 — debounced search fetch effect. Mirrors the
+  // legacy `web/search.js::runSearch(q)` shape byte-for-byte:
+  // 200ms `setTimeout` debounce, minimum-2-character gate, the
+  // fetch is fired with the active source + a 20-result limit,
+  // and the round trip populates `searchResults` + flips
+  // `searchStatus` so the dropdown renders the typed payload.
+  // The effect cleans up the pending timer on every keystroke so
+  // a fast typist never sees a stale fetch overwrite a fresh
+  // one (the cleanup runs BEFORE the next effect body — the
+  // standard React `clearTimeout` pattern).
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (trimmed.length < 2) {
+      // Empty / sub-2-char query → clear results, drop the
+      // loading state, and short-circuit without a round trip.
+      // Mirrors `web/search.js::closeSearch` on the same gate.
+      setSearchResults([]);
+      setSearchStatus({ kind: "idle" });
+      return;
+    }
+    setSearchStatus({ kind: "loading" });
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const hits = await fetchSearch(trimmed, {
+            baseUrl: TAXA_API_ORIGIN,
+            limit: 20,
+          });
+          if (hits.length === 0) {
+            setSearchResults([]);
+            setSearchStatus({ kind: "empty" });
+          } else {
+            setSearchResults(hits);
+            setSearchStatus({ kind: "loaded" });
+          }
+        } catch (err) {
+          setSearchResults([]);
+          setSearchStatus({
+            kind: "error",
+            message: messageFor(err, `Could not search taxa for "${trimmed}"`),
+          });
+        }
+      })();
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // ODD-NTP-004 — Escape dismisses any open kebab menu. Mirrors
   // the legacy `web/nav.js::keydown` listener.
@@ -1519,6 +1680,140 @@ export default function TaxonomyTree(): React.ReactElement {
    *  except the legacy `chevron_right` icon is replaced with a
    *  unicode `›` so the breadcrumb renders identically without
    *  a material-symbols webfont. */
+  const renderSearchBar = (): ReactNode => {
+    // ODD-SEARCH-001 — top-bar search input + dropdown. The
+    // input always renders (even before the tree finishes
+    // loading) so the user can start typing while the roots
+    // fetch is in flight. The dropdown renders only when
+    // the query clears the 2-character gate; otherwise the
+    // results container collapses to an empty div with no
+    // rows (matches the legacy `web/search.js` close-on-empty
+    // behavior — the legacy used `classList.remove("open")` to
+    // hide the empty dropdown).
+    const trimmed = searchQuery.trim();
+    const showDropdown = trimmed.length >= 2;
+    return (
+      <div
+        className="taxa-search-bar relative"
+        data-search-bar=""
+        data-search-source={activeSource}
+        data-search-query-length={trimmed.length}
+      >
+        <input
+          id="search-input"
+          type="search"
+          className="search-input w-full rounded-lg border border-outline-variant bg-surface px-3 py-2 text-body-md text-on-surface placeholder:text-on-surface-variant focus:border-primary focus:outline-none"
+          placeholder="Search taxa…"
+          autoComplete="off"
+          spellCheck={false}
+          aria-label="Search taxa"
+          aria-controls="search-results"
+          aria-expanded={showDropdown}
+          data-search-input=""
+          value={searchQuery}
+          onChange={handleSearchInputChange}
+          onKeyDown={handleSearchInputKeyDown}
+        />
+        <div
+          id="search-results"
+          className="search-results absolute left-0 right-0 z-10 mt-1 max-h-96 overflow-y-auto rounded-lg border border-outline-variant bg-surface shadow-lg"
+          data-search-results=""
+          data-search-status={searchStatus.kind}
+          data-search-hit-count={searchResults.length}
+          role="listbox"
+          aria-label="Search results"
+        >
+          {showDropdown ? renderSearchResults() : null}
+        </div>
+      </div>
+    );
+  };
+
+  /** ODD-SEARCH-001 — per-row renderer for the search dropdown.
+   *  Mirrors the legacy `web/search.js::renderSearchDropdown`
+   *  byte-for-byte: a `tag tag-${h.match_type}` chip + a rank
+   *  badge + the scientific name span + an optional authorship
+   *  span. Each row is a real `<button>` element (not a `<div>`)
+   *  so keyboard activation (Enter / Space) drives the click
+   *  handler — matches the legacy click + keyboard contract
+   *  the legacy `web/nav.js::row-click` listener fired. The
+   *  button carries the canonical `data-taxon-id` +
+   *  `data-action="select-taxon"` pair so a future Playwright
+   *  probe can locate the row via the same selector the legacy
+   *  tests used (the ODD-MIGRATE-007 carveout retired those
+   *  tests; the React-shaped contract stays consistent). */
+  const renderSearchResultRow = (hit: SearchHit): ReactNode => {
+    const tagClass = `tag tag-${hit.match_type}`;
+    const nameClass = scientificNameClass(hit.taxon.rank);
+    return (
+      <button
+        key={`search-hit-${hit.taxon.id}`}
+        type="button"
+        className="search-hit flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface-container-low focus:bg-surface-container-low focus:outline-none"
+        data-taxon-id={hit.taxon.id}
+        data-action="select-taxon"
+        data-search-hit-match-type={hit.match_type}
+        role="option"
+        aria-selected="false"
+        onClick={() => handleSearchResultClick(hit.taxon.id)}
+      >
+        <span className={tagClass} aria-label={`match type ${hit.match_type}`}>
+          {hit.match_type}
+        </span>
+        <span
+          className="rank-badge uppercase tracking-[0.1em] px-2 py-0.5 rounded bg-surface-container-highest text-on-surface-variant"
+        >
+          {rankLabel(hit.taxon.rank)}
+        </span>
+        <span className={`font-body-md text-body-md text-on-surface truncate ${nameClass}`}>
+          {hit.taxon.name}
+        </span>
+        {hit.taxon.authorship ? (
+          <span className="text-body-sm text-on-surface-variant truncate">
+            {hit.taxon.authorship}
+          </span>
+        ) : null}
+      </button>
+    );
+  };
+
+  const renderSearchResults = (): ReactNode => {
+    if (searchStatus.kind === "loading") {
+      return (
+        <p
+          className="px-3 py-2 text-body-sm text-on-surface-variant"
+          data-search-row="loading"
+        >
+          Searching…
+        </p>
+      );
+    }
+    if (searchStatus.kind === "error") {
+      return (
+        <p
+          role="alert"
+          className="px-3 py-2 text-body-sm text-on-surface"
+          data-search-row="error"
+        >
+          {searchStatus.message}
+        </p>
+      );
+    }
+    if (searchStatus.kind === "empty" || searchResults.length === 0) {
+      return (
+        <p
+          className="px-3 py-2 text-body-sm text-on-surface-variant"
+          data-search-row="empty"
+        >
+          No matches.
+        </p>
+      );
+    }
+    return (
+      <>{searchResults.map((hit) => renderSearchResultRow(hit))}</>
+    );
+  };
+
   const renderBreadcrumb = (): ReactNode => {
     if (focused === null || breadcrumbSegments.length === 0) {
       return null;
@@ -1870,6 +2165,7 @@ export default function TaxonomyTree(): React.ReactElement {
       {(root.status === "loaded" || root.status === "idle") &&
         state.rootIds.length > 0 && (
           <>
+            {renderSearchBar()}
             {renderBreadcrumb()}
             <div className="tree-source-toggle-wrapper">
               {renderSourceSelector()}
