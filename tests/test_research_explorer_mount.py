@@ -1282,8 +1282,29 @@ const kernel = require(path.resolve(process.argv[2]));
     + "matrix to DOCX so the Next Script loader + "
     + "mammoth.convertToHtml path has bytes available).",
   );
-  assert.strictEqual(kernel.bytesRequiredForFormat("xlsx"), false);
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("xls"), true,
+    "W64C-XLS-003: bytesRequiredForFormat('xls') must return "
+    + "true so the bytes-fetch effect in Viewer.tsx reads the "
+    + "XLS bytes through the same seam TXT / MD / SVG / JSON / "
+    + "DOCX already use (the W6.1 W64A + W64B-DOCX-002 "
+    + "contracts flipped JSON + DOCX into the bytes-required "
+    + "group; W64C extends that matrix to XLS / XLSX so the "
+    + "Next Script loader + SheetJS.read(...) + "
+    + "utils.sheet_to_html(...) path has bytes available).",
+  );
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("xlsx"), true,
+    "W64C-XLS-003: bytesRequiredForFormat('xlsx') must return "
+    + "true so the bytes-fetch effect in Viewer.tsx reads the "
+    + "XLSX bytes through the same seam the XLS / DOCX / TXT / "
+    + "MD / SVG / JSON effects already use (XLS and XLSX "
+    + "share the same SheetJS path; the format field is "
+    + "carried verbatim through the dispatch).",
+  );
   assert.strictEqual(kernel.bytesRequiredForFormat("csv"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("tsv"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("epub"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("mp4"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("other"), false);
 }
@@ -3113,8 +3134,23 @@ const kernel = require(path.resolve(process.argv[2]));
     + "reads DOCX bytes through the same seam the TXT / MD "
     + "/ SVG / JSON effects already use",
   );
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("xls"), true,
+    "W64C-XLS-003: bytesRequiredForFormat('xls') must "
+    + "return true so the bytes-fetch effect in Viewer.tsx "
+    + "reads XLS bytes through the same seam the DOCX / TXT / "
+    + "MD / SVG / JSON effects already use",
+  );
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("xlsx"), true,
+    "W64C-XLS-003: bytesRequiredForFormat('xlsx') must "
+    + "return true so the bytes-fetch effect in Viewer.tsx "
+    + "reads XLSX bytes through the same seam the XLS / DOCX / "
+    + "TXT / MD / SVG / JSON effects already use",
+  );
   // The matrix stays honest end-to-end — every other
-  // literal is unchanged from the W6.1 + W64A contract.
+  // literal is unchanged from the W6.1 + W64A + W64B + W64C
+  // contract.
   assert.strictEqual(kernel.bytesRequiredForFormat("txt"), true);
   assert.strictEqual(kernel.bytesRequiredForFormat("md"), true);
   assert.strictEqual(kernel.bytesRequiredForFormat("svg"), true);
@@ -3123,8 +3159,9 @@ const kernel = require(path.resolve(process.argv[2]));
   assert.strictEqual(kernel.bytesRequiredForFormat("html"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("htm"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("jpg"), false);
-  assert.strictEqual(kernel.bytesRequiredForFormat("xlsx"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("csv"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("tsv"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("epub"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("mp4"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("other"), false);
 }
@@ -3335,4 +3372,576 @@ def test_w64b_viewer_preserves_json_tree_pins() -> None:
         "Viewer.tsx must keep the legacy "
         "`Tree truncated — open raw` banner text "
         "(the W64A-JSON-001 truncation banner)."
+    )
+
+
+# ---------------------------------------------------------------------------
+# W64C-XLS-003 — XLS / XLSX viewer materialization via Next
+# `Script` + SheetJS. The W64C slice is the W6.4c React
+# mount counterpart of the W4b2 typed source descriptor:
+#
+#   - `bytesRequiredForFormat("xls")` + `bytesRequiredForFormat("xlsx")`
+#     flip from `false` to `true` so the existing bytes-fetch
+#     effect in Viewer.tsx reads XLS / XLSX bytes through the
+#     same seam the DOCX / TXT / MD / SVG / JSON effects already
+#     use (the matrix stays honest end-to-end — both XLS and
+#     XLSX share the same SheetJS path).
+#   - Viewer.tsx gains a Next `Script` loader for the
+#     legacy-pinned SheetJS CDN (`SHEETJS_CDN_URL` +
+#     `SHEETJS_GLOBAL_NAME`) using Next 16's
+#     `<Script src={d.scriptUrl} strategy="afterInteractive"
+#     onLoad={convert} onError={...}>` shape (see
+#     `node_modules/next/dist/docs/01-app/03-api-reference/02-
+#     components/script.md`).
+#   - On successful script load the mount calls
+#     `window[d.scriptGlobal].read(bytes, {type: "array"})`
+#     + `window[d.scriptGlobal].utils.sheet_to_html(activeSheet)`
+#     and injects the resulting HTML. SheetJS already emits a
+#     plain HTML table without `<script>` or event handlers per
+#     `design.md` §8, so the React mount's
+#     `dangerouslySetInnerHTML` injection is the same XSS-safe
+#     shape as the legacy `Range.createContextualFragment`
+#     call site.
+#   - When `wb.SheetNames.length > 1` the mount surfaces a
+#     `<select>` picker that switches the active sheet
+#     (matches the legacy `web/file_viewer.js::renderSheet`
+#     multi-sheet shape verbatim).
+#   - On `Script.onError` OR `read(...)` OR `sheet_to_html(...)`
+#     exception the mount transitions to a typed `cdn-failed`
+#     recovery state that's distinct from the `bytes-missing`
+#     offline path — the existing
+#     `reason: "bytes-missing" | "cdn-failed"` union on the
+#     `sheet-offline` variant (extended by W64B-DOCX-002 on
+#     `renderers.ts`) lets the surface stay typed across
+#     both failure paths.
+#
+# The W64C surface preserves all existing pins:
+#   - JSON Tree viewer (W64A-JSON-001) — untouched.
+#   - DOCX mount (W64B-DOCX-002) — untouched.
+#   - EPUB / CSV / TSV source variants — they stay in the
+#     W6.1 cdn-pending catch-all (the W64C slice is
+#     XLS / XLSX-only materialization; EPUB / CSV / TSV land
+#     as separately authorized later slices).
+#   - The pre-W64B `sheet-offline` (bytes-missing) dispatch
+#     stays in the cdn-pending catch-all so the existing
+#     W6.1 download-link affordance is preserved verbatim.
+#   - `aria-expanded` / `role="button"` / `tabIndex={0}` /
+#     Enter/Space on the JSON Tree disclosure row — untouched.
+#   - `bytesRequiredForFormat` for non-XLS / XLSX formats —
+#     the matrix flips ONLY for `xls` + `xlsx`.
+# ---------------------------------------------------------------------------
+
+
+# W64C-XLS-003 — kernel contract: bytes are now required
+# for XLS + XLSX so the existing bytes-fetch effect in
+# Viewer.tsx reads them through the same seam DOCX / TXT /
+# MD / SVG / JSON already use. Mirrors the W64B-DOCX-002
+# DOCX flip — the matrix stays honest end-to-end.
+def test_w64c_kernel_bytes_required_for_format_xls_is_true(
+    compiled_w6_1_kernel: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    """W64C-XLS-003 — under Node (ES2022 only, no DOM,
+    no React), the compiled framework-free kernel's
+    `bytesRequiredForFormat("xls")` returns `true` (the
+    W64C flip from the W6.1 `false` default). The flip
+    keeps the bytes-required matrix honest end-to-end:
+    XLS is a CDN-backed source descriptor that requires
+    bytes the same way TXT / MD / SVG / JSON / DOCX do, so
+    the existing Viewer.tsx bytes-fetch effect reads the
+    XLS bytes through the same seam. XLS / XLSX share the
+    same SheetJS path — both literals flip together."""
+    _compiled_kernel, _compiled_renderers = compiled_w6_1_kernel
+    harness = tmp_path / "harness-w64c.cjs"
+    harness.write_text(_W64C_RUNTIME_HARNESS)
+    result = subprocess.run(
+        ["node", str(harness), str(_compiled_kernel)],
+        cwd=REPO_ROOT,
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, (
+        f"W64C runtime harness failed.\nstdout: {result.stdout}\n"
+        f"stderr: {result.stderr}"
+    )
+    assert result.stdout.strip() == "PASS", (
+        f"unexpected W64C harness output: {result.stdout!r}"
+    )
+
+
+_W64C_RUNTIME_HARNESS = r"""
+// W64C-XLS-003 — focused harness asserting the
+// bytesRequiredForFormat flip for XLS / XLSX + the matrix
+// stays honest end-to-end. CJS does not support top-level
+// await, so the assertions run inside sync blocks.
+const path = require("path");
+const assert = require("assert");
+const kernel = require(path.resolve(process.argv[2]));
+
+// 1. bytesRequiredForFormat — W64C-XLS-003 flips the XLS
+//    + XLSX literals from `false` to `true` so the
+//    bytes-fetch effect in Viewer.tsx reads XLS / XLSX
+//    bytes through the same seam TXT / MD / SVG / JSON /
+//    DOCX already use. Both XLS and XLSX share the same
+//    SheetJS path; the format field is carried verbatim
+//    through the dispatch.
+{
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("xls"), true,
+    "W64C-XLS-003: bytesRequiredForFormat('xls') must "
+    + "return true so the bytes-fetch effect in Viewer.tsx "
+    + "reads XLS bytes through the same seam the DOCX / "
+    + "TXT / MD / SVG / JSON effects already use",
+  );
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("xlsx"), true,
+    "W64C-XLS-003: bytesRequiredForFormat('xlsx') must "
+    + "return true so the bytes-fetch effect in Viewer.tsx "
+    + "reads XLSX bytes through the same seam the XLS / "
+    + "DOCX / TXT / MD / SVG / JSON effects already use",
+  );
+  // The matrix stays honest end-to-end — every other
+  // literal is unchanged from the W6.1 + W64A + W64B
+  // contract.
+  assert.strictEqual(kernel.bytesRequiredForFormat("txt"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("md"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("svg"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("json"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("docx"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("pdf"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("html"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("htm"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("jpg"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("csv"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("tsv"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("epub"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("mp4"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("other"), false);
+}
+
+process.stdout.write("PASS\n");
+"""
+
+
+# W64C-XLS-003 — viewer source-level checks. The
+# Viewer.tsx React mount materializes the typed XLS /
+# XLSX source descriptor via Next 16's `<Script>` component
+# + a typed `cdn-failed` recovery state on
+# `Script.onError` + `SheetJS.read` / `utils.sheet_to_html`
+# exception. The checks below pin the source-level shape
+# so a future PR that silently drops the loader trips a
+# focused test before review.
+def test_w64c_viewer_sheet_source_uses_script_loader() -> None:
+    """W64C-XLS-003 — Viewer.tsx MUST have an EXPLICIT
+    `case "sheet-source":` branch in `renderDispatch`
+    that's NOT routed through the W6.1 cdn-pending
+    catch-all (the XLS / XLSX variant now materializes
+    via the Next `Script` loader + `SheetJS.read(...)` +
+    `utils.sheet_to_html(...)`, not the download-link
+    card). The W64C contract places the `<Script>` JSX +
+    the `onLoad` / `onError` handlers inside a dedicated
+    `SheetRender` sub-component that's mounted from the
+    `case "sheet-source":` branch (the sub-component owns
+    its own `loading` / `loaded` / `error` state — see the
+    W64B-DOCX-002 typed `cdn-failed` recovery pattern that
+    W64C mirrors). The case branch hands off to
+    `SheetRender` so the typed `ViewerDispatch` switch
+    stays exhaustive; the `<Script>` surface is verified
+    by extracting the entire `SheetRender` block (NOT
+    just the case-branch body)."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    assert re.search(r'case\s+"sheet-source"\s*:', text), (
+        "Viewer.tsx MUST have an explicit `case "
+        "\"sheet-source\":` branch in `renderDispatch` so "
+        "the typed XLS / XLSX source descriptor "
+        "materializes via the Next `Script` loader + "
+        "`SheetJS.read(...)` + `utils.sheet_to_html(...)` "
+        "(NOT the W6.1 cdn-pending catch-all — "
+        "W64C-XLS-003 contract)."
+    )
+    # The case branch hands off to a SheetRender component.
+    # Pin the handoff shape so the W64C separation between
+    # the typed dispatch surface + the React lifecycle stays
+    # honest.
+    case_branch_match = re.search(
+        r'case\s+"sheet-source"\s*:(.*?)(?=case\s+"|\}\s*\n\s*\})',
+        text, re.DOTALL,
+    )
+    assert case_branch_match, (
+        "Viewer.tsx must have an extractable sheet-source "
+        "branch body in renderDispatch."
+    )
+    case_branch = case_branch_match.group(1)
+    assert "SheetRender" in case_branch, (
+        "Viewer.tsx's `case \"sheet-source\":` branch MUST "
+        "hand off to the dedicated `SheetRender` sub-"
+        "component (W64C-XLS-003 separation — the typed "
+        "switch stays exhaustive; the `<Script>` + state "
+        "lifecycle live in `SheetRender`)."
+    )
+    # The SheetRender component MUST render a `<Script>` JSX
+    # element with `src`, `onLoad`, and `onError` props.
+    # Extract the SheetRender function body so the assertion
+    # looks at the loader surface (not the case branch
+    # hand-off, which only routes to the sub-component).
+    sheet_fn_match = re.search(
+        r'function\s+SheetRender\b[\s\S]*?\n\}\n',
+        text,
+    )
+    assert sheet_fn_match, (
+        "Viewer.tsx must define a `function SheetRender(...)` "
+        "sub-component for the W64C-XLS-003 materialization "
+        "(the dedicated lifecycle lives there)."
+    )
+    sheet_fn = sheet_fn_match.group(0)
+    assert re.search(r'<Script\b', sheet_fn), (
+        "Viewer.tsx's SheetRender sub-component MUST render "
+        "a `<Script>` JSX element from the `next/script` "
+        "default import (W64C-XLS-003 contract — the "
+        "XLS / XLSX materialization owns the Next 16 "
+        "`<Script src onLoad onError>` loader)."
+    )
+    assert re.search(r'\bonLoad=', sheet_fn) or re.search(
+        r'\bonLoad =', sheet_fn,
+    ), (
+        "Viewer.tsx's SheetRender sub-component MUST wire the "
+        "`<Script>` `onLoad` handler to call "
+        "`window[dispatch.scriptGlobal].read(...)` + "
+        "`utils.sheet_to_html(...)`."
+    )
+    assert re.search(r'\bonError=', sheet_fn) or re.search(
+        r'\bonError =', sheet_fn,
+    ), (
+        "Viewer.tsx's SheetRender sub-component MUST wire "
+        "the `<Script>` `onError` handler so the script-"
+        "load failure surfaces through the typed "
+        "`cdn-failed` recovery state."
+    )
+
+
+def test_w64c_viewer_sheet_source_calls_sheetjs_read_with_array_type() -> None:
+    """W64C-XLS-003 — the SheetRender onLoad handler MUST
+    call `window[dispatch.scriptGlobal].read(bytes, {type:
+    "array"})` so the SheetJS workbook is parsed as an
+    ArrayBuffer of bytes (matches the legacy
+    `web/file_viewer.js::renderSheet` shape verbatim: the
+    legacy calls `XLSX.read(data, { type: "array" })`
+    after `await res.arrayBuffer()`). A future PR that
+    bumps the CDN pin lands in lock-step across the
+    dispatcher constant + the loader site (the call MUST
+    reach the pinned global through
+    `window[dispatch.scriptGlobal]` — NOT a hardcoded
+    `"XLSX"` literal)."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    assert re.search(r"\.read\s*\(", text), (
+        "Viewer.tsx must reference `.read(...)` so the "
+        "W64C-XLS-003 onLoad handler routes the XLS / XLSX "
+        "bytes through SheetJS's workbook parser."
+    )
+    assert re.search(
+        r"type\s*:\s*[\"']array[\"']", text,
+    ), (
+        "Viewer.tsx must pass `{type: \"array\"}` to "
+        "`SheetJS.read(...)` — mirrors the legacy "
+        "`web/file_viewer.js::renderSheet` "
+        "`XLSX.read(data, { type: \"array\" })` shape "
+        "verbatim."
+    )
+    assert re.search(
+        r"window\s*\[\s*\w+\.scriptGlobal\s*\]"
+        r"|window\s*\[\s*\w+\s*\]\.read",
+        text,
+    ), (
+        "Viewer.tsx must reach the pinned SheetJS global "
+        "through `window[dispatch.scriptGlobal].read(...)` "
+        "— NOT a hardcoded `\"XLSX\"` literal — so a future "
+        "PR that bumps the CDN pin lands in lock-step across "
+        "the dispatcher constant + the loader site."
+    )
+
+
+def test_w64c_viewer_sheet_source_calls_sheet_to_html() -> None:
+    """W64C-XLS-003 — the SheetRender onLoad handler MUST
+    call `window[dispatch.scriptGlobal].utils.sheet_to_html(activeSheet)`
+    so the active sheet emits an HTML table (matches the
+    legacy `web/file_viewer.js::renderSheet`
+    `window.XLSX.utils.sheet_to_html(sheet)` shape verbatim).
+    SheetJS already emits a plain `<table>` markup without
+    `<script>` or event handlers per `design.md` §8, so the
+    React mount's `dangerouslySetInnerHTML` injection is the
+    same XSS-safe shape as the legacy
+    `Range.createContextualFragment` call site. The
+    `utils.sheet_to_html` reference must reach the pinned
+    global through `dispatch.scriptGlobal` (NOT a hardcoded
+    `"XLSX"` literal)."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    assert re.search(r"sheet_to_html\s*\(", text), (
+        "Viewer.tsx must reference `sheet_to_html(...)` so "
+        "the W64C-XLS-003 onLoad handler routes the active "
+        "sheet through SheetJS's HTML-table emitter."
+    )
+    assert re.search(
+        r"utils\s*\.\s*sheet_to_html|\.utils\b.*\bsheet_to_html",
+        text,
+    ), (
+        "Viewer.tsx must call "
+        "`window[dispatch.scriptGlobal].utils.sheet_to_html(...)` "
+        "— the `utils` namespace is required because "
+        "SheetJS exposes `sheet_to_html` under the pinned "
+        "global's `utils` namespace (matches the legacy "
+        "`window.XLSX.utils.sheet_to_html(sheet)` shape "
+        "verbatim)."
+    )
+
+
+def test_w64c_viewer_sheet_source_renders_picker_for_multi_sheet() -> None:
+    """W64C-XLS-003 — when `wb.SheetNames.length > 1` the
+    mount MUST surface a `<select>` picker that switches
+    the active sheet (matches the legacy
+    `web/file_viewer.js::renderSheet` multi-sheet shape
+    verbatim: the legacy builds a `<select>` with one
+    `<option>` per sheet name + wires `change` to
+    `renderSheetHtml(select.value)`). A single-sheet
+    workbook skips the picker. The test pins both:
+    (a) the typed `<select>` JSX element exists in the
+    SheetRender function body, AND (b) the picker is
+    conditionally rendered when the sheet count exceeds
+    `1` (the legacy's `sheetNames.length > 1` guard)."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    sheet_fn_match = re.search(
+        r'function\s+SheetRender\b[\s\S]*?\n\}\n',
+        text,
+    )
+    assert sheet_fn_match, (
+        "Viewer.tsx must define a `function SheetRender(...)` "
+        "sub-component for the W64C-XLS-003 materialization "
+        "(the dedicated lifecycle lives there)."
+    )
+    sheet_fn = sheet_fn_match.group(0)
+    assert re.search(r"<select\b", sheet_fn), (
+        "Viewer.tsx's SheetRender sub-component MUST render "
+        "a `<select>` JSX element so a multi-sheet workbook "
+        "surfaces a picker that switches the active sheet "
+        "(W64C-XLS-003 contract — mirrors the legacy "
+        "`web/file_viewer.js::renderSheet` "
+        "`el(\"select\", { ... })` shape verbatim)."
+    )
+    # The picker must be conditional on a length > 1
+    # comparison — a single-sheet workbook skips it. The
+    # legacy uses `sheetNames.length > 1` so the React
+    # equivalent uses a JSX `{Array.isArray(sheetNames) &&
+    # sheetNames.length > 1 ? <select>...</select> : null}`
+    # shape or a typed `useState<number>` + conditional
+    # render.
+    assert re.search(r"\.length\s*>\s*1|length\s*>\s*1", sheet_fn), (
+        "Viewer.tsx's SheetRender sub-component MUST guard "
+        "the picker render on `sheetNames.length > 1` "
+        "(W64C-XLS-003 contract — mirrors the legacy "
+        "`web/file_viewer.js::renderSheet` "
+        "`sheetNames.length > 1` shape verbatim; a single-"
+        "sheet workbook skips the picker)."
+    )
+    # The picker must populate `<option>` children from
+    # the typed `SheetNames` array so the user can pick
+    # any sheet by name.
+    assert re.search(r"<option\b", sheet_fn), (
+        "Viewer.tsx's SheetRender sub-component MUST render "
+        "an `<option>` JSX element inside the picker so the "
+        "user can select any sheet name from the workbook "
+        "(W64C-XLS-003 contract — mirrors the legacy "
+        "`web/file_viewer.js::renderSheet` "
+        "`select.append(opt)` shape verbatim)."
+    )
+
+
+def test_w64c_viewer_sheet_source_emits_cdn_failed_recovery_state() -> None:
+    """W64C-XLS-003 — the XLS / XLSX materialization MUST
+    emit a typed `cdn-failed` recovery state when EITHER
+    `Script.onError` fires (the CDN script fails to load)
+    OR `SheetJS.read(...)` / `utils.sheet_to_html(...)`
+    throws. The recovery state is distinct from the
+    `bytes-missing` offline path the dispatcher emits at
+    dispatch time. The mount synthesizes a `sheet-offline`
+    dispatch with `reason: "cdn-failed"` and routes through
+    `renderOfflineCard` so the existing download affordance
+    stays in place while the typed `reason` literal is
+    first-class."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    assert '"cdn-failed"' in text, (
+        "Viewer.tsx must carry the literal `\"cdn-failed\"` "
+        "so the typed recovery state surfaces a distinct "
+        "value from the bytes-missing offline path "
+        "(W64C-XLS-003 contract — Script.onError + "
+        "SheetJS.read / utils.sheet_to_html exception "
+        "routes through the mount's typed recovery state "
+        "whose `reason` literal is `\"cdn-failed\"`)."
+    )
+    # The recovery state must synthesize a sheet-offline
+    # dispatch — the W64B-DOCX-002 typed union
+    # `reason: "bytes-missing" | "cdn-failed"` on the
+    # `sheet-offline` variant (extended by W64B on
+    # `renderers.ts`) is the common contract.
+    sheet_fn_match = re.search(
+        r'function\s+SheetRender\b[\s\S]*?\n\}\n',
+        text,
+    )
+    assert sheet_fn_match, (
+        "Viewer.tsx must define a `function SheetRender(...)` "
+        "sub-component for the W64C-XLS-003 materialization."
+    )
+    sheet_fn = sheet_fn_match.group(0)
+    assert '"sheet-offline"' in sheet_fn or 'sheet-offline' in sheet_fn, (
+        "Viewer.tsx's SheetRender sub-component MUST "
+        "synthesize a `sheet-offline` dispatch with "
+        "`reason: \"cdn-failed\"` so the existing "
+        "`renderOfflineCard` paints the download affordance "
+        "with a typed `reason` literal distinct from the "
+        "`bytes-missing` path the dispatcher emits."
+    )
+
+
+def test_w64c_viewer_preserves_json_docx_sheet_offline_pins() -> None:
+    """W64C-XLS-003 — the XLS / XLSX materialization adds
+    a new `case \"sheet-source\":` branch but MUST NOT
+    silently drop or rewrite the W6.4a pins:
+
+      1. The W64A-JSON-001 JSON Tree pins (`case
+         \"json-source\":` branch + the `[root]` literal +
+         the `Tree truncated — open raw` banner text).
+      2. The W64B-DOCX-002 DOCX mount pins (the
+         `case \"docx-source\":` branch + the `DocxRender`
+         sub-component + the `convertToHtml` call +
+         `arrayBuffer` wrapper).
+      3. The pre-W64B `sheet-offline` (bytes-missing)
+         dispatch stays in the W6.1 cdn-pending catch-all
+         — the W64C slice only extracts `sheet-source`
+         from the catch-all; `sheet-offline` keeps the
+         existing W6.1 download-link affordance.
+      4. The other CDN-backed source variants
+         (`epub-source`, `table-source`) stay in the W6.1
+         cdn-pending catch-all — W64C is XLS / XLSX-only
+         materialization; EPUB / CSV / TSV land as
+         separately authorized later slices.
+
+    A future PR that adds the XLS / XLSX materialization
+    while accidentally dropping a JSON / DOCX / sheet-
+    offline pin breaks multiple contracts at review.
+    """
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+
+    # 1. W64A-JSON-001 pins.
+    assert re.search(r'case\s+"json-source"\s*:', text), (
+        "Viewer.tsx MUST keep its W64A-JSON-001 "
+        "`case \"json-source\":` branch — W64C must NOT "
+        "silently drop the JSON Tree viewer while adding "
+        "the XLS / XLSX materialization."
+    )
+    assert '"[root]"' in text, (
+        "Viewer.tsx must keep the legacy `[root]` literal "
+        "(the W64A-JSON-001 synthetic root key)."
+    )
+    assert "Tree truncated — open raw" in text, (
+        "Viewer.tsx must keep the legacy "
+        "`Tree truncated — open raw` banner text "
+        "(the W64A-JSON-001 truncation banner)."
+    )
+
+    # 2. W64B-DOCX-002 pins.
+    assert re.search(r'case\s+"docx-source"\s*:', text), (
+        "Viewer.tsx MUST keep its W64B-DOCX-002 "
+        "`case \"docx-source\":` branch — W64C must NOT "
+        "silently drop the DOCX mount while adding the "
+        "XLS / XLSX materialization."
+    )
+    assert "DocxRender" in text, (
+        "Viewer.tsx must keep its W64B-DOCX-002 "
+        "`DocxRender` sub-component — W64C mirrors the "
+        "W64B separation between the typed dispatch surface "
+        "+ the React lifecycle; both sub-components stay "
+        "alive in lock-step."
+    )
+    assert "convertToHtml" in text, (
+        "Viewer.tsx must keep the W64B-DOCX-002 "
+        "`convertToHtml(...)` reference so the DOCX "
+        "materialization stays intact."
+    )
+    assert "arrayBuffer" in text, (
+        "Viewer.tsx must keep the W64B-DOCX-002 "
+        "`arrayBuffer` wrapper so the DOCX bytes are "
+        "passed to mammoth through the typed "
+        "`{arrayBuffer: bytes.buffer}` shape."
+    )
+
+    # 3. The pre-W64B sheet-offline (bytes-missing) dispatch
+    #    stays in the W6.1 cdn-pending catch-all. The test
+    #    asserts `sheet-offline` is still listed in the
+    #    catch-all alongside `docx-offline` + `epub-*` +
+    #    `table-*` + `json-offline`.
+    cdn_pending_catch_all_match = re.search(
+        r'(case\s+"docx-offline"\s*:[\s\S]*?)return\s+renderOfflineCard',
+        text,
+    )
+    assert cdn_pending_catch_all_match, (
+        "Viewer.tsx must keep its W6.1 cdn-pending catch-"
+        "all `return renderOfflineCard(...)` branch so the "
+        "`*-offline` variants (docx-offline / sheet-offline "
+        "/ epub-offline / table-offline / json-offline) "
+        "all funnel through the existing download-link "
+        "recovery card. W64C extracts `sheet-source` from "
+        "this catch-all but leaves `sheet-offline` in place."
+    )
+    catch_all_body = cdn_pending_catch_all_match.group(1)
+    for offline_literal in (
+        "docx-offline",
+        "sheet-offline",
+        "epub-offline",
+        "table-offline",
+        "json-offline",
+    ):
+        assert f'"{offline_literal}"' in catch_all_body, (
+            f"Viewer.tsx's cdn-pending catch-all MUST still "
+            f"list `{offline_literal}` so the pre-W64B bytes-"
+            f"missing offline path is preserved verbatim "
+            f"(W64C-XLS-003 acceptance: 'the pre-W64B "
+            f"sheet-offline dispatch (bytes-missing) stays "
+            f"in the cdn-pending catch-all'). Got: "
+            f"{catch_all_body!r}"
+        )
+
+    # 4. The other CDN-backed source variants
+    #    (`epub-source`, `table-source`) stay in the W6.1
+    #    cdn-pending catch-all.
+    for source_literal in ("epub-source", "table-source"):
+        assert f'"{source_literal}"' in catch_all_body, (
+            f"Viewer.tsx's cdn-pending catch-all MUST still "
+            f"list `{source_literal}` so the W6.1 non-CDN "
+            f"surface stays in place for the EPUB / CSV / "
+            f"TSV deferred families. W64C only extracts "
+            f"`sheet-source` from the catch-all; EPUB / "
+            f"CSV / TSV materialization lands as "
+            f"separately authorized later slices."
+        )
+
+    # 5. `sheet-source` MUST NOT appear in the cdn-pending
+    #    catch-all anymore — the W64C slice extracts it so
+    #    the typed source descriptor routes through
+    #    `SheetRender` instead.
+    assert '"sheet-source"' not in catch_all_body, (
+        "Viewer.tsx's cdn-pending catch-all MUST NOT list "
+        "`sheet-source` anymore — W64C-XLS-003 extracts "
+        "the XLS / XLSX source descriptor from the catch-"
+        "all so the typed source routes through the "
+        "`SheetRender` sub-component (NOT the W6.1 "
+        "download-link affordance)."
     )

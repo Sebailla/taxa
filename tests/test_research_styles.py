@@ -83,6 +83,15 @@ FEX_EXPLORER_BASES: tuple[str, ...] = (
     ".fex-search-input", ".fex-search-mode-btn",
     ".fex-search-row", ".fex-search-toggles",
     ".fex-shell",
+    # W64C-XLS-003 — XLS / XLSX SheetJS viewer cascade.
+    # Picker wrapper + label + select-styled button + table
+    # host. The cascade mirrors the legacy
+    # `web/file_viewer.js::renderSheet` shape verbatim
+    # (the picker reuses the existing `.fex-snippet-btn`
+    # for its visual affordance; the dedicated
+    # `.fex-sheet-*` wrappers carry the layout + spacing).
+    ".fex-sheet-picker", ".fex-sheet-picker-label",
+    ".fex-sheet-table-host", ".fex-sheet-host",
     ".fex-snippet-actions", ".fex-snippet-body",
     ".fex-snippet-btn", ".fex-snippet-dots",
     ".fex-snippet-frame", ".fex-snippet-title",
@@ -246,6 +255,61 @@ def test_layer_base_does_not_own_w6_3_splitter_selectors(selector):
     assert not re.search(r"(?:^|[\s,{}>+~])" + re.escape(selector) + r"(?=[\s,{:>+~]|$)", body), (
         f"{selector} MUST NOT live under @layer base; the splitter "
         f"cascade is a @layer components surface."
+    )
+
+
+# W64C-XLS-003 — XLS / XLSX SheetJS viewer cascade. The
+# W64C slice extends the W6.4b cascade with the XLS / XLSX
+# multi-sheet picker + table host selectors. Mirrors the
+# legacy `web/file_viewer.js::renderSheet` shape verbatim:
+# the picker is rendered conditionally on `SheetNames.length
+# > 1` and reuses the existing `.fex-snippet-btn` styling
+# for the `<select>` element. The dedicated `.fex-sheet-*`
+# wrappers carry the layout + spacing. Every W64C selector
+# lives under `@layer components` (the W6.4b React-mount
+# surface contract) and is whitelisted in
+# `FEX_EXPLORER_BASES` so the chain-topology guard stays
+# green.
+W64C_SHEET_SELECTORS: tuple[str, ...] = (
+    ".fex-sheet-host",
+    ".fex-sheet-picker",
+    ".fex-sheet-picker-label",
+    ".fex-sheet-table-host",
+)
+
+
+@pytest.mark.parametrize("selector", W64C_SHEET_SELECTORS)
+def test_layer_components_declares_every_w64c_sheet_selector(selector):
+    """W64C-XLS-003 — every XLS / XLSX SheetJS viewer
+    selector MUST resolve to a non-empty block under
+    `@layer components`. Catches a future PR that drops the
+    sheet cascade (the picker / table host would silently
+    lose its layout) or moves it under `@layer base` (the
+    Tailwind 4 utility surface could override the sheet
+    affordance at runtime). The same guard pattern as the
+    W6.3 splitter cascade."""
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare @layer components { ... }"
+    assert _rule(body, selector).strip(), (
+        f"@layer components must declare {selector} with a non-empty block"
+    )
+
+
+@pytest.mark.parametrize("selector", W64C_SHEET_SELECTORS)
+def test_layer_base_does_not_own_w64c_sheet_selectors(selector):
+    """W64C-XLS-003 — XLS / XLSX SheetJS viewer selectors
+    MUST live under `@layer components`, NOT `@layer base`.
+    The sheet cascade is a React-mount surface (PR 3c-c
+    contract); Tailwind 4 utilities (PR 3c-e) must still be
+    able to override via `@layer components`. The same
+    guard pattern as the W6.3 splitter selectors."""
+    body = _block(_read(GLOBALS_CSS), "@layer base")
+    if not body:
+        return
+    assert not re.search(r"(?:^|[\s,{}>+~])" + re.escape(selector) + r"(?=[\s,{:>+~]|$)", body), (
+        f"{selector} MUST NOT live under @layer base; the "
+        f"XLS / XLSX sheet cascade is a @layer components "
+        f"surface."
     )
 
 

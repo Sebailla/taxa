@@ -166,19 +166,26 @@ export function createInitialViewerState(): ViewerState {
  *  W4b1 `docx-source` outcome carries the bytes by reference —
  *  the mount reads them at mount time, so the existing
  *  bytes-fetch effect reads DOCX bytes through the same seam
- *  TXT / MD / SVG / JSON already use). Every other family
- *  (PDF / HTML / image / video / sheetjs / epubjs / papa /
- *  unknown) passes the URL straight through to the renderer
- *  without reading bytes — SheetJS / epubjs / Papa are NOT
- *  yet wired in the W6.4b mount (their CDN loader contracts
- *  land as separately authorized later slices). JSON is
- *  special: it is the W64A contract's native tree viewer, so
- *  the bytes-fetch effect reads JSON bytes through the same
- *  seam the TXT / MD / SVG effects already use — no CDN
- *  loader, no `<Script>` surface. The contract below covers
- *  the W4a + W64a + W64b families; a future mount that wires
- *  the CDN libraries for XLS / EPUB / CSV / TSV would extend
- *  the typed predicate here. */
+ *  TXT / MD / SVG / JSON already use). XLS + XLSX need the
+ *  bytes to feed Next 16's `<Script>` loader +
+ *  `window[SHEETJS_GLOBAL_NAME].read(bytes, {type: "array"})` +
+ *  `utils.sheet_to_html(activeSheet)` per the W64C-XLS-003
+ *  typed source descriptor contract (the W4b2 `sheet-source`
+ *  outcome carries the bytes by reference — both XLS and XLSX
+ *  share the same SheetJS path so the mount reads them through
+ *  the same seam TXT / MD / SVG / JSON / DOCX already use).
+ *  Every other family (PDF / HTML / image / video / EPUB /
+ *  Papa / unknown) passes the URL straight through to the
+ *  renderer without reading bytes — epubjs / Papa are NOT yet
+ *  wired in the W6.4b mount (their CDN loader contracts land
+ *  as separately authorized later slices). JSON is special: it
+ *  is the W64A contract's native tree viewer, so the bytes-
+ *  fetch effect reads JSON bytes through the same seam the TXT
+ *  / MD / SVG effects already use — no CDN loader, no
+ *  `<Script>` surface. The contract below covers the W4a +
+ *  W64a + W64b + W64c families; a future mount that wires the
+ *  CDN libraries for EPUB / CSV / TSV would extend the typed
+ *  predicate here. */
 export function bytesRequiredForFormat(format: FileFormat): boolean {
   switch (format) {
     case "txt":
@@ -186,14 +193,14 @@ export function bytesRequiredForFormat(format: FileFormat): boolean {
     case "svg":
     case "json":
     case "docx":
+    case "xls":
+    case "xlsx":
       return true;
     case "pdf":
     case "epub":
     case "html":
     case "htm":
     case "doc":
-    case "xls":
-    case "xlsx":
     case "csv":
     case "tsv":
     case "jpg":
