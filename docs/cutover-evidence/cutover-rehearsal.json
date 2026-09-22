@@ -28,12 +28,12 @@
     "search-urls-test-ac21-contract-004",
     "search-urls-test-search-categories-005"
   ],
-  "manifest_path": "out/cutover/cutover-manifest.json",
-  "manifest_sha256": "3d228ebe5a98081ace5cf088858c0e7fe2b560c77815e5d68e5a01fb375e0c5d",
+  "manifest_path": "docs/cutover-evidence/cutover-manifest.json",
+  "manifest_sha256": "f2806cde55547715349783afec0aad667025aea57ed98971617009a08df6b226",
   "mode": "dry-run",
-  "out_dir": "out/cutover",
+  "out_dir": "docs/cutover-evidence",
   "rollback_executed": false,
-  "validated_at": "2026-09-22T16:49:21.239786+00:00",
+  "validated_at": "2026-09-22T18:15:11.629069+00:00",
   "validation_errors": [],
   "verification_executed": false
 }

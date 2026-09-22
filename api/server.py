@@ -51,7 +51,16 @@ from pydantic import BaseModel
 from etl.migrations import CURRENT_SCHEMA_VERSION, get_applied_version  # pyright: ignore
 
 DB_PATH = Path(__file__).parent.parent / "data" / "db" / "taxa.db"
-WEB_DIR = Path(__file__).parent.parent / "web"
+# ODD-MIGRATE-006 (atomic cutover, commit b): FastAPI now serves the
+# Next.js / React static export at `out/` as the primary frontend.
+# `WEB_DIR` is renamed-by-intent (the name stays stable for the public
+# API) so every existing reader keeps working unchanged.
+WEB_DIR = Path(__file__).parent.parent / "out"
+# Gated legacy fallback for the rare case when `out/` is missing on a
+# fresh clone (before `pnpm install --frozen-lockfile && pnpm build`
+# has been run). The bottom-of-file mount block consults this constant
+# only when `WEB_DIR` does not exist.
+WEB_LEGACY_DIR = Path(__file__).parent.parent / "web"
 # Where the materialize endpoint creates folder structures. Configurable via
 # env var so tests can monkeypatch to a tmp dir without touching the real
 # research folder. Resolved to absolute so the response's `absolute_path`
@@ -322,7 +331,9 @@ app.add_middleware(
 @app.get("/", include_in_schema=False)
 def root():
     """Deprecated — the StaticFiles mount at the bottom of this file serves
-    the frontend now. Kept as a fallback when the web/ dir is empty."""
+    the Next.js / React static export at `out/` now. Kept as a fallback
+    when the `out/` dir is empty (rare; only happens on a fresh clone
+    before `pnpm install --frozen-lockfile && pnpm build` has run)."""
     index = WEB_DIR / "index.html"
     if not index.exists():
         return RedirectResponse(url="/docs")
@@ -1808,11 +1819,16 @@ f"actual {size} bytes"
     )
 
 
-# Mount the web/ directory for static assets (app.js, etc.).
-# This is intentionally at the END of the file so /api/* routes take
-# precedence over static file serving.
+# Mount the frontend static directory. ODD-MIGRATE-006 (atomic cutover,
+# commit b): primary mount is the Next.js / React static export at `out/`
+# (named "out"); the legacy `web/` directory is mounted only as a
+# fallback when `out/` is missing on a fresh clone. This is intentionally
+# at the END of the file so /api/* routes take precedence over static
+# file serving.
 if WEB_DIR.exists():
-    app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
+    app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="out")
+elif WEB_LEGACY_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(WEB_LEGACY_DIR), html=True), name="web-legacy")
 
 
 if __name__ == "__main__":
