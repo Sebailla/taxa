@@ -566,14 +566,23 @@ export interface ViewerImageAdvisory {
  *        affordance after the offline banner renders.
  *      - `scriptGlobal` — window-global name
  *        (`MAMMOTH_GLOBAL_NAME`).
- *      - `reason`      — typed literal `"bytes-missing"`.
- *        The dispatcher can only detect the bytes-missing
- *        offline path at dispatch time (the dispatcher
- *        does not fetch the URL, load the CDN, or call
- *        `convertToHtml`). CDN-load failures and
- *        conversion failures are MOUNT responsibilities
- *        and surface as additional typed branches in a
- *        future iteration (W4b+ ADR).
+ *      - `reason`      — typed union
+ *        `"bytes-missing" | "cdn-failed"` (W64B-DOCX-002).
+ *        The dispatcher can only detect the
+ *        bytes-missing offline path at dispatch time
+ *        (the dispatcher does not fetch the URL, load the
+ *        CDN, or call `convertToHtml`) — so the
+ *        dispatcher emits the `"bytes-missing"` literal
+ *        at dispatch. The mount (W6.4b) detects the
+ *        `Script.onError` + `mammoth.convertToHtml`
+ *        exception paths and surfaces them as a
+ *        synthesized `docx-offline` dispatch with
+ *        `reason: "cdn-failed"` so the recovery state
+ *        stays typed and distinct from the bytes-missing
+ *        offline path. JSON keeps `"bytes-missing"` as
+ *        its only offline literal because it is the
+ *        native Tree viewer (no CDN, no `<Script>`
+ *        loader) — see the W4b4 contract.
  *    The `"docx-offline"` branch does NOT carry a free-form
  *    `message` string — the mount paints the offline
  *    wording verbatim from the typed descriptor (kind +
@@ -654,14 +663,14 @@ export interface ViewerImageAdvisory {
  *        affordance after the offline banner renders.
  *      - `scriptGlobal` — window-global name
  *        (`SHEETJS_GLOBAL_NAME`).
- *      - `reason`      — typed literal `"bytes-missing"`.
- *        The dispatcher can only detect the bytes-missing
- *        offline path at dispatch time (the dispatcher
- *        does not fetch the URL, load the CDN, or call
- *        `XLSX.read`). CDN-load failures and
- *        conversion failures are MOUNT responsibilities
- *        and surface as additional typed branches in a
- *        future iteration (W4b+ ADR).
+ *      - `reason`      — typed union
+ *        `"bytes-missing" | "cdn-failed"` (W64B-DOCX-002).
+ *        Same shape as `docx-offline.reason` — the
+ *        dispatcher emits `"bytes-missing"` at dispatch
+ *        time; the mount surfaces SheetJS load failures
+ *        through `"cdn-failed"` when the W6.4+
+ *        spreadsheet slice wires the Next `Script`
+ *        loader.
  *    The `"sheet-offline"` branch does NOT carry a free-
  *    form `message` string — mirrors the W4b1
  *    `docx-offline` shape (mount paints the offline
@@ -729,19 +738,14 @@ export interface ViewerImageAdvisory {
  *        affordance after the offline banner renders.
  *      - `scriptGlobal` — window-global name
  *        (`EPUBJS_GLOBAL_NAME`).
- *      - `reason`      — typed literal `"bytes-missing"`.
- *        The dispatcher can only detect the bytes-missing
- *        offline path at dispatch time (the dispatcher
- *        does not fetch the URL, load the CDN, or call
- *        `ePub(arrayBuffer)`). CDN-load failures and
- *        construction failures are MOUNT responsibilities
- *        and surface as additional typed branches in a
- *        future iteration (W4b+ ADR). epubjs renders fail
- *        silently if the bytes aren't a valid EPUB archive
- *        — the mount owns the validate-and-recover path
- *        (mirrors the legacy `renderEpub` catch branch
- *        that paints the offline banner when the
- *        `ePub(arrayBuffer)` call throws).
+ *      - `reason`      — typed union
+ *        `"bytes-missing" | "cdn-failed"` (W64B-DOCX-002).
+ *        Same shape as `docx-offline.reason` — the
+ *        dispatcher emits `"bytes-missing"` at dispatch
+ *        time; the mount surfaces epubjs load +
+ *        construction failures through `"cdn-failed"`
+ *        when the W6.4+ EPUB slice wires the Next
+ *        `Script` loader.
  *    The `"epub-offline"` branch does NOT carry a free-form
  *    `message` string — mirrors the W4b1 DOCX + W4b2 XLS /
  *    XLSX offline shapes (mount paints the offline wording
@@ -846,17 +850,14 @@ export interface ViewerImageAdvisory {
  *        affordance after the offline banner renders.
  *      - `scriptGlobal` — window-global name
  *        (`PAPA_GLOBAL_NAME`).
- *      - `reason`      — typed literal `"bytes-missing"`.
- *        The dispatcher can only detect the bytes-missing
- *        offline path at dispatch time (the dispatcher
- *        does not fetch the URL, load the CDN, or call
- *        `Papa.parse`). CDN-load failures and parse
- *        failures are MOUNT responsibilities and surface
- *        as additional typed branches in a future
- *        iteration (W4b+ ADR). Papa Parse's parse errors
- *        (`parsed.errors`) flow through the legacy
- *        `renderTable` as the offline banner too — the
- *        mount owns that recovery path.
+ *      - `reason`      — typed union
+ *        `"bytes-missing" | "cdn-failed"` (W64B-DOCX-002).
+ *        Same shape as `docx-offline.reason` — the
+ *        dispatcher emits `"bytes-missing"` at dispatch
+ *        time; the mount surfaces Papa Parse load +
+ *        parse failures through `"cdn-failed"` when the
+ *        W6.4+ CSV / TSV slice wires the Next `Script`
+ *        loader.
  *    The `"table-offline"` branch does NOT carry a free-
  *    form `message` string (mirrors the W4b1 + W4b2 +
  *    W4b3 offline shapes — mount paints the offline
@@ -923,14 +924,22 @@ export interface ViewerImageAdvisory {
  *        `download` is `ViewerFileDescriptor.name`.
  *        Mirrors the legacy offline banner's `<a href
  *        download>`.
- *      - `reason`      — typed literal `"bytes-missing"`.
- *        The dispatcher can only detect the bytes-missing
- *        offline path at dispatch time (the dispatcher
- *        does not fetch the URL, decode bytes, or call
- *        `JSON.parse`). CDN-load failures do not apply to
- *        JSON (no CDN); parse failures are MOUNT
- *        responsibilities and surface as additional typed
- *        branches in a future iteration (W4b+ ADR).
+ *      - `reason`      — typed literal
+ *        `"bytes-missing"` (W64B keeps the pre-W64B
+ *        literal — JSON is native + CDN-free; there is
+ *        no `cdn-failed` path to add). The dispatcher
+ *        can only detect the bytes-missing offline path
+ *        at dispatch time (the dispatcher does not
+ *        fetch the URL, decode bytes, or call
+ *        `JSON.parse`). `JSON.parse` failures are MOUNT
+ *        responsibilities — the legacy
+ *        `renderJsonTree` catch branch routes them
+ *        through the typed `json-offline` dispatch with
+ *        `reason: "bytes-missing"`, NOT through a
+ *        `cdn-failed` literal (JSON parsing is native;
+ *        a `JSON.parse` throw is a parse failure, not a
+ *        CDN failure). W64B preserves the pre-W64B
+ *        literal verbatim.
  *    The `"json-offline"` branch carries NO CDN metadata
  *    (no `scriptUrl`, no `scriptGlobal`) — JSON parsing
  *    is native; the offline branch mirrors the no-CDN
@@ -1018,7 +1027,18 @@ export type ViewerDispatch =
       readonly download: ViewerLink;
       readonly scriptUrl: string;
       readonly scriptGlobal: string;
-      readonly reason: "bytes-missing";
+      // W64B-DOCX-002 typed union — the dispatcher can
+      // only detect the bytes-missing path at dispatch
+      // time; the React mount (W6.4b) detects the
+      // `Script.onError` + `mammoth.convertToHtml`
+      // exception paths and surfaces them through the
+      // `cdn-failed` literal so the recovery state
+      // stays typed and distinct from the bytes-missing
+      // offline path. JSON stays native + CDN-free, so
+      // `json-offline.reason` keeps the pre-W64B
+      // `"bytes-missing"` literal (no `"cdn-failed"` —
+      // there is no CDN to fail).
+      readonly reason: "bytes-missing" | "cdn-failed";
     }
   | {
       readonly kind: "sheet-source";
@@ -1034,7 +1054,15 @@ export type ViewerDispatch =
       readonly download: ViewerLink;
       readonly scriptUrl: string;
       readonly scriptGlobal: string;
-      readonly reason: "bytes-missing";
+      // W64B-DOCX-002 typed union — same as
+      // `docx-offline.reason` (see comment there). SheetJS
+      // load failures + read/sheet_to_html failures
+      // surface through `"cdn-failed"` when the mount
+      // wires the CDN-backed source descriptor (a
+      // separately authorized later slice). The
+      // `"bytes-missing"` literal keeps the pre-W64B
+      // bytes-missing behavior byte-for-byte.
+      readonly reason: "bytes-missing" | "cdn-failed";
     }
   | {
       readonly kind: "epub-source";
@@ -1050,7 +1078,12 @@ export type ViewerDispatch =
       readonly download: ViewerLink;
       readonly scriptUrl: string;
       readonly scriptGlobal: string;
-      readonly reason: "bytes-missing";
+      // W64B-DOCX-002 typed union — same as
+      // `docx-offline.reason` (see comment there). epubjs
+      // load + construct failures surface through
+      // `"cdn-failed"` when the mount wires the CDN-backed
+      // source descriptor.
+      readonly reason: "bytes-missing" | "cdn-failed";
     }
   | {
       readonly kind: "table-source";
@@ -1067,7 +1100,12 @@ export type ViewerDispatch =
       readonly download: ViewerLink;
       readonly scriptUrl: string;
       readonly scriptGlobal: string;
-      readonly reason: "bytes-missing";
+      // W64B-DOCX-002 typed union — same as
+      // `docx-offline.reason` (see comment there). Papa
+      // Parse load + parse failures surface through
+      // `"cdn-failed"` when the mount wires the CDN-backed
+      // source descriptor.
+      readonly reason: "bytes-missing" | "cdn-failed";
     }
   | {
       readonly kind: "json-source";
