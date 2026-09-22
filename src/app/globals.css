@@ -1071,6 +1071,55 @@
     align-items: center;
     gap: 4px;
   }
+  /* W64C-XLS-003 — XLS / XLSX SheetJS viewer cascade. The
+     W64C React mount materializes both XLS and XLSX
+     workbooks through Next 16's <Script> loader + the
+     pinned SheetJS CDN pin (`SHEETJS_CDN_URL` +
+     `SHEETJS_GLOBAL_NAME`). The legacy
+     `web/file_viewer.js::renderSheet` shape is mirrored
+     byte-for-byte:
+       - the outer host is a vertical flex with a
+         picker gap so a multi-sheet workbook can
+         surface the sheet picker above the table;
+       - the picker wrapper lays out the label +
+         the <select> in a horizontal flex;
+       - the picker label reuses the same
+         text-body-sm + text-on-surface-variant
+         typography as the legacy
+         `el("label", { class: "text-body-sm text-on-surface-variant" }, "Sheet:")`
+         shape;
+       - the table host is an overflow-auto container
+         (mirrors the legacy
+         `el("div", { class: "overflow-auto" })` shape)
+         so wide sheets scroll horizontally without
+         breaking the two-pane layout. Every `.fex-sheet-*`
+         selector lives under `@layer components` so the
+         Tailwind 4 utility surface (PR 3c-e) can still
+         override at runtime. Note: `.fex-sheet-*` sits
+     BEFORE `.fex-shell` in the alphabetic chain
+     (position 8: `.fex-sheet-*` is `e` (0x65) <
+     `.fex-shell` is `l` (0x6C)). */
+  .fex-sheet-host {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+  }
+  .fex-sheet-picker {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .fex-sheet-picker-label {
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--on-surface-variant);
+  }
+  .fex-sheet-table-host {
+    overflow: auto;
+    width: 100%;
+  }
   /* Two-pane layout — left tree + right viewer. Mirrors
      the legacy `web/index.html::.fex-shell` rule. */
   .fex-shell {

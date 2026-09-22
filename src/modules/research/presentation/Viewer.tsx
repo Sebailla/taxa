@@ -329,8 +329,33 @@ function renderDispatch(
       // — this branch is a typed hand-off so the
       // renderDispatch switch stays exhaustive.
       return <DocxRender dispatch={dispatch} />;
-    case "docx-offline":
     case "sheet-source":
+      // W64C-XLS-003 — XLS / XLSX materialization via
+      // Next 16's `<Script>` loader + the pinned
+      // SheetJS CDN pin (`SHEETJS_CDN_URL` +
+      // `SHEETJS_GLOBAL_NAME`). The `case
+      // "sheet-source":` branch is intentionally
+      // OUT of the W6.1 cdn-pending catch-all (the
+      // XLS / XLSX materialization owns a typed
+      // `cdn-failed` recovery state distinct from the
+      // `bytes-missing` offline path the dispatcher
+      // emits at dispatch time — the W64B typed union
+      // `reason: "bytes-missing" | "cdn-failed"` on
+      // the `sheet-offline` variant lets the mount
+      // surface both paths through the same
+      // `renderOfflineCard` shape while keeping the
+      // typed recovery literal distinct). Both XLS
+      // and XLSX share the same SheetJS path; the
+      // dispatch carries `format` verbatim
+      // (`xls` or `xlsx`) so the mount can branch on
+      // the format for any future format-specific
+      // affordance without re-fetching bytes. The
+      // actual mount rendering lives in
+      // `SheetRender` below — this branch is a typed
+      // hand-off so the renderDispatch switch stays
+      // exhaustive.
+      return <SheetRender dispatch={dispatch} />;
+    case "docx-offline":
     case "sheet-offline":
     case "epub-source":
     case "epub-offline":
@@ -338,21 +363,23 @@ function renderDispatch(
     case "table-offline":
     case "json-offline":
       // W6.1 non-CDN mount — the CDN-backed source variants
-      // (Spreadsheet / EPUB / CSV / TSV) are intentionally
-      // not wired here (those mounts land as separately
-      // authorized later slices; the W64B typed union
+      // (EPUB / CSV / TSV) are intentionally not wired
+      // here (those mounts land as separately authorized
+      // later slices; the W64B typed union
       // `reason: "bytes-missing" | "cdn-failed"` is the
       // common contract they'll surface through). The
       // `docx-offline` branch (the W6.1 bytes-missing
-      // offline path for DOCX) stays here so the W6.1
-      // download-link affordance + the W64B-DOCX-002
-      // typed `cdn-failed` recovery state from
-      // `DocxRender` resolve through the same
-      // `renderOfflineCard` shape. A future W6+ slice that
-      // loads the SheetJS / epubjs / Papa CDN libraries
-      // would replace their branches with the typed source
-      // / offline rendering shape (one JSX branch per CDN
-      // library).
+      // offline path for DOCX) + the `sheet-offline`
+      // branch (the W6.1 bytes-missing offline path for
+      // XLS / XLSX) stay here so the W6.1 download-link
+      // affordance + the W64B-DOCX-002 + W64C-XLS-003
+      // typed `cdn-failed` recovery states from
+      // `DocxRender` + `SheetRender` resolve through the
+      // same `renderOfflineCard` shape. A future W6+
+      // slice that loads the epubjs / Papa CDN libraries
+      // would replace their branches with the typed
+      // source / offline rendering shape (one JSX branch
+      // per CDN library).
       return renderOfflineCard(dispatch, descriptor);
   }
 }
@@ -627,6 +654,18 @@ function DocxRender(props: DocxRenderProps): ReactNode {
   // the typed `cdn-failed` recovery literal.
   const runConvert = useCallback(() => {
     try {
+      // SAFETY: `window` is typed as the DOM `Window` interface
+      // which does NOT carry the CDN-injected global; the
+      // SheetJS / mammoth UMD bundle assigns itself to
+      // `window[scriptGlobal]` after the Next `<Script>`
+      // loader fires `onLoad`. The narrow
+      // `Record<string, unknown>` index shape gives us a
+      // typed handle; the downstream `typeof convertToHtml
+      // !== "function"` guard verifies the runtime shape
+      // before any call. The pinned `scriptGlobal` literal
+      // comes from the W4b1 dispatcher constant — a future
+      // PR that bumps the CDN pin lands in lock-step across
+      // the dispatcher constant + the loader site.
       const mammoth = (window as unknown as Record<string, unknown>)[
         dispatch.scriptGlobal
       ] as
@@ -690,6 +729,14 @@ function DocxRender(props: DocxRenderProps): ReactNode {
   // land as a separately authorized slice + would update
   // this effect accordingly.
   useEffect(() => {
+    // SAFETY: same invariant as the `runConvert` window
+    // assertion above — the CDN-injected global reaches
+    // us through `window[scriptGlobal]` after the Next
+    // `<Script>` loader has fired. The narrow
+    // `Record<string, unknown>` index shape gives us a
+    // typed handle; the downstream `typeof
+    // convertToHtml === "function"` guard verifies the
+    // runtime shape before any call.
     const w = window as unknown as Record<string, unknown>;
     const mammoth = w[dispatch.scriptGlobal] as
       | { convertToHtml?: unknown }
@@ -744,14 +791,23 @@ function DocxRender(props: DocxRenderProps): ReactNode {
   }
 
   if (state.kind === "loaded") {
-    // mammoth's browser bundle strips `<script>` + on*
-    // event-handler attributes per `design.md` §8, so the
-    // `dangerouslySetInnerHTML` XSS surface mirrors the
+    // SAFETY: mammoth's browser bundle strips `<script>` +
+    // on* event-handler attributes per `design.md` §8, so
+    // the `dangerouslySetInnerHTML` XSS surface mirrors the
     // legacy `web/file_viewer.js::renderDocx`
     // `Range.createContextualFragment` call site. The
-    // `fex-docx-content` wrapper mirrors the legacy
-    // `fex-image-frame` shape so the cascade applies the
-    // same styling rules.
+    // `state.html` payload originates from the pinned
+    // mammoth CDN (the `MAMMOTH_CDN_URL` constant) — the
+    // only source of bytes is `dispatch.bytes` (the typed
+    // `Uint8Array` from the W3 `fetchFileServe` adapter)
+    // passed verbatim through `mammoth.convertToHtml(
+    // {arrayBuffer: bytes.buffer})`. The pinned
+    // `scriptGlobal` literal comes from the W4b1 dispatcher
+    // constant; a future PR that bumps the CDN pin lands
+    // in lock-step across the dispatcher constant + the
+    // loader site. The `fex-docx-content` wrapper mirrors
+    // the legacy `fex-image-frame` shape so the cascade
+    // applies the same styling rules.
     return (
       <div
         className="fex-docx-content"
@@ -778,6 +834,461 @@ function DocxRender(props: DocxRenderProps): ReactNode {
           progress_activity
         </span>
         <p>Loading DOCX preview…</p>
+      </div>
+      <Script
+        src={dispatch.scriptUrl}
+        strategy="afterInteractive"
+        onLoad={handleScriptLoad}
+        onError={handleScriptError}
+      />
+    </>
+  );
+}
+
+// ---- W64C-XLS-003 — XLS / XLSX materialization via Next `Script` ----
+// Mirrors the legacy `web/file_viewer.js::renderSheet` shape
+// byte-for-byte: the legacy uses `loadScriptOnce("XLSX")` to
+// inject the CDN, then `window.XLSX.read(data, { type: "array" })`
+// to parse the workbook, then `window.XLSX.utils.sheet_to_html(sheet)`
+// to emit the HTML table. For multi-sheet workbooks the legacy
+// renders a sheet picker above the table so the user can
+// switch. The W64C React mount uses Next 16's
+// `<Script src={scriptUrl} strategy="afterInteractive"
+// onLoad={convert} onError={...}>` component (see
+// `node_modules/next/dist/docs/01-app/03-api-reference/02-
+// components/script.md`) as the loader surface. SheetJS itself
+// already emits a plain HTML `<table>` without `<script>` or
+// event handlers per `design.md` §8, so the React mount's
+// `dangerouslySetInnerHTML` injection is the same XSS-safe
+// shape as the legacy `Range.createContextualFragment` call
+// site. The mount owns the typed `cdn-failed` recovery state
+// — Script.onError + SheetJS.read / utils.sheet_to_html
+// exceptions surface through a synthesized `sheet-offline`
+// dispatch with `reason: "cdn-failed"` (distinct from the
+// `bytes-missing` path the dispatcher emits at dispatch time;
+// the W64B typed union `reason: "bytes-missing" | "cdn-failed"`
+// on the `sheet-offline` variant keeps both literals
+// first-class).
+
+/** Discriminated state for the XLS / XLSX materialization.
+ *  Mirrors the W64B-DOCX-002 `DocxRenderState` union shape:
+ *  `loading` paints the quiet skeleton + the `<Script>`
+ *  loader, `loaded` carries the converted HTML table verbatim
+ *  (SheetJS strips nothing by default, but its output is a
+ *  plain `<table>` without `<script>` or on* attributes per
+ *  `design.md` §8), and `error` flips to the typed
+ *  `cdn-failed` recovery state. The error branch carries the
+ *  union literal `reason: "cdn-failed"` so the surface
+ *  distinguishes mount-detected CDN / read / sheet_to_html
+ *  failures from the dispatcher-emitted `bytes-missing`
+ *  offline path. The `sheet` + `names` fields on the
+ *  `loaded` branch let the mount's `<select>` picker switch
+ *  the active sheet on demand (mirrors the legacy
+ *  `wb.SheetNames` + `wb.Sheets[name]` shape verbatim). */
+type SheetRenderState =
+  | { readonly kind: "loading" }
+  | {
+      readonly kind: "loaded";
+      readonly html: string;
+      readonly sheetNames: readonly string[];
+    }
+  | {
+      readonly kind: "error";
+      readonly reason: "cdn-failed";
+    };
+
+/** Props for `SheetRender`. The component receives the typed
+ *  `sheet-source` dispatch directly from `renderDispatch` —
+ *  the React mount is the only consumer of this surface;
+ *  `bytesRequiredForFormat("xls") === true` and
+ *  `bytesRequiredForFormat("xlsx") === true` (the W64C
+ *  matrix flip) keep the bytes-fetch effect in sync (the
+ *  bytes flow through the existing Viewer.tsx `bytesStatus`
+ *  lifecycle so this component is purely a projection of
+ *  the typed source outcome). */
+interface SheetRenderProps {
+  readonly dispatch: ViewerDispatch;
+}
+
+/** W64C-XLS-003 — the XLS / XLSX materialization. Renders
+ *  the `<Script>` loader on first commit, calls
+ *  `window[dispatch.scriptGlobal].read(bytes, {type: "array"})`
+ *  + `utils.sheet_to_html(activeSheet)` on script load, and
+ *  flips to a typed `cdn-failed` recovery state on either
+ *  `Script.onError` OR the `SheetJS.read(...)` /
+ *  `utils.sheet_to_html(...)` exception path. The recovery
+ *  state synthesizes a `sheet-offline` dispatch with
+ *  `reason: "cdn-failed"` so the existing `renderOfflineCard`
+ *  paints the download affordance with a typed `reason`
+ *  literal that's distinct from the `bytes-missing` offline
+ *  path the dispatcher emits. When
+ *  `wb.SheetNames.length > 1` the mount surfaces a `<select>`
+ *  picker that switches the active sheet (mirrors the legacy
+ *  `web/file_viewer.js::renderSheet` multi-sheet shape
+ *  verbatim).
+ *
+ *  Both XLS and XLSX share the same SheetJS path; the
+ *  `dispatch` is typed `sheet-source` regardless of the
+ *  format field. The `format` field (`xls` or `xlsx`) is
+ *  carried verbatim through the dispatch contract so a
+ *  future mount that wants format-specific affordances
+ *  (e.g. a different default sheet picker label) can branch
+ *  on the format without re-fetching bytes.
+ */
+function SheetRender(props: SheetRenderProps): ReactNode {
+  // `dispatch` is narrowed by the caller (`renderDispatch`
+  // only routes `kind: "sheet-source"` here), but TypeScript
+  // can't narrow through the JSX element so we explicitly
+  // cast to the typed dispatch shape for the body.
+  const dispatch = props.dispatch;
+  if (dispatch.kind !== "sheet-source") {
+    // Defensive guard — the caller is `renderDispatch`
+    // and only routes `sheet-source` here. A future
+    // refactor that routes another kind through this
+    // component is a contract regression, so the guard
+    // returns an empty fragment rather than rendering
+    // the wrong shape.
+    return null;
+  }
+  const [state, setState] = useState<SheetRenderState>({
+    kind: "loading",
+  });
+  const [activeSheetName, setActiveSheetName] = useState<string | null>(
+    null,
+  );
+  const cancelledRef = useRef<boolean>(false);
+
+  // Cleanup `cancelledRef` so an unmount mid-flight
+  // doesn't flip state to `loaded` / `error` after the
+  // parent has unmounted this XLS / XLSX viewer (the
+  // `useEffect` below sets `cancelledRef.current = true`
+  // on cleanup).
+  useEffect(() => {
+    cancelledRef.current = false;
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, []);
+
+  // `renderSheetHtml` is the pure projection: given a
+  // parsed workbook + a sheet name, call
+  // `window[dispatch.scriptGlobal].utils.sheet_to_html(sheet)`
+  // and return the resulting HTML string. Mirrors the
+  // legacy `web/file_viewer.js::renderSheet` closure shape
+  // verbatim — the legacy builds a `renderSheetHtml(name)`
+  // closure that calls
+  // `range.createContextualFragment(window.XLSX.utils.sheet_to_html(sheet))`
+  // and re-uses it for both the initial render + every
+  // picker `change` event.
+  const renderSheetHtml = useCallback(
+    (
+      SheetJSLib: {
+        read: (
+          data: Uint8Array,
+          opts: { type: string },
+        ) => { SheetNames: readonly string[]; Sheets: Record<string, unknown> };
+        utils: {
+          sheet_to_html: (sheet: unknown) => string;
+        };
+      },
+      sheetName: string,
+    ): string => {
+      const wb = SheetJSLib.read(dispatch.bytes, { type: "array" });
+      const sheet = (wb.Sheets as Record<string, unknown>)[sheetName];
+      if (sheet === undefined) return "";
+      return SheetJSLib.utils.sheet_to_html(sheet);
+    },
+    [dispatch.bytes],
+  );
+
+  // `runConvert` is the single conversion entry point. It
+  // reaches the pinned SheetJS global through the typed
+  // `dispatch.scriptGlobal` (so a future PR that bumps the
+  // library version lands in lock-step across the
+  // dispatcher constant + the loader site) and calls
+  // `read(bytes, {type: "array"})` + `utils.sheet_to_html(activeSheet)`.
+  // The `try / catch` covers the synchronous exception
+  // path (SheetJS throws immediately on invalid workbook
+  // archives); both routes flip the state to the typed
+  // `cdn-failed` recovery literal.
+  const runConvert = useCallback(() => {
+    try {
+      // SAFETY: `window` is typed as the DOM `Window`
+      // interface which does NOT carry the CDN-injected
+      // global; the SheetJS UMD bundle assigns itself
+      // to `window[scriptGlobal]` after the Next
+      // `<Script>` loader fires `onLoad`. The narrow
+      // `Record<string, unknown>` index shape gives us
+      // a typed handle; the downstream `typeof read !==
+      // "function"` + `typeof utils.sheet_to_html !==
+      // "function"` guards verify the runtime shape
+      // before any call. The pinned `scriptGlobal`
+      // literal comes from the W4b2 dispatcher
+      // constant — a future PR that bumps the CDN pin
+      // lands in lock-step across the dispatcher
+      // constant + the loader site.
+      const SheetJSLib = (window as unknown as Record<string, unknown>)[
+        dispatch.scriptGlobal
+      ] as
+        | {
+            read: (
+              data: Uint8Array,
+              opts: { type: string },
+            ) => {
+              SheetNames: readonly string[];
+              Sheets: Record<string, unknown>;
+            };
+            utils: { sheet_to_html: (sheet: unknown) => string };
+          }
+        | undefined;
+      if (
+        SheetJSLib === undefined ||
+        typeof SheetJSLib.read !== "function" ||
+        typeof SheetJSLib.utils?.sheet_to_html !== "function"
+      ) {
+        if (!cancelledRef.current) {
+          setState({ kind: "error", reason: "cdn-failed" });
+        }
+        return;
+      }
+      const wb = SheetJSLib.read(dispatch.bytes, { type: "array" });
+      const sheetNames: readonly string[] = Array.isArray(wb.SheetNames)
+        ? wb.SheetNames
+        : [];
+      const initialName = sheetNames[0] ?? "";
+      const html = renderSheetHtml(SheetJSLib, initialName);
+      if (cancelledRef.current) return;
+      setActiveSheetName(initialName);
+      setState({ kind: "loaded", html, sheetNames });
+    } catch {
+      if (cancelledRef.current) return;
+      setState({ kind: "error", reason: "cdn-failed" });
+    }
+  }, [dispatch.scriptGlobal, dispatch.bytes, renderSheetHtml]);
+
+  // If the legacy-pinned SheetJS CDN is already on the
+  // page (a previous XLS / XLSX open loaded the script and
+  // the user is opening a second spreadsheet), Next 16's
+  // `<Script>` component does NOT re-fire `onLoad` for
+  // subsequent mounts — so this effect covers the
+  // "already-cached" path by checking `window[scriptGlobal]`
+  // synchronously after the first commit. A future mount
+  // that swaps the loader for a different library would
+  // land as a separately authorized slice + would update
+  // this effect accordingly.
+  useEffect(() => {
+    // SAFETY: same invariant as the `runConvert` window
+    // assertion above — the CDN-injected global reaches
+    // us through `window[scriptGlobal]` after the Next
+    // `<Script>` loader has fired. The narrow
+    // `Record<string, unknown>` index shape gives us a
+    // typed handle; the downstream `typeof read ===
+    // "function"` guard verifies the runtime shape before
+    // any call.
+    const w = window as unknown as Record<string, unknown>;
+    const SheetJSLib = w[dispatch.scriptGlobal] as
+      | { read?: unknown; utils?: unknown }
+      | undefined;
+    if (
+      SheetJSLib !== undefined &&
+      typeof SheetJSLib.read === "function" &&
+      typeof (SheetJSLib as { utils?: unknown }).utils ===
+        "object" &&
+      SheetJSLib.utils !== null &&
+      typeof (
+        SheetJSLib.utils as { sheet_to_html?: unknown }
+      ).sheet_to_html === "function"
+    ) {
+      runConvert();
+    }
+    // `runConvert` is intentionally listed as a dep — its
+    // identity flips when the dispatch bytes / scriptGlobal
+    // change, which mirrors the "new file open" lifecycle
+    // the Explorer.tsx parent drives.
+  }, [runConvert, dispatch]);
+
+  const handleScriptLoad = useCallback(() => {
+    runConvert();
+  }, [runConvert]);
+
+  const handleScriptError = useCallback(() => {
+    setState({ kind: "error", reason: "cdn-failed" });
+  }, []);
+
+  const handleSheetChange = useCallback(
+    (ev: React.ChangeEvent<HTMLSelectElement>): void => {
+      const newName = ev.target.value;
+      setActiveSheetName(newName);
+      if (state.kind !== "loaded") return;
+      // Capture the loaded-state typed surface into a local
+      // const so the rest of the callback body + the deps
+      // array can reach `sheetNames` without re-narrowing
+      // through `state` (TypeScript can't narrow a union
+      // member across the useCallback closure boundary).
+      const loadedSheetNames = state.sheetNames;
+      try {
+        // SAFETY: `window` is the DOM `Window` interface
+        // which does NOT carry the CDN-injected global;
+        // the SheetJS UMD bundle assigns itself to
+        // `window[scriptGlobal]` after the Next `<Script>`
+        // loader fires `onLoad`. The narrow
+        // `Record<string, unknown>` index shape gives us a
+        // typed handle; the loaded-state precondition +
+        // the `try/catch` cover the runtime invariants
+        // (SheetJS is on the page because we already
+        // reached `loaded` via the same global).
+        const SheetJSLib = (window as unknown as Record<string, unknown>)[
+          dispatch.scriptGlobal
+        ] as
+          | {
+              read: (
+                data: Uint8Array,
+                opts: { type: string },
+              ) => {
+                SheetNames: readonly string[];
+                Sheets: Record<string, unknown>;
+              };
+              utils: { sheet_to_html: (sheet: unknown) => string };
+            }
+          | undefined;
+        if (
+          SheetJSLib === undefined ||
+          typeof SheetJSLib.utils?.sheet_to_html !== "function"
+        ) {
+          setState({ kind: "error", reason: "cdn-failed" });
+          return;
+        }
+        const html = renderSheetHtml(SheetJSLib, newName);
+        setState({
+          kind: "loaded",
+          html,
+          sheetNames: loadedSheetNames,
+        });
+      } catch {
+        setState({ kind: "error", reason: "cdn-failed" });
+      }
+    },
+    [dispatch.scriptGlobal, renderSheetHtml],
+  );
+
+  // The error branch synthesizes a typed `sheet-offline`
+  // dispatch with `reason: "cdn-failed"` so the existing
+  // `renderOfflineCard` paints the download affordance with
+  // a typed `reason` literal distinct from the
+  // `bytes-missing` path. The descriptor here is a
+  // synthetic stand-in (the CDN-failed branch doesn't have
+  // a real `ViewerFileDescriptor` in scope, only the
+  // typed dispatch fields).
+  if (state.kind === "error") {
+    const syntheticDescriptor: ViewerFileDescriptor = {
+      url: dispatch.src,
+      name: dispatch.title,
+      format: "xlsx",
+      size: dispatch.bytes.length,
+      path: dispatch.title,
+    };
+    return renderOfflineCard(
+      {
+        kind: "sheet-offline",
+        name: dispatch.title,
+        download: { href: dispatch.src, download: dispatch.title },
+        scriptUrl: dispatch.scriptUrl,
+        scriptGlobal: dispatch.scriptGlobal,
+        reason: "cdn-failed",
+      },
+      syntheticDescriptor,
+    );
+  }
+
+  if (state.kind === "loaded") {
+    // SAFETY: SheetJS's browser bundle emits a plain HTML
+    // `<table>` without `<script>` + on* event-handler
+    // attributes per `design.md` §8, so the
+    // `dangerouslySetInnerHTML` XSS surface mirrors the
+    // legacy `web/file_viewer.js::renderSheet`
+    // `Range.createContextualFragment` call site. The
+    // `state.html` payload originates from the pinned
+    // SheetJS CDN (the `SHEETJS_CDN_URL` constant) — the
+    // only source of bytes is `dispatch.bytes` (the typed
+    // `Uint8Array` from the W3 `fetchFileServe` adapter)
+    // passed verbatim through
+    // `window[dispatch.scriptGlobal].read(bytes, {type:
+    // "array"})` + `utils.sheet_to_html(activeSheet)`.
+    // The pinned `scriptGlobal` literal comes from the
+    // W4b2 dispatcher constant; a future PR that bumps
+    // the CDN pin lands in lock-step across the
+    // dispatcher constant + the loader site. The
+    // `.fex-sheet-table-host` wrapper mirrors the legacy
+    // `overflow-auto` shape so the cascade applies the
+    // same styling rules.
+    //
+    // When the workbook has more than one sheet
+    // (`sheetNames.length > 1`) the mount surfaces a
+    // `<select>` picker above the table so the user can
+    // switch the active sheet (matches the legacy
+    // `web/file_viewer.js::renderSheet`
+    // `sheetNames.length > 1` shape verbatim). The
+    // picker reuses the existing `.fex-snippet-btn`
+    // styling for its `<select>` element (matches the
+    // legacy
+    // `el("select", { class: "fex-snippet-btn font-mono-data ..." })`
+    // shape verbatim).
+    const showPicker =
+      Array.isArray(state.sheetNames) && state.sheetNames.length > 1;
+    return (
+      <div
+        className="fex-sheet-host flex flex-col gap-2"
+        data-viewer-kind="sheet-content"
+      >
+        {showPicker ? (
+          <div className="fex-sheet-picker flex items-center gap-2 mb-2">
+            <label
+              className="fex-sheet-picker-label text-body-sm text-on-surface-variant"
+              htmlFor="fex-sheet-picker-select"
+            >
+              Sheet:
+            </label>
+            <select
+              id="fex-sheet-picker-select"
+              className="fex-snippet-btn font-mono-data text-on-surface bg-surface"
+              value={activeSheetName ?? state.sheetNames[0] ?? ""}
+              onChange={handleSheetChange}
+              data-viewer-kind="sheet-picker"
+            >
+              {state.sheetNames.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+        <div
+          className="fex-sheet-table-host overflow-auto"
+          data-viewer-kind="sheet-table-host"
+          dangerouslySetInnerHTML={{ __html: state.html }}
+        />
+      </div>
+    );
+  }
+
+  // `loading` state — render the quiet skeleton + the
+  // Next 16 `<Script>` loader on the first commit. The
+  // `<Script>` dedups by URL across mounts, so a second
+  // XLS / XLSX open within the same page session does
+  // NOT re-fetch the bundle.
+  return (
+    <>
+      <div
+        className="fex-empty-state"
+        role="status"
+        data-viewer-loading=""
+        data-viewer-kind="sheet-loading"
+      >
+        <span className="fex-empty-state-icon material-symbols-outlined animate-spin">
+          progress_activity
+        </span>
+        <p>Loading spreadsheet preview…</p>
       </div>
       <Script
         src={dispatch.scriptUrl}
