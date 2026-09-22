@@ -1,0 +1,21 @@
+{
+  "build": "legacy",
+  "candidate_root": "/Users/sebailla/Developer/taxa/out",
+  "captured_at": "2026-09-22T16:49:05Z",
+  "client_render": {
+    "tree_first_interactive_ms": 75334.969,
+    "tree_first_paint_ms": 50223.312
+  },
+  "console_warnings": [],
+  "provenance": {
+    "captured_at": "2026-09-22T16:49:05Z",
+    "command_line": "scripts/measure_hydration.py --baseline out/hydration-baseline.json --candidate out --iterations 10",
+    "iterations": 10,
+    "schema": "taxa.g5-hydration-baseline/1"
+  },
+  "route": "/",
+  "server_shell": {
+    "dom_content_loaded_ms": 25111.656,
+    "first_paint_ms": 25111.656
+  }
+}

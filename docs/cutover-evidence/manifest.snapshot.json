@@ -1,0 +1,12 @@
+{
+  "schema": "taxa.g4-capture.manifest/1",
+  "entries": [
+    {
+      "url": "http://127.0.0.1:8765/index.html",
+      "path": "index.html",
+      "expectedContentSha256": "ef59a34286d2e7acac9ca799a4e9376905bd76db0e7f0382ed5deee48cb1ae03",
+      "expectedStatus": 200,
+      "expectedDOMMarker": "data-testid=\"g4-probe-marker\""
+    }
+  ]
+}

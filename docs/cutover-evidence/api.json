@@ -1,0 +1,10 @@
+{
+  "captured_at": "2026-09-22T16:48:37Z",
+  "endpoints": [
+    {
+      "path": "/api/domains",
+      "status": 404
+    }
+  ],
+  "schema_version": "1.0.0"
+}

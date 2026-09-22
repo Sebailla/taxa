@@ -1,0 +1,53 @@
+{
+  "assets": [
+    {
+      "bytes": 607,
+      "class": "staged_manifest",
+      "path": ".next/build-manifest.json",
+      "sha256": "206bc8ea3fd97d451de8466df90026d62ce203913cd79b2fc186780fd6043c0f",
+      "staging": "staged"
+    },
+    {
+      "class": "staged_manifest",
+      "path": ".next/app-build-manifest.json",
+      "staging": "not_emitted"
+    },
+    {
+      "bytes": 8379,
+      "class": "application_route_html",
+      "path": "index.html",
+      "sha256": "ef59a34286d2e7acac9ca799a4e9376905bd76db0e7f0382ed5deee48cb1ae03"
+    },
+    {
+      "bytes": 112594,
+      "class": "js_class",
+      "path": "_next/static/chunks/0cz1d0mv5g_q7.js",
+      "sha256": "0973c1d64c88adc8e3c950410cb58b288f72118d5965b78049438deb8f2f9683"
+    },
+    {
+      "bytes": 71591,
+      "class": "css_class",
+      "path": "_next/static/chunks/0qjw5js-azo-t.css",
+      "sha256": "6ef65fa7cc0daa12bd20597e9c5544106c02c712f96f48a894a09e6336fe4ab9"
+    },
+    {
+      "bytes": 22612,
+      "class": "static_fonts",
+      "path": "_next/static/media/198d17f2fc7b7e24-s.3ln4cacw7vm32.woff2",
+      "sha256": "ae1f0cb889737109badd1ad17e1acf8bb0cbdb80e2fc3c9577ac6fd769335939"
+    },
+    {
+      "bytes": 8095,
+      "class": "error_pages",
+      "path": "404.html",
+      "sha256": "c805831407156df527fce5491508ec811474e3c57ce403bb5ed8889b3a135a56"
+    }
+  ],
+  "build_command": "/Users/sebailla/Developer/taxa/node_modules/.bin/next build (cwd=/Users/sebailla/Developer/taxa)",
+  "build_finished_at": "2026-09-22T16:25:21.301606+00:00",
+  "build_started_at": "2026-09-22T16:25:19.067264+00:00",
+  "candidate_root": "/Users/sebailla/Developer/taxa",
+  "exit_code": 0,
+  "missing_classes": [],
+  "node_version": "v26.9.0"
+}
