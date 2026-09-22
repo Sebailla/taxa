@@ -342,6 +342,50 @@ def root():
     return FileResponse(str(index))
 
 
+@app.api_route("/explorer", methods=["GET", "HEAD"], include_in_schema=False)
+def explorer_alias():
+    """Route alias for the Next.js /explorer static page.
+
+    The Next.js 16 static export emits `out/explorer.html`, but the
+    browser may request it under the bare path `/explorer`. This alias
+    keeps the FastAPI single-origin contract: a bare-path GET returns
+    the prerendered HTML instead of falling through to a 404.
+    `methods=["GET", "HEAD"]` is required so HEAD probes (e.g.
+    `curl -sI`) also resolve to the prerendered file instead of
+    falling through to the StaticFiles mount, which sees
+    `out/explorer/` as a directory without an `index.html` and
+    returns 404.
+    """
+    return FileResponse(str(WEB_DIR / "explorer.html"))
+
+
+@app.api_route("/hydration-probe", methods=["GET", "HEAD"], include_in_schema=False)
+def hydration_probe_alias():
+    """Route alias for the Next.js /hydration-probe static page.
+
+    The Next.js 16 static export emits `out/hydration-probe.html`, but
+    the browser may request it under the bare path `/hydration-probe`.
+    This alias keeps the FastAPI single-origin contract: a bare-path
+    GET returns the prerendered HTML instead of falling through to a
+    404. `methods=["GET", "HEAD"]` mirrors the `/explorer` alias for
+    the same StaticFiles-fallthrough reason.
+    """
+    return FileResponse(str(WEB_DIR / "hydration-probe.html"))
+
+
+@app.api_route("/_not-found", methods=["GET", "HEAD"], include_in_schema=False)
+def not_found_alias():
+    """Route alias for the Next.js /_not-found static page.
+
+    The Next.js 16 static export emits `out/_not-found.html`, but the
+    browser may request it under the bare path `/_not-found`. This
+    alias keeps the FastAPI single-origin contract: a bare-path GET
+    returns the prerendered HTML instead of falling through to a 404.
+    `methods=["GET", "HEAD"]` mirrors the other two aliases.
+    """
+    return FileResponse(str(WEB_DIR / "_not-found.html"))
+
+
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():
     return Response(status_code=204)
