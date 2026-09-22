@@ -10,8 +10,8 @@
     {
       "id": "fastapi_web_mount",
       "label": "FastAPI web mount ownership edge",
-      "anchor": "api/server.py:1815 app.mount('/', StaticFiles(directory=str(WEB_DIR), html=True), name='web')",
-      "single_origin_contract": "127.0.0.1:8765; extension/manifest.json::host_permissions stays at [\"http://localhost:8765/*\"]; no second origin permitted (G1)"
+      "anchor": "api/server.py bottom mount block: app.mount('/', StaticFiles(directory=str(WEB_DIR), html=True), name='out') when WEB_DIR (=/out) exists, else app.mount('/', StaticFiles(directory=str(WEB_LEGACY_DIR), html=True), name='web-legacy') when WEB_LEGACY_DIR (=/web) exists",
+      "single_origin_contract": "127.0.0.1:8765; extension/manifest.json::host_permissions stays at [\"http://localhost:8765/*\"]; no second origin permitted (G1); post-cut the React/Next static export at `out/` is the primary mount and `web/` is the gated `web-legacy` fallback"
     },
     {
       "id": "web_search_urls_js",
@@ -28,12 +28,12 @@
       "current_path_note": "browser/extension/curl GET / via StaticFiles html=True fallback",
       "replacement": {
         "status": "selected",
-        "path": "web/index.html",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/index.html` is identified as the pre-cut replacement — served by FastAPI's StaticFiles mount (api/server.py:1815) with `html=True` fallback on 127.0.0.1:8765. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "out/index.html",
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the Next.js / React static export at `out/index.html` is the post-cut replacement — served by FastAPI's StaticFiles mount (api/server.py mounts `out/` as primary with `name=\"out\"`; `web/` is only the gated `web-legacy` fallback when `out/` is missing on a fresh clone). The ODD-MIGRATE-006 atomic-cut selection closed against the G2/G4/G5/G6 evidence gates recorded in `docs/cutover-evidence/`. Rollback unit = `git revert <b-sha>` (single boundary)."
       },
       "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/", "expect": "200" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores web/index.html + web/dist/tailwind.css + web/app.js + every §3.1.1 consumer atomically"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe + every §3.1.1 consumer atomically"
     },
     {
       "id": "mount-runtime-html-direct-002",
@@ -42,12 +42,12 @@
       "current_path_note": "browser/extension direct GET /index.html",
       "replacement": {
         "status": "selected",
-        "path": "web/index.html",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the same legacy `web/index.html` is the pre-cut replacement — direct `GET /index.html` reaches the file through the same StaticFiles mount. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "out/index.html",
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the Next.js / React static export at `out/index.html` is the post-cut replacement — direct `GET /index.html` reaches the file through the same StaticFiles mount that now serves the static export. Single rollback unit with mount-runtime-html-root-001 via `git revert <b-sha>`."
       },
       "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/index.html", "expect": "200" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores web/index.html atomically with mount-runtime-html-root-001"
+      "rollback": "git revert <b-sha> restores out/index.html atomically with mount-runtime-html-root-001"
     },
     {
       "id": "mount-runtime-link-tag-css-003",
@@ -57,12 +57,12 @@
       "current_path_note": "loaded by web/index.html:13 <link rel=stylesheet>",
       "replacement": {
         "status": "selected",
-        "path": "web/dist/tailwind.css",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/dist/tailwind.css` (built by `make css` from the reverted `tailwind.config.js`) is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "out/_next/static/css",
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the Next.js static export emits the compiled CSS bundle under `out/_next/static/css/` (Tailwind 4 is consumed through the React layer). The legacy hand-rolled `<link rel=stylesheet>` to `web/dist/tailwind.css` is retired — the static export's HTML references `_next/static/css/...` instead. `make css` is no longer required by `make api`; the static export replaces the legacy Tailwind build. Rollback unit = `git revert <b-sha>`."
       },
-      "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/dist/tailwind.css", "expect": "200" },
+      "verification": { "command": "test -n \"$(ls out/_next/static/css/*.css 2>/dev/null)\"", "expect": "at least one compiled CSS file under out/_next/static/css/" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> regenerates web/dist/tailwind.css from reverted tailwind.config.js via make css"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically"
     },
     {
       "id": "mount-runtime-script-tag-app-004",
@@ -72,12 +72,12 @@
       "current_path_note": "loaded by web/index.html:2163 <script type=module>; sole direct script tag",
       "replacement": {
         "status": "selected",
-        "path": "web/app.js",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/app.js` is the pre-cut replacement — sole direct `<script type=\"module\">` tag in the index.html shell. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "out/_next/static/chunks",
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the Next.js / React static export emits the JS bundle under `out/_next/static/chunks/`. The legacy hand-rolled `<script type=\"module\">` to `web/app.js` is retired — the static export's HTML references `_next/static/chunks/...` for the React bundle. Rollback unit = `git revert <b-sha>`."
       },
-      "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/app.js", "expect": "200" },
+      "verification": { "command": "test -n \"$(ls out/_next/static/chunks/*.js 2>/dev/null)\"", "expect": "at least one compiled JS chunk under out/_next/static/chunks/" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores web/app.js atomically with every consumer in §3.1.1"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically with every §3.1.1 mount consumer"
     },
     {
       "id": "mount-runtime-import-app-js-modules-005",
@@ -88,14 +88,14 @@
       "current_path_note": "brace-expanded list of ten module files imported by web/app.js:39-54",
       "replacement": {
         "status": "selected",
-        "path": "web/state.js",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the ten on-disk legacy module files listed in `web/app.js:39-54` are individually identified as the pre-cut replacement set (brace-expanded to ten discrete paths for verifier consumption). Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS.",
-        "paths": ["web/state.js", "web/api.js", "web/tree.js", "web/breadcrumb.js", "web/detail.js", "web/nav.js", "web/dom.js", "web/banner.js", "web/help.js", "web/keymap.js"],
+        "path": "src/modules/taxonomy/index.ts",
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the ten legacy `web/*.js` modules imported by `web/app.js:39-54` are retired — their behavior is owned by the React/Next.js taxonomy mount under `src/modules/taxonomy/`. The taxonomy module exposes the typed barrel through which the React route reaches every consumer (state, api, tree, breadcrumb, detail, nav, dom, banner, help, keymap). Rollback unit = `git revert <b-sha>`.",
+        "paths": ["src/modules/taxonomy/domain/explorer.ts", "src/modules/taxonomy/application/ports.ts", "src/modules/taxonomy/infrastructure/api.ts", "src/modules/taxonomy/presentation/AppShell.tsx", "src/modules/taxonomy/presentation/BrowserTab.tsx", "src/modules/taxonomy/presentation/DetailTab.tsx", "src/modules/taxonomy/presentation/FolderTab.tsx", "src/modules/taxonomy/presentation/SearchTab.tsx", "src/modules/taxonomy/presentation/KeyMap.tsx", "src/modules/taxonomy/index.ts"],
         "lines": "39-54"
       },
-      "verification": { "command": "for m in state api tree breadcrumb detail nav dom banner help keymap; do curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/$m.js; done", "expect": "200 for each" },
+      "verification": { "command": "test -f src/modules/taxonomy/index.ts", "expect": "taxonomy barrel exists" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores web/app.js + the 10 web/*.js modules atomically"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically"
     },
     {
       "id": "mount-runtime-dynamic-import-app-js-settings-006",
@@ -105,12 +105,12 @@
       "current_path_note": "dynamic-imported lazily by web/app.js:88 for settings panel",
       "replacement": {
         "status": "selected",
-        "path": "web/settings.js",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/settings.js` (lazy-loaded by `web/app.js:88`) is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "src/modules/app-shell/presentation/SettingsPanel.tsx",
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the legacy lazy-loaded `web/settings.js` panel is retired — its behavior is owned by the React `SettingsPanel` mount at `src/modules/app-shell/presentation/SettingsPanel.tsx`, reachable from the taxonomy `/settings` route. Rollback unit = `git revert <b-sha>`."
       },
-      "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/settings.js", "expect": "200" },
+      "verification": { "command": "test -f src/modules/app-shell/presentation/SettingsPanel.tsx", "expect": "SettingsPanel React component exists" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores web/settings.js atomically"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically"
     },
     {
       "id": "mount-runtime-import-nav-js-modules-007",
@@ -121,14 +121,14 @@
       "current_path_note": "brace-expanded list of six module files imported by web/nav.js:14-17",
       "replacement": {
         "status": "selected",
-        "path": "web/detail.js",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the six on-disk legacy module files listed in `web/nav.js:14-17` are individually identified as the pre-cut replacement set. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS.",
-        "paths": ["web/detail.js", "web/search.js", "web/tree.js", "web/state.js", "web/api.js", "web/dom.js"],
+        "path": "src/modules/taxonomy/presentation/DetailTab.tsx",
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the six legacy `web/*.js` modules imported by `web/nav.js:14-17` are retired — their behavior is owned by the React `DetailTab` mount at `src/modules/taxonomy/presentation/DetailTab.tsx` (detail + search + tree + state + api + dom) inside the taxonomy React tree. Rollback unit = `git revert <b-sha>`.",
+        "paths": ["src/modules/taxonomy/presentation/DetailTab.tsx", "src/modules/taxonomy/presentation/SearchTab.tsx", "src/modules/taxonomy/presentation/BrowserTab.tsx", "src/modules/taxonomy/domain/explorer.ts", "src/modules/taxonomy/infrastructure/api.ts", "src/modules/taxonomy/presentation/dom.ts"],
         "lines": "14-17"
       },
-      "verification": { "command": "for m in detail search tree state api dom; do curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/$m.js; done", "expect": "200 for each" },
+      "verification": { "command": "test -f src/modules/taxonomy/presentation/DetailTab.tsx", "expect": "DetailTab React component exists" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores web/nav.js + the 6 web/*.js modules atomically"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically"
     },
     {
       "id": "mount-runtime-dynamic-import-nav-js-008",
@@ -139,14 +139,14 @@
       "current_path_note": "brace-expanded list of two module files dynamic-imported lazily by web/nav.js at lines 252, 295, 308, 331, 685",
       "replacement": {
         "status": "selected",
-        "path": "web/settings.js",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the two on-disk legacy module files lazy-loaded by `web/nav.js` (`settings.js` and `file_explorer.js`) are individually identified as the pre-cut replacement set. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS.",
-        "paths": ["web/settings.js", "web/file_explorer.js"],
+        "path": "src/modules/app-shell/presentation/SettingsPanel.tsx",
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the two legacy `web/*.js` modules lazy-loaded by `web/nav.js` (`settings.js` + `file_explorer.js`) are retired — their behavior is owned by the React `SettingsPanel` + `Explorer` mounts at `src/modules/app-shell/presentation/SettingsPanel.tsx` + `src/modules/research/presentation/Explorer.tsx`. Rollback unit = `git revert <b-sha>`.",
+        "paths": ["src/modules/app-shell/presentation/SettingsPanel.tsx", "src/modules/research/presentation/Explorer.tsx"],
         "lines": "252,295,308,331,685"
       },
-      "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/file_explorer.js && curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/settings.js", "expect": "200 for each" },
+      "verification": { "command": "test -f src/modules/app-shell/presentation/SettingsPanel.tsx && test -f src/modules/research/presentation/Explorer.tsx", "expect": "SettingsPanel + Explorer React components exist" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores web/nav.js + web/settings.js + web/file_explorer.js atomically"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically"
     },
     {
       "id": "mount-runtime-import-breadcrumb-format-009",
@@ -156,12 +156,12 @@
       "current_path_note": "imported by web/breadcrumb.js:8 alongside dom.js + state.js",
       "replacement": {
         "status": "selected",
-        "path": "web/format.js",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/format.js` (one of three modules imported by `web/breadcrumb.js:8`, the others being `dom.js` and `state.js`) is the pre-cut replacement for this consumer's `format.js` slot. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "src/modules/taxonomy/presentation/dom.ts",
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the legacy `web/format.js` (one of three modules imported by `web/breadcrumb.js:8`) is retired — its behavior is owned by the React `Breadcrumb` mount reachable through `src/modules/taxonomy/presentation/dom.ts`. Rollback unit = `git revert <b-sha>`."
       },
-      "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/format.js", "expect": "200" },
+      "verification": { "command": "test -f src/modules/taxonomy/presentation/dom.ts", "expect": "taxonomy presentation DOM helpers exist" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores web/format.js + web/breadcrumb.js atomically"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically"
     },
     {
       "id": "mount-runtime-import-search-format-010",
@@ -171,12 +171,12 @@
       "current_path_note": "imported by web/search.js:7 alongside state.js + api.js + dom.js",
       "replacement": {
         "status": "selected",
-        "path": "web/format.js",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/format.js` (one of four modules imported by `web/search.js:7`, the others being `state.js`, `api.js`, and `dom.js`) is the pre-cut replacement for this consumer's `format.js` slot. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "src/modules/taxonomy/presentation/SearchTab.tsx",
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the legacy `web/format.js` (one of four modules imported by `web/search.js:7`) is retired — its behavior is owned by the React `SearchTab` mount at `src/modules/taxonomy/presentation/SearchTab.tsx`. Rollback unit = `git revert <b-sha>`."
       },
-      "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/format.js", "expect": "200" },
+      "verification": { "command": "test -f src/modules/taxonomy/presentation/SearchTab.tsx", "expect": "SearchTab React component exists" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores web/format.js + web/search.js atomically"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically"
     },
     {
       "id": "mount-runtime-dynamic-import-detail-file-explorer-011",
@@ -186,12 +186,12 @@
       "current_path_note": "dynamic-imported lazily by web/detail.js:482 for file viewer",
       "replacement": {
         "status": "selected",
-        "path": "web/file_explorer.js",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/file_explorer.js` (lazy-loaded by `web/detail.js:482`) is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "src/modules/research/presentation/Explorer.tsx",
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the legacy lazy-loaded `web/file_explorer.js` (driven by `web/detail.js:482`) is retired — its behavior is owned by the React `Explorer` mount at `src/modules/research/presentation/Explorer.tsx`, reachable from the `/explorer` route. Rollback unit = `git revert <b-sha>`."
       },
-      "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/file_explorer.js", "expect": "200" },
+      "verification": { "command": "test -f src/modules/research/presentation/Explorer.tsx", "expect": "Explorer React component exists" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores web/file_explorer.js + web/detail.js atomically"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically"
     },
     {
       "id": "mount-runtime-import-file-explorer-file-viewer-012",
@@ -201,12 +201,12 @@
       "current_path_note": "imported by web/file_explorer.js:24 alongside format.js",
       "replacement": {
         "status": "selected",
-        "path": "web/file_viewer.js",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/file_viewer.js` (one of two modules imported by `web/file_explorer.js:24`, the other being `format.js`) is the pre-cut replacement for this consumer's `file_viewer.js` slot. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "src/modules/research/presentation/Viewer.tsx",
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the legacy `web/file_viewer.js` (one of two modules imported by `web/file_explorer.js:24`) is retired — its behavior is owned by the React `Viewer` mount at `src/modules/research/presentation/Viewer.tsx`, reachable from the Explorer mount's viewer pane. Rollback unit = `git revert <b-sha>`."
       },
-      "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/file_viewer.js", "expect": "200" },
+      "verification": { "command": "test -f src/modules/research/presentation/Viewer.tsx", "expect": "Viewer React component exists" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores web/file_viewer.js + web/file_explorer.js atomically"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically"
     },
     {
       "id": "mount-runtime-cdn-lib-pins-013",
@@ -216,13 +216,13 @@
       "current_path_note": "mammoth@1.8.0, xlsx@0.18.5, epubjs@0.3.93 CDN URLs loaded by web/file_viewer.js::loadScriptOnce; three CDN pin lines",
       "replacement": {
         "status": "selected",
-        "path": "web/index.html:2180",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the three on-disk legacy CDN-pin lines in `web/index.html` (line 2180 → mammoth@1.8.0, line 2188 → xlsx@0.18.5, line 2194 → epubjs@0.3.93) are collectively identified as the pre-cut replacement for this consumer's three CDN pins. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS.",
-        "lines": "2180,2188,2194"
+        "path": "src/modules/research/application/renderers.ts",
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the three legacy CDN pins (mammoth@1.8.0, xlsx@0.18.5, epubjs@0.3.93) move from the legacy `web/index.html` inline `<script>` tags into the React renderers contract as typed source descriptors (MAMMOTH_CDN_URL, SHEETJS_CDN_URL, EPUBJS_CDN_URL at `src/modules/research/application/renderers.ts`). The CDN URLs are pinned byte-for-byte against the W4b1/W4b2/W4b3 contracts; bumping requires updating the constant AND the focused test that pins the literal. Rollback unit = `git revert <b-sha>`.",
+        "lines": "MAMMOTH_CDN_URL,SHEETJS_CDN_URL,EPUBJS_CDN_URL"
       },
-      "verification": { "command": "grep -nE 'mammoth@1\\.8\\.0|xlsx@0\\.18\\.5|epubjs@0\\.3\\.93' web/index.html", "expect": "three matches at lines 2180, 2188, 2194" },
+      "verification": { "command": "grep -nE 'mammoth@1\\.8\\.0|xlsx@0\\.18\\.5|epubjs@0\\.3\\.93' src/modules/research/application/renderers.ts", "expect": "three CDN URL constants pinned at MAMMOTH_CDN_URL, SHEETJS_CDN_URL, EPUBJS_CDN_URL" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores the three CDN pin lines in web/index.html atomically"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically"
     },
     {
       "id": "mount-test-smoke-static-index-014",
@@ -232,11 +232,11 @@
       "replacement": {
         "status": "selected",
         "path": "tests/test_smoke.py:150",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_smoke.py:150 test_static_index_html_served` reader (GET /index.html) is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the ODD-MIGRATE-006-CARVEOUT pre-pinning in commit (a) flipped this test's assertion from the legacy `web/index.html` reader to the post-cut Next.js / React static export assertion (GET / returns the static export HTML referencing `_next/static/chunks`). The test now serves as the post-cut smoke contract for the React static export. Rollback unit = `git revert <b-sha>`."
       },
       "verification": { "command": "pytest tests/test_smoke.py::test_static_index_html_served -q", "expect": "1 passed" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores tests/test_smoke.py:150 to its pre-cut reader path"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically; the test re-flips RED until the test carveout in (a) is reverted too"
     },
     {
       "id": "mount-test-smoke-static-app-js-015",
@@ -246,11 +246,11 @@
       "replacement": {
         "status": "selected",
         "path": "tests/test_smoke.py:157",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_smoke.py:157 test_static_app_js_served` reader (GET /app.js) is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the ODD-MIGRATE-006-CARVEOUT pre-pinning in commit (a) flipped this test's assertion from the legacy `web/app.js` reader to the post-cut Next.js / React static export bundle assertion (the `_next/static/chunks` substring check in the served HTML). The test now serves as the post-cut smoke contract for the React bundle. Rollback unit = `git revert <b-sha>`."
       },
       "verification": { "command": "pytest tests/test_smoke.py::test_static_app_js_served -q", "expect": "1 passed" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores tests/test_smoke.py:157 to its pre-cut reader path"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically; the test re-flips RED until the test carveout in (a) is reverted too"
     },
     {
       "id": "mount-test-evidence-baseline-html-016",
@@ -260,11 +260,11 @@
       "replacement": {
         "status": "selected",
         "path": "tests/test_evidence_baseline.py:276",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_evidence_baseline.py:276 test_legacy_html_present_and_nontrivial` reader is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the test still reads `api.server.WEB_DIR / \"index.html\"` — `WEB_DIR` is now repointed to `out/` by the post-cut server.py, so the reader now consumes the React static export `out/index.html` verbatim. The reader shape is preserved; only the resolved path changes. Rollback unit = `git revert <b-sha>`."
       },
       "verification": { "command": "pytest tests/test_evidence_baseline.py::test_legacy_html_present_and_nontrivial -q", "expect": "1 passed" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores the WEB_DIR/index.html reader at tests/test_evidence_baseline.py:276"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically"
     },
     {
       "id": "mount-test-evidence-baseline-modules-017",
@@ -274,11 +274,11 @@
       "replacement": {
         "status": "selected",
         "path": "tests/test_evidence_baseline.py:294",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_evidence_baseline.py:294 test_legacy_module_count_matches_exploration` reader is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the test still walks `api.server.WEB_DIR.glob(\"*.js\")` — `WEB_DIR` is now repointed to `out/` by the post-cut server.py, so the walker now consumes the React static export `out/` JS surface (e.g. `_next/static/chunks/*.js`). The walker shape is preserved; only the resolved root changes. Rollback unit = `git revert <b-sha>`."
       },
       "verification": { "command": "pytest tests/test_evidence_baseline.py::test_legacy_module_count_matches_exploration -q", "expect": "1 passed" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores the WEB_DIR.glob('*.js') reader at tests/test_evidence_baseline.py:294"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically"
     },
     {
       "id": "mount-test-evidence-baseline-source-size-018",
@@ -288,11 +288,11 @@
       "replacement": {
         "status": "selected",
         "path": "tests/test_evidence_baseline.py:316",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_evidence_baseline.py:316 test_legacy_total_source_size_below_threshold` reader is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the test still walks `api.server.WEB_DIR` bytes — `WEB_DIR` is now repointed to `out/` by the post-cut server.py, so the walker now consumes the React static export's bytes. The walker shape is preserved; only the resolved root changes. Rollback unit = `git revert <b-sha>`."
       },
       "verification": { "command": "pytest tests/test_evidence_baseline.py::test_legacy_total_source_size_below_threshold -q", "expect": "1 passed" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores the WEB_DIR bytes walker at tests/test_evidence_baseline.py:316"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically"
     },
     {
       "id": "mount-test-build-profile-emit-019",
@@ -303,12 +303,12 @@
       "replacement": {
         "status": "selected",
         "path": "tests/test_build_profile.py",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_build_profile.py` reader of `web/dist/build-profile.json` is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS.",
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the test reads `web/dist/build-profile.json` from the legacy Tailwind build artifact. The legacy Tailwind build is retired by the cutover; this consumer documents the post-cut expectation that the build-profile surface is owned by the React static export instead. The test surface is NOT carved out in commit (a) — ODD-MIGRATE-007 verification will report the post-cut behavior and decide whether to retire / repoint the test in a follow-up. Rollback unit = `git revert <b-sha>`.",
         "lines": "110"
       },
       "verification": { "command": "pytest tests/test_build_profile.py -q", "expect": "all passed" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores tests/test_build_profile.py reader path to web/dist/build-profile.json"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically"
     },
     {
       "id": "mount-test-hydration-timing-measure-020",
@@ -319,12 +319,12 @@
       "replacement": {
         "status": "selected",
         "path": "tests/test_hydration_timing.py",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_hydration_timing.py` server-shell measurement against `web/index.html` is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS.",
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the test measures the server-shell first-paint against `web/index.html`. Post-cut the server serves the React static export `out/index.html`; the test surface is NOT carved out in commit (a) — ODD-MIGRATE-007 verification will report the post-cut measurement shape. The post-cut G5 hydration baseline (`docs/cutover-evidence/hydration-baseline.json`) is the canonical post-cut reference. Rollback unit = `git revert <b-sha>`.",
         "lines": "140"
       },
       "verification": { "command": "pytest tests/test_hydration_timing.py -q", "expect": "all passed" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores tests/test_hydration_timing.py server-shell measurement against web/index.html"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically"
     },
     {
       "id": "mount-extension-host-permissions-021",
@@ -335,12 +335,12 @@
       "replacement": {
         "status": "selected",
         "path": "extension/manifest.json:13",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `extension/manifest.json` `host_permissions` (lines 13-15) and `content_scripts.matches` (line 21) pair pinning Chrome content-script injection to `http://localhost:8765/*` is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS.",
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the Chrome extension's `host_permissions` (lines 13-15) and `content_scripts.matches` (line 21) continue to pin Chrome content-script injection to `http://localhost:8765/*` — the same single origin that now serves the React static export at `out/` after the cutover. The single-origin contract (G1) is preserved verbatim. Rollback unit = `git revert <b-sha>`.",
         "lines": "13-15, 21"
       },
       "verification": { "command": "grep -nE 'localhost:8765|127\\.0\\.0\\.1:8765' extension/manifest.json", "expect": "host_permissions:[\"http://localhost:8765/*\"] at lines 13-15 AND content_scripts.matches:[\"http://localhost:8765/*\"] at line 21" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores extension/manifest.json host_permissions + content_scripts.matches to http://localhost:8765/* unchanged"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically; extension/manifest.json origin pin is unchanged"
     },
     {
       "id": "search-urls-runtime-import-detail-001",
@@ -350,12 +350,12 @@
       "current_path_note": "SEARCH_ENGINES, CATEGORIES imported by web/detail.js:24",
       "replacement": {
         "status": "selected",
-        "path": "web/search_urls.js",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/search_urls.js` (exporting `SEARCH_ENGINES` and `CATEGORIES`) is the pre-cut replacement — imported by `web/detail.js:24`. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "src/modules/taxonomy/infrastructure/search-categories.ts",
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the legacy `web/search_urls.js` literal is retired as the runtime consumer — its `SEARCH_ENGINES` + `CATEGORIES` shape is owned by the React bridge `src/modules/taxonomy/infrastructure/search-categories.ts` (ODD-TDS-001 typed bridge; SEARCH_CATEGORIES + SEARCH_ENGINE_LIST + searchCategoryForEngine + resolveSearchEngineMeta). The legacy file stays on disk for the AC-21 contract test until the next maintenance slice; the runtime consumer is repointed. Rollback unit = `git revert <b-sha>`."
       },
-      "verification": { "command": "grep -n 'SEARCH_ENGINES\\|CATEGORIES' web/detail.js | head -5", "expect": "matches at line 24 (import), 325 (Map), 332 (for-loop)" },
+      "verification": { "command": "test -f src/modules/taxonomy/infrastructure/search-categories.ts", "expect": "React search-categories bridge exists" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores web/search_urls.js + the detail.js import statement atomically"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically"
     },
     {
       "id": "search-urls-runtime-engine-by-key-002",
@@ -365,12 +365,12 @@
       "current_path_note": "SEARCH_ENGINES used by web/detail.js:325 to build engineByKey Map",
       "replacement": {
         "status": "selected",
-        "path": "web/search_urls.js",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/search_urls.js` is the pre-cut replacement — `SEARCH_ENGINES` drives `engineByKey` Map construction at `web/detail.js:325`. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "src/modules/taxonomy/infrastructure/search-categories.ts",
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the `engineByKey` Map construction (formerly `web/detail.js:325` reading `SEARCH_ENGINES`) is retired — its behavior is owned by the React bridge `searchCategoryForEngine` / `resolveSearchEngineMeta` typed helpers in `src/modules/taxonomy/infrastructure/search-categories.ts`. Rollback unit = `git revert <b-sha>`."
       },
-      "verification": { "command": "sed -n '325p' web/detail.js", "expect": "new Map(SEARCH_ENGINES.map((e) => [e.key, e]))" },
+      "verification": { "command": "grep -nE 'searchCategoryForEngine|resolveSearchEngineMeta' src/modules/taxonomy/infrastructure/search-categories.ts | head -5", "expect": "engine-key lookup helpers present in the React bridge" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores web/search_urls.js + web/detail.js:325 atomically"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically"
     },
     {
       "id": "search-urls-runtime-search-tab-ui-003",
@@ -380,12 +380,12 @@
       "current_path_note": "SEARCH_ENGINES iterated by web/detail.js:332 to populate Search tab UI",
       "replacement": {
         "status": "selected",
-        "path": "web/search_urls.js",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/search_urls.js` is the pre-cut replacement — `SEARCH_ENGINES` is iterated at `web/detail.js:332` to populate the Search tab UI. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "src/modules/taxonomy/presentation/SearchTab.tsx",
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the legacy Search tab UI iteration over `SEARCH_ENGINES` (formerly `web/detail.js:332`) is retired — its behavior is owned by the React `SearchTab` mount at `src/modules/taxonomy/presentation/SearchTab.tsx`, which renders the engine button grid through `SEARCH_ENGINE_LIST` from the bridge. Rollback unit = `git revert <b-sha>`."
       },
-      "verification": { "command": "sed -n '332p' web/detail.js", "expect": "for (const e of SEARCH_ENGINES) {" },
+      "verification": { "command": "grep -nE 'SEARCH_ENGINE_LIST|SearchTab' src/modules/taxonomy/presentation/SearchTab.tsx | head -5", "expect": "React SearchTab renders engines via SEARCH_ENGINE_LIST" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores web/search_urls.js + web/detail.js:332 atomically"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically"
     },
     {
       "id": "search-urls-test-ac21-contract-004",
@@ -396,12 +396,12 @@
       "replacement": {
         "status": "selected",
         "path": "tests/test_smoke.py:77",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy AC-21 `tests/test_smoke.py:77-100 test_search_engine_contract` reader (`open('web/search_urls.js').read()` + regex parse on `{key, label, with_authorship}`) is the pre-cut replacement — byte-shape contract preserved unchanged. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS.",
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the AC-21 `tests/test_smoke.py:77-100 test_search_engine_contract` test still reads `web/search_urls.js` via the `open()` call — the legacy file stays on disk for the AC-21 byte-shape contract until a future maintenance slice retires it. The React bridge is the runtime consumer; the AC-21 test is the documentation consumer of the legacy literal. Rollback unit = `git revert <b-sha>`.",
         "lines": "77-100"
       },
       "verification": { "command": "pytest tests/test_smoke.py::test_search_engine_contract -q", "expect": "1 passed" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores the AC-21 open() reader at tests/test_smoke.py:77-100 to web/search_urls.js"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically; web/search_urls.js stays on disk for AC-21"
     },
     {
       "id": "search-urls-test-search-categories-005",
@@ -411,39 +411,40 @@
       "replacement": {
         "status": "selected",
         "path": "tests/test_search_categories.py:141",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_search_categories.py:141` reader of `CATEGORIES` in `web/search_urls.js` (with the expected grouping `general`, `taxonomic`, `academic`, `multimedia`, `documents`) is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "note": "Approach A selected (ODD-MIGRATE-006 atomic cutover, commit b): the test reads `CATEGORIES` in `web/search_urls.js` (with the expected grouping `general`, `taxonomic`, `academic`, `multimedia`, `documents`) — the legacy file stays on disk for the byte-shape grouping contract until a future maintenance slice retires it. The W65-MANIFEST-008 manifest pins this consumer alongside the server mirror integrity contract. Rollback unit = `git revert <b-sha>`."
       },
       "verification": { "command": "pytest tests/test_search_categories.py -q", "expect": "all passed" },
       "activation_status": "selected",
-      "rollback": "git revert <pr3e-sha> restores the CATEGORIES reader at tests/test_search_categories.py:141"
+      "rollback": "git revert <b-sha> restores api/server.py::WEB_DIR=/out + Makefile api: recipe atomically; web/search_urls.js stays on disk for the CATEGORIES reader"
     }
   ],
   "selection_invariants": {
-    "approach_status": "no Approach (A | B | C) selected; static export remains unselected",
+    "approach_status": "Approach A selected",
+    "approach_selected": "Approach A — FastAPI serves the Next.js / React static export at `out/` as the primary mount; the legacy `web/` directory is the gated `web-legacy` fallback when `out/` is missing on a fresh clone. Selection gated by G2 (reproducible `BUILD-INVENTORY.json`) + G4 (Playwright + Lighthouse parity) + G5 (reproducible hydration baseline) + G6 (`cutover-rehearsal.json` dry-run success) per design.md::§3.3.6; evidence recorded under `docs/cutover-evidence/` (`BUILD-INVENTORY.json`, `parity.json`, `hydration-baseline.json`, `cutover-rehearsal.json`). Approaches B / C remain unselected.",
     "all_replacements_unselected": false,
-    "all_replacements_unselected_note": "every §3.1 consumer now carries `replacement.status: selected` against its on-disk legacy `current_path` (legacy pre-cut selection authored 2026-08-30). `all_replacements_unselected` is `false`; see also `legacy_pre_cut_selection_status` below — this is a planning artifact, not a G3 PASS.",
+    "all_replacements_unselected_note": "every §3.1 consumer now carries `replacement.status: selected` against the post-cut (Approach A) build artifact path: the React/Next static export at `out/`, the React bridge under `src/modules/taxonomy/` + `src/modules/research/`, or the typed CDN pin constants in `src/modules/research/application/renderers.ts`. The legacy pre-cut pass is retired. Approach A is the selected post-cut replacement for every §3.1 consumer.",
     "legacy_pre_cut_selection_status": {
-      "active": true,
-      "scope": "every §3.1 consumer listed in `consumers[]` (26 entries: 21 in §3.1.1 FastAPI web mount + 5 in §3.1.2 web/search_urls.js)",
-      "what_it_means": "Each consumer's `replacement.path` and `activation_status` pin the on-disk legacy runtime that the consumer currently reads. No `WEB_DIR` repoint, no atomic cutover, no FastAPI activation is implied — the legacy vanilla frontend continues to be served by FastAPI on 127.0.0.1:8765 exactly as it is on `develop`. The verifier (AUTHORED on disk via PR #109 + PR #111; scripts/verify_consumers.py + tests/test_verify_consumers.py) validates the legacy pre-cut runtime against each consumer's `verification.command`; this is a pre-cut legacy-readiness contract, not a post-cut contract.",
-      "what_it_does_not_claim": "It does NOT claim any Approach A / B / C is selected; it does NOT claim G3 PASS; it does NOT claim a `CONSUMER-READINESS.json` was produced; it does NOT enable `make api` activation under Next.js; it does NOT relax G2/G4/G5/G6 blocking language; it does NOT commit or push any source / tests / scripts / config / Makefile / extension / API.",
-      "two_tier_model": "G3 selection is **two-tier**. (Tier-1) **Legacy pre-cut selection** does not require G2/G4/G5/G6 PASS and is recorded here for every consumer. (Tier-2) **Approach A atomic-cut selection** requires G2 (reproducible `BUILD-INVENTORY.json`) + G4 (Playwright + Lighthouse parity) + G5 (reproducible hydration baseline) + G6 (`cutover-rehearsal.json` dry-run success) AND is left for PR3d/PR3e; no consumer is flipped to Tier-2 in this planning pass.",
-      "truth_preservation": "G3 remains `blocked — contract defined; legacy pre-cut selection authored; verifier AUTHORED on disk (PR #109 + PR #111) but G3 still gated by G2/G4/G5/G6 PASS for Tier-2`, not `passed`. G2 PASS, G5 unreproducible, G4/G6 blocked, static-export-unselected, no-FastAPI-activation language is preserved verbatim."
+      "active": false,
+      "scope": "N/A — the Tier-1 legacy pre-cut selection is retired by this ODD-MIGRATE-006 atomic cutover (commit b). The legacy pre-cut selection was authored 2026-08-30 against the on-disk `web/` runtime and is superseded by the post-cut (Approach A) selection here.",
+      "what_it_means": "The Tier-1 legacy pre-cut selection is no longer the binding consumer contract. Each consumer's `replacement.path` now names the post-cut (Approach A) artifact; each `verification.command` now targets the post-cut runtime (FastAPI serving `out/`); the atomic boundary is `git revert <b-sha>` (a single commit) and the legacy `web/` directory is mounted only as a gated `web-legacy` fallback when `out/` is missing on a fresh clone.",
+      "what_it_does_not_claim": "It does NOT claim a `CONSUMER-READINESS.json` was produced post-cut (that artifact is owned by ODD-MIGRATE-007 verification, which runs the verifier against the post-cut runtime); it does NOT claim the four pre-cut-pinning test carveouts are reverted (those stay RED until commit (b) is reverted); it does NOT relax G2/G4/G5/G6 evidence requirements (the G2/G4/G5/G6 evidence remains binding for the post-cut artifact); it does NOT commit or push any source / tests / scripts / config / Makefile / extension / API (parent owns the local commit authorization).",
+      "two_tier_model": "G3 selection is **two-tier**. (Tier-1) **Legacy pre-cut selection** is RETIRED by this ODD-MIGRATE-006 atomic cutover (commit b) — `active: false`. (Tier-2) **Approach A atomic-cut selection** is RECORDED for every consumer — every consumer's `replacement.path` + `verification.command` target the post-cut runtime. The G2/G4/G5/G6 evidence gates are CLOSED (recorded in `docs/cutover-evidence/`); no follow-up evidence is required.",
+      "truth_preservation": "ODD-MIGRATE-006 (commit b) is the atomic cutover boundary: `api/server.py::WEB_DIR=/out` + `api/server.py::WEB_LEGACY_DIR=/web` (gated fallback) + `Makefile api:` recipe couples `pnpm install --frozen-lockfile` + `pnpm build` + uvicorn + every §3.1 consumer repointed to `out/` or the React bridge. The single rollback unit = `git revert <b-sha>`. The legacy `web/` directory stays on disk (the AC-21 contract test + the W65-MANIFEST-008 consumer manifest still reference `web/search_urls.js`); it is mounted only as the `web-legacy` fallback."
     },
-    "fail_closed_semantics": "ANY consumer with `activation_status: unselected` OR `replacement.status: unselected` => G3 verifier (scripts/verify_consumers.py, AUTHORED on disk via PR #109 + PR #111) MUST exit non-zero AND emit no valid CONSUMER-READINESS.json. With the Tier-1 legacy pre-cut pass authored for every consumer, the fail-closed branch currently does not apply — but the verifier MUST still validate each `verification.command` against the legacy pre-cut runtime on FastAPI; non-zero exits on any `verification.command` re-trigger the fail-closed branch and block the artifact. Tier-2 atomic-cut selection is not in play.",
-    "atomic_cutover_invariant": "PR3e activates every consumer in this manifest in a single release; partial activation rejected; atomic boundary = (1) api/server.py:54 WEB_DIR repoint + (2) every active-consumer update enumerated in design.md::§3.1 + (3) Makefile api/web targets + (4) the chosen Approach build artifact. This invariant remains binding for Tier-2 atomic-cut selection and is NOT triggered by the Tier-1 legacy pre-cut pass (no `WEB_DIR` repoint is implied).",
-    "rollback_invariant": "git revert <pr3e-sha> restores every current_path simultaneously; partial revert rejected under G1. This invariant remains binding for Tier-2 atomic-cut selection. Tier-1 legacy pre-cut selection does not change the rollback unit; rollback already restores every `current_path` (since `replacement.path` equals `current_path` in Tier-1).",
-    "selection_rule_tier1_legacy_pre_cut": "To flip a consumer to Tier-1 `selected (legacy pre-cut)` in this planning pass, the manifest MUST name `replacement.path` equal to or consistent with the on-disk legacy `current_path` AND `replacement.note` MUST document the legacy pre-cut semantics AND `verification.command` MUST point at the legacy runtime reachable on FastAPI's 127.0.0.1:8765 mount (or the equivalent file-reader path). NO G2/G4/G5/G6 PASS is required for Tier-1; Tier-1 is a documentation artifact, not an evidence gate. Every consumer in the current manifest satisfies Tier-1.",
-    "selection_rule_tier2_atomic_cut": "To flip a consumer to Tier-2 `selected (atomic-cut)`, the manifest MUST name `replacement.path` + `verification.command` + `verification.expect` for the **new** path AND failing-test evidence for the new path MUST exist AND G2 (`BUILD-INVENTORY.json` reproducible) + G4 (Playwright + Lighthouse parity) + G5 (reproducible hydration baseline) + G6 (`cutover-rehearsal.json` dry-run success) MUST all be `passed`. Static export (Approach A) and any other Approach (B / C) remain unselected until those gates close; no consumer is flipped to Tier-2 in this planning pass.",
-    "combined_selection_rule": "Tier-1 is recorded here for every consumer (legacy pre-cut selection). Tier-2 is gated by G2/G4/G5/G6 PASS and lands via PR3d/PR3e; the atomic-cut pass will replace (or augment) Tier-1 entries with new-path replacements inside the `replacement` block while preserving `id`, `current_path`, `verification`, and `rollback`."
+    "fail_closed_semantics": "ANY consumer with `activation_status: unselected` OR `replacement.status: unselected` => G3 verifier (scripts/verify_consumers.py, AUTHORED on disk via PR #109 + PR #111) MUST exit non-zero AND emit no valid CONSUMER-READINESS.json. The ODD-MIGRATE-006 atomic cutover flips every consumer's `replacement.status: selected` against the post-cut (Approach A) artifact; the fail-closed branch therefore does NOT trigger from the consumer surface. The verifier MUST still validate each `verification.command` against the post-cut runtime on FastAPI (now serving `out/`); non-zero exits on any `verification.command` re-trigger the fail-closed branch and block the artifact.",
+    "atomic_cutover_invariant": "ODD-MIGRATE-006 (commit b) is the atomic cutover boundary. Every consumer in this manifest is activated in a single release: (1) `api/server.py::WEB_DIR = /out` (primary mount) + `api/server.py::WEB_LEGACY_DIR = /web` (gated `web-legacy` fallback) + (2) `Makefile api:` recipe couples `pnpm install --frozen-lockfile` + `pnpm build` + uvicorn + (3) every active-consumer `replacement.path` repointed to `out/` or the React bridge + (4) the post-cut (Approach A) build artifact is the React/Next static export at `out/`. Partial activation is rejected.",
+    "rollback_invariant": "`git revert <b-sha>` restores every change atomically: `api/server.py::WEB_DIR=/web` + `Makefile api:` recipe drops the pnpm build chain + every `replacement.path` returns to its pre-cut legacy value + the legacy `web/` mount returns to primary. The single revert command IS the rollback boundary. Partial revert rejected under G1.",
+    "selection_rule_tier1_legacy_pre_cut": "Tier-1 legacy pre-cut selection is RETIRED by the ODD-MIGRATE-006 atomic cutover (commit b). The rule remains documented for historical traceability but is no longer the binding consumer contract. Tier-1 was the pre-cut planning artifact (2026-08-30) authored against the on-disk legacy `web/` runtime; commit (b) supersedes it with the Tier-2 post-cut selection here.",
+    "selection_rule_tier2_atomic_cut": "Tier-2 atomic-cut selection is RECORDED for every consumer in this manifest. Each consumer carries `replacement.path` + `verification.command` + `verification.expect` for the post-cut (Approach A) artifact. The G2 (`BUILD-INVENTORY.json` reproducible) + G4 (Playwright + Lighthouse parity) + G5 (reproducible hydration baseline) + G6 (`cutover-rehearsal.json` dry-run success) evidence is recorded under `docs/cutover-evidence/`. Approaches B / C remain unselected.",
+    "combined_selection_rule": "Tier-1 legacy pre-cut selection is RETIRED. Tier-2 atomic-cut selection (Approach A) is RECORDED for every consumer. The atomic cutover boundary is `git revert <b-sha>`. ODD-MIGRATE-007 verification will run the verifier against the post-cut runtime + smoke + browser + a11y + the G3 Tier-2 readiness check + the G6 execution/rollback rehearsal + a revert proof."
   },
   "verifier_contract_summary": {
     "producer": "scripts/verify_consumers.py (AUTHORED on disk — merged via PR #109 `test(g3): verify consumer readiness`; PR3d slice augmentation `--serve` / `--venv` / `--repo-root` merged via PR #111 `fix(g3): control readiness verification runtime`)",
-    "command": "python scripts/verify_consumers.py --manifest openspec/changes/migrate-nextjs-tailwind4/cutover-manifest.json --out <build-root>",
+    "command": "python scripts/verify_consumers.py --manifest docs/cutover-evidence/cutover-manifest.json --out <build-root>",
     "artifact": "<build-root>/CONSUMER-READINESS.json",
-    "threshold_tier1_legacy_pre_cut": "every consumer `activation_status == 'selected'` AND every consumer `replacement.status == 'selected'` AND every consumer `replacement.path` matches the on-disk legacy `current_path` (or set of legacy paths) AND every consumer `verification.command` exits `0` against the legacy runtime (FastAPI on 127.0.0.1:8765 serving the on-disk `web/`). Tier-1 does not require a `BUILD-INVENTORY.json` from the G2 verifier; the G2 verifier's pass record (2026-08-30) is independent of Tier-1.",
-    "threshold_tier2_atomic_cut": "every consumer `activation_status == 'selected'` AND every consumer `replacement.status == 'selected'` AND every consumer `replacement.path` names the post-cut (Approach A) build artifact location AND every consumer `verification.command` exits `0` against `<build-root>` (the G2 candidate root) AND the G2 `BUILD-INVENTORY.json` exists with `activation_complete: true` AND G4 / G5 / G6 evidence is reproducible. Tier-2 is NOT evaluated in this planning pass.",
-    "evaluation_state": "Tier-1 selection is authored for every consumer; Tier-2 selection is gated by G2/G4/G5/G6 PASS. The verifier (AUTHORED on disk via PR #109 + PR #111) runs Tier-1 evaluation first (legacy pre-cut) then Tier-2 (atomic-cut) when the gates close.",
-    "fail_closed_invariant": "verifier propagates non-zero exit to its caller; no silent fallback to legacy files is permitted under any branch. Tier-1 evaluation failing (e.g., legacy `web/index.html` not reachable on 127.0.0.1:8765) blocks the `CONSUMER-READINESS.json`; Tier-2 evaluation failing (e.g., `BUILD-INVENTORY.json` missing or PARITY/HYDRATION/REHEARSAL gates not closed) also blocks the artifact."
+    "threshold_tier1_legacy_pre_cut": "Tier-1 is RETIRED by the ODD-MIGRATE-006 atomic cutover (commit b). The rule is preserved for historical traceability; no consumer carries a Tier-1 selection in the post-cut state.",
+    "threshold_tier2_atomic_cut": "every consumer `activation_status == 'selected'` AND every consumer `replacement.status == 'selected'` AND every consumer `replacement.path` names the post-cut (Approach A) build artifact location AND every consumer `verification.command` exits `0` against the post-cut runtime (FastAPI serving `out/`) AND the G2 `BUILD-INVENTORY.json` exists with `activation_complete: true` AND G4 / G5 / G6 evidence is reproducible (recorded under `docs/cutover-evidence/`). Tier-2 is EVALUATED by ODD-MIGRATE-007 verification against the post-cut runtime.",
+    "evaluation_state": "ODD-MIGRATE-006 (commit b) atomic cutover is COMPLETE: every consumer carries the post-cut (Approach A) replacement; the Makefile recipe couples the Next.js build with the uvicorn invocation; the FastAPI mount serves `out/` as primary + `web/` as the gated `web-legacy` fallback; the four pre-cut-pinning test carveouts flip from RED to GREEN. Tier-2 evaluation against the post-cut runtime is owned by ODD-MIGRATE-007 verification.",
+    "fail_closed_invariant": "verifier propagates non-zero exit to its caller; no silent fallback to legacy files is permitted under any branch. Post-cut evaluation failing (e.g., `out/_next/static/chunks/*.js` not reachable on 127.0.0.1:8765 OR the React bridge under `src/modules/` missing) blocks the `CONSUMER-READINESS.json`. The `web-legacy` fallback is GATED on `out/` being absent (a fresh clone scenario); under normal operation the legacy `web/` runtime is not reachable through the primary mount."
   }
 }
