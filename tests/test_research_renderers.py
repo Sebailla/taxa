@@ -3950,3 +3950,213 @@ def test_project_wide_strict_typecheck_for_research_renderers(
         f"strict typecheck of src/modules/research/ failed.\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
+
+
+# ---------------------------------------------------------------------------
+# W64B-DOCX-002 — typed `cdn-failed` reason on every CDN-dependent
+# `*-offline` variant.
+#
+# The W64B contract extends the public `ViewerDispatch` union so the
+# `reason` field on each CDN-dependent `*-offline` variant
+# (`docx-offline` / `sheet-offline` / `epub-offline` / `table-offline`)
+# becomes a typed union of `"bytes-missing"` AND `"cdn-failed"`. The
+# dispatcher can only detect the bytes-missing path at dispatch time
+# (CDN script load + conversion failures happen at the React mount and
+# surface as the typed `cdn-failed` recovery state — preserves the
+# pre-W64B bytes-missing behavior byte-for-byte, while making the
+# mount-detected `cdn-failed` path a first-class typed value).
+#
+# JSON stays native and CDN-free: `json-offline.reason` keeps its
+# pre-W64B literal `"bytes-missing"` — there is no CDN to fail.
+# ---------------------------------------------------------------------------
+def _w64b_offline_variant_matches_union(
+    text: str, kind_literal: str,
+) -> bool:
+    """W64B-DOCX-002 — helper that extracts the `*-offline` variant
+    block (delimited by `kind: "<kind_literal>";` followed by the
+    matching closing `}` of the type literal) and checks the
+    `reason` field is the typed union `"bytes-missing" | "cdn-failed"`.
+    The variant block boundary is matched by counting brace depth
+    from the `kind:` discriminator to the first brace-balanced
+    close. Returns `True` only when BOTH `"bytes-missing"` AND
+    `"cdn-failed"` appear in the `reason` field of that specific
+    variant. Comments are stripped first so author-friendly
+    documentation referencing the literal does not trip the
+    brace-counting matcher."""
+    stripped = _strip_ts_comments(text)
+    # Find the variant discriminator.
+    kind_pat = re.compile(
+        rf'\{{\s*readonly\s+kind:\s*"{re.escape(kind_literal)}"\s*;',
+    )
+    kind_match = kind_pat.search(stripped)
+    if not kind_match:
+        return False
+    # Walk braces from the discriminator's opening `{` until we
+    # reach depth 0 (the matching close). The reason field
+    # must live inside that block.
+    start = stripped.find("{", kind_match.start())
+    if start < 0:
+        return False
+    depth = 0
+    for i in range(start, len(stripped)):
+        c = stripped[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                block = stripped[start:i + 1]
+                reason_match = re.search(
+                    r'\breason\s*:\s*"([^"]+)"\s*\|\s*"([^"]+)"',
+                    block,
+                )
+                if not reason_match:
+                    return False
+                # Both literals must be present in the union,
+                # in either order — the contract just commits
+                # to BOTH being typed values (the runtime
+                # dispatcher always emits `"bytes-missing"`,
+                # the mount emits `"cdn-failed"` on Script.onError
+                # + convertToHtml exception).
+                literals = {
+                    reason_match.group(1),
+                    reason_match.group(2),
+                }
+                return literals == {"bytes-missing", "cdn-failed"}
+    return False
+
+
+def test_w64b_renderers_docx_offline_reason_union_includes_cdn_failed() -> None:
+    """W64B-DOCX-002 — the `docx-offline` `ViewerDispatch` variant
+    MUST carry a typed `reason` field that's the union
+    `"bytes-missing" | "cdn-failed"` (not the pre-W64B literal
+    `"bytes-missing"` alone). The mount-detected
+    `convertToHtml(...)` exception + the `<Script>` `onError`
+    callback both surface through this union so the recovery
+    state stays typed and distinct from the bytes-missing path
+    the dispatcher emits at dispatch time. A future PR that
+    drops `"cdn-failed"` from the union silently breaks the
+    `Script.onError` + `convertToHtml` typed recovery contract.
+    RED until the type extension lands on `renderers.ts`."""
+    if not RENDERERS_FILE.exists():
+        pytest.skip("renderers file not present yet")
+    text = RENDERERS_FILE.read_text()
+    assert _w64b_offline_variant_matches_union(text, "docx-offline"), (
+        "renderers.ts MUST extend the `docx-offline` variant's "
+        "`reason` field to the typed union "
+        '`"bytes-missing" | "cdn-failed"` (W64B-DOCX-002). '
+        "The mount-detected `Script.onError` + "
+        "`mammoth.convertToHtml(...)` exception paths surface "
+        "through the `cdn-failed` literal so the recovery state "
+        "stays typed and distinct from the bytes-missing offline "
+        "path the dispatcher emits at dispatch time."
+    )
+
+
+def test_w64b_renderers_sheet_offline_reason_union_includes_cdn_failed() -> None:
+    """W64B-DOCX-002 — the `sheet-offline` `ViewerDispatch`
+    variant MUST carry the same typed `reason` union
+    (`"bytes-missing" | "cdn-failed"`) so the same `cdn-failed`
+    recovery contract applies to XLS / XLSX mount failures
+    (the typed literal is owned by the discriminated union, not
+    per-family). The task brief mandates the typed union is
+    applied to every CDN-dependent family — DOCX is the W64B
+    implementation target but the type extension lands once
+    across all four CDN families."""
+    if not RENDERERS_FILE.exists():
+        pytest.skip("renderers file not present yet")
+    text = RENDERERS_FILE.read_text()
+    assert _w64b_offline_variant_matches_union(text, "sheet-offline"), (
+        "renderers.ts MUST extend the `sheet-offline` variant's "
+        '`reason` field to the typed union `"bytes-missing" | '
+        '"cdn-failed"` (W64B-DOCX-002 typed union extension '
+        "applied to every CDN-dependent family)."
+    )
+
+
+def test_w64b_renderers_epub_offline_reason_union_includes_cdn_failed() -> None:
+    """W64B-DOCX-002 — the `epub-offline` `ViewerDispatch`
+    variant MUST carry the same typed `reason` union
+    (`"bytes-missing" | "cdn-failed"`). Mirrors the docx +
+    sheet union-extension contract."""
+    if not RENDERERS_FILE.exists():
+        pytest.skip("renderers file not present yet")
+    text = RENDERERS_FILE.read_text()
+    assert _w64b_offline_variant_matches_union(text, "epub-offline"), (
+        "renderers.ts MUST extend the `epub-offline` variant's "
+        '`reason` field to the typed union `"bytes-missing" | '
+        '"cdn-failed"` (W64B-DOCX-002 typed union extension '
+        "applied to every CDN-dependent family)."
+    )
+
+
+def test_w64b_renderers_table_offline_reason_union_includes_cdn_failed() -> None:
+    """W64B-DOCX-002 — the `table-offline` `ViewerDispatch`
+    variant MUST carry the same typed `reason` union
+    (`"bytes-missing" | "cdn-failed"`). Mirrors the docx +
+    sheet + epub union-extension contract. Papa Parse
+    load failures + parse errors surface through this
+    union when the mount extends the CDN-load contract for
+    CSV / TSV (a separately authorized later slice)."""
+    if not RENDERERS_FILE.exists():
+        pytest.skip("renderers file not present yet")
+    text = RENDERERS_FILE.read_text()
+    assert _w64b_offline_variant_matches_union(text, "table-offline"), (
+        "renderers.ts MUST extend the `table-offline` variant's "
+        '`reason` field to the typed union `"bytes-missing" | '
+        '"cdn-failed"` (W64B-DOCX-002 typed union extension '
+        "applied to every CDN-dependent family)."
+    )
+
+
+def test_w64b_renderers_json_offline_reason_stays_bytes_missing_literal() -> None:
+    """W64B-DOCX-002 — JSON is the spec's native Tree viewer
+    (no CDN, no third-party JSON library — per
+    `openspec/specs/research/spec.md` "Tree viewer tab / No
+    CDN is used."). The `json-offline` variant's `reason`
+    field MUST stay the pre-W64B literal `"bytes-missing"`
+    (no `"cdn-failed"` literal — there is no CDN to fail).
+    The W64B-DOCX-002 contract is explicit: every CDN-
+    DEPENDENT family joins the typed union; the native
+    families (TXT / MD / HTML / IMG / VIDEO / SVG / JSON)
+    keep their pre-W64B behavior — `bytes-missing` is the
+    only offline reason for those."""
+    if not RENDERERS_FILE.exists():
+        pytest.skip("renderers file not present yet")
+    text = RENDERERS_FILE.read_text()
+    # Locate the json-offline variant block (same brace-walking
+    # helper as the union check) and assert the `reason` field
+    # is the literal `"bytes-missing"` (NOT a union).
+    stripped = _strip_ts_comments(text)
+    kind_pat = re.compile(r'\{\s*readonly\s+kind:\s*"json-offline"\s*;')
+    kind_match = kind_pat.search(stripped)
+    assert kind_match, (
+        "renderers.ts must keep a `json-offline` "
+        "`ViewerDispatch` variant (the W4b4 native JSON Tree "
+        "viewer contract is unchanged by W64B)."
+    )
+    start = stripped.find("{", kind_match.start())
+    depth = 0
+    block = ""
+    for i in range(start, len(stripped)):
+        c = stripped[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                block = stripped[start:i + 1]
+                break
+    reason_match = re.search(r'\breason\s*:\s*"([^"]+)"', block)
+    assert reason_match, (
+        "json-offline variant must keep its `reason` field "
+        "(the typed literal pins the offline reason the "
+        "dispatcher can detect)."
+    )
+    assert reason_match.group(1) == "bytes-missing", (
+        "json-offline.reason must stay the literal "
+        '"bytes-missing" — JSON is the native Tree viewer '
+        "(no CDN, no Script loader), so there is no "
+        "cdn-failed path to add. Got literal: "
+        f"{reason_match.group(1)!r}"
+    )

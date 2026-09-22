@@ -1250,19 +1250,40 @@ const kernel = require(path.resolve(process.argv[2]));
 //    falls into the "no bytes" branch because the W6.1
 //    mount does not wire the CDN library — bytes, if
 //    fetched, would just trigger the offline branch.
+//
+//    W64A-JSON-001 — JSON is now in the bytes-required
+//    group. The JSON Tree viewer materialization owns
+//    JSON.parse + the legacy `MAX_JSON_NODES = 50_000`
+//    truncation cap, so bytes MUST be fetched through
+//    the existing `bytesRequiredForFormat` seam before
+//    the dispatcher's `json-source` branch fires. JSON
+//    is native per the spec's "Tree viewer tab / No CDN
+//    is used." requirement (no `<Script>` surface), so
+//    adding JSON to the bytes-required matrix does NOT
+//    touch the CDN loader contract.
 {
   assert.strictEqual(kernel.bytesRequiredForFormat("txt"), true);
   assert.strictEqual(kernel.bytesRequiredForFormat("md"), true);
   assert.strictEqual(kernel.bytesRequiredForFormat("svg"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("json"), true,
+    "W64A-JSON-001: JSON must require bytes (the native JSON.parse tree viewer reads the bytes through the bytesRequiredForFormat seam)");
   assert.strictEqual(kernel.bytesRequiredForFormat("pdf"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("html"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("htm"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("jpg"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("epub"), false);
-  assert.strictEqual(kernel.bytesRequiredForFormat("docx"), false);
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("docx"), true,
+    "W64B-DOCX-002: bytesRequiredForFormat('docx') must return "
+    + "true so the bytes-fetch effect in Viewer.tsx reads the "
+    + "DOCX bytes through the same seam TXT / MD / SVG / JSON "
+    + "already use (the W6.1 W64A JSON contract flipped "
+    + "JSON into the bytes-required group; W64B extends that "
+    + "matrix to DOCX so the Next Script loader + "
+    + "mammoth.convertToHtml path has bytes available).",
+  );
   assert.strictEqual(kernel.bytesRequiredForFormat("xlsx"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("csv"), false);
-  assert.strictEqual(kernel.bytesRequiredForFormat("json"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("mp4"), false);
   assert.strictEqual(kernel.bytesRequiredForFormat("other"), false);
 }
@@ -2345,4 +2366,973 @@ def test_project_wide_strict_typecheck_for_w6_1_mount(
     assert result.returncode == 0, (
         f"strict typecheck of W6.1 mount failed.\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# W64A-JSON-001 — native JSON Tree viewer materialization.
+# The dispatcher's W4b4 `json-source` branch carries bytes
+# + descriptor (NO CDN metadata — JSON parsing is native per
+# the spec's "Tree viewer tab / No CDN is used." requirement).
+# The React mount consumes the bytes through the existing
+# `bytesRequiredForFormat` seam (so JSON is now in the
+# bytes-required group) and renders an accessible,
+# collapsible Explorer tree faithful to the legacy
+# `web/file_viewer.js::renderJsonTree` oracle. The
+# missing-bytes fallback/download behavior (the
+# `json-offline` dispatch) is preserved verbatim — the mount
+# continues to surface it through the same recovery card the
+# W6.1 contract ships.
+#
+# The W64A surface is intentionally narrow:
+#   - `bytesRequiredForFormat("json") === true`
+#     (the kernel contract flips for JSON so the bytes-fetch
+#     effect in `Viewer.tsx` reads the JSON bytes through the
+#     same seam the TXT / MD / SVG effects already use).
+#   - A pure `parseJsonTree(bytes)` kernel helper in
+#     `explorer-state.ts` decodes UTF-8 + calls `JSON.parse`
+#     + returns the typed `{ ok, value }` / `{ ok: false,
+#     error }` shape. Pure, framework-free, importable through
+#     the public barrel.
+#   - A `JsonTree` + `JsonNode` React sub-component inside
+#     `Viewer.tsx` that renders the typed `json-source`
+#     dispatch: caret + summary + key + type-meta + lazy
+#     children, faithful to the legacy
+#     `web/file_viewer.js::renderJsonNode` shape byte-for-byte.
+#   - `aria-expanded` + `role="button"` + `tabIndex={0}` +
+#     keyboard Enter/Space handlers on the summary row so the
+#     tree is accessible (the W3C ARIA disclosure-widget
+#     pattern). The legacy uses `<div role="button" tabindex="0">`
+#     for the same affordance.
+#   - The legacy `MAX_JSON_NODES = 50_000` truncation cap is
+#     pinned byte-for-byte — past the cap the React mount
+#     paints the exact `Tree truncated — open raw` banner the
+#     legacy `web/file_viewer.js::renderJsonTree` paints.
+#   - The `json-offline` dispatch continues to flow through
+#     `renderOfflineCard` (the existing W6.1 cdn-pending
+#     recovery path) — the missing-bytes fallback/download
+#     behavior is retained verbatim.
+#
+# The W64A surface DOES NOT:
+#   - Add a CDN loader, `<Script>` component, or any third-party
+#     JSON library. JSON parsing is native (`JSON.parse`).
+#   - Change the application-layer `dispatchViewer` contract —
+#     the `json-source` / `json-offline` variants are emitted
+#     by the W4b4 dispatcher unchanged.
+#   - Begin the DOCX / Mammoth slice (W64B-DOCX-002).
+# ---------------------------------------------------------------------------
+
+
+# W64A-JSON-001 — Viewer.tsx source-level shape.
+# The W64A contract surfaces through the existing Viewer.tsx
+# file: the JSON Tree component lives as a sub-component inside
+# Viewer.tsx (the React mount is the JSON consumer; the file is
+# allowed for editing per the task brief). The tests below pin
+# the JSON-specific JSX shape + the dispatch branch so a future
+# PR cannot silently drop the JSON rendering.
+def test_w64a_json_viewer_handles_json_source_dispatch() -> None:
+    """W64A-JSON-001 — the renderDispatch switch in
+    Viewer.tsx MUST have an EXPLICIT `case "json-source"`
+    arm that paints the native JSON Tree (NOT the cdn-pending
+    recovery card the W6.1 fallback uses). The cdn-pending
+    path is preserved for the other CDN-backed variants; the
+    JSON path renders the typed native tree because JSON
+    parsing has no CDN dependency. A future PR that merges
+    `json-source` into the cdn-pending fallback branch
+    silently breaks the JSON Tree viewer."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    assert re.search(r'case\s+"json-source"\s*:', text), (
+        "Viewer.tsx MUST have an explicit `case \"json-source\":` "
+        "branch in `renderDispatch` so the typed JSON Tree "
+        "viewer renders the native tree (NOT the W6.1 "
+        "cdn-pending fallback). W64A-JSON-001 contract: "
+        "JSON Tree dispatch receives fetched bytes through "
+        "the existing `bytesRequiredForFormat` seam and "
+        "renders the native tree."
+    )
+    # The case must render the native JSON Tree — a
+    # JsonTree / renderJsonTree / parseJsonTree reference
+    # must live inside the JSON branch's body. A JSON
+    # branch that maps straight to `renderOfflineCard`
+    # (the W6.1 cdn-pending catch-all) would NOT carry
+    # such a marker, so the test fails RED until the
+    # native rendering is wired.
+    json_branch_match = re.search(
+        r'case\s+"json-source"\s*:(.*?)(?=case\s+"|\}\s*\n\s*\})',
+        text, re.DOTALL,
+    )
+    assert json_branch_match, (
+        "Viewer.tsx must have an extractable `json-source` "
+        "branch body in `renderDispatch`."
+    )
+    json_branch = json_branch_match.group(1)
+    assert re.search(r'\bJsonTree\b|\brenderJsonTree\b|\bparseJsonTree\b',
+                     json_branch), (
+        "Viewer.tsx's `case \"json-source\":` branch MUST "
+        "reference the JSON Tree rendering helper "
+        "(`JsonTree` / `renderJsonTree` / `parseJsonTree`) "
+        "so the native tree renders — NOT the W6.1 "
+        "`renderOfflineCard` cdn-pending fallback. "
+        "W64A-JSON-001 acceptance: 'JSON Tree dispatch "
+        "receives fetched bytes, parses JSON natively, "
+        "renders an accessible/collapsible Explorer tree "
+        "faithful to the legacy oracle'."
+    )
+
+
+def test_w64a_json_viewer_renders_json_offline_via_existing_fallback() -> None:
+    """W64A-JSON-001 — the `json-offline` dispatch continues to
+    flow through the existing `renderOfflineCard` recovery
+    path. The task brief mandates the existing
+    missing-bytes fallback/download behavior be retained. The
+    W6.1 contract already routes every `*-offline` variant
+    (docx-offline / sheet-offline / epub-offline /
+    table-offline / json-offline) through `renderOfflineCard`;
+    the W64A contract MUST NOT carve json-offline into a
+    separate branch — the user keeps a single, consistent
+    recovery path regardless of which CDN-backed format
+    would have been loaded."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    # The renderOfflineCard helper is the W6.1 typed
+    # recovery path; the json-offline case stays inside the
+    # cdn-pending catch-all branch that funnels every
+    # `*-offline` variant through renderOfflineCard. The
+    # test asserts the json-offline literal still lives in
+    # the renderOfflineCard branch (NOT a new dedicated
+    # case), so the existing download affordance stays in
+    # place for the missing-bytes path.
+    offline_card_match = re.search(
+        r'function\s+renderOfflineCard\s*\([^)]*\)\s*:\s*ReactNode\s*\{(.*?)\n\}',
+        text, re.DOTALL,
+    )
+    assert offline_card_match, (
+        "Viewer.tsx must still export the `renderOfflineCard` "
+        "helper (the W6.1 typed recovery path that the "
+        "`*-offline` variants all funnel through)."
+    )
+    offline_card_body = offline_card_match.group(1)
+    assert 'json-offline' in offline_card_body, (
+        "Viewer.tsx's `renderOfflineCard` helper MUST still "
+        "match the `json-offline` literal so the existing "
+        "missing-bytes fallback/download behavior is retained "
+        "(W64A-JSON-001 acceptance: 'retain existing "
+        "missing-bytes fallback/download behavior')."
+    )
+
+
+def test_w64a_json_viewer_does_not_use_dangerously_set_inner_html() -> None:
+    """W64A-JSON-001 — the JSON Tree viewer renders React
+    components, NOT injected HTML. The XSS-safe SVG variant
+    uses `dangerouslySetInnerHTML` because the W4a
+    `sanitizeSvgMarkup` scrub is the typed hand-off; the JSON
+    Tree viewer has no analogous sanitization layer — it
+    renders values via React children (so React escapes the
+    text content automatically). A future PR that injects JSON
+    values through `dangerouslySetInnerHTML` would expose the
+    tree to XSS. The test guards the JSON path against
+    accidental `dangerouslySetInnerHTML` injection."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    # Locate the JSON Tree rendering block (anything between
+    # the `case "json-source":` branch and the next case OR
+    # the end of renderDispatch). We use a heuristic: every
+    # `dangerouslySetInnerHTML` reference inside Viewer.tsx
+    # is the SVG-sanitized branch (the only legitimate use);
+    # the JSON Tree branch must not introduce a new one.
+    # The test asserts the JSON-specific JSX block does not
+    # contain `dangerouslySetInnerHTML`.
+    json_branch_match = re.search(
+        r'case\s+"json-source"\s*:(.*?)(?=case\s+"|\}\s*\n\s*\})',
+        text, re.DOTALL,
+    )
+    if json_branch_match is None:
+        pytest.skip("json-source branch not present yet")
+    json_branch = json_branch_match.group(1)
+    assert "dangerouslySetInnerHTML" not in json_branch, (
+        "Viewer.tsx's `json-source` branch must NOT use "
+        "`dangerouslySetInnerHTML` to inject JSON values — "
+        "React's text-content escaping is the XSS guard for "
+        "the tree viewer; injecting raw HTML would expose "
+        "the user to XSS through malicious JSON content."
+    )
+
+
+def test_w64a_json_viewer_has_accessible_button_role() -> None:
+    """W64A-JSON-001 — the JSON Tree summary row MUST render
+    `role="button"` + `tabIndex={0}` + a keyboard handler
+    so the disclosure widget is accessible (the W3C ARIA
+    disclosure-widget pattern). The legacy
+    `web/file_viewer.js::renderJsonNode` paints
+    `<div class="fex-json-summary" role="button" tabindex="0">`
+    + wires Enter/Space keyboard handlers; the React mount
+    mirrors that shape so the accessibility surface stays
+    in lock-step with the legacy oracle."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    # Look for the legacy oracle's accessibility markers
+    # inside the Viewer.tsx source. The exact JSX spelling
+    # for tabIndex is camelCase in React.
+    assert 'role="button"' in text, (
+        "Viewer.tsx must render `role=\"button\"` on the "
+        "JSON Tree summary row so the disclosure widget "
+        "exposes button semantics to assistive tech (the "
+        "W3C ARIA disclosure-widget pattern; mirrors the "
+        "legacy `web/file_viewer.js::renderJsonNode` "
+        "shape)."
+    )
+    assert "tabIndex=" in text or "tabindex=" in text.lower(), (
+        "Viewer.tsx must render a non-negative `tabIndex` "
+        "on the JSON Tree summary row so the disclosure "
+        "widget is keyboard-focusable (the legacy "
+        "`tabindex=\"0\"` shape)."
+    )
+
+
+def test_w64a_json_viewer_renders_legacy_root_literal() -> None:
+    """W64A-JSON-001 — the JSON Tree host MUST paint the
+    legacy `[root]` literal as the root key (the synthetic
+    root identifier). Mirrors the legacy
+    `web/file_viewer.js::renderJsonNode` shape verbatim —
+    the legacy uses the literal `[root]` for the wire-
+    document root so the user has a stable visible label
+    independent of the actual JSON value's name. A future
+    PR that re-words the root label (e.g. `Root`, `JSON`)
+    silently breaks visual parity with the legacy oracle."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    assert re.search(r'\[\s*["\']root["\']\s*\]|"\[root\]"|"\\[root\\]"', text), (
+        "Viewer.tsx must render the legacy `[root]` literal "
+        "as the synthetic root key (the legacy "
+        "`web/file_viewer.js::renderJsonNode` shape verbatim)."
+    )
+
+
+def test_w64a_json_viewer_renders_truncation_banner_text() -> None:
+    """W64A-JSON-001 — the JSON Tree truncation banner
+    MUST render the legacy `Tree truncated — open raw`
+    literal (the literal `—` em-dash separator is pinned
+    byte-for-byte against the legacy
+    `web/file_viewer.js::renderJsonTree` oracle). A future
+    PR that re-words the banner (e.g. `Truncated`,
+    `Tree too large`, `Open raw to see full`) silently
+    breaks the visual + copy parity with the legacy
+    oracle."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    assert "Tree truncated — open raw" in text, (
+        "Viewer.tsx must render the legacy `Tree truncated "
+        "— open raw` literal (the legacy `web/file_viewer.js::"
+        "renderJsonTree` oracle). The em-dash `—` is pinned "
+        "byte-for-byte."
+    )
+
+
+# W64A-JSON-001 — parseJsonTree pure helper.
+# The pure helper lives in `explorer-state.ts` (the
+# framework-free kernel) so it can be exercised under Node
+# without React + without the DOM. The helper accepts the
+# raw `Uint8Array` bytes (the same shape the W3
+# `fetchFileServe` returns + the same shape the W4b4
+# `json-source` dispatch carries by reference) and returns
+# a typed `{ ok: true, value }` / `{ ok: false, error }`
+# result. The React mount consumes the helper via the
+# framework-free kernel — no React in the helper's
+# implementation.
+def test_w64a_explorer_state_exports_parse_json_tree() -> None:
+    """W64A-JSON-001 — `explorer-state.ts` MUST export a
+    named `parseJsonTree` pure helper so the React mount
+    can call `JSON.parse` through the framework-free kernel
+    + so the focused test harness exercises the parse
+    logic end-to-end without React. A future PR that
+    inlines the parse call into the React component would
+    couple the JSON path to React's lifecycle + would
+    block the framework-free kernel from covering the parse
+    contract."""
+    if not EXPLORER_STATE_FILE.is_file():
+        pytest.skip("explorer-state.ts not present yet")
+    text = EXPLORER_STATE_FILE.read_text()
+    assert re.search(
+        r'export\s+function\s+parseJsonTree\b', text,
+    ), (
+        "explorer-state.ts must export a named "
+        "`parseJsonTree` function (the W64A-JSON-001 "
+        "framework-free JSON decoder — pure UTF-8 decode + "
+        "`JSON.parse`, returns the typed `{ ok, value }` / "
+        "`{ ok: false, error }` shape)."
+    )
+
+
+def test_w64a_explorer_state_exports_max_json_nodes() -> None:
+    """W64A-JSON-001 — `explorer-state.ts` MUST export the
+    `MAX_JSON_NODES = 50_000` constant (pinned byte-for-byte
+    against the legacy `web/file_viewer.js::MAX_JSON_NODES`)
+    so the React mount's truncation cap stays in lock-step
+    with the legacy oracle. The focused test harness
+    exercises the literal value end-to-end; this
+    source-level guard catches a future PR that renames the
+    constant or flips the cap without updating the legacy
+    oracle."""
+    if not EXPLORER_STATE_FILE.is_file():
+        pytest.skip("explorer-state.ts not present yet")
+    text = EXPLORER_STATE_FILE.read_text()
+    m = re.search(
+        r'export\s+const\s+MAX_JSON_NODES\s*=\s*(\d+)', text,
+    )
+    assert m, (
+        "explorer-state.ts must export `MAX_JSON_NODES` as "
+        "a named numeric constant (the legacy 50_000 "
+        "truncation cap)."
+    )
+    assert int(m.group(1)) == 50000, (
+        f"MAX_JSON_NODES must equal the legacy `50_000` "
+        f"literal (web/file_viewer.js::MAX_JSON_NODES); "
+        f"got {m.group(1)!r}. Renaming the cap would "
+        f"silently change the truncation threshold."
+    )
+
+
+def test_w64a_viewer_imports_w64a_helpers_via_relative_path() -> None:
+    """W64A-JSON-001 — the Viewer.tsx React mount imports
+    the W64A pure helpers (`parseJsonTree` + `MAX_JSON_NODES`)
+    through the relative `./explorer-state` path, NOT
+    through the public barrel. The barrel is intentionally
+    NOT extended for the W64A surface in this slice (the
+    barrel is owned by a separately authorized slice); the
+    W64A helpers are module-local to `presentation/` so
+    the Viewer consumes them through the relative path —
+    the same module can reach the kernel directly without
+    going through the public barrel. A future cross-module
+    consumer (a follow-up slice that authorizes the barrel
+    extension) would add the helpers to the barrel
+    re-export surface."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    # The relative-path import must name BOTH W64A
+    # helpers from the same `./explorer-state` module.
+    assert re.search(
+        r'import\s*\{[^}]*\bparseJsonTree\b[^}]*\}'
+        r'\s*from\s*["\']\./explorer-state["\']',
+        text,
+    ), (
+        "Viewer.tsx must import `parseJsonTree` from the "
+        "module-local relative path `./explorer-state` "
+        "(the W64A helpers are module-local to "
+        "`presentation/` — the public barrel is not in "
+        "the W64A edit surface)."
+    )
+    assert re.search(
+        r'import\s*\{[^}]*\bMAX_JSON_NODES\b[^}]*\}'
+        r'\s*from\s*["\']\./explorer-state["\']',
+        text,
+    ), (
+        "Viewer.tsx must import `MAX_JSON_NODES` from the "
+        "module-local relative path `./explorer-state` "
+        "(the W64A helpers are module-local to "
+        "`presentation/` — the public barrel is not in "
+        "the W64A edit surface)."
+    )
+    # The W64A helpers MUST NOT be imported from the
+    # public barrel (the barrel does not extend the W64A
+    # surface in this slice). A future PR that re-imports
+    # them through `@taxa/research` would silently break
+    # because the barrel doesn't re-export them.
+    # We scan only the import statement body (between
+    # `{` and `}`) so a JSDoc comment that mentions the
+    # helper name elsewhere in the file doesn't trip the
+    # guard.
+    barrel_import_match = re.search(
+        r'import\s*\{([^}]*)\}\s*from\s*'
+        r'["\']@taxa/research["\']',
+        text,
+    )
+    assert barrel_import_match, (
+        "Viewer.tsx must still import its existing "
+        "`@taxa/research` surface (the W4a renderers + "
+        "the kernel helpers + the typed ViewerDispatch "
+        "surface)."
+    )
+    barrel_import_body = barrel_import_match.group(1)
+    assert "parseJsonTree" not in barrel_import_body, (
+        "Viewer.tsx's `@taxa/research` import MUST NOT "
+        "include `parseJsonTree` — the W64A helpers are "
+        "module-local to `presentation/`; the barrel is "
+        "not in the W64A edit surface. Use the relative "
+        "`./explorer-state` path."
+    )
+    assert "MAX_JSON_NODES" not in barrel_import_body, (
+        "Viewer.tsx's `@taxa/research` import MUST NOT "
+        "include `MAX_JSON_NODES` — the W64A helpers are "
+        "module-local to `presentation/`; the barrel is "
+        "not in the W64A edit surface. Use the relative "
+        "`./explorer-state` path."
+    )
+
+
+def test_w64a_barrel_does_not_reexport_w64a_helpers() -> None:
+    """W64A-JSON-001 — the public barrel MUST NOT extend
+    with `parseJsonTree` + `MAX_JSON_NODES` + `JsonParseResult`
+    in this slice (the barrel is not in the W64A edit
+    surface). A future PR that extends the barrel for the
+    W64A surface would land as a separately authorized
+    follow-up slice; for now the barrel's existing
+    `presentation/explorer-state` re-exports stay byte-
+    equal to the pre-W64A state. The W64A helpers are
+    module-local to `presentation/` and reachable through
+    the relative `./explorer-state` import from
+    `Viewer.tsx`."""
+    if not BARREL_FILE.is_file():
+        pytest.skip("barrel not present yet")
+    text = BARREL_FILE.read_text()
+    # Find the `export { ... } from "./presentation/explorer-state"`
+    # block — the W64A helpers MUST NOT appear inside it.
+    block_match = re.search(
+        r'export\s*\{(.*?)\}\s*from\s*["\']'
+        r'\./presentation/explorer-state["\']',
+        text, re.DOTALL,
+    )
+    assert block_match, (
+        "barrel must still export the existing W6.1 / "
+        "W6.2 / W6.3 surface from "
+        "`./presentation/explorer-state`."
+    )
+    block_body = block_match.group(1)
+    assert "parseJsonTree" not in block_body, (
+        "barrel's `./presentation/explorer-state` "
+        "re-export block MUST NOT include `parseJsonTree` "
+        "(the W64A helpers are module-local — the barrel "
+        "is not in the W64A edit surface)."
+    )
+    assert "MAX_JSON_NODES" not in block_body, (
+        "barrel's `./presentation/explorer-state` "
+        "re-export block MUST NOT include `MAX_JSON_NODES` "
+        "(the W64A helpers are module-local — the barrel "
+        "is not in the W64A edit surface)."
+    )
+
+
+# W64A-JSON-001 — runtime contract for parseJsonTree +
+# MAX_JSON_NODES. The harness compiles the W6.1
+# framework-free kernel + the W1 domain + the W4a–W4b4
+# renderers under `--lib ES2022` and exercises the new
+# `parseJsonTree` helper end-to-end under Node. The
+# harness mirrors the W6.1 / W6.2 / W6.3 runtime
+# harnesses — every JSON helper is pure (no async, no I/O,
+# no React), so the assertions run synchronously under
+# Node's ES2022-only environment.
+def test_w64a_parse_json_tree_passes_runtime_contract(
+    compiled_w6_1_kernel: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    """W64A-JSON-001 — under Node (ES2022 only, no DOM,
+    no React), the compiled framework-free kernel exposes
+    the `parseJsonTree` + `MAX_JSON_NODES` surface and
+    satisfies the W64A pure JSON-decoder contract end-to-end:
+
+      1. `MAX_JSON_NODES` equals the legacy `50_000`
+         literal (pinned byte-for-byte against
+         `web/file_viewer.js::MAX_JSON_NODES`).
+      2. `parseJsonTree` accepts a `Uint8Array` carrying
+         UTF-8 encoded JSON + returns the typed
+         `{ ok: true, value }` shape.
+      3. `parseJsonTree` decodes UTF-8 verbatim — a JSON
+         document with non-ASCII characters (e.g. accented
+         names) round-trips through the decoder.
+      4. `parseJsonTree` parses objects, arrays,
+         primitives (string / number / boolean / null)
+         — every JSON value type surfaces through the
+         typed result.
+      5. `parseJsonTree` returns `{ ok: false, error }`
+         for invalid JSON input (mirrors the legacy
+         `renderJsonTree` catch branch — the React mount
+         paints the offline banner in that path).
+      6. `parseJsonTree` is pure — same input bytes
+         yields the same output on every call; the
+         helper does NOT mutate the input bytes (the
+         `bytes` reference contract mirrors the W4b4
+         `json-source` bytes-by-reference contract).
+
+    The runtime harness compiles the same W6.1 kernel +
+    W1 domain + W4a–W4b4 renderers the existing W6.1
+    runtime harness uses, and exercises the new helpers
+    without React. A future PR that pulls in a framework
+    dependency or touches the DOM trips the focused
+    compile gate before the runtime assertion fires."""
+    _compiled_kernel, _compiled_renderers = compiled_w6_1_kernel
+    harness = tmp_path / "harness.cjs"
+    harness.write_text(_W64A_RUNTIME_HARNESS)
+    result = subprocess.run(
+        ["node", str(harness), str(_compiled_kernel)],
+        cwd=REPO_ROOT,
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, (
+        f"W64A runtime harness failed.\nstdout: {result.stdout}\n"
+        f"stderr: {result.stderr}"
+    )
+    assert result.stdout.strip() == "PASS", (
+        f"unexpected W64A harness output: {result.stdout!r}"
+    )
+
+
+_W64A_RUNTIME_HARNESS = r"""
+// CJS does not support top-level await (only ESM does), so
+// the harness wraps the assertions in a sync body — every
+// W64A helper is pure (no async, no I/O).
+const path = require("path");
+const assert = require("assert");
+const kernel = require(path.resolve(process.argv[2]));
+
+// 1. MAX_JSON_NODES — pinned byte-for-byte against the
+//    legacy `web/file_viewer.js::MAX_JSON_NODES`. The
+//    React mount paints the `Tree truncated — open raw`
+//    banner when the rendered node count exceeds the
+//    cap; the cap value is part of the public typed
+//    surface so a future slice can also use it.
+{
+  assert.strictEqual(
+    kernel.MAX_JSON_NODES, 50000,
+    "MAX_JSON_NODES must equal the legacy literal 50000",
+  );
+}
+
+// 2. parseJsonTree — happy path. A small object decodes
+//    + parses through the pure helper; the result is the
+//    typed `{ ok: true, value }` shape so the React
+//    mount's render switch can destructure the value
+//    directly.
+{
+  const textEncoder = new TextEncoder();
+  const bytes = textEncoder.encode(
+    '{"hello":"world","nested":{"a":1,"b":[2,3]}}',
+  );
+  const result = kernel.parseJsonTree(bytes);
+  assert.strictEqual(result.ok, true, "happy-path parse must succeed");
+  assert.strictEqual(
+    typeof result.value, "object",
+    "parsed JSON object must surface as an object",
+  );
+  assert.deepStrictEqual(
+    result.value, { hello: "world", nested: { a: 1, b: [2, 3] } },
+    "parsed JSON object must deep-equal the input shape",
+  );
+}
+
+// 3. parseJsonTree — UTF-8 decode. The helper decodes
+//    the bytes as UTF-8 verbatim so non-ASCII characters
+//    round-trip through the decoder byte-for-byte.
+//    Mirrors the legacy `res.text()` decode.
+{
+  const textEncoder = new TextEncoder();
+  const bytes = textEncoder.encode(
+    '{"name":"Plantas con acentos","ríos":["Río A","Río B"]}',
+  );
+  const result = kernel.parseJsonTree(bytes);
+  assert.strictEqual(result.ok, true, "UTF-8 accented JSON must parse");
+  assert.strictEqual(result.value.name, "Plantas con acentos");
+  assert.deepStrictEqual(result.value.ríos, ["Río A", "Río B"]);
+}
+
+// 4. parseJsonTree — JSON value type coverage. The
+//    helper parses objects, arrays, primitives (string
+//    / number / boolean / null) — every JSON value type
+//    surfaces through the typed result.
+{
+  const cases = [
+    { in: "null", out: null },
+    { in: "true", out: true },
+    { in: "false", out: false },
+    { in: "42", out: 42 },
+    { in: "3.14", out: 3.14 },
+    { in: '"hello"', out: "hello" },
+    { in: "[]", out: [] },
+    { in: "[1,2,3]", out: [1, 2, 3] },
+    { in: "{}", out: {} },
+  ];
+  const textEncoder = new TextEncoder();
+  for (const { in: input, out } of cases) {
+    const bytes = textEncoder.encode(input);
+    const result = kernel.parseJsonTree(bytes);
+    assert.strictEqual(
+      result.ok, true,
+      `parseJsonTree(${JSON.stringify(input)}) must succeed`,
+    );
+    assert.deepStrictEqual(
+      result.value, out,
+      `parseJsonTree(${JSON.stringify(input)}) must yield the typed value`,
+    );
+  }
+}
+
+// 5. parseJsonTree — invalid JSON. The helper returns
+//    `{ ok: false, error }` so the React mount can
+//    route the failure to the offline banner (mirrors
+//    the legacy `renderJsonTree` catch branch — the
+//    legacy paints `renderOfflineBanner(target, file)`
+//    when `JSON.parse` throws).
+{
+  const textEncoder = new TextEncoder();
+  const invalidBytes = textEncoder.encode("{not: valid json}");
+  const result = kernel.parseJsonTree(invalidBytes);
+  assert.strictEqual(
+    result.ok, false,
+    "invalid JSON must yield { ok: false, error }",
+  );
+  assert.ok(
+    typeof result.error === "string" && result.error.length > 0,
+    "parseJsonTree failure must carry a non-empty `error` string",
+  );
+}
+
+// 6. parseJsonTree — pure / non-mutating. The helper
+//    does NOT mutate the input bytes; the bytes
+//    reference contract mirrors the W4b4
+//    `json-source` bytes-by-reference contract.
+{
+  const textEncoder = new TextEncoder();
+  const original = '{"x":1}';
+  const bytes = textEncoder.encode(original);
+  const snapshot = Array.from(bytes);
+  kernel.parseJsonTree(bytes);
+  assert.deepStrictEqual(
+    Array.from(bytes), snapshot,
+    "parseJsonTree must NOT mutate the input bytes",
+  );
+}
+
+process.stdout.write("PASS\n");
+"""
+
+
+# ---------------------------------------------------------------------------
+# W64B-DOCX-002 — typed `cdn-failed` recovery state + DOCX
+# viewer materialization via Next `Script` + Mammoth.
+#
+# The W64B slice is the W6.4b React mount counterpart of the
+# W4b1 typed source descriptor:
+#
+#   - `bytesRequiredForFormat("docx")` flips from `false` to
+#     `true` so the existing bytes-fetch effect in Viewer.tsx
+#     reads DOCX bytes through the same seam the TXT / MD /
+#     SVG / JSON effects already use (mirrors the W64A JSON
+#     pattern — the matrix stays honest end-to-end).
+#   - Viewer.tsx gains a Next `Script` loader for the
+#     legacy-pinned mammoth CDN (`MAMMOTH_CDN_URL` +
+#     `MAMMOTH_GLOBAL_NAME`) using Next 16's
+#     `<Script src={d.scriptUrl} strategy="afterInteractive"
+#     onLoad={convert} onError={...}>` shape (see
+#     `node_modules/next/dist/docs/01-app/03-api-reference/02-
+#     components/script.md`).
+#   - On successful script load the mount calls
+#     `window[d.scriptGlobal].convertToHtml({arrayBuffer:
+#     bytes.buffer})` and injects the resulting HTML.
+#   - On `Script.onError` OR `mammoth.convertToHtml(...)`
+#     exception the mount transitions to a typed
+#     `cdn-failed` recovery state that's distinct from the
+#     `bytes-missing` offline path — the existing
+#     `reason: "bytes-missing" | "cdn-failed"` union on the
+#     `docx-offline` variant (extended by W64B on
+#     `renderers.ts`) lets the surface stay typed across
+#     both failure paths.
+#
+# The W64B surface preserves all existing pins:
+#   - JSON Tree viewer (W64A-JSON-001) — untouched.
+#   - Spreadsheet / EPUB / CSV / TSV source variants — they
+#     stay in the W6.1 cdn-pending catch-all (the W64B slice
+#     is DOCX-only materialization; the type extension is the
+#     typed union contract applied once to all four CDN
+#     families).
+#   - `aria-expanded` / `role="button"` / `tabIndex={0}` /
+#     Enter/Space on the JSON Tree disclosure row — untouched.
+#   - `bytesRequiredForFormat` for non-DOCX formats — the
+#     matrix flips ONLY for `docx`.
+# ---------------------------------------------------------------------------
+
+
+# W64B-DOCX-002 — kernel contract: bytes are now required
+# for DOCX so the existing bytes-fetch effect in Viewer.tsx
+# reads them through the same seam TXT / MD / SVG / JSON
+# already use. Mirrors the W64A JSON flip — the matrix
+# stays honest end-to-end.
+def test_w64b_kernel_bytes_required_for_format_docx_is_true(
+    compiled_w6_1_kernel: tuple[Path, Path],
+    tmp_path: Path,
+) -> None:
+    """W64B-DOCX-002 — under Node (ES2022 only, no DOM,
+    no React), the compiled framework-free kernel's
+    `bytesRequiredForFormat("docx")` returns `true` (the
+    W64B flip from the W6.1 `false` default). The flip
+    keeps the bytes-required matrix honest end-to-end:
+    DOCX is a CDN-backed source descriptor that requires
+    bytes the same way TXT / MD / SVG / JSON do, so the
+    existing Viewer.tsx bytes-fetch effect reads the
+    DOCX bytes through the same seam."""
+    _compiled_kernel, _compiled_renderers = compiled_w6_1_kernel
+    harness = tmp_path / "harness-w64b.cjs"
+    harness.write_text(_W64B_RUNTIME_HARNESS)
+    result = subprocess.run(
+        ["node", str(harness), str(_compiled_kernel)],
+        cwd=REPO_ROOT,
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, (
+        f"W64B runtime harness failed.\nstdout: {result.stdout}\n"
+        f"stderr: {result.stderr}"
+    )
+    assert result.stdout.strip() == "PASS", (
+        f"unexpected W64B harness output: {result.stdout!r}"
+    )
+
+
+_W64B_RUNTIME_HARNESS = r"""
+// W64B-DOCX-002 — focused harness asserting the
+// bytesRequiredForFormat flip for DOCX + the matrix
+// stays honest end-to-end. CJS does not support top-
+// level await, so the assertions run inside sync blocks.
+const path = require("path");
+const assert = require("assert");
+const kernel = require(path.resolve(process.argv[2]));
+
+// 1. bytesRequiredForFormat — W64B-DOCX-002 flips the
+//    DOCX literal from `false` to `true` so the bytes-
+//    fetch effect in Viewer.tsx reads DOCX bytes through
+//    the same seam TXT / MD / SVG / JSON already use.
+{
+  assert.strictEqual(
+    kernel.bytesRequiredForFormat("docx"), true,
+    "W64B-DOCX-002: bytesRequiredForFormat('docx') must "
+    + "return true so the bytes-fetch effect in Viewer.tsx "
+    + "reads DOCX bytes through the same seam the TXT / MD "
+    + "/ SVG / JSON effects already use",
+  );
+  // The matrix stays honest end-to-end — every other
+  // literal is unchanged from the W6.1 + W64A contract.
+  assert.strictEqual(kernel.bytesRequiredForFormat("txt"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("md"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("svg"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("json"), true);
+  assert.strictEqual(kernel.bytesRequiredForFormat("pdf"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("html"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("htm"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("jpg"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("xlsx"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("csv"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("mp4"), false);
+  assert.strictEqual(kernel.bytesRequiredForFormat("other"), false);
+}
+
+process.stdout.write("PASS\n");
+"""
+
+
+# W64B-DOCX-002 — viewer source-level checks. The
+# Viewer.tsx React mount materializes the typed DOCX
+# source descriptor via Next 16's `<Script>` component
+# + a typed `cdn-failed` recovery state on
+# `Script.onError` + `mammoth.convertToHtml` exception.
+# The checks below pin the source-level shape so a
+# future PR that silently drops the loader trips a
+# focused test before review.
+def test_w64b_viewer_imports_next_script_component() -> None:
+    """W64B-DOCX-002 — Viewer.tsx MUST import the Next 16
+    `<Script>` component as a default import from
+    `next/script`. The script component is the only
+    loader the W64B contract authorizes — the W6.1
+    non-CDN surface stays CDN-free for every non-DOCX
+    family, and the W6.4b DOCX materialization uses
+    Next 16's typed `<Script src={d.scriptUrl}
+    strategy="afterInteractive" onLoad={convert}
+    onError={...}>` shape."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    assert re.search(
+        r'import\s+Script\s+from\s*["\']next/script["\']',
+        text,
+    ), (
+        "Viewer.tsx must import the Next 16 `<Script>` "
+        "component as a default import from `next/script` "
+        "(W64B-DOCX-002 contract — DOCX materialization "
+        "uses the typed `<Script src onLoad onError>` "
+        "shape)."
+    )
+
+
+def test_w64b_viewer_docx_source_uses_script_loader() -> None:
+    """W64B-DOCX-002 — Viewer.tsx MUST have an EXPLICIT
+    `case "docx-source":` branch in `renderDispatch`
+    that's NOT routed through the W6.1 cdn-pending
+    catch-all (the DOCX variant now materializes via
+    the Next `Script` loader + `mammoth.convertToHtml`,
+    not the download-link card). The W64B contract
+    places the `<Script>` JSX + the `onLoad` / `onError`
+    handlers inside a dedicated `DocxRender` sub-component
+    that's mounted from the `case "docx-source":` branch
+    (the sub-component owns its own `loading` / `loaded`
+    / `error` state — see the W64B typed `cdn-failed`
+    recovery contract). The case branch hands off to
+    `DocxRender` so the typed `ViewerDispatch` switch
+    stays exhaustive; the `<Script>` surface is verified
+    by extracting the entire `DocxRender` block (NOT
+    just the case-branch body)."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    assert re.search(r'case\s+"docx-source"\s*:', text), (
+        "Viewer.tsx MUST have an explicit `case "
+        "\"docx-source\":` branch in `renderDispatch` so "
+        "the typed DOCX source descriptor materializes "
+        "via the Next `Script` loader + "
+        "`mammoth.convertToHtml(...)` (NOT the W6.1 "
+        "cdn-pending catch-all — W64B-DOCX-002 contract)."
+    )
+    # The case branch hands off to a DocxRender component.
+    # Pin the handoff shape so the W64B separation between
+    # the typed dispatch surface + the React lifecycle stays
+    # honest.
+    case_branch_match = re.search(
+        r'case\s+"docx-source"\s*:(.*?)(?=case\s+"|\}\s*\n\s*\})',
+        text, re.DOTALL,
+    )
+    assert case_branch_match, (
+        "Viewer.tsx must have an extractable docx-source "
+        "branch body in renderDispatch."
+    )
+    case_branch = case_branch_match.group(1)
+    assert "DocxRender" in case_branch, (
+        "Viewer.tsx's `case \"docx-source\":` branch MUST "
+        "hand off to the dedicated `DocxRender` sub-"
+        "component (W64B-DOCX-002 separation — the typed "
+        "switch stays exhaustive; the `<Script>` + state "
+        "lifecycle live in `DocxRender`)."
+    )
+    # The DocxRender component MUST render a `<Script>` JSX
+    # element with `src`, `onLoad`, and `onError` props.
+    # Extract the DocxRender function body so the assertion
+    # looks at the loader surface (not the case branch
+    # hand-off, which only routes to the sub-component).
+    docx_fn_match = re.search(
+        r'function\s+DocxRender\b[\s\S]*?\n\}\n',
+        text,
+    )
+    assert docx_fn_match, (
+        "Viewer.tsx must define a `function DocxRender(...)` "
+        "sub-component for the W64B-DOCX-002 materialization "
+        "(the dedicated lifecycle lives there)."
+    )
+    docx_fn = docx_fn_match.group(0)
+    assert re.search(r'<Script\b', docx_fn), (
+        "Viewer.tsx's DocxRender sub-component MUST render "
+        "a `<Script>` JSX element from the `next/script` "
+        "default import (W64B-DOCX-002 contract — the "
+        "DOCX materialization owns the Next 16 `<Script> "
+        "src onLoad onError` loader)."
+    )
+    assert re.search(r'\bonLoad=', docx_fn) or re.search(
+        r'\bonLoad =', docx_fn,
+    ), (
+        "Viewer.tsx's DocxRender sub-component MUST wire the "
+        "`<Script>` `onLoad` handler to call "
+        "`window[dispatch.scriptGlobal].convertToHtml(...)`."
+    )
+    assert re.search(r'\bonError=', docx_fn) or re.search(
+        r'\bonError =', docx_fn,
+    ), (
+        "Viewer.tsx's DocxRender sub-component MUST wire "
+        "the `<Script>` `onError` handler so the script-"
+        "load failure surfaces through the typed "
+        "`cdn-failed` recovery state."
+    )
+
+
+
+def test_w64b_viewer_docx_source_calls_mammoth_convert_to_html() -> None:
+    """W64B-DOCX-002 — the DOCX onLoad handler MUST call
+    `window[dispatch.scriptGlobal].convertToHtml(...)` so
+    a future PR that bumps the CDN pin lands in lock-step
+    across the dispatcher constant + the loader site. The
+    call MUST pass the typed `bytes` through an
+    `{arrayBuffer: bytes.buffer}` shape."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    assert re.search(r"convertToHtml\s*\(", text), (
+        "Viewer.tsx must reference `convertToHtml(...)` so "
+        "the W64B-DOCX-002 onLoad handler routes the DOCX "
+        "bytes through mammoth's browser entry point."
+    )
+    assert re.search(
+        r"window\s*\[\s*\w+\.scriptGlobal\s*\]"
+        r"|window\s*\[\s*\w+\s*\]\.convertToHtml",
+        text,
+    ), (
+        "Viewer.tsx must reach the pinned mammoth global "
+        "through `window[dispatch.scriptGlobal].convertToHtml(...)` "
+        "— NOT a hardcoded `\"mammoth\"` literal — so a future "
+        "PR that bumps the CDN pin lands in lock-step across "
+        "the dispatcher constant + the loader site."
+    )
+    assert "arrayBuffer" in text, (
+        "Viewer.tsx must pass the DOCX bytes to mammoth "
+        "through the `{arrayBuffer: bytes.buffer}` wrapper."
+    )
+
+
+def test_w64b_viewer_docx_source_emits_cdn_failed_recovery_state() -> None:
+    """W64B-DOCX-002 — the DOCX materialization MUST emit
+    a typed `cdn-failed` recovery state when EITHER
+    `Script.onError` fires (the CDN script fails to load)
+    OR `mammoth.convertToHtml(...)` throws. The recovery
+    state is distinct from the `bytes-missing` offline
+    path the dispatcher emits at dispatch time."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    assert '"cdn-failed"' in text, (
+        "Viewer.tsx must carry the literal `\"cdn-failed\"` "
+        "so the typed recovery state surfaces a distinct "
+        "value from the bytes-missing offline path "
+        "(W64B-DOCX-002 contract — Script.onError + "
+        "mammoth.convertToHtml exception routes through "
+        "the mount's typed recovery state whose `reason` "
+        "literal is `\"cdn-failed\"`)."
+    )
+
+
+def test_w64b_viewer_preserves_json_tree_pins() -> None:
+    """W64B-DOCX-002 — the DOCX materialization adds a new
+    `case \"docx-source\":` branch but must NOT silently
+    drop or rewrite the W64A-JSON-001 JSON Tree pins:
+    the `[root]` literal, the
+    `Tree truncated — open raw` banner text, and the
+    JSON branch. The W64B task brief mandates: "Preserve
+    all existing pins, a11y semantics, and the JSON Tree
+    behavior added by W64A-JSON-001." A future PR that
+    adds the DOCX materialization while accidentally
+    dropping a JSON pin breaks both contracts at review."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    assert re.search(r'case\s+"json-source"\s*:', text), (
+        "Viewer.tsx MUST keep its W64A-JSON-001 "
+        "`case \"json-source\":` branch — W64B must NOT "
+        "silently drop the JSON Tree viewer while adding "
+        "the DOCX materialization."
+    )
+    assert '"[root]"' in text, (
+        "Viewer.tsx must keep the legacy `[root]` literal "
+        "(the W64A-JSON-001 synthetic root key)."
+    )
+    assert "Tree truncated — open raw" in text, (
+        "Viewer.tsx must keep the legacy "
+        "`Tree truncated — open raw` banner text "
+        "(the W64A-JSON-001 truncation banner)."
     )

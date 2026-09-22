@@ -156,35 +156,46 @@ export function createInitialViewerState(): ViewerState {
 
 /** Bytes are required for the formats that need them to render:
  *  TXT + MD need the UTF-8 decoded body; SVG needs the bytes to
- *  pass through the W4a `sanitizeSvgMarkup` XSS scrub. Every
- *  other W4a family (PDF / HTML / image / video) passes the URL
- *  straight through to the renderer without reading bytes.
- *
- *  The W4b1–W4b4 source variants (`docx-source`, `sheet-source`,
- *  `epub-source`, `table-source`, `json-source`) also need
- *  bytes — but the W6.1 mount is non-CDN, so those formats
- *  never reach the "fetch bytes" path; the dispatcher's offline
- *  branch fires when bytes are missing and the mount paints
- *  the download-link card. The contract below covers the W4a
- *  families only; a future mount that wires the CDN libraries
- *  would extend the typed predicate here. */
+ *  pass through the W4a `sanitizeSvgMarkup` XSS scrub; JSON
+ *  needs the bytes to call `JSON.parse` + walk the native tree
+ *  through the W64A-JSON-001 contract (the legacy
+ *  `web/file_viewer.js::renderJsonTree` shape). DOCX needs
+ *  the bytes to feed Next 16's `<Script>` loader +
+ *  `mammoth.convertToHtml({arrayBuffer: bytes.buffer})` per
+ *  the W64B-DOCX-002 typed source descriptor contract (the
+ *  W4b1 `docx-source` outcome carries the bytes by reference —
+ *  the mount reads them at mount time, so the existing
+ *  bytes-fetch effect reads DOCX bytes through the same seam
+ *  TXT / MD / SVG / JSON already use). Every other family
+ *  (PDF / HTML / image / video / sheetjs / epubjs / papa /
+ *  unknown) passes the URL straight through to the renderer
+ *  without reading bytes — SheetJS / epubjs / Papa are NOT
+ *  yet wired in the W6.4b mount (their CDN loader contracts
+ *  land as separately authorized later slices). JSON is
+ *  special: it is the W64A contract's native tree viewer, so
+ *  the bytes-fetch effect reads JSON bytes through the same
+ *  seam the TXT / MD / SVG effects already use — no CDN
+ *  loader, no `<Script>` surface. The contract below covers
+ *  the W4a + W64a + W64b families; a future mount that wires
+ *  the CDN libraries for XLS / EPUB / CSV / TSV would extend
+ *  the typed predicate here. */
 export function bytesRequiredForFormat(format: FileFormat): boolean {
   switch (format) {
     case "txt":
     case "md":
     case "svg":
+    case "json":
+    case "docx":
       return true;
     case "pdf":
     case "epub":
     case "html":
     case "htm":
     case "doc":
-    case "docx":
     case "xls":
     case "xlsx":
     case "csv":
     case "tsv":
-    case "json":
     case "jpg":
     case "jpeg":
     case "png":
@@ -204,6 +215,70 @@ export function bytesRequiredForFormat(format: FileFormat): boolean {
       void _exhaustive;
       return false;
     }
+  }
+}
+
+// ---- W64A-JSON-001 — pure JSON decoder ----
+
+/** Maximum number of JSON nodes the React mount will render
+ *  before it paints the legacy `Tree truncated — open raw`
+ *  banner. Pinned byte-for-byte against the legacy
+ *  `web/file_viewer.js::MAX_JSON_NODES = 50000` constant
+ *  so the React mount's truncation cap stays in lock-step
+ *  with the legacy oracle. The legacy walker counts nodes
+ *  as it paints them (lazy children: each expand walks one
+ *  level); the React mount mirrors that shape by counting
+ *  in the recursive `JsonNode` render. The constant is part
+ *  of the public typed surface so a future slice can
+ *  re-use it (e.g. a streaming JSON renderer that wants the
+ *  same cap). */
+export const MAX_JSON_NODES = 50000;
+
+/** Discriminated result type for `parseJsonTree`. The
+ *  React mount consumes the `value` field on the happy
+ *  path; the `error` field on the failure path is a
+ *  non-empty diagnostic string (the underlying
+ *  `JSON.parse` message or the UTF-8 decode error). Mirrors
+ *  the legacy `renderJsonTree` catch branch — the legacy
+ *  catches `JSON.parse` throws + paints the offline banner;
+ *  the React mount routes the failure through the same
+ *  `renderOfflineCard` recovery path. */
+export type JsonParseResult =
+  | { readonly ok: true; readonly value: unknown }
+  | { readonly ok: false; readonly error: string };
+
+/** Pure JSON decoder for the W64A-JSON-001 contract. The
+ *  helper accepts the raw `Uint8Array` bytes (the same
+ *  shape the W3 `fetchFileServe` returns + the same shape
+ *  the W4b4 `json-source` dispatch carries by reference)
+ *  and returns the typed `{ ok: true, value }` /
+ *  `{ ok: false, error }` shape. UTF-8 decode + `JSON.parse`
+ *  — no `JSON.stringify`, no DOM, no React, no framework.
+ *
+ *  Decoding is UTF-8 verbatim with `fatal: false` so the
+ *  helper mirrors the legacy `res.text()` shape (a malformed
+ *  UTF-8 sequence yields a U+FFFD replacement character
+ *  rather than throwing — matches the `text-pre` decode
+ *  the W4a `text-pre` variant uses for TXT / MD). On the
+ *  failure path the helper returns a non-empty `error`
+ *  string carrying the underlying `JSON.parse` message.
+ *
+ *  Pure function: same input bytes yield the same output
+ *  on every call; the helper does NOT mutate the input
+ *  bytes (the `bytes` reference contract mirrors the W4b4
+ *  `json-source` bytes-by-reference contract — the mount
+ *  treats the dispatched bytes as read-only or copies
+ *  before mutation). The React mount consumes the helper
+ *  through the framework-free kernel + the public barrel;
+ *  no React lifecycle is required to call the helper. */
+export function parseJsonTree(bytes: Uint8Array): JsonParseResult {
+  try {
+    const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    const value: unknown = JSON.parse(text);
+    return { ok: true, value };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: message };
   }
 }
 
