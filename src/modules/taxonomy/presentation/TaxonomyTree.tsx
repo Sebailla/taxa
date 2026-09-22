@@ -263,11 +263,14 @@ interface RawRoots {
   readonly taxa: readonly Taxon[];
 }
 
-/** Inlined at build time by Next.js. Empty string keeps requests
- *  relative (same-origin) so the future FastAPI static mount can
- *  serve `/api/domains` from the same origin as `out/index.html`. */
+/** Inlined at build time by Next.js. Defaults to the relative
+ *  same-origin path `"/api"` so the React static export (which does
+ *  NOT receive `NEXT_PUBLIC_TAXA_API_ORIGIN` from a `.env` file
+ *  shipped at `out/`) calls `fetchDomains({ baseUrl: "/api" })`
+ *  instead of resolving an empty string into an absolute URL with a
+ *  trailing-slash side effect that breaks FastAPI route matching. */
 const TAXA_API_ORIGIN: string =
-  process.env.NEXT_PUBLIC_TAXA_API_ORIGIN ?? "";
+  process.env.NEXT_PUBLIC_TAXA_API_ORIGIN ?? "/api";
 
 function messageFor(err: unknown, prefix: string): string {
   const detail = err instanceof Error ? err.message : String(err);

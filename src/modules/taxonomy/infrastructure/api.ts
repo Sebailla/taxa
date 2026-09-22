@@ -129,6 +129,31 @@ function defaultFetch(): FetchLike {
 }
 
 function url(baseUrl: string, path: string): string {
+  // ODD-MIGRATE-006 carveout (API origin default): the static
+  // export at `out/` ships WITHOUT a `.env` file, so the React
+  // build's `process.env.NEXT_PUBLIC_TAXA_API_ORIGIN` resolves to
+  // `undefined` and the `?? ""` fallback in
+  // `src/modules/taxonomy/presentation/TaxonomyTree.tsx` collapses
+  // to an empty `baseUrl`. The path itself already starts with
+  // `/api/...` (the FastAPI endpoint shape), so the legacy
+  // concat-style helper produced the correct relative URL
+  // (`""` + `"/api/domains"` = `"/api/domains"`) when baseUrl was
+  // empty. Naively substituting `/api` for the empty baseUrl
+  // (the literal "default it to `/api`" reading) would yield
+  // `/api/api/domains`, which 404s. The adapter therefore absorbs
+  // the empty-string edge case by returning the path as-is: the
+  // runtime default becomes the relative `/api` (FastAPI's
+  // `/api/*` routes match without the trailing-slash side effect
+  // `new URL("", currentLocation)` introduces), and the path's
+  // own `/api/` prefix is preserved verbatim. The same
+  // path-as-is semantic applies to the post-f708a15 source
+  // `?? "/api"` because that baseUrl duplicates the path's
+  // leading segment — concatenating would otherwise duplicate the
+  // `/api` prefix. When the env var IS configured (local dev with
+  // `NEXT_PUBLIC_TAXA_API_ORIGIN=http://x`), the caller-supplied
+  // baseUrl wins verbatim (existing concat behaviour, trailing-
+  //-slash trim included).
+  if (baseUrl === "" || baseUrl === "/api") return path;
   return baseUrl.replace(/\/+$/, "") + path;
 }
 
