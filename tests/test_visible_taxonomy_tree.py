@@ -153,16 +153,30 @@ def test_taxonomy_tree_uses_canonical_helpers_via_barrel() -> None:
 
 def test_taxonomy_tree_uses_configured_api_origin() -> None:
     """ODD-VTREE-002 binding: production requests stay
-    relative/same-origin (``process.env.NEXT_PUBLIC_TAXA_API_ORIGIN ?? ""``),
-    while local development overrides the variable via
-    ``pnpm run dev:local`` (see package.json).
+    relative/same-origin — the env var literal pin still lives in
+    ``TaxonomyTree.tsx`` (``process.env.NEXT_PUBLIC_TAXA_API_ORIGIN``
+    is the source of truth), but the runtime default may be EITHER
+    an empty string OR a relative ``/api``; the static export at
+    ``out/`` ships WITHOUT a ``.env`` so the adapter in
+    ``src/modules/taxonomy/infrastructure/api.ts`` absorbs the
+    empty-string edge case and substitutes ``/api`` so FastAPI's
+    ``/api/*`` routes match without the trailing-slash side effect
+    ``new URL("", currentLocation)`` introduces. Local development
+    still overrides the variable via ``pnpm run dev:local`` (see
+    package.json).
     """
     text = _read_text(TAXONOMY_TREE_FILE)
     assert "process.env.NEXT_PUBLIC_TAXA_API_ORIGIN" in text, (
         "TaxonomyTree.tsx must source its API origin from NEXT_PUBLIC_TAXA_API_ORIGIN"
     )
-    assert re.search(r'NEXT_PUBLIC_TAXA_API_ORIGIN\s*\?\?\s*["\']["\']', text), (
-        "TaxonomyTree.tsx must default the origin to an empty string when unset"
+    assert re.search(
+        r'NEXT_PUBLIC_TAXA_API_ORIGIN\s*\?\?\s*(?:["\']["\']|["\']/api["\'])',
+        text,
+    ), (
+        "TaxonomyTree.tsx must default the origin to either an empty string "
+        'or "/api" (the adapter in src/modules/taxonomy/infrastructure/api.ts '
+        "absorbs the empty-string edge case so the static export keeps working "
+        "with no .env file)"
     )
 
 
