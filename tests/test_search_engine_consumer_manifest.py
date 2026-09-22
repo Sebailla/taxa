@@ -1277,3 +1277,283 @@ class TestManifestSelfCheck:
 # ``COMMENT_REFERENCES`` directly. The module's
 # ``TestCommentOnlyReferences`` test class references the
 # tuple by name.)
+
+
+# ---------------------------------------------------------------------------
+# ODD-SEARCH-001 — top-bar search-input carveout
+#
+# The legacy `web/search.js` shipped a top-bar search input that
+# drove `/api/search?q=...&limit=15` round trips on a 200ms
+# debounce. The ODD-MIGRATE-007 carveout retired the legacy
+# `web/` Playwright tests that targeted the legacy `#search-input`
+# selector so they don't reach the React-shaped surface by
+# accident. The React `TaxonomyTree` mount keeps the same selector
+# so a future Playwright probe can locate the input via the
+# legacy hook, AND it keeps the `data-action="select-taxon"` +
+# `data-taxon-id="<id>"` per-row contract so the legacy
+# click-handler shape stays observable.
+#
+# This test class pins the ODD-SEARCH-001 contract end-to-end:
+#   - The React mount must own a top-bar `<input id="search-input">`
+#     carrying `data-search-input=""`, `autocomplete="off"`,
+#     `spellCheck={false}`, and a placeholder starting with
+#     "Search taxa" (the brief's required copy).
+#   - The mount must render `<div id="search-results" data-search-results>`
+#     hosting a `<button data-taxon-id="<id>" data-action="select-taxon">`
+#     for every server-ranked hit.
+#   - The mount must consume the canonical `fetchSearch` helper
+#     via the `@taxa/taxonomy` barrel — never a deep import
+#     into the infrastructure layer.
+#   - The `/api/search` endpoint must exist on the FastAPI server
+#     (the ODD-SEARCH-001 contract pins the canonical
+#     `/api/search?q=<query>&source=col|worms|freshwater>&limit=20`
+#     URL the React mount consumes).
+# ---------------------------------------------------------------------------
+
+TAXONOMY_INFRA_API_TS: Path = (
+    REPO_ROOT / "src" / "modules" / "taxonomy" / "infrastructure" / "api.ts"
+)
+TAXONOMY_TREE_TSX: Path = (
+    REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "TaxonomyTree.tsx"
+)
+
+
+class TestSearchInputCarveout:
+    """ODD-SEARCH-001 — the React mount's top-bar search input
+    MUST keep the legacy DOM contract (`#search-input` +
+    `#search-results` + `data-action="select-taxon"` +
+    `data-taxon-id`) so a future Playwright probe (or a future
+    legacy-test repoint) can locate the surface via the same
+    hook the ODD-MIGRATE-007 carveout retired.
+
+    The legacy `web/` Playwright tests stay skipped under the
+    ODD-MIGRATE-007 carveout — they target the LEGACY
+    `web/index.html` `#search-input` element, which the
+    static-export at `out/` no longer ships. The React mount's
+    `#search-input` lives in the same single-origin root the
+    legacy oracle targeted, so the React-shaped surface is
+    reachable via Playwright's `page.locator("#search-input")`
+    selector — the carveout just stops the retired legacy tests
+    from racing the React mount.
+    """
+
+    def test_taxonomy_tree_renders_top_bar_search_input(self) -> None:
+        """ODD-SEARCH-001: TaxonomyTree.tsx must render a top-bar
+        `<input id="search-input" data-search-input="">` carrying
+        the canonical legacy DOM contract (autocomplete + spellcheck
+        guards) so a future Playwright probe can locate the input
+        via the same selector the legacy `web/index.html` shipped."""
+        if not TAXONOMY_TREE_TSX.is_file():
+            pytest.skip("TaxonomyTree.tsx not present yet")
+        text = TAXONOMY_TREE_TSX.read_text(encoding="utf-8")
+        assert re.search(
+            r'<input\b[^>]*\bid="search-input"',
+            text,
+            re.DOTALL,
+        ), (
+            "TaxonomyTree.tsx MUST render `<input id=\"search-input\">` "
+            "so a future Playwright probe can locate the React mount's "
+            "search input via the same hook the legacy oracle shipped."
+        )
+        assert re.search(
+            r'<input\b[^>]*\bdata-search-input\s*=\s*""',
+            text,
+            re.DOTALL,
+        ), (
+            "TaxonomyTree.tsx MUST stamp `data-search-input=\"\"` "
+            "on the search input (the React-shaped DOM contract)."
+        )
+
+    def test_taxonomy_tree_renders_search_results_container_with_data_attr(self) -> None:
+        """ODD-SEARCH-001: TaxonomyTree.tsx MUST render
+        `<div id="search-results" data-search-results>` so the
+        legacy `#search-results` selector still locates the
+        dropdown host."""
+        if not TAXONOMY_TREE_TSX.is_file():
+            pytest.skip("TaxonomyTree.tsx not present yet")
+        text = TAXONOMY_TREE_TSX.read_text(encoding="utf-8")
+        assert re.search(
+            r'<div\b[^>]*\bid="search-results"',
+            text,
+            re.DOTALL,
+        ), (
+            "TaxonomyTree.tsx MUST render `<div id=\"search-results\">` "
+            "so a future Playwright probe can locate the dropdown host "
+            "via the same hook the legacy oracle shipped."
+        )
+        assert re.search(
+            r'data-search-results\s*=\s*""',
+            text,
+        ), (
+            "TaxonomyTree.tsx MUST stamp `data-search-results=\"\"` "
+            "on the dropdown host (the React-shaped DOM contract)."
+        )
+
+    def test_taxonomy_tree_renders_select_taxon_action_rows(self) -> None:
+        """ODD-SEARCH-001: each search result row MUST be a
+        `<button data-taxon-id="<id>" data-action="select-taxon">`
+        so a future probe can locate result rows via the same
+        selector the legacy `web/nav.js::select-from-search`
+        action targeted."""
+        if not TAXONOMY_TREE_TSX.is_file():
+            pytest.skip("TaxonomyTree.tsx not present yet")
+        text = TAXONOMY_TREE_TSX.read_text(encoding="utf-8")
+        assert 'data-action="select-taxon"' in text, (
+            "TaxonomyTree.tsx MUST stamp `data-action=\"select-taxon\"` "
+            "on each search result row (the React-shaped DOM contract "
+            "mirrors the legacy `select-from-search` action)."
+        )
+        assert re.search(
+            r'data-taxon-id\s*=\s*\{[^}]*hit\.taxon\.id',
+            text,
+        ), (
+            "TaxonomyTree.tsx MUST stamp `data-taxon-id={hit.taxon.id}` "
+            "on each search result row (the React-shaped DOM contract)."
+        )
+
+    def test_taxonomy_tree_consumes_fetch_search_via_barrel(self) -> None:
+        """ODD-SEARCH-001: the React mount MUST consume the
+        canonical `fetchSearch` helper via the `@taxa/taxonomy`
+        barrel — never a deep import into the infrastructure
+        layer. spec.md rule 5 forbids deep imports via the
+        ESLint `no-restricted-imports` guard."""
+        if not TAXONOMY_TREE_TSX.is_file():
+            pytest.skip("TaxonomyTree.tsx not present yet")
+        text = TAXONOMY_TREE_TSX.read_text(encoding="utf-8")
+        assert "fetchSearch" in text, (
+            "TaxonomyTree.tsx MUST call the canonical `fetchSearch` helper"
+        )
+        for bad in (
+            "../infrastructure/api",
+            "../infrastructure/api.js",
+            "@taxa/taxonomy/infrastructure",
+        ):
+            assert bad not in text, (
+                f"TaxonomyTree.tsx MUST NOT deep-import {bad!r} "
+                f"(spec.md rule 5 barrel guard)."
+            )
+
+    def test_taxonomy_infra_api_exports_fetch_search_helper(self) -> None:
+        """ODD-SEARCH-001: `src/modules/taxonomy/infrastructure/api.ts`
+        MUST export a `fetchSearch` helper so the React mount
+        can consume the canonical `/api/search?q=&source=&limit=`
+        URL through the public `@taxa/taxonomy` barrel."""
+        if not TAXONOMY_INFRA_API_TS.is_file():
+            pytest.skip("taxonomy infrastructure api.ts not present yet")
+        text = TAXONOMY_INFRA_API_TS.read_text(encoding="utf-8")
+        assert re.search(
+            r"export\s+(?:async\s+)?function\s+fetchSearch\b",
+            text,
+        ), (
+            "taxonomy infrastructure api.ts MUST export a `fetchSearch` "
+            "helper so the React mount can consume `/api/search` through "
+            "the public barrel."
+        )
+        # The helper MUST accept a `q` parameter + an options bag
+        # that carries `source` + `limit` (the canonical
+        # `/api/search?q=<query>&source=col|worms|freshwater>&limit=20`
+        # URL contract).
+        assert re.search(
+            r"function\s+fetchSearch\s*\(\s*q\s*:\s*string\s*,\s*opts",
+            text,
+        ), (
+            "fetchSearch MUST accept `(q: string, opts: FetchSearchOptions)` "
+            "so callers can forward the canonical source + limit query params."
+        )
+        # The implementation MUST build the canonical
+        # `/api/search?q=...&source=...&limit=...` URL.
+        assert "/api/search" in text, (
+            "fetchSearch MUST build the canonical `/api/search?q=...` URL "
+            "(the FastAPI endpoint the React mount consumes)."
+        )
+
+    def test_taxonomy_infra_api_exports_search_hit_type(self) -> None:
+        """ODD-SEARCH-001: `taxonomy/infrastructure/api.ts` MUST
+        export the `SearchHit` type so the React mount can type
+        the search-results state without a deep import into the
+        wire projection layer."""
+        if not TAXONOMY_INFRA_API_TS.is_file():
+            pytest.skip("taxonomy infrastructure api.ts not present yet")
+        text = TAXONOMY_INFRA_API_TS.read_text(encoding="utf-8")
+        assert re.search(
+            r"export\s+interface\s+SearchHit\b",
+            text,
+        ), (
+            "taxonomy infrastructure api.ts MUST export a `SearchHit` "
+            "interface so the React mount can type the search-results "
+            "state via the public barrel."
+        )
+        # The `SearchHit` projection must carry the typed `match_type`
+        # literal (`"scientific" | "authorship" | "vernacular"` —
+        # the bucket the server emits).
+        assert re.search(
+            r"interface\s+SearchHit\b[^}]*match_type\s*:\s*[\"']scientific[\"']\s*\|\s*[\"']authorship[\"']\s*\|\s*[\"']vernacular[\"']",
+            text,
+            re.DOTALL,
+        ), (
+            "SearchHit.match_type MUST be the typed literal union "
+            "\"scientific\" | \"authorship\" | \"vernacular\" — the "
+            "three buckets the FastAPI `/api/search` endpoint emits."
+        )
+
+    def test_taxonomy_barrel_reexports_fetch_search_and_search_hit(self) -> None:
+        """ODD-SEARCH-001: the public `@taxa/taxonomy` barrel
+        MUST re-export `fetchSearch` + `SearchHit` so the React
+        mount consumes the typed surface through the canonical
+        cross-module import path (spec.md rule 5)."""
+        if not TAXONOMY_INDEX_TS.is_file():
+            pytest.skip("taxonomy barrel not present yet")
+        text = TAXONOMY_INDEX_TS.read_text(encoding="utf-8")
+        assert "fetchSearch" in text, (
+            "taxonomy barrel MUST re-export `fetchSearch` "
+            "(spec.md rule 5 — the React mount consumes the "
+            "search helper through the public barrel)."
+        )
+        assert "SearchHit" in text, (
+            "taxonomy barrel MUST re-export the `SearchHit` type "
+            "(spec.md rule 5 — the React mount types the "
+            "search-results state through the public barrel)."
+        )
+
+    def test_fastapi_search_endpoint_exists(self) -> None:
+        """ODD-SEARCH-001: the FastAPI server MUST expose
+        `GET /api/search` so the React mount can consume the
+        canonical `/api/search?q=<query>&source=...&limit=...`
+        URL. The endpoint is the FastAPI source of truth for the
+        search ranking (BM25 across scientific_name +
+        authorship + vernacular names — see
+        `api/server.py::search`)."""
+        if not API_SERVER_PY.is_file():
+            pytest.skip("api/server.py not present yet")
+        text = API_SERVER_PY.read_text(encoding="utf-8")
+        assert re.search(
+            r"@app\.get\s*\(\s*[\"']/api/search[\"']",
+            text,
+        ), (
+            "api/server.py MUST expose `@app.get(\"/api/search\")` "
+            "so the React mount can consume the canonical "
+            "/api/search?q=<query>&source=...&limit=... URL "
+            "(ODD-SEARCH-001 contract)."
+        )
+        # The endpoint MUST accept the canonical query parameters:
+        # `q` (required string), `limit` (integer with default 20).
+        # The parameter list lives on the line(s) immediately after
+        # `def search(` — we extract the substring between that line
+        # and the next `):` line so nested `Query(...)` parens don't
+        # terminate the capture early.
+        m = re.search(
+            r"def\s+search\s*\(\s*\n(.*?)\n\s*\)",
+            text,
+            re.DOTALL,
+        )
+        assert m is not None, (
+            "api/server.py MUST define `def search(...)` for the "
+            "/api/search endpoint so the FastAPI source of truth "
+            "matches the canonical URL contract."
+        )
+        params = m.group(1)
+        for needle in ("q:", "limit:"):
+            assert needle in params, (
+                f"def search(...) MUST accept the `{needle}` query "
+                f"parameter (the ODD-SEARCH-001 canonical URL contract)."
+            )
