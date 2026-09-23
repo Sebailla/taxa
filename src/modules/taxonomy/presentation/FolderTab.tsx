@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * FolderTab — native DetailPanel Folder tab body (ODD-TDFOLDER-001).
+ * FolderTab — native DetailPanel Folder tab body (ODD-TDFOLDER-001
+ * + ODD-PHASE2 cutover).
  *
  * Renders the server-composed materialize-preview payload under the
  * native "Folder" header, paints loading / empty / error / retry
@@ -48,6 +49,25 @@
  * retry, mirroring the legacy `showToast(`Could not copy: …`)`
  * affordance without the toast helper.
  *
+ * ODD-PHASE2 (design-system cutover): the inline loading copy +
+ * Material Symbols `progress_activity` glyph, the inline error
+ * message, the success message, the info banner, the Create /
+ * Confirm / Cancel / Open / Copy / Retry buttons now route
+ * through three design-system primitives (Spinner + InlineMessage
+ * + Button) imported from `@taxa/design-system` (the public
+ * barrel). The legacy `<button className="folder-btn
+ * folder-btn-primary …">` / `folder-btn-secondary` / `<div
+ * className="folder-inline-message folder-inline-message-error
+ * …">` / `folder-inline-message-success` / `folder-info-banner`
+ * compositions are gone. Seven dead `.folder-tab .folder-*` CSS
+ * rules collapse out of `src/app/globals.css` (`folder-btn` +
+ * `folder-btn-primary` + `folder-btn-secondary` +
+ * `folder-info-banner` + `folder-inline-message` +
+ * `folder-inline-message-error` + `folder-inline-message-
+ * success`) — the cascade now only owns the wrapper + the
+ * specialized segment list + section header + counts summary +
+ * create row wrapper + confirm step + path-actions row.
+ *
  * spec.md rule 4: presentation → taxonomy module only. The
  * component imports the canonical `MaterializePreview` +
  * `MaterializePreviewSegment` projections from the infrastructure
@@ -59,6 +79,7 @@
  */
 import { Fragment, useEffect } from "react";
 import type { ReactNode } from "react";
+import { Button, InlineMessage, Spinner } from "@taxa/design-system";
 import type {
   MaterializePreview,
   MaterializePreviewSegment,
@@ -206,7 +227,7 @@ export interface FolderTabProps {
  *  `all_exist === true`). The wrapper carries the canonical
  *  `.folder-tab` class so the existing `src/app/globals.css`
  *  cascade paints the section + the segment list + the create
- *  button + the path-actions row without a redesign pass
+ *  row + the path-actions row without a redesign pass
  *  (mirrors the legacy `.materialize-tab-content` /
  *  `.materialize-modal-list` / `.materialize-modal-marker` /
  *  `.materialize-modal-counts` / `.materialize-modal-info-banner`
@@ -293,9 +314,7 @@ export default function FolderTab({
             0
           </span>
         </h3>
-        <p className="text-body-sm text-on-surface-variant px-2 py-4 text-center">
-          Loading preview…
-        </p>
+        <Spinner size="md" label="Loading folder preview…" />
       </div>
     );
   }
@@ -325,21 +344,30 @@ export default function FolderTab({
             0
           </span>
         </h3>
+        <InlineMessage
+          variant="error"
+          data-folder-inline-message="error"
+          role="alert"
+        >
+          <span
+            aria-hidden="true"
+            className="material-symbols-outlined text-[18px]"
+          >
+            error
+          </span>
+          <span>{status.message}</span>
+        </InlineMessage>
         <p className="text-body-sm text-on-surface px-2 py-2 text-center">
           Could not load the preview.
         </p>
-        <p className="text-caption text-on-surface-variant px-2 pb-2 text-center">
-          {status.message}
-        </p>
         <div className="flex justify-center pb-2">
-          <button
-            type="button"
-            className="rounded-md border border-outline-variant bg-surface px-3 py-1.5 text-sm font-medium text-on-surface hover:bg-surface-container-low"
-            data-action="retry-folder-preview"
+          <Button
+            variant="secondary"
             onClick={onRetryPreview}
+            data-action="retry-folder-preview"
           >
             Retry
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -504,17 +532,23 @@ function renderCounts(preview: MaterializePreview): ReactNode {
   );
 }
 
-/** Render the "Path already exists on disk." info banner.
- *  Mirrors the legacy
+/** Render the "Path already exists on disk." info banner via
+ *  the `<InlineMessage variant="info">` design-system primitive
+ *  (from `@taxa/design-system`). Mirrors the legacy
  *  `web/detail.js::renderFolderTab::infoBanner` (check_circle
- *  glyph + green-tinted banner). The renderer only paints the
- *  banner when `preview.all_exist === true`; the parent passes
- *  the loaded status through so the JSX branch lands exactly
- *  once. */
+ *  glyph + green-tinted banner) byte-for-byte — the
+ *  `InlineMessage` primitive owns the `bg-surface-container-low
+ *  border-outline-variant text-on-surface-variant` palette +
+ *  the `rounded-md border px-3 py-2 text-sm` shape; the
+ *  `data-folder-info-banner=""` data attribute + the canonical
+ *  copy stay preserved on the element. The renderer only
+ *  paints the banner when `preview.all_exist === true`; the
+ *  parent passes the loaded status through so the JSX branch
+ *  lands exactly once. */
 function renderInfoBanner(): ReactNode {
   return (
-    <div
-      className="folder-info-banner"
+    <InlineMessage
+      variant="info"
       data-folder-info-banner=""
       role="status"
     >
@@ -525,7 +559,7 @@ function renderInfoBanner(): ReactNode {
         check_circle
       </span>
       <span>Path already exists on disk.</span>
-    </div>
+    </InlineMessage>
   );
 }
 
@@ -533,16 +567,21 @@ function renderInfoBanner(): ReactNode {
  *  the bare "Create N folders" CTA. When `createArmed === true`,
  *  paint the in-tab confirmation row with a "Confirm create?"
  *  prompt + a Confirm button (calls `onCreate`) + a Cancel
- *  button (calls `onDisarmCreate`). The create button's label
- *  flips to "Creating…" while `createStatus.kind === "creating"`
- *  (the parent owns the disabled-state transition). On success
- *  (`createStatus.kind === "created"`), the parent refreshes the
- *  preview cache so the next render sees a fresh `loaded`
- *  preview with `all_exist === true` and the path-actions row
- *  replaces the create row. On error
- *  (`createStatus.kind === "error"`), the renderer shows the
- *  failure message inline so the user can retry by clicking
- *  Create again. */
+ *  button (calls `onDisarmCreate`). Both buttons now route
+ *  through the `<Button variant="primary">` /
+ *  `<Button variant="secondary">` design-system primitives
+ *  (from `@taxa/design-system`) — the legacy `<button
+ *  className="folder-btn folder-btn-primary …">` /
+ *  `folder-btn-secondary` composition is gone. The create
+ *  button's label flips to "Creating…" while `createStatus
+ *  .kind === "creating"` (the parent owns the disabled-state
+ *  transition). On success (`createStatus.kind === "created"`),
+ *  the parent refreshes the preview cache so the next render
+ *  sees a fresh `loaded` preview with `all_exist === true`
+ *  and the path-actions row replaces the create row. On
+ *  error (`createStatus.kind === "error"`), the renderer
+ *  shows the failure message inline so the user can retry
+ *  by clicking Create again. */
 function renderCreateRow(
   preview: MaterializePreview,
   createStatus: FolderCreateStatus,
@@ -564,16 +603,15 @@ function renderCreateRow(
         data-folder-create-armed={createArmed ? "true" : "false"}
       >
         {!createArmed ? (
-          <button
-            type="button"
-            className="folder-btn folder-btn-primary"
-            data-action="arm-create-research-folders"
+          <Button
+            variant="primary"
             disabled={isCreating}
             aria-disabled={isCreating}
             onClick={onArmCreate}
+            data-action="create-folders"
           >
             {isCreating ? "Creating…" : label}
-          </button>
+          </Button>
         ) : (
           <div
             className="folder-confirm"
@@ -586,33 +624,32 @@ function renderCreateRow(
               <code className="folder-confirm-path">{preview.relative_path}</code>?
             </span>
             <div className="folder-confirm-actions">
-              <button
-                type="button"
-                className="folder-btn folder-btn-secondary"
-                data-action="disarm-create-research-folders"
+              <Button
+                variant="secondary"
                 disabled={isCreating}
                 onClick={onDisarmCreate}
+                data-action="disarm-create-folders"
               >
                 Cancel
-              </button>
-              <button
-                type="button"
-                className="folder-btn folder-btn-primary"
-                data-action="confirm-create-research-folders"
+              </Button>
+              <Button
+                variant="primary"
                 disabled={isCreating}
                 aria-disabled={isCreating}
                 onClick={onCreate}
+                data-action="confirm-create-folders"
               >
                 {isCreating ? "Creating…" : "Confirm create"}
-              </button>
+              </Button>
             </div>
           </div>
         )}
       </div>
       {createStatus.kind === "created" ? (
-        <div
-          className="folder-inline-message folder-inline-message-success"
+        <InlineMessage
+          variant="success"
           data-folder-inline-message="created"
+          data-folder-inline-message-success=""
           data-folder-created-path={createStatus.result.relative_path}
           data-folder-created-count={String(createStatus.result.folders_created)}
           data-folder-existed-count={String(createStatus.result.folders_existed)}
@@ -627,12 +664,13 @@ function renderCreateRow(
           <span>
             {`Folders materialized: ${createStatus.result.relative_path} (${createStatus.result.folders_created} new, ${createStatus.result.folders_existed} already existed)`}
           </span>
-        </div>
+        </InlineMessage>
       ) : null}
       {isError ? (
-        <div
-          className="folder-inline-message folder-inline-message-error"
-          data-folder-inline-message="error"
+        <InlineMessage
+          variant="error"
+          data-folder-inline-message="create-error"
+          data-folder-inline-message-error=""
           role="alert"
         >
           <span
@@ -642,7 +680,7 @@ function renderCreateRow(
             error
           </span>
           <span>{`Error materializing: ${createStatus.message}`}</span>
-        </div>
+        </InlineMessage>
       ) : null}
     </Fragment>
   );
@@ -650,11 +688,17 @@ function renderCreateRow(
 
 /** Render the path-actions row — the "Open in Finder" + "Copy
  *  path" pair that surfaces when `preview.all_exist === true`.
- *  Mirrors the legacy
- *  `web/detail.js::renderFolderTab::pathActions` (folder_open
- *  glyph on the Open button, content_copy glyph on the Copy
- *  button). The Open button's label flips to "Opening…" while
- *  `openStatus.kind === "opening"`; on success
+ *  Both buttons now route through the `<Button variant="secondary">`
+ *  design-system primitive (from `@taxa/design-system`) — the
+ *  legacy `<button className="folder-btn folder-btn-primary …">`
+ *  / `folder-btn-secondary` composition is gone. The Open
+ *  button carries the `folder_open` Material Symbols glyph +
+ *  invokes `onOpen` (the parent calls `openFolder`); the Copy
+ *  button carries the `content_copy` glyph + invokes `onCopy`
+ *  (the parent calls `navigator.clipboard.writeText`). Mirrors
+ *  the legacy `web/detail.js::renderFolderTab::pathActions`
+ *  byte-for-byte. The Open button's label flips to "Opening…"
+ *  while `openStatus.kind === "opening"`; on success
  *  (`openStatus.kind === "opened"`) the renderer shows inline
  *  "Opened with `open`: <relative_path>" copy. The Copy button
  *  label flips to "Copied!" while `copyStatus.kind === "copied"`
@@ -681,13 +725,12 @@ function renderPathActionsRow(
         className="folder-path-actions"
         data-folder-path-actions=""
       >
-        <button
-          type="button"
-          className="folder-btn folder-btn-primary"
-          data-action="open-research-folder"
+        <Button
+          variant="secondary"
           disabled={isOpening}
           aria-disabled={isOpening}
           onClick={onOpen}
+          data-action="open-folder-tab"
         >
           <span
             aria-hidden="true"
@@ -696,12 +739,11 @@ function renderPathActionsRow(
             folder_open
           </span>
           <span>{isOpening ? "Opening…" : "Open in Finder"}</span>
-        </button>
-        <button
-          type="button"
-          className="folder-btn folder-btn-secondary"
-          data-action="copy-research-path"
+        </Button>
+        <Button
+          variant="secondary"
           onClick={onCopy}
+          data-action="copy-path"
         >
           <span
             aria-hidden="true"
@@ -710,12 +752,13 @@ function renderPathActionsRow(
             content_copy
           </span>
           <span>{isCopied ? "Copied!" : "Copy path"}</span>
-        </button>
+        </Button>
       </div>
       {isOpened ? (
-        <div
-          className="folder-inline-message folder-inline-message-success"
+        <InlineMessage
+          variant="success"
           data-folder-inline-message="opened"
+          data-folder-inline-message-success=""
           data-folder-opened-with={openStatus.result.opened_with}
           data-folder-opened-path={openStatus.result.relative_path}
           role="status"
@@ -729,12 +772,13 @@ function renderPathActionsRow(
           <span>
             {`Opened ${openStatus.result.opened_with}: ${openStatus.result.relative_path}`}
           </span>
-        </div>
+        </InlineMessage>
       ) : null}
       {isOpenError ? (
-        <div
-          className="folder-inline-message folder-inline-message-error"
+        <InlineMessage
+          variant="error"
           data-folder-inline-message="open-error"
+          data-folder-inline-message-error=""
           role="alert"
         >
           <span
@@ -744,12 +788,13 @@ function renderPathActionsRow(
             error
           </span>
           <span>{`Could not open folder: ${openStatus.message}`}</span>
-        </div>
+        </InlineMessage>
       ) : null}
       {isCopyError ? (
-        <div
-          className="folder-inline-message folder-inline-message-error"
+        <InlineMessage
+          variant="error"
           data-folder-inline-message="copy-error"
+          data-folder-inline-message-error=""
           role="alert"
         >
           <span
@@ -759,7 +804,7 @@ function renderPathActionsRow(
             error
           </span>
           <span>{`Could not copy path: ${copyStatus.message}`}</span>
-        </div>
+        </InlineMessage>
       ) : null}
     </Fragment>
   );
