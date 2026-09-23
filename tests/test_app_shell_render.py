@@ -1601,3 +1601,263 @@ def test_out_index_html_has_footer_shortcut_legend(built_index_html):
         "out/index.html must render the `Esc` keyboard "
         "shortcut marker in the footer legend."
     )
+
+
+# ---------------------------------------------------------------------------
+# ODD-ASN-003 — global 404 page (Next 16 `app/not-found.tsx` file convention).
+#
+# The product needs a Taxa-shaped 404 page so any URL that does NOT
+# match a declared route lands on the navigation surface (the AppShell)
+# instead of Next.js's default two-line "404 — This page could not be
+# found." page. The page renders inside the root layout (so the
+# skip-to-main link + the Raleway font + the version-banner still
+# cascade through), wraps the body inside the AppShell frame (so the
+# `<main id="main">` skip-link target resolves), and emits a
+# "Pick a destination" list with four `<Link>` components pointing at
+# the four top-level destinations.
+#
+# Source-level + DOM-source checks (no Playwright needed). The static
+# export must serialize the body byte-for-byte so a `curl` against a
+# static-served `out/404.html` shows the Taxa-shaped page.
+# ---------------------------------------------------------------------------
+NOT_FOUND_FILE = REPO_ROOT / "src" / "app" / "not-found.tsx"
+OUT_NOT_FOUND_CANDIDATES: tuple[Path, ...] = (
+    OUT_DIR / "404.html",
+    OUT_DIR / "_not-found.html",
+    OUT_DIR / "_not-found" / "index.html",
+)
+
+
+def _read_out_not_found_html() -> tuple[Path, str]:
+    """Return ``(path, body)`` for the static 404 export.
+
+    The Next.js static export writes the global 404 page to
+    ``out/404.html`` for the public URL ``/404`` AND a
+    ``out/_not-found.html`` (or ``out/_not-found/index.html``)
+    internal fragment for the App Router catch-all. The test
+    accepts any of the three forms — whichever Next 16 emits on
+    the current branch. Skips when none exist (the build hasn't
+    run yet, or the route hasn't shipped).
+    """
+    if not OUT_INDEX.is_file():
+        pytest.skip(
+            f"missing {OUT_INDEX.relative_to(REPO_ROOT)} — run "
+            f"`npx --no-install next build` first."
+        )
+    for candidate in OUT_NOT_FOUND_CANDIDATES:
+        if candidate.is_file():
+            return candidate, candidate.read_text(encoding="utf-8")
+    pytest.skip(
+        "no static 404 export found under out/ — Next.js output "
+        "shape changed; update OUT_NOT_FOUND_CANDIDATES."
+    )
+
+
+def test_not_found_route_renders_app_shell():
+    """ODD-ASN-003: `src/app/not-found.tsx` exists (the Next 16
+    file convention — see `node_modules/next/dist/docs/01-app/
+    03-api-reference/03-file-conventions/not-found.md`) and
+    mounts the AppShell so the navigation surface stays
+    consistent with every other route.
+
+    Two complementary checks:
+
+      1. The file exists at the canonical Next 16 path.
+      2. The file imports `AppShell` from the public
+         ``@taxa/app-shell`` barrel (so the navigation surface
+         comes from the canonical owner — a deep import into
+         ``src/modules/app-shell/presentation/AppShell`` would
+         violate spec.md rule 5 and bypass the
+         ``no-restricted-imports`` ESLint guard).
+      3. The default export renders ``<AppShell ...>...</AppShell>``
+         in the source — the route MUST wrap the 404 body in
+         the AppShell so the `<main id="main">` skip-link
+         target resolves and the four-destination nav is
+         reachable from the recovery surface.
+    """
+    assert NOT_FOUND_FILE.is_file(), (
+        f"missing {NOT_FOUND_FILE.relative_to(REPO_ROOT)} — "
+        f"ODD-ASN-003 must ship the global 404 page via the "
+        f"Next 16 `app/not-found.tsx` file convention."
+    )
+    text = NOT_FOUND_FILE.read_text(encoding="utf-8")
+    assert re.search(
+        r"""from\s+["']@taxa/app-shell["']""", text
+    ), (
+        f"{NOT_FOUND_FILE.relative_to(REPO_ROOT)} must import "
+        f"the AppShell through the public @taxa/app-shell "
+        f"barrel — deep paths into the presentation layer are "
+        f"blocked by no-restricted-imports."
+    )
+    assert re.search(r"<AppShell\b", text), (
+        f"{NOT_FOUND_FILE.relative_to(REPO_ROOT)} must render "
+        f"`<AppShell ...>...</AppShell>` so the navigation "
+        f"surface is reachable from the 404 page."
+    )
+
+
+def test_not_found_route_renders_destination_links():
+    """ODD-ASN-003: the global 404 page renders a
+    "Pick a destination" list with four `<Link>` components
+    pointing at the four top-level destinations the brief
+    pins: Classification (`/`), Browser (`/explorer`),
+    Help (`/help`), Settings (`/settings`).
+
+    Source-level check: each of the four href literals appears
+    in the file inside a `<Link>` or `<a>` element — OR appears
+    in a typed `NOT_FOUND_DESTINATIONS` array literal that the
+    `<Link href={dest.href}>` expression consumes (the
+    expression form is the brief's recommended pattern for any
+    link list backed by typed data). The component uses
+    `next/link` for client-side navigation per the new
+    AppShell's nav pattern, but the static export serves plain
+    `<a>` tags anyway so the check accepts both forms (the
+    href literal is the load-bearing signal).
+
+    Additionally the "Pick a destination" copy + the four
+    destination LABELS appear in the source so the body is
+    human-readable (not just a list of hrefs).
+    """
+    assert NOT_FOUND_FILE.is_file(), (
+        f"missing {NOT_FOUND_FILE.relative_to(REPO_ROOT)} — "
+        f"ODD-ASN-003 must ship the global 404 page."
+    )
+    text = NOT_FOUND_FILE.read_text(encoding="utf-8")
+    # The four hrefs must each appear in the source — either
+    # inside a `<Link>`/`<a>` href literal OR inside the
+    # typed `NOT_FOUND_DESTINATIONS` array (the expression
+    # form `<Link href={dest.href}>` is the recommended
+    # pattern for any link list backed by typed data).
+    for href in ("/", "/explorer", "/help", "/settings"):
+        literal_pattern = (
+            rf'<(?:Link|a)\b[^>]*\bhref\s*=\s*"{re.escape(href)}"'
+        )
+        array_pattern = rf'["\']{re.escape(href)}["\']'
+        assert re.search(literal_pattern, text) or re.search(
+            array_pattern, text
+        ), (
+            f"{NOT_FOUND_FILE.relative_to(REPO_ROOT)} must "
+            f"render a `<Link href=\"{href}\">` (or `<a "
+            f"href=\"{href}\">`) OR carry the literal "
+            f"\"{href}\" in the typed destination list — the "
+            f"404 page must surface the four top-level "
+            f"destinations as recovery affordances."
+        )
+    # The "Pick a destination" copy must appear so the body
+    # is human-readable.
+    assert "Pick a destination" in text, (
+        f"{NOT_FOUND_FILE.relative_to(REPO_ROOT)} must render "
+        f"the \"Pick a destination\" heading so the recovery "
+        f"list is named."
+    )
+    # The four destination labels must appear so the list is
+    # self-explanatory (the labels mirror the AppShellNav's
+    # `NAV_LINKS` array — Classification / Browser / Help /
+    # Settings).
+    for label in ("Classification", "Browser", "Help", "Settings"):
+        assert label in text, (
+            f"{NOT_FOUND_FILE.relative_to(REPO_ROOT)} must "
+            f"render the destination label \"{label}\" so the "
+            f"\"Pick a destination\" list is human-readable."
+        )
+
+
+def test_not_found_route_renders_skip_link_target():
+    """ODD-ASN-003: the 404 page wraps its body in the AppShell
+    so the AppShell's orchestrator emits `<main id="main">`
+    (the skip-link target the root layout's skip-to-main
+    `<a href="#main">` resolves to).
+
+    The AppShell renders:
+            <main className="app-shell-main flex-1">
+              <div id="main" className="app-shell-main-anchor ...">
+                {children}
+              </div>
+            </main>
+
+    Source-level check: the 404 page renders `<AppShell>...</AppShell>`
+    wrapping the body. We don't pin a literal `<main id="main">`
+    in the 404 source — the orchestrator owns the wrapper, and
+    pinning it twice would couple the 404 page to a private
+    detail of the AppShell. The behavioural contract is: the
+    404 page mounts the AppShell, the AppShell emits the
+    `<main id="main">` wrapper, the layout's skip-to-main
+    anchor resolves on the 404 page.
+    """
+    assert NOT_FOUND_FILE.is_file(), (
+        f"missing {NOT_FOUND_FILE.relative_to(REPO_ROOT)} — "
+        f"ODD-ASN-003 must ship the global 404 page."
+    )
+    text = NOT_FOUND_FILE.read_text(encoding="utf-8")
+    # The 404 page mounts the AppShell (which owns the
+    # `<main id="main">` wrapper). The opening + closing
+    # `</AppShell>` must both appear so the body sits inside
+    # the orchestrator's frame.
+    opens = re.findall(r"<AppShell\b", text)
+    closes = re.findall(r"</AppShell>", text)
+    assert len(opens) >= 1 and len(closes) >= 1, (
+        f"{NOT_FOUND_FILE.relative_to(REPO_ROOT)} must wrap "
+        f"the body in `<AppShell ...>...</AppShell>` so the "
+        f"`<main id=\"main\">` skip-link target resolves — "
+        f"the AppShell orchestrator emits the wrapper, not "
+        f"the 404 source itself."
+    )
+    # The 404 page must NOT declare a raw `<main>` element in
+    # JSX — that would duplicate the orchestrator's wrapper.
+    # The brief requires the AppShell to own the landmark
+    # triple. We strip block comments first so a docstring
+    # reference like "the orchestrator emits
+    # `<main id=\"main\">`" does not trip the gate.
+    code_only = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
+    assert not re.search(r"<main\b", code_only), (
+        f"{NOT_FOUND_FILE.relative_to(REPO_ROOT)} must NOT "
+        f"declare a raw `<main>` element in JSX — the AppShell "
+        f"orchestrator owns the `<main id=\"main\">` "
+        f"wrapper. A second `<main>` would duplicate the "
+        f"landmark."
+    )
+
+
+def test_out_not_found_html_renders_404_pick_a_destination():
+    """ODD-ASN-003: the static export ships a Taxa-shaped 404
+    page with the "404" copy + the "Pick a destination" list
+    + the four destination links. The check works on the
+    prerendered HTML (no Playwright needed) — Next.js must
+    serialize the AppShell + the four `<a href="...">` link
+    blocks byte-for-byte so a `curl` against a static-served
+    `out/404.html` shows the recovery surface.
+
+    The check accepts any of the three candidate files
+    (`out/404.html`, `out/_not-found.html`,
+    `out/_not-found/index.html`) — whichever Next 16 emits on
+    the current branch.
+
+    Three required observations:
+
+      1. The literal "404" copy appears in the body (the
+         page is reachable as a 404 surface).
+      2. The "Pick a destination" heading appears in the
+         body (the recovery list is named).
+      3. The four destination hrefs each appear inside an
+         `<a href="...">` anchor (the recovery list links
+         to the four top-level destinations).
+    """
+    _path, body = _read_out_not_found_html()
+    assert "404" in body, (
+        "the static 404 export must carry the `404` copy so "
+        "the recovery surface is recognisable as a 404 page."
+    )
+    assert "Pick a destination" in body, (
+        "the static 404 export must carry the `Pick a "
+        "destination` heading so the recovery list is named."
+    )
+    for href in ("/", "/explorer", "/help", "/settings"):
+        assert re.search(
+            rf'<a\b[^>]*\bhref\s*=\s*"{re.escape(href)}"',
+            body,
+        ), (
+            f"the static 404 export must carry `<a "
+            f"href=\"{href}\">` so the recovery list links "
+            f"to the four top-level destinations."
+        )
