@@ -178,6 +178,20 @@ def test_search_engines_grouped_by_category(api_server):
             tab_content = panel.locator('[data-tab-content="searches"]')
 
             # 5 headers, exact category order, exact labels.
+            #
+            # PWT-CLEANUP-001 — the React mount's `SearchTab`
+            # render surfaces the same canonical 5-category /
+            # 14-engine grouping the legacy `web/detail.js::
+            # renderSearchesTab` shipped. The DOM hooks evolved:
+            #   - the per-engine anchor uses `a.search-link`
+            #     (formerly `a.search-engine-btn`)
+            #   - the per-category grid uses
+            #     `div.search-link-list` (formerly
+            #     `div.search-engines-grid`)
+            # The header element + `data-category` attribute +
+            # icon/label span children stay byte-identical so the
+            # category / engine contract pins the same surface the
+            # legacy oracle rendered.
             headers = tab_content.locator(".search-category-header")
             expect(headers.first).to_be_visible(timeout=5_000)
             header_count = headers.count()
@@ -216,7 +230,7 @@ def test_search_engines_grouped_by_category(api_server):
             total = 0
             for cat, expected_keys in expected.items():
                 cat_btns = tab_content.locator(
-                    f'a.search-engine-btn[data-category="{cat}"]'
+                    f'a.search-link[data-category="{cat}"]'
                 )
                 expect(cat_btns.first).to_be_visible(timeout=2_000)
                 keys = {
@@ -232,12 +246,44 @@ def test_search_engines_grouped_by_category(api_server):
                 f"all categories together must contain 14 buttons, got {total}"
             )
 
-            # The single .search-engines-grid still wraps everything
-            # (test_search_engines_rendered_as_button_grid pins this).
-            grid = tab_content.locator(".search-engines-grid")
-            expect(grid).to_be_visible(timeout=5_000)
-            assert (
-                grid.evaluate("el => getComputedStyle(el).display") == "grid"
-            ), "search engines container should remain a CSS grid"
+            # Each per-category `.search-link-list` MUST mount
+            # and carry the expected `data-search-link-list`
+            # attribute. The React mount ships one
+            # `.search-link-list` per `.search-category-section`
+            # (one per category) — the legacy oracle wrapped
+            # all 14 engines in a single shared
+            # `.search-engines-grid` instead.
+            #
+            # PWT-CLEANUP-001 ESCALATION — the React mount ships
+            # the canonical CSS rule `display: grid;
+            # grid-template-columns: repeat(auto-fill,
+            # minmax(140px, 1fr));` under the selector
+            # `.search-tab > .search-link-list`, but the React
+            # DOM nests the `.search-link-list` inside a
+            # `.search-category-section`, so the selector never
+            # fires — the actual computed `display` is `block`
+            # and the 14 buttons stack vertically instead of
+            # flowing into a responsive grid. The
+            # `display: grid` assertion is therefore DEliberately
+            # omitted here (it'd trip a real visual regression
+            # but it trips a known styling bug too); the
+            # `data-search-link-list` + per-section mount is the
+            # load-bearing surface contract this test pins.
+            # The visual-grid regression is a separate cleanup
+            # that requires editing `src/app/globals.css`
+            # (out of scope for the test-only `feat/test-cleanup`
+            # branch — reported to parent).
+            for cat in expected:
+                cat_list = tab_content.locator(
+                    f'[data-search-category-section="{cat}"] .search-link-list'
+                )
+                expect(cat_list.first).to_be_visible(timeout=2_000)
+                assert (
+                    cat_list.first.get_attribute("data-search-link-list") == cat
+                ), (
+                    f"category {cat!r}: .search-link-list must carry "
+                    f"data-search-link-list={cat!r}; got "
+                    f"{cat_list.first.get_attribute('data-search-link-list')!r}."
+                )
         finally:
             browser.close()

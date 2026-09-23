@@ -2152,32 +2152,13 @@
     gap: 12px;
     padding: 16px 24px;
   }
-  .search-tab > .search-category-section {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .search-tab > .search-category-section > .search-category-header {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 4px 4px;
-    border-bottom: 1px solid var(--outline-variant);
-    font-family: "Raleway", sans-serif;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    line-height: 1.3;
-    text-transform: uppercase;
-    color: var(--on-surface-variant);
-  }
-  .search-tab > .search-link-list {
+  .search-tab .search-link-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     gap: 12px;
     padding: 4px 2px;
   }
-  .search-tab > .search-link-list > .search-link {
+  .search-tab .search-link-list > .search-link {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -2196,6 +2177,25 @@
     line-height: 1.3;
     text-align: center;
     cursor: pointer;
+  }
+  .search-tab > .search-category-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .search-tab > .search-category-section > .search-category-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 4px 4px;
+    border-bottom: 1px solid var(--outline-variant);
+    font-family: "Raleway", sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    line-height: 1.3;
+    text-transform: uppercase;
+    color: var(--on-surface-variant);
   }
   /* Utility class (PR 3c-e2) — subtle elevation shadow. Matches the
      legacy Tailwind-3 `shadow-sm` value (0 1px 2px 0 rgb(0 0 0 / 5%))
