@@ -48,6 +48,26 @@ export interface AppShellProps {
   readonly searchQuery?: string;
   /** Optional lifted search-mutator (ODD-ASN-002 controlled mode). */
   readonly onSearchQueryChange?: (next: string) => void;
+  /**
+   * ODD-EXP-001 — the route that is rendering the AppShell.
+   * Threads into `AppShellGlobalSearch` so the header search
+   * input can become inert on `/explorer` (the global search
+   * produces no results dropdown on the explorer route — the
+   * explorer's local file-search in the tree pane is the
+   * primary search surface there). On every other route the
+   * search input stays fully active.
+   *
+   * When omitted, the AppShell defaults to `"classification"`
+   * — the same active-search behavior the `/` route has had
+   * since ODD-ASN-002 shipped.
+   */
+  readonly currentRoute?:
+    | "classification"
+    | "explorer"
+    | "help"
+    | "settings"
+    | "hydration-probe"
+    | "not-found";
   readonly children: ReactNode;
 }
 
@@ -57,6 +77,7 @@ export default function AppShell({
   schemaVersion,
   searchQuery,
   onSearchQueryChange,
+  currentRoute,
   children,
 }: AppShellProps): React.ReactElement {
   return (
@@ -82,6 +103,7 @@ export default function AppShell({
       <AppShellHeader
         searchQuery={searchQuery}
         onSearchQueryChange={onSearchQueryChange}
+        currentRoute={currentRoute}
       />
       <main className="app-shell-main flex-1">
         <div

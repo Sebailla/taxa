@@ -24,7 +24,7 @@ export const metadata = {
 
 export default function SettingsPage(): React.ReactElement {
   return (
-    <AppShell title="Settings" apiOrigin="/api" schemaVersion="1">
+    <AppShell title="Settings" apiOrigin="/api" schemaVersion="1" currentRoute="settings">
       <article
         className="app-settings flex flex-col items-start gap-4"
         data-app-settings=""

@@ -1097,6 +1097,11 @@ APP_SHELL_PRESENTATION_DIR = (
 EXPLORER_FILE = (
     REPO_ROOT / "src" / "modules" / "research" / "presentation" / "Explorer.tsx"
 )
+# ODD-EXP-001 — the `/explorer` route's page entry (where the
+# `currentRoute="explorer"` prop is wired onto the AppShell).
+EXPLORER_PAGE = (
+    REPO_ROOT / "src" / "app" / "explorer" / "page.tsx"
+)
 HELP_PAGE_FILE = REPO_ROOT / "src" / "app" / "help" / "page.tsx"
 SETTINGS_PAGE_FILE = REPO_ROOT / "src" / "app" / "settings" / "page.tsx"
 OUT_HELP = OUT_DIR / "help.html"
@@ -1896,3 +1901,619 @@ def test_out_not_found_html_renders_404_pick_a_destination():
             f"href=\"{href}\">` so the recovery list links "
             f"to the four top-level destinations."
         )
+
+
+# ---------------------------------------------------------------------------
+# ODD-EXP-001 — route-aware placeholder + visual disable on `/explorer`.
+#
+# The 2026-09-23T18-52-32Z re-critique identified a P0 the rebuild
+# introduced: the global search input renders on every route with
+# the `Search taxa…  (Cmd+K)` placeholder + takes focus on
+# `Cmd+K`/`/`, but produces no results dropdown on `/explorer`
+# (Explorer.tsx destructures `searchQuery` / `onSearchQueryChange`
+# and discards them). The header input is therefore a visual
+# no-op on `/explorer`.
+#
+# ODD-EXP-001 closes the P0 by making the input "visible but
+# inert" on `/explorer`: an honest inert placeholder that links
+# the actual capability ("Taxa search lives on Classification
+# (Cmd+K)"), `aria-disabled="true"` + a `data-app-shell-search-inert=""`
+# attribute, and a visual disable (`opacity-60 cursor-not-allowed`
+# Tailwind utilities). Every other route stays on the original
+# `Search taxa…  (Cmd+K)` placeholder + no inert markers.
+#
+# Source-level + DOM-source checks (no Playwright needed). The
+# routing happens at build time (`currentRoute` is a prop on
+# AppShell, threaded through Header → GlobalSearch), so the
+# static export already serializes the route-specific markup.
+# ---------------------------------------------------------------------------
+
+# Inert placeholder copy on `/explorer` — honest about why the
+# input is inert (links the actual capability to Classification),
+# no fake "search files" placeholder that doesn't work.
+EXPLORER_INERT_PLACEHOLDER_FRAGMENT = "Taxa search lives on Classification"
+# Original placeholder on every other route — pinned so a
+# future regression that drops the inert copy on `/explorer`
+# would still leave the original copy on `/`, `/help`,
+# `/settings`, `/not-found`, and `/hydration-probe`.
+NORMAL_PLACEHOLDER = "Search taxa…  (Cmd+K)"
+
+
+def test_app_shell_search_placeholder_is_route_aware():
+    """ODD-EXP-001: the global search input's placeholder is
+    route-aware.
+
+    Two complementary source-level checks on
+    `AppShellGlobalSearch.tsx`:
+
+      1. The component declares a `currentRoute` prop in its
+         public surface (the prop is the contract the routes
+         use to communicate which route is rendering).
+      2. The component has BOTH the normal placeholder literal
+         (`Search taxa…  (Cmd+K)`) AND an inert placeholder
+         literal (contains `Taxa search lives on
+         Classification`) AND branches on the `currentRoute`
+         prop to switch between them.
+
+    Two complementary DOM-source checks on the static export:
+
+      3. `out/index.html` (the `/` route) carries the normal
+         placeholder (`Search taxa…  (Cmd+K)`).
+      4. `out/explorer.html` (the `/explorer` route) carries
+         the inert placeholder fragment (`Taxa search lives on
+         Classification`) — the honest copy that explains why
+         the input is inert on this route.
+
+    The DOM-source half of the test requires the build to have
+    run (the `built_index_html` fixture in this module already
+    runs `npx next build` once per module). Skips gracefully
+    when the build artifact is missing during RED.
+    """
+    text = _read_text(APP_SHELL_GLOBAL_SEARCH_FILE)
+    # 1. The `currentRoute` prop exists on the public surface.
+    # The regex accepts the union-type form the prop uses
+    # (`readonly currentRoute?: | "classification" | ...`) —
+    # the `?:` colon followed by either whitespace + a quote
+    # OR the union-bar leading to a quote both count.
+    assert re.search(
+        r"\bcurrentRoute\s*\?\s*:\s*(?:\n\s*\|\s*)?\"",
+        text,
+    ), (
+        "AppShellGlobalSearch.tsx must declare a `currentRoute` "
+        "prop on its public surface so the routes can signal "
+        "which route is rendering — the ODD-EXP-001 contract."
+    )
+    # 2a. The normal placeholder literal is in the file.
+    assert NORMAL_PLACEHOLDER in text, (
+        f"AppShellGlobalSearch.tsx must still render the "
+        f"original `{NORMAL_PLACEHOLDER!r}` placeholder on the "
+        f"non-explorer routes."
+    )
+    # 2b. The inert placeholder fragment is in the file.
+    assert EXPLORER_INERT_PLACEHOLDER_FRAGMENT in text, (
+        f"AppShellGlobalSearch.tsx must render the inert "
+        f"placeholder fragment "
+        f"{EXPLORER_INERT_PLACEHOLDER_FRAGMENT!r} on "
+        f"`currentRoute === \"explorer\"` — honest copy that "
+        f"links the actual search capability to the "
+        f"Classification route."
+    )
+    # 2c. The branch on `currentRoute` exists.
+    assert re.search(
+        r"currentRoute\s*===\s*[\"']explorer[\"']",
+        text,
+    ), (
+        "AppShellGlobalSearch.tsx must branch on "
+        "`currentRoute === \"explorer\"` to switch between the "
+        "normal + inert placeholder copy."
+    )
+    # 3. DOM-source: out/index.html (the `/` route) carries the
+    # normal placeholder.
+    if OUT_INDEX.is_file():
+        index_html = OUT_INDEX.read_text(encoding="utf-8")
+        # Pin the placeholder via the rendered attribute literal
+        # so a future regression that escapes the placeholder
+        # differently would still trip the gate.
+        assert (
+            f'placeholder="{NORMAL_PLACEHOLDER}"' in index_html
+        ), (
+            f"out/index.html must carry "
+            f"`<input ... placeholder=\"{NORMAL_PLACEHOLDER}\">` "
+            f"— the `/` route renders the normal placeholder."
+        )
+    # 4. DOM-source: out/explorer.html (the `/explorer` route)
+    # carries the inert placeholder.
+    explorer_html_path = OUT_DIR / "explorer.html"
+    if explorer_html_path.is_file():
+        explorer_html = explorer_html_path.read_text(
+            encoding="utf-8"
+        )
+        assert (
+            EXPLORER_INERT_PLACEHOLDER_FRAGMENT in explorer_html
+        ), (
+            f"out/explorer.html must carry the inert placeholder "
+            f"fragment `{EXPLORER_INERT_PLACEHOLDER_FRAGMENT!r}` "
+            f"— the `/explorer` route renders the honest inert "
+            f"copy that links the search capability to the "
+            f"Classification route."
+        )
+
+
+def test_app_shell_search_input_is_inert_on_explorer():
+    """ODD-EXP-001: the global search input carries inert
+    affordances ONLY on `/explorer`.
+
+    The contract pins THREE inert markers on `/explorer`:
+
+      1. `aria-disabled="true"` — assistive tech reads the
+         input as disabled (no focus, no edit).
+      2. `data-app-shell-search-inert=""` — programmatic
+         marker for downstream consumers (CSS hooks + e2e
+         probes).
+      3. `cursor: not-allowed` — the visible "this is inert"
+         affordance via Tailwind's `cursor-not-allowed`
+         utility (the className literal).
+
+    Every other route MUST NOT carry these markers — the
+    non-explorer routes still own the active search input.
+
+    Two complementary source-level checks on
+    `AppShellGlobalSearch.tsx`:
+
+      A. The inert attribute literals (`aria-disabled`,
+         `data-app-shell-search-inert`) appear in the source.
+      B. The inert `cursor-not-allowed` Tailwind utility
+         appears in the source (the visible affordance).
+
+    Two complementary DOM-source checks on the static export:
+
+      C. `out/explorer.html` carries all three inert markers.
+      D. `out/index.html` does NOT carry any inert marker —
+         the `/` route's input stays fully active.
+
+    Skips gracefully when the build artifact is missing
+    during RED.
+    """
+    text = _read_text(APP_SHELL_GLOBAL_SEARCH_FILE)
+    # A. The inert attribute tokens are in the source.
+    assert "aria-disabled" in text, (
+        "AppShellGlobalSearch.tsx must emit `aria-disabled` on "
+        "the inert input — the assistive-tech affordance."
+    )
+    assert "data-app-shell-search-inert" in text, (
+        "AppShellGlobalSearch.tsx must emit "
+        "`data-app-shell-search-inert=\"\"` on the inert "
+        "input — the programmatic marker downstream "
+        "consumers key on."
+    )
+    # B. The visible cursor affordance is in the source.
+    assert "cursor-not-allowed" in text, (
+        "AppShellGlobalSearch.tsx must apply the "
+        "`cursor-not-allowed` Tailwind utility on the inert "
+        "input — the visible affordance the user sees."
+    )
+    # DOM-source: out/explorer.html carries ALL three markers.
+    explorer_html_path = OUT_DIR / "explorer.html"
+    if explorer_html_path.is_file():
+        explorer_html = explorer_html_path.read_text(
+            encoding="utf-8"
+        )
+        for marker in (
+            'aria-disabled="true"',
+            'data-app-shell-search-inert=""',
+            "cursor-not-allowed",
+        ):
+            assert marker in explorer_html, (
+                f"out/explorer.html must carry `{marker}` on the "
+                f"global search input — the ODD-EXP-001 inert "
+                f"affordance contract for `/explorer`."
+            )
+    # DOM-source: out/index.html does NOT carry any inert marker.
+    if OUT_INDEX.is_file():
+        index_html = OUT_INDEX.read_text(encoding="utf-8")
+        assert (
+            'data-app-shell-search-inert=""' not in index_html
+        ), (
+            "out/index.html must NOT carry "
+            "`data-app-shell-search-inert=\"\"` — the `/` route "
+            "keeps the input fully active."
+        )
+
+
+def test_explorer_page_passes_current_route():
+    """ODD-EXP-001: `src/app/explorer/page.tsx` passes
+    `currentRoute=\"explorer\"` to the AppShell so the
+    header global-search input renders inert on this route.
+
+    The source-level check pins the literal `currentRoute="explorer"`
+    in the explorer page (the prop that drives the inert
+    branch in AppShellGlobalSearch). Without this prop the
+    route ships the original active-input rendering and the
+    P0 stays open.
+    """
+    text = _read_text(EXPLORER_PAGE)
+    assert 'currentRoute="explorer"' in text, (
+        f"{EXPLORER_PAGE.relative_to(REPO_ROOT)} must pass "
+        f"`currentRoute=\"explorer\"` to the AppShell — "
+        f"the prop that drives the ODD-EXP-001 inert branch "
+        f"in AppShellGlobalSearch (honest copy + visual "
+        f"disable on the global search input)."
+    )
+
+
+# ---------------------------------------------------------------------------
+# ODD-EXP-002 — `?` shortcut + footer legend sync + help page
+# shortcut map sync.
+#
+# The 2026-09-23T18-52-32Z re-critique identified a second P0 the
+# rebuild introduced: the footer shortcut legend documents
+# `<kbd>/</kbd> Help` while the AppShellGlobalSearch actually wires
+# `/` to focus the global search input. Footer contradicts
+# actual contract.
+#
+# ODD-EXP-002 closes the P0 with three coordinated changes:
+#
+#   1. AppShellGlobalSearch wires a `?` keydown handler that
+#      uses Next.js `useRouter().push(\"/help\")` to navigate
+#      (NOT `window.location.href` — `useRouter` triggers a
+#      client-side navigation that preserves React state).
+#      The handler respects the same editable-field guard the
+#      `/` handler uses.
+#   2. AppShellFooter updates the legend so `<kbd>/</kbd>` is
+#      adjacent to the literal `Search` (not `Help`) AND
+#      `<kbd>?</kbd>` is adjacent to the literal `Help`. The
+#      two clusters are NOT merged into a single
+#      `· / Help ·` cluster that conflates them.
+#   3. `src/app/help/page.tsx` adds a `<dt>?</dt>` entry to
+#      the shortcut map AND keeps the `<dt>/</dt>` entry's
+#      `<dd>` reading \"Focus the global search input\" (NOT
+#      \"Open Help\").
+#
+# Source-level + DOM-source checks (no Playwright needed). The
+# `useRouter().push(\"/help\")` call is a runtime behavior the
+# source-level check pins via the import + the call site. The
+# footer + help-page sync are static markup the static export
+# already serializes byte-for-byte.
+# ---------------------------------------------------------------------------
+
+
+def test_app_shell_shortcut_question_navigates_to_help():
+    """ODD-EXP-002: `AppShellGlobalSearch.tsx` wires the `?`
+    keydown shortcut to navigate to `/help` via Next.js
+    `useRouter().push(\"/help\")` (NOT `window.location.href`).
+
+    Three required observations:
+
+      1. The component imports `useRouter` from
+         `next/navigation`.
+      2. The component declares a keydown handler that
+         handles `ev.key === \"?\"` (or byte-equivalent
+         `\"?\"` literal).
+      3. The handler calls `router.push(\"/help\")` (or
+         `push(\"/help\")` after destructuring the router) —
+         NEVER `window.location.href`.
+
+    The `?` shortcut must respect the same editable-field
+    guard the `/` handler uses (the constraint pins this —
+    a researcher typing `?` inside another `<input>` /
+    `<textarea>` / `[contenteditable]` element must NOT
+    trigger the help navigation). The check verifies the
+    guard by inspecting the handler source for the same
+    `isEditable` / tag check pattern the `/` handler uses.
+    """
+    text = _read_text(APP_SHELL_GLOBAL_SEARCH_FILE)
+    # 1. useRouter is imported from next/navigation.
+    assert re.search(
+        r"import\s*\{[^}]*\buseRouter\b[^}]*\}\s*from\s*"
+        r"[\"']next/navigation[\"']",
+        text,
+    ), (
+        "AppShellGlobalSearch.tsx must import `useRouter` "
+        "from `next/navigation` — the ODD-EXP-002 contract "
+        "for the `?` shortcut navigation. `useRouter` "
+        "triggers a client-side navigation that preserves "
+        "React state (vs. `window.location.href` which would "
+        "trigger a hard reload)."
+    )
+    # 2. The keydown handler reacts to `?`.
+    assert re.search(
+        r"ev\.key\s*===\s*[\"']\?[\"']",
+        text,
+    ) or re.search(
+        r"key\s*===\s*[\"']\?[\"']",
+        text,
+    ), (
+        "AppShellGlobalSearch.tsx must react to `ev.key === "
+        "\"?\"` in the keydown handler — the ODD-EXP-002 "
+        "`?` shortcut wiring."
+    )
+    # 3. The handler pushes \"/help\" via the router (NOT
+    # window.location.href).
+    assert re.search(
+        r"\.push\s*\(\s*[\"']/help[\"']\s*\)",
+        text,
+    ), (
+        "AppShellGlobalSearch.tsx must call "
+        "`.push(\"/help\")` on the Next.js router — the "
+        "ODD-EXP-002 contract for `?` → help navigation."
+    )
+    # Constraint guard: `?` MUST NOT use window.location.href.
+    # Strip docstrings + line comments first so the prose
+    # that DOCUMENTS the constraint (the `window.location.href`
+    # comparison the docstring carries) doesn't trip the
+    # gate — the witness checks the executable code, not the
+    # prose.
+    code_only_search = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    code_only_search = re.sub(r"//[^\n]*", "", code_only_search)
+    assert "window.location.href" not in code_only_search, (
+        "AppShellGlobalSearch.tsx must NOT use "
+        "`window.location.href` for the `?` shortcut — "
+        "the constraint pins `useRouter().push(\"/help\")` "
+        "to preserve React state across the navigation. "
+        "(Docstrings may reference the literal as "
+        "documentation of the closed regression; this check "
+        "rejects only the executable code form.)"
+    )
+    # Constraint guard: the editable-field guard must apply
+    # to `?` too. The existing `/` handler uses an
+    # `isEditable` helper that checks INPUT/TEXTAREA/SELECT
+    # tags + `isContentEditable`. The `?` handler must
+    # consult the same guard before navigating.
+    assert re.search(
+        r"isEditable\s*\(\s*target\s*\)",
+        text,
+    ), (
+        "AppShellGlobalSearch.tsx must consult the "
+        "`isEditable(target)` guard before navigating on "
+        "`?` — the same editable-field guard the `/` "
+        "handler uses. A researcher typing `?` inside any "
+        "<input> / <textarea> / [contenteditable] element "
+        "must NOT trigger the help navigation."
+    )
+
+
+def test_app_shell_shortcut_slash_focuses_search():
+    """ODD-EXP-002: `AppShellGlobalSearch.tsx` continues to
+    wire the `/` keydown shortcut to focus the global search
+    input (existing behavior pinned by the ODD-ASN-002
+    contract — this test pins the post-ODD-EXP-002
+    continuation).
+
+    Three required observations:
+
+      1. The keydown handler reacts to `ev.key === \"/\"`.
+      2. The handler calls `inputRef.current?.focus()` (or
+         equivalent focus invocation on the input ref).
+      3. The handler respects the same editable-field guard
+         the `?` handler now uses — the constraint pins
+         symmetry so neither shortcut steals focus from an
+         active text field.
+
+    The post-ODD-EXP-002 continuation MUST stay green: the
+    `/` shortcut continues to focus the search input on
+    non-explorer routes, and the existing skip-when-editable
+    guard stays in force.
+    """
+    text = _read_text(APP_SHELL_GLOBAL_SEARCH_FILE)
+    # 1. The `/` keydown handler is wired.
+    assert re.search(
+        r"ev\.key\s*===\s*[\"']/[\"']",
+        text,
+    ) or re.search(
+        r"key\s*===\s*[\"']/[\"']",
+        text,
+    ), (
+        "AppShellGlobalSearch.tsx must react to `ev.key === "
+        "\"/\"` in the keydown handler — the ODD-ASN-002 "
+        "shortcut that ODD-EXP-002 keeps alive on "
+        "non-explorer routes."
+    )
+    # 2. The handler focuses the input ref.
+    assert re.search(
+        r"inputRef\.current\s*\?\.\s*focus\s*\(\s*\)",
+        text,
+    ), (
+        "AppShellGlobalSearch.tsx must call "
+        "`inputRef.current?.focus()` on the `/` shortcut — "
+        "the ODD-ASN-002 focus contract the post-ODD-EXP-002 "
+        "continuation pins."
+    )
+    # 3. The editable-field guard is still in force for `/`.
+    # The handler skips focus when `isEditable(target)`
+    # returns true.
+    slash_block_match = re.search(
+        r"ev\.key\s*===\s*[\"']/[\"'].*?isEditable\s*\(\s*target\s*\)",
+        text,
+        re.DOTALL,
+    )
+    assert slash_block_match, (
+        "AppShellGlobalSearch.tsx must consult the "
+        "`isEditable(target)` guard before focusing the "
+        "search input on `/` — the editable-field skip "
+        "the ODD-ASN-002 contract pins."
+    )
+
+
+def test_app_shell_footer_shortcut_legend_separates_slash_and_question():
+    """ODD-EXP-002: `AppShellFooter.tsx` renders a shortcut
+    legend that clearly distinguishes the `/` (search) and
+    `?` (help) shortcuts — no single `· / Help ·` cluster
+    that conflates them.
+
+    Three required observations:
+
+      1. The footer carries BOTH `<kbd>/</kbd>` AND
+         `<kbd>?</kbd>` — the two shortcuts must both be
+         listed.
+      2. The literal `Search` is adjacent to `<kbd>/</kbd>`
+         (NOT adjacent to `<kbd>?</kbd>`) — the `/` cluster
+         says \"Search\".
+      3. The literal `Help` is adjacent to `<kbd>?</kbd>`
+         (NOT adjacent to `<kbd>/</kbd>`) — the `?` cluster
+         says \"Help\".
+
+    \"Adjacent\" means the literal appears within the same
+    whitespace-bounded text run as the `<kbd>` element. The
+    check accepts either a JSX literal order (e.g. `<kbd>/</kbd>
+    Search`) or an HTML serialized order (`<kbd>/</kbd> Search`)
+    — the proximity test is substring-based with a small
+    tolerance for whitespace + `·` separators.
+    """
+    text = _read_text(APP_SHELL_FOOTER_FILE)
+    # 1. Both kbd elements appear.
+    assert "<kbd>/</kbd>" in text, (
+        "AppShellFooter.tsx must render `<kbd>/</kbd>` — the "
+        "ODD-EXP-002 footer legend carries the `/` shortcut "
+        "marker."
+    )
+    assert "<kbd>?</kbd>" in text, (
+        "AppShellFooter.tsx must render `<kbd>?</kbd>` — the "
+        "ODD-EXP-002 footer legend carries the `?` shortcut "
+        "marker (the new Help shortcut)."
+    )
+    # 2. The literal `Search` is adjacent to `<kbd>/</kbd>`.
+    # Allow trailing whitespace + the `·` separator.
+    slash_search_match = re.search(
+        r"<kbd>/</kbd>\s*Search",
+        text,
+    )
+    assert slash_search_match, (
+        "AppShellFooter.tsx must render `<kbd>/</kbd> Search` "
+        "(or byte-equivalent with whitespace) — the `/` "
+        "shortcut cluster is for Search, NOT Help. The "
+        "pre-ODD-EXP-002 legend conflates `/` with Help "
+        "(`<kbd>/</kbd> Help ·`); ODD-EXP-002 separates them."
+    )
+    # 3. The literal `Help` is adjacent to `<kbd>?</kbd>`.
+    question_help_match = re.search(
+        r"<kbd>\?</kbd>\s*Help",
+        text,
+    )
+    assert question_help_match, (
+        "AppShellFooter.tsx must render `<kbd>?</kbd> Help` "
+        "(or byte-equivalent with whitespace) — the `?` "
+        "shortcut cluster is for Help. The ODD-EXP-002 "
+        "legend pairs `?` with Help, not `/` with Help."
+    )
+    # 4. Negative witness: the old conflating pattern
+    # `<kbd>/</kbd> Help` MUST NOT appear in the JSX render.
+    # The slash + Help cluster is the regression ODD-EXP-002
+    # closes. Strip docstrings + line comments first so the
+    # docstring that DOCUMENTS the old pattern (and any
+    # future prose mention of it) doesn't trip the gate —
+    # the witness checks the JSX render, not the prose.
+    code_only_footer = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    code_only_footer = re.sub(r"//[^\n]*", "", code_only_footer)
+    assert not re.search(
+        r"<kbd>/</kbd>\s*Help",
+        code_only_footer,
+    ), (
+        "AppShellFooter.tsx must NOT render `<kbd>/</kbd> Help` "
+        "in the JSX — the conflating cluster the ODD-EXP-002 "
+        "critique identified. The `/` shortcut is for Search, "
+        "the `?` shortcut is for Help. (Docstrings may "
+        "reference the literal `<kbd>/</kbd> Help` as "
+        "documentation of the closed regression; this check "
+        "rejects only the JSX render form.)"
+    )
+
+
+def test_help_page_shortcut_map_lists_question_for_help():
+    """ODD-EXP-002: `src/app/help/page.tsx` shortcut map
+    includes a `<dt>?</dt>` entry AND keeps the `<dt>/</dt>`
+    entry's `<dd>` reading \"Focus the global search input\"
+    (NOT \"Open Help\" — the conflating copy the critique
+    identified).
+
+    Three required observations:
+
+      1. The shortcut map's `<dl>` block contains a
+         `<dt>?</dt>` (or byte-equivalent) — the new Help
+         shortcut entry.
+      2. The `<dt>?</dt>` entry's adjacent `<dd>` element
+         contains the literal \"Open this help page\" (or
+         equivalent — the entry must explain the shortcut's
+         effect).
+      3. The `<dt>/</dt>` entry's adjacent `<dd>` element
+         contains the literal \"Focus the global search
+         input\" (the ODD-ASN-002 wording the post-ODD-EXP-002
+         continuation pins).
+
+    The negative witness on `<dt>/</dt><dd>Open Help`
+    (or equivalent conflating copy) is the regression
+    ODD-EXP-002 closes.
+    """
+    text = _read_text(HELP_PAGE_FILE)
+    # 1. The `<dt>?</dt>` entry exists.
+    assert re.search(
+        r"<dt\b[^>]*>\s*<kbd>\?</kbd>\s*</dt>",
+        text,
+    ) or re.search(
+        r"<dt\b[^>]*>\s*\?\s*</dt>",
+        text,
+    ), (
+        f"{HELP_PAGE_FILE.relative_to(REPO_ROOT)} must add a "
+        f"`<dt>?</dt>` entry to the shortcut map — the "
+        f"ODD-EXP-002 new Help shortcut entry."
+    )
+    # 2. The `<dt>?</dt>` entry's adjacent `<dd>` explains
+    # the shortcut effect. The check looks for the next
+    # `<dd>` element after the `<dt>?</dt>` entry and
+    # verifies it carries the literal \"Open this help
+    # page\" (or byte-equivalent — accept any wording that
+    # contains \"Open\" + \"help\").
+    question_dd_match = re.search(
+        r"<dt\b[^>]*>\s*<kbd>\?</kbd>\s*</dt>\s*"
+        r"<dd\b[^>]*>([^<]+)</dd>",
+        text,
+        re.DOTALL,
+    ) or re.search(
+        r"<dt\b[^>]*>\s*\?\s*</dt>\s*"
+        r"<dd\b[^>]*>([^<]+)</dd>",
+        text,
+        re.DOTALL,
+    )
+    assert question_dd_match, (
+        f"{HELP_PAGE_FILE.relative_to(REPO_ROOT)} must render "
+        f"an adjacent `<dd>` for the `<dt>?</dt>` entry — "
+        f"the ODD-EXP-002 Help shortcut description."
+    )
+    question_dd_text = question_dd_match.group(1)
+    assert "Open" in question_dd_text and "help" in question_dd_text.lower(), (
+        f"{HELP_PAGE_FILE.relative_to(REPO_ROOT)} `<dt>?</dt>` "
+        f"entry's `<dd>` must describe the Help shortcut "
+        f"(contains `Open` + `help`); got {question_dd_text!r}."
+    )
+    # 3. The `<dt>/</dt>` entry's adjacent `<dd>` keeps the
+    # ODD-ASN-002 wording \"Focus the global search input\".
+    slash_dd_match = re.search(
+        r"<dt\b[^>]*>\s*<kbd>/</kbd>\s*</dt>\s*"
+        r"<dd\b[^>]*>([^<]+)</dd>",
+        text,
+        re.DOTALL,
+    )
+    assert slash_dd_match, (
+        f"{HELP_PAGE_FILE.relative_to(REPO_ROOT)} must render "
+        f"an adjacent `<dd>` for the `<dt>/</dt>` entry — "
+        f"the ODD-ASN-002 shortcut description."
+    )
+    slash_dd_text = slash_dd_match.group(1)
+    assert "Focus the global search input" in slash_dd_text, (
+        f"{HELP_PAGE_FILE.relative_to(REPO_ROOT)} `<dt>/</dt>` "
+        f"entry's `<dd>` must say \"Focus the global search "
+        f"input\" (NOT \"Open Help\" — the conflating copy the "
+        f"ODD-EXP-002 critique identified); got {slash_dd_text!r}."
+    )
+    # Negative witness: `<dt>/</dt><dd>...Open Help...` MUST
+    # NOT appear — the conflating copy ODD-EXP-002 closes.
+    assert not re.search(
+        r"<dt\b[^>]*>\s*<kbd>/</kbd>\s*</dt>\s*"
+        r"<dd\b[^>]*>[^<]*Open\s+Help[^<]*</dd>",
+        text,
+        re.DOTALL,
+    ), (
+        f"{HELP_PAGE_FILE.relative_to(REPO_ROOT)} `<dt>/</dt>` "
+        f"entry must NOT say \"Open Help\" — the conflating "
+        f"copy the ODD-EXP-002 critique identified. The `/` "
+        f"shortcut focuses the global search input."
+    )

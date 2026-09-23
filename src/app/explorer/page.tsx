@@ -46,7 +46,7 @@ export const metadata = {
 
 export default function ExplorerPage(): React.ReactElement {
   return (
-    <AppShell title="Research Explorer" apiOrigin="/api">
+    <AppShell title="Research Explorer" apiOrigin="/api" currentRoute="explorer">
       <Explorer apiOrigin="/api" />
     </AppShell>
   );
