@@ -144,3 +144,14 @@ export { useKebabOpenId } from "./application/useKebabOpenId";
 // scoped to the main route (see
 // `test_app_shell_render.py::test_out_index_html_chunks_permit_only_tree_source_key`).
 export { default as HydrationProbe } from "./presentation/HydrationProbe";
+
+// ODD-ASN-001 — production isolation gate for the dedicated
+// `/hydration-probe` route. Lives next to the `HydrationProbe`
+// re-export so the route's `layout.tsx` can mount the gate via
+// `import { HydrationProbeGate } from "@taxa/browser-state";`
+// without deep-linking into the presentation layer. The gate
+// is the route's only client-side production guard; the
+// search-engine side of the contract is enforced by the route
+// layout's `metadata.robots` export (Next.js auto-injects the
+// `<meta name="robots" content="noindex,nofollow">` pair).
+export { default as HydrationProbeGate } from "./presentation/HydrationProbeGate";

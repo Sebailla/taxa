@@ -550,6 +550,168 @@ def test_probe_page_mounts_browser_state_via_public_barrel():
 
 
 # ---------------------------------------------------------------------------
+# ODD-ASN-001 — production isolation contract for the
+# `/hydration-probe` route.
+#
+# The Playwright witness in `tests/test_hydration_console.py`
+# requires the static HTML at `out/hydration-probe.html` to
+# continue shipping the probe body. ODD-ASN-001 closes the
+# route's production exposure with a two-layer guard:
+#   1. A route `layout.tsx` ships `<meta name="robots"
+#      content="noindex,nofollow">` via the App Router
+#      `metadata` export — closes search-engine exposure.
+#   2. A client-only `<HydrationProbeGate />` replaces the
+#      probe body with a quiet fallback after mount when
+#      `localStorage.taxa-internal-ok` is missing — closes
+#      direct-URL exposure from non-test visitors.
+#
+# These four tests pin the static side of the contract: the
+# layout file shape, the gate component file shape, the
+# barrel wiring, and the static export output. The runtime
+# side (gate flip, fallback body, hydration silence) lives in
+# `tests/test_hydration_console.py` because Playwright is the
+# only way to observe the post-mount React render.
+# ---------------------------------------------------------------------------
+PROBE_LAYOUT = (
+    REPO_ROOT / "src" / "app" / "hydration-probe" / "layout.tsx"
+)
+PROBE_GATE = (
+    REPO_ROOT / "src" / "modules" / "browser-state"
+    / "presentation" / "HydrationProbeGate.tsx"
+)
+
+
+def test_probe_layout_renders_noindex_meta():
+    """`src/app/hydration-probe/layout.tsx` ships the noindex /
+    nofollow pair via the App Router `metadata` export.
+
+    The route's search-engine exposure contract: well-behaved
+    crawlers honour the `<meta name="robots"
+    content="noindex,nofollow">` pair Next.js auto-injects from
+    `metadata.robots`. Without the export the static HTML would
+    carry a plain `<meta name="robots">` (or no robots meta at
+    all), letting the route slip into search-engine indexes.
+    """
+    if not PROBE_LAYOUT.is_file():
+        pytest.skip(
+            f"missing {PROBE_LAYOUT.relative_to(REPO_ROOT)} — "
+            f"ODD-ASN-001 must ship the route's layout."
+        )
+    text = PROBE_LAYOUT.read_text(encoding="utf-8")
+    assert "metadata" in text, (
+        f"{PROBE_LAYOUT.relative_to(REPO_ROOT)} must export a "
+        f"`metadata` object so Next.js can auto-inject the "
+        f"noindex/nofollow pair."
+    )
+    assert "noindex" in text, (
+        f"{PROBE_LAYOUT.relative_to(REPO_ROOT)} must declare "
+        f"`robots.index = false` (or the literal `noindex`) so "
+        f"the static HTML carries the noindex directive."
+    )
+    assert "nofollow" in text, (
+        f"{PROBE_LAYOUT.relative_to(REPO_ROOT)} must declare "
+        f"`robots.follow = false` (or the literal `nofollow`) so "
+        f"the static HTML carries the nofollow directive."
+    )
+
+
+def test_probe_layout_wraps_children_in_gate():
+    """The route layout wraps `children` in `<HydrationProbeGate />`
+    imported through the public ``@taxa/browser-state`` barrel.
+
+    Two boundary checks at once:
+      - The gate is referenced (a future refactor that silently
+        drops the gate would let the probe body render to every
+        direct visitor).
+      - The import goes through the public barrel (a deep import
+        into `./presentation/HydrationProbeGate` would violate
+        spec.md rule 5 and bypass the `no-restricted-imports`
+        ESLint guard).
+    """
+    if not PROBE_LAYOUT.is_file():
+        pytest.skip(
+            f"missing {PROBE_LAYOUT.relative_to(REPO_ROOT)} — "
+            f"ODD-ASN-001 must ship the route's layout."
+        )
+    text = PROBE_LAYOUT.read_text(encoding="utf-8")
+    assert "HydrationProbeGate" in text, (
+        f"{PROBE_LAYOUT.relative_to(REPO_ROOT)} must mount the "
+        f"gate (the production guard). The Playwright witness "
+        f"still works because the harness sets the "
+        f"`taxa-internal-ok` flag via `add_init_script` before "
+        f"navigation."
+    )
+    assert re.search(
+        r"""from\s+["']@taxa/browser-state["']""", text
+    ), (
+        f"{PROBE_LAYOUT.relative_to(REPO_ROOT)} must import the "
+        f"gate through the public @taxa/browser-state barrel — "
+        f"deep paths into the presentation layer are blocked."
+    )
+
+
+def test_probe_gate_component_exists():
+    """`HydrationProbeGate.tsx` exists, is a Client Component, and
+    references the ODD-ASN-001 contract tokens.
+
+    Pinning the file shape catches silent drift: a future
+    refactor that drops `"use client"`, drops the
+    `taxa-internal-ok` key, or drops the `denied` state literal
+    would break the gate behaviour. Text-level checks are
+    sufficient because the runtime behaviour is pinned by
+    `tests/test_hydration_console.py` (Chromium-driven).
+    """
+    if not PROBE_GATE.is_file():
+        pytest.skip(
+            f"missing {PROBE_GATE.relative_to(REPO_ROOT)} — "
+            f"ODD-ASN-001 must ship the gate component."
+        )
+    text = PROBE_GATE.read_text(encoding="utf-8")
+    assert '"use client"' in text, (
+        f"{PROBE_GATE.relative_to(REPO_ROOT)} must declare "
+        f"`\"use client\"` at the top so the gate's `useEffect` "
+        f"runs after hydration."
+    )
+    assert "taxa-internal-ok" in text, (
+        f"{PROBE_GATE.relative_to(REPO_ROOT)} must read the "
+        f"`taxa-internal-ok` localStorage key — the ODD-ASN-001 "
+        f"flag the Playwright harness seeds via `add_init_script`."
+    )
+    assert "denied" in text, (
+        f"{PROBE_GATE.relative_to(REPO_ROOT)} must render the "
+        f"`data-hydration-probe-gate=\"denied\"` fallback when "
+        f"the flag is missing."
+    )
+
+
+def test_probe_route_still_serves_static_html():
+    """`out/hydration-probe.html` continues to ship after the gate
+    wiring.
+
+    The Playwright witness in `tests/test_hydration_console.py`
+    depends on this file's continued existence (the static
+    export is what the ephemeral server serves, and the file's
+    body carries the typed defaults for the static-HTML
+    witness). Skips when the build hasn't run yet — the rest of
+    this module's tests depend on `built_index_html` for the
+    full ``next build`` pass; this test pins the
+    `/hydration-probe` file specifically.
+    """
+    if not OUT_INDEX.is_file():
+        pytest.skip(
+            f"missing {OUT_INDEX.relative_to(REPO_ROOT)} — run "
+            f"`npx --no-install next build` first."
+        )
+    probe_html = OUT_DIR / "hydration-probe.html"
+    assert probe_html.is_file(), (
+        f"missing {probe_html.relative_to(REPO_ROOT)} — the "
+        f"static export dropped the /hydration-probe route "
+        f"after ODD-ASN-001. The Playwright witness depends on "
+        f"the file."
+    )
+
+
+# ---------------------------------------------------------------------------
 # ODD-BSTATE-TAX-001 — typed-source migration chunk boundary.
 #
 # The pre-ODD-BSTATE-TAX-001 boundary contract (above) was a
