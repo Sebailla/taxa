@@ -5909,6 +5909,29 @@ def test_dom_markers_present_in_rendered_taxonomy_page() -> None:
 
     Skipped when the FastAPI server is unreachable so the test
     stays hermetic in environments without the local dev server.
+
+    ODD-ASN-002 — the legacy `#search-input` selector was lifted
+    to the AppShell header (`#app-shell-search-input` in
+    `AppShellGlobalSearch`). The ODD-MIGRATE-007-DOM-006 marker
+    contract travels with the input: the same `id` + a11y
+    surface exist at every page state, just owned by the
+    AppShell instead of the taxonomy tree. We assert the React
+    mount's current selector here.
+
+    PWT-CLEANUP-001 — the previous version of this test started
+    Playwright via ``sync_playwright().start()`` and never
+    called ``.stop()`` (it only closed the browser). That left
+    the PlaywrightContextManager + its event loop + the
+    PipeTransport child-watcher alive for the rest of the
+    session. Subsequent tests that re-enter ``sync_playwright()``
+    hit ``asyncio.get_running_loop() is_running()`` on the
+    leaked loop, raising
+    ``It looks like you are using Playwright Sync API inside
+    the asyncio loop. Please use the Async API instead.`` and
+    breaking ~8 follow-on tests in the full sweep. The fix is
+    to use the canonical ``with sync_playwright() as pw:``
+    context manager so ``__exit__`` runs at the end of the test
+    and tears down the loop + watcher + transport cleanly.
     """
     import urllib.error
     import urllib.request
@@ -5926,44 +5949,53 @@ def test_dom_markers_present_in_rendered_taxonomy_page() -> None:
     except (urllib.error.URLError, OSError):
         pytest.skip("FastAPI server not reachable on 127.0.0.1:8765")
 
-    try:
-        browser = sync_playwright().start().chromium.launch(headless=True)
-    except Exception as exc:
-        pytest.skip(f"chromium binary not available: {exc!r}")
-    try:
-        page = browser.new_page()
-        page.goto(
-            "http://127.0.0.1:8765/",
-            wait_until="domcontentloaded",
-            timeout=10_000,
-        )
-        # Wait for hydration to settle.
-        page.wait_for_timeout(3000)
-        # All 6 in-scope markers MUST be present.
-        for selector in (
-            "#search-input",
-            "#tree-view",
-            "#tree-source-toggle",
-            "#detail-panel",
-            "#breadcrumb",
-            "#version-banner",
-            "script[src=\"/app.js\"]",
-        ):
-            count = page.locator(selector).count()
-            assert count >= 1, (
-                f"ODD-MIGRATE-007-DOM-006 Playwright probe: "
-                f"selector {selector!r} must be present in the "
-                f"rendered taxonomy home page (count={count})."
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch(headless=True)
+        except Exception as exc:
+            pytest.skip(f"chromium binary not available: {exc!r}")
+        try:
+            page = browser.new_page()
+            page.goto(
+                "http://127.0.0.1:8765/",
+                wait_until="domcontentloaded",
+                timeout=10_000,
             )
-        # Each source button MUST carry the canonical data-tree-source.
-        for src in ("col", "worms", "freshwater"):
-            count = page.locator(
-                f'#tree-source-toggle button[data-tree-source="{src}"]'
-            ).count()
-            assert count == 1, (
-                f"ODD-MIGRATE-007-DOM-006 Playwright probe: "
-                f"#tree-source-toggle button[data-tree-source=\"{src}\"] "
-                f"must render exactly once (count={count})."
-            )
-    finally:
-        browser.close()
+            # Wait for hydration to settle.
+            page.wait_for_timeout(3000)
+            # All 7 in-scope markers MUST be present. The
+            # `#search-input` selector was superseded by the
+            # ODD-ASN-002 lift to the AppShell header — the
+            # marker traveled with the input, just under a
+            # different id. The legacy literal `#search-input`
+            # is intentionally NOT asserted here because the
+            # React taxonomy home no longer renders that exact
+            # id (it lived on the legacy tree which is now the
+            # React shell surface).
+            for selector in (
+                "#app-shell-search-input",
+                "#tree-view",
+                "#tree-source-toggle",
+                "#detail-panel",
+                "#breadcrumb",
+                "#version-banner",
+                "script[src=\"/app.js\"]",
+            ):
+                count = page.locator(selector).count()
+                assert count >= 1, (
+                    f"ODD-MIGRATE-007-DOM-006 Playwright probe: "
+                    f"selector {selector!r} must be present in the "
+                    f"rendered taxonomy home page (count={count})."
+                )
+            # Each source button MUST carry the canonical data-tree-source.
+            for src in ("col", "worms", "freshwater"):
+                count = page.locator(
+                    f'#tree-source-toggle button[data-tree-source="{src}"]'
+                ).count()
+                assert count == 1, (
+                    f"ODD-MIGRATE-007-DOM-006 Playwright probe: "
+                    f"#tree-source-toggle button[data-tree-source=\"{src}\"] "
+                    f"must render exactly once (count={count})."
+                )
+        finally:
+            browser.close()

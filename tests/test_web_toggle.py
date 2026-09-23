@@ -397,14 +397,25 @@ def test_search_engines_rendered_as_button_grid(api_server):
             expect(search_tab).to_be_visible(timeout=5_000)
             search_tab.click()
             tab_content = panel.locator('[data-tab-content="searches"]')
-            # The container is a CSS grid.
-            grid = tab_content.locator(".search-engines-grid")
-            expect(grid).to_be_visible(timeout=5_000)
-            assert (
-                grid.evaluate("el => getComputedStyle(el).display") == "grid"
-            ), "search engines container should be a CSS grid"
-            # 14 buttons inside the grid, each .search-engine-btn, each <a href>.
-            buttons = grid.locator("a.search-engine-btn")
+            # PWT-CLEANUP-001 — the React mount's `SearchTab`
+            # groups the 14 search-engine links into 5
+            # `.search-category-section` blocks (one per
+            # category), each containing its own
+            # `.search-link-list` of anchors. The legacy oracle
+            # used a single shared `.search-engines-grid`
+            # wrapping a flat list of `.search-engine-btn`
+            # anchors; the React port splits that across per-
+            # category lists so the category dividers render
+            # with their own scope. The aggregate count is the
+            # load-bearing contract this test pins; we sum
+            # across the 5 per-category `.search-link-list`
+            # containers so the assertion doesn't depend on a
+            # single shared grid wrapper.
+            per_category_lists = tab_content.locator(
+                ".search-link-list"
+            )
+            expect(per_category_lists.first).to_be_visible(timeout=5_000)
+            buttons = tab_content.locator("a.search-link[data-engine-key]")
             expect(buttons.first).to_be_visible(timeout=5_000)
             count = buttons.count()
             assert count == 14, f"expected 14 search-engine buttons, got {count}"
@@ -773,6 +784,21 @@ def test_view_details_reopens_detail_panel_after_close(api_server):
       2. Close the panel via the X button.
       3. Open the kebab again, click "View details" -> panel
          MUST reopen (this is what the user reported broken).
+
+    PWT-CLEANUP-001 — the React mount pins the ODD-MIGRATE-007-
+    DOM-006 contract for `#detail-panel`: the element ALWAYS
+    renders (it's the legacy marker), but its contents swap
+    between the full `<DetailPanel>` (tabs / search / vernaculars
+    / folder / etc.) and a lightweight `<div id="detail-panel"
+    hidden={focused === null}>` placeholder that shows the
+    focused taxon's name + id. The full `<DetailPanel>` mounts
+    when `selected !== null`; the placeholder mounts when
+    `selected === null`. As a result, `#detail-panel` NEVER
+    disappears from the DOM after a close — only its contents
+    swap to the placeholder. The assertion verifies the inner
+    swap via the close button + tab strip visibility (those
+    only exist in the full `<DetailPanel>` branch, never in the
+    placeholder branch).
     """
     from playwright.sync_api import expect, sync_playwright  # type: ignore
 
@@ -801,6 +827,7 @@ def test_view_details_reopens_detail_panel_after_close(api_server):
             ).first
             panel = page.locator("#detail-panel")
             close_btn = page.locator('[data-action="close-detail"]').first
+            tab_strip = panel.locator('[data-detail-tab-strip=""]')
 
             # Step 1: open the panel via the "View details" kebab
             # item (the data-action="open-searches" contract is
@@ -810,23 +837,39 @@ def test_view_details_reopens_detail_panel_after_close(api_server):
             expect(search_item).to_be_visible(timeout=2_000)
             search_item.click()
             expect(panel).to_be_visible(timeout=5_000)
+            # The full `<DetailPanel>` mounts a tab strip; the
+            # placeholder does NOT. The tab strip being present
+            # is the inner-marker that the close / re-open swap
+            # actually mounted the full panel surface.
+            expect(tab_strip).to_be_visible(timeout=2_000)
 
-            # Step 2: close the panel via the X button. state.selected
-            # stays set (by design — see closeDetail comment), so the
-            # URL hash and file explorer context survive the close.
+            # Step 2: close the panel via the X button. The
+            # React `handleCloseDetail` clears `selected`, the
+            # placeholder swaps in (replacing the full
+            # `<DetailPanel>`), the tab strip + close button
+            # unmount. `#detail-panel` itself stays visible per
+            # ODD-MIGRATE-007-DOM-006.
             expect(close_btn).to_be_visible(timeout=2_000)
             close_btn.click()
-            expect(panel).not_to_be_visible(timeout=2_000)
+            expect(close_btn).not_to_be_attached(timeout=2_000)
+            expect(tab_strip).not_to_be_attached(timeout=2_000)
 
             # Step 3: open the kebab again, click "View details".
-            # The detail panel MUST reopen. Before the fix this was a
-            # silent no-op because selectTaxon()'s early return saw
-            # state.selected === id and returned without re-rendering.
+            # The detail panel MUST reopen (the tab strip +
+            # close button remount). Before the legacy fix this
+            # was a silent no-op because selectTaxon()'s early
+            # return saw state.selected === id and returned
+            # without re-rendering; the React
+            # `handleSelect(id)` unconditionally calls
+            # `setSelected(id)` so a re-open always remounts
+            # the full `<DetailPanel>` surface.
             row.hover()
             trigger.click()
             expect(search_item).to_be_visible(timeout=2_000)
             search_item.click()
             expect(panel).to_be_visible(timeout=5_000)
+            expect(tab_strip).to_be_visible(timeout=2_000)
+            expect(close_btn).to_be_visible(timeout=2_000)
         finally:
             browser.close()
 
