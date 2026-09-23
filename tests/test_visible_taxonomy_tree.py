@@ -2476,10 +2476,21 @@ def test_detail_panel_emits_native_source_affordances() -> None:
 
 
 def test_detail_panel_emits_extinct_treatment() -> None:
-    """ODD-TDO-001: when `taxon.is_extinct` is truthy, the panel
-    applies the canonical `line-through opacity-70` treatment so
-    the extinct taxon reads as struck through + faded — matching
-    the legacy `web/detail.js::renderDetailPanel::extinctCls`."""
+    """ODD-TDO-001 + ODD-PHASE2: when `taxon.is_extinct` is
+    truthy, the panel applies the canonical `line-through
+    opacity-70` treatment so the extinct taxon reads as struck
+    through + faded — matching the legacy
+    `web/detail.js::renderDetailPanel::extinctCls`.
+
+    ODD-PHASE2 update: the extinct marker is now a
+    `<Badge variant="warning">` from the `@taxa/design-system`
+    barrel (the `<span className="rank-badge text-red-700
+    bg-red-50">` pattern collapsed into the design-system
+    primitive). The Badge variant="warning" maps to the
+    `bg-red-50 text-red-700` Tailwind utilities so the visual
+    treatment is byte-for-byte identical to the legacy oracle;
+    the `data-detail-extinct=""` attribute stays on the element
+    so the test + tooling can still observe the marker."""
     text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
     assert "is_extinct" in text, (
         "DetailPanel.tsx must consume the canonical is_extinct field."
@@ -2487,6 +2498,30 @@ def test_detail_panel_emits_extinct_treatment() -> None:
     assert "line-through" in text and "opacity-70" in text, (
         "DetailPanel.tsx must apply the line-through opacity-70 "
         "extinct treatment to match the legacy oracle."
+    )
+    # ODD-PHASE2 — the extinct marker is now a Badge primitive
+    # instead of an inline `<span className="rank-badge ...">`.
+    assert re.search(
+        r'<Badge[^>]*\bvariant\s*=\s*["\']warning["\']',
+        text,
+    ), (
+        "DetailPanel.tsx must render the extinct marker as "
+        '<Badge variant="warning"> from @taxa/design-system.'
+    )
+    # The legacy inline span pattern is GONE.
+    assert not re.search(
+        r'<span[^>]*\bclassName\s*=\s*["\'][^"\']*\brank-badge\b[^"\']*\btext-red-700\b[^"\']*\bbg-red-50\b',
+        text,
+    ), (
+        "DetailPanel.tsx must NOT render the legacy inline "
+        '<span className="rank-badge text-red-700 bg-red-50"> '
+        "extinct marker — the Badge primitive owns the treatment."
+    )
+    # `data-detail-extinct=""` stays on the element so tests +
+    # tooling can still observe the marker.
+    assert 'data-detail-extinct=""' in text, (
+        "DetailPanel.tsx must stamp data-detail-extinct=\"\" "
+        "on the extinct marker element."
     )
 
 
@@ -2610,15 +2645,52 @@ def test_detail_panel_renders_search_tab_when_active() -> None:
 
 
 def test_detail_panel_renders_close_button() -> None:
-    """ODD-TDO-001: the panel carries a Close button with
-    `data-action="close-detail"` so the legacy selector +
-    `data-action` delegation contract survives the React cutover.
-    The click handler calls `onClose()` which the parent maps to
-    `setSelected(null)`."""
+    """ODD-TDO-001 + ODD-PHASE2: the panel carries a Close
+    affordance so the user can dismiss the panel. The click
+    handler calls `onClose()` which the parent maps to
+    `setSelected(null)`.
+
+    ODD-PHASE2 update: the close button is now
+    `<IconButton variant="subtle" aria-label="Hide details">`
+    from the `@taxa/design-system` barrel. The legacy inline
+    `<button className="detail-close ...">` pattern collapsed
+    into the design-system primitive; the `data-action=
+    "close-detail"` attribute stays on the element so the
+    selector + data-action delegation contract survives the
+    React cutover (parent tests + tooling still pin it)."""
     text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    # ODD-PHASE2 — the close button is now an IconButton
+    # primitive instead of an inline `<button
+    # className="detail-close ...">`.
+    assert re.search(
+        r'<IconButton[^>]*\bvariant\s*=\s*["\']subtle["\']',
+        text,
+    ), (
+        "DetailPanel.tsx must render the close button as "
+        '<IconButton variant="subtle"> from @taxa/design-system.'
+    )
+    assert re.search(
+        r'<IconButton[^>]*\baria-label\s*=\s*["\']Hide details["\']',
+        text,
+    ), (
+        "DetailPanel.tsx must stamp aria-label=\"Hide details\" "
+        "on the close IconButton (icon-only buttons MUST carry "
+        "an aria-label per the IconButton a11y contract)."
+    )
+    # The legacy inline button className is GONE.
+    assert not re.search(
+        r'<button[^>]*\bclassName\s*=\s*["\'][^"\']*\bdetail-close\b',
+        text,
+    ), (
+        "DetailPanel.tsx must NOT render the legacy inline "
+        '<button className="detail-close ..."> close button '
+        "— the IconButton primitive owns the treatment."
+    )
+    # The `data-action="close-detail"` attribute stays so the
+    # selector + data-action delegation contract survives.
     assert re.search(r'data-action\s*=\s*["\']close-detail["\']', text), (
         "DetailPanel.tsx must stamp data-action=\"close-detail\" "
-        "on the close button."
+        "on the close IconButton."
     )
     assert "onClose" in text, (
         "DetailPanel.tsx must consume the onClose callback prop."
@@ -2713,23 +2785,28 @@ def test_taxonomy_tree_source_switch_clears_panel() -> None:
 
 
 def test_out_index_html_has_detail_panel_overview_styles(static_export) -> None:
-    """ODD-TDO-001: the static export's CSS must define every
-    Overview descendant rule (`.detail-panel .detail-card` /
-    `.detail-header` / `.detail-section`, `.overview-tab .overview-grid`
-    / `.overview-row` / `.overview-label` / `.overview-value` /
-    `.overview-chain` / `.overview-chain-segment`, plus the
-    `.detail-panel[data-realm="X"] .scientific-name` realm tint
-    cascade). The selectors are nested under the whitelisted
+    """ODD-TDO-001 + ODD-PHASE2: the static export's CSS must
+    define every surviving detail-panel + Overview descendant
+    rule. The selectors are nested under the whitelisted
     `.detail-panel` / `.overview-tab` base classes so the
     chain-topology guard in `tests/test_research_styles.py` keeps
-    whitelisting them under the 3c-b taxonomy surface."""
+    whitelisting them under the 3c-b taxonomy surface.
+
+    ODD-PHASE2 update: four dead selectors are GONE because the
+    DetailPanel migration replaced them with design-system
+    primitives:
+      - `.detail-panel .detail-card` → `<Card variant="default">`
+      - `.overview-tab .overview-label` → `<Text variant="caption">`
+      - `.overview-tab .overview-rank` → `<Badge variant="primary">`
+      - `.overview-tab .overview-value` → `<Text variant="body">`
+
+    The realm tint cascade stays."""
     css_chunks = sorted((REPO_ROOT / "out" / "_next" / "static" / "chunks").glob("*.css"))
     css_body = "\n".join(
         c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks
     )
     # Detail-panel inner structure.
     for needle in (
-        ".detail-panel .detail-card",
         ".detail-panel .detail-header",
         ".detail-panel .detail-section",
         ".detail-panel .detail-header-title",
@@ -2741,11 +2818,9 @@ def test_out_index_html_has_detail_panel_overview_styles(static_export) -> None:
     for needle in (
         ".overview-tab .overview-grid",
         ".overview-tab .overview-row",
-        ".overview-tab .overview-label",
-        ".overview-tab .overview-value",
         ".overview-tab .overview-chain",
         ".overview-tab .overview-chain-segment",
-        ".overview-tab .overview-rank",
+        ".overview-tab .overview-tab-heading",
     ):
         assert needle in css_body, (
             f"ODD-TDO-001: static CSS must define the {needle} rule."
@@ -2768,10 +2843,29 @@ def test_out_index_html_has_detail_panel_overview_styles(static_export) -> None:
 
 
 def test_globals_css_declares_detail_panel_overview_selectors() -> None:
-    """ODD-TDO-001: `src/app/globals.css` must declare every new
-    detail-panel + overview inner selector. The locales live
-    under `@layer components` so the chain-topology guard keeps
-    the alphabetic contract."""
+    """ODD-TDO-001 + ODD-PHASE2: `src/app/globals.css` must
+    declare every surviving detail-panel + overview inner
+    selector. The locales live under `@layer components` so the
+    chain-topology guard keeps the alphabetic contract.
+
+    ODD-PHASE2 update: four selectors are GONE because the
+    DetailPanel migration replaced them with design-system
+    primitives (Card / Badge / Text):
+      - `.detail-panel .detail-card` → `<Card variant="default">`
+        carries the chroming
+      - `.overview-tab .overview-label` → `<Text variant="caption">`
+        carries the label typography
+      - `.overview-tab .overview-rank` → `<Badge variant="primary">`
+        carries the rank badge styling
+      - `.overview-tab .overview-value` → `<Text variant="body">`
+        carries the value typography
+
+    The standalone `.rank-badge` and `.authorship` rules stay
+    because they are still consumed outside the DetailPanel
+    surface (`TaxonomyTree.tsx` search dropdown uses
+    `.rank-badge`; `SynonymTab.tsx` uses `.authorship`). They
+    stay in the `TAXONOMY_OWNED_BY_3C_B` whitelist the
+    chain-topology guard pins."""
     text = _read_text(TAXONOMY_GLOBALS_CSS)
     layer = re.search(r"@layer\s+components\s*\{", text)
     assert layer, "@layer components must exist in globals.css"
@@ -2783,7 +2877,6 @@ def test_globals_css_declares_detail_panel_overview_selectors() -> None:
         layer_end = body.find("}")
     body = body[:layer_end]
     for needle in (
-        ".detail-panel .detail-card",
         ".detail-panel .detail-header",
         ".detail-panel .detail-header-title",
         ".detail-panel .detail-section",
@@ -2797,11 +2890,8 @@ def test_globals_css_declares_detail_panel_overview_selectors() -> None:
         ".detail-panel[data-realm] .scientific-name",
         ".overview-tab .overview-grid",
         ".overview-tab .overview-row",
-        ".overview-tab .overview-label",
-        ".overview-tab .overview-value",
         ".overview-tab .overview-chain",
         ".overview-tab .overview-chain-segment",
-        ".overview-tab .overview-rank",
         ".overview-tab .overview-tab-heading",
     ):
         assert needle in body, (
@@ -5132,6 +5222,308 @@ def test_detail_panel_threads_folder_callbacks() -> None:
         assert name in text, (
             f"DetailPanel.tsx must thread `{name}` to the FolderTab."
         )
+
+
+# ---------------------------------------------------------------------------
+# ODD-PHASE2 — DetailPanel design-system primitive coverage tests.
+#
+# The DetailPanel migration to `@taxa/design-system` primitives
+# (Badge + Card + IconButton + Text) closed the second Phase 2
+# consumer. These tests pin the new primitive composition so a
+# future PR cannot silently regress the design-system cutover
+# back to inline Tailwind / bespoke CSS hooks.
+# ---------------------------------------------------------------------------
+
+
+def test_detail_panel_imports_design_system_primitives() -> None:
+    """ODD-PHASE2: DetailPanel imports `Badge`, `Card`,
+    `IconButton`, and `Text` from `@taxa/design-system` (the
+    public barrel — spec.md rule 5 forbids deep imports into
+    the layer folders). The four primitives are the ones this
+    PR migrates; the remaining four (Button / EmptyState /
+    Spinner / InlineMessage) are reserved for future Phase 2
+    consumers."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert re.search(
+        r'import\s*\{[^}]*\bBadge\b[^}]*\}\s*from\s*["\']\@taxa/design-system["\']',
+        text,
+    ), (
+        "DetailPanel.tsx must import Badge from @taxa/design-system."
+    )
+    assert re.search(
+        r'import\s*\{[^}]*\bCard\b[^}]*\}\s*from\s*["\']\@taxa/design-system["\']',
+        text,
+    ), (
+        "DetailPanel.tsx must import Card from @taxa/design-system."
+    )
+    assert re.search(
+        r'import\s*\{[^}]*\bIconButton\b[^}]*\}\s*from\s*["\']\@taxa/design-system["\']',
+        text,
+    ), (
+        "DetailPanel.tsx must import IconButton from @taxa/design-system."
+    )
+    assert re.search(
+        r'import\s*\{[^}]*\bText\b[^}]*\}\s*from\s*["\']\@taxa/design-system["\']',
+        text,
+    ), (
+        "DetailPanel.tsx must import Text from @taxa/design-system."
+    )
+
+
+def test_detail_panel_uses_card_primitive_for_detail_card() -> None:
+    """ODD-PHASE2: the legacy `<div className="detail-card ...">`
+    wrapper collapses into `<Card variant="default">` from the
+    design-system barrel. The Card primitive owns the chroming
+    (`bg-surface border border-outline-variant`); the
+    specialised detail-panel surface (max-height + overflow +
+    rounded-2xl) stays in the className so the cascade still
+    matches the legacy oracle pixel-for-pixel."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    # Locate the actual JSX `<Card ...>` opening tag — the
+    # docstring comment block also mentions `<Card variant="default">`
+    # so the assertion must target the JSX form (new-line +
+    # indented prop), not the comment form.
+    card_open_match = re.search(
+        r'<Card\s*\n\s+variant\s*=\s*["\']default["\']',
+        text,
+    )
+    assert card_open_match, (
+        "DetailPanel.tsx must render <Card variant=\"default\"> as "
+        "the inner card wrapper (JSX form: <Card\\n  variant=\"default\"\\n ...>)."
+    )
+    # The className carries the specialised detail-panel surface
+    # treatment (max-height + overflow + rounded-2xl). The Card
+    # opening tag may span multiple lines AND the className may
+    # use backticks (template literal) instead of quotes, so
+    # accept either opening delimiter. Scope the className search
+    # to the JSX region between the Card opening tag and its
+    # closing `>` to avoid matching unrelated attributes elsewhere
+    # in the file.
+    card_open_idx = card_open_match.start()
+    card_close_idx = text.find(">", card_open_match.end())
+    assert card_close_idx != -1, "Card opening tag must terminate."
+    card_region = text[card_open_idx:card_close_idx + 1]
+    for needle in ("overflow-hidden", "max-h-[calc(90vh-2px)]", "rounded-2xl"):
+        assert needle in card_region, (
+            f"DetailPanel.tsx must pass `{needle}` to the Card "
+            "className so the detail-card shape survives the Card "
+            "primitive migration."
+        )
+    # The legacy inline `<div className="detail-card ...">` is GONE.
+    assert not re.search(
+        r'<div[^>]*\bclassName\s*=\s*["\'][^"\']*\bdetail-card\b',
+        text,
+    ), (
+        "DetailPanel.tsx must NOT render the legacy "
+        '<div className="detail-card ..."> wrapper — '
+        "the Card primitive owns the treatment."
+    )
+
+
+def test_detail_panel_uses_badge_primitive_for_rank() -> None:
+    """ODD-PHASE2: the primary rank badge (formerly
+    `<span className="rank-badge uppercase tracking-[0.1em] px-2
+    py-0.5 rounded text-primary bg-primary/10">`) collapses
+    into `<Badge variant="primary" uppercase={true}>` from the
+    design-system barrel. The Badge primitive maps to the same
+    `bg-primary/10 text-primary` Tailwind utilities so the
+    visual treatment is byte-for-byte identical to the legacy
+    oracle."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert re.search(
+        r'<Badge\b[^>]*\bvariant\s*=\s*["\']primary["\']',
+        text,
+    ), (
+        "DetailPanel.tsx must render the primary rank badge as "
+        '<Badge variant="primary"> from @taxa/design-system.'
+    )
+    # The legacy inline `<span className="rank-badge ...">` rank
+    # badge pattern is GONE for the primary rank anchor.
+    assert not re.search(
+        r'<span[^>]*\bclassName\s*=\s*["\'][^"\']*\brank-badge\b[^"\']*\btext-primary\b',
+        text,
+    ), (
+        "DetailPanel.tsx must NOT render the legacy inline "
+        '<span className="rank-badge text-primary bg-primary/10"> '
+        "primary rank badge — the Badge variant=\"primary\" primitive "
+        "owns the treatment."
+    )
+
+
+def test_detail_panel_uses_badge_primitive_for_status() -> None:
+    """ODD-PHASE2: the status badge (formerly
+    `<span className="rank-badge text-on-surface-variant
+    bg-surface-container-highest ...">`) collapses into
+    `<Badge variant="subtle" uppercase={true}>` from the
+    design-system barrel."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert re.search(
+        r'<Badge\b[^>]*\bvariant\s*=\s*["\']subtle["\']',
+        text,
+    ), (
+        "DetailPanel.tsx must render the status badge + the CoL-only "
+        'badge as <Badge variant="subtle"> from @taxa/design-system.'
+    )
+    assert not re.search(
+        r'<span[^>]*\bclassName\s*=\s*["\'][^"\']*\brank-badge\b[^"\']*\btext-on-surface-variant\b[^"\']*\bbg-surface-container-highest\b',
+        text,
+    ), (
+        "DetailPanel.tsx must NOT render the legacy inline "
+        '<span className="rank-badge text-on-surface-variant '
+        'bg-surface-container-highest"> status badge — the Badge '
+        'variant="subtle" primitive owns the treatment.'
+    )
+
+
+def test_detail_panel_uses_badge_primitive_for_extinct() -> None:
+    """ODD-PHASE2: the extinct marker (formerly
+    `<span className="rank-badge text-red-700 bg-red-50 ...">`)
+    collapses into `<Badge variant="warning" uppercase={true}>`
+    from the design-system barrel. The Badge primitive maps to
+    the same `bg-red-50 text-red-700` Tailwind utilities so the
+    visual treatment is byte-for-byte identical to the legacy
+    oracle. The `data-detail-extinct=""` attribute stays on
+    the element so tests + tooling can still observe the
+    marker."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert re.search(
+        r'<Badge\b[^>]*\bvariant\s*=\s*["\']warning["\']',
+        text,
+    ), (
+        "DetailPanel.tsx must render the extinct marker as "
+        '<Badge variant="warning"> from @taxa/design-system.'
+    )
+    assert not re.search(
+        r'<span[^>]*\bclassName\s*=\s*["\'][^"\']*\brank-badge\b[^"\']*\btext-red-700\b[^"\']*\bbg-red-50\b',
+        text,
+    ), (
+        "DetailPanel.tsx must NOT render the legacy inline "
+        '<span className="rank-badge text-red-700 bg-red-50"> '
+        "extinct marker — the Badge variant=\"warning\" primitive "
+        "owns the treatment."
+    )
+
+
+def test_detail_panel_uses_iconbutton_primitive_for_close() -> None:
+    """ODD-PHASE2: the close button (formerly
+    `<button className="detail-close material-symbols-outlined
+    text-on-surface-variant hover:text-on-surface p-1 rounded"
+    data-action="close-detail" ...>`) collapses into
+    `<IconButton variant="subtle" aria-label="Hide details">`
+    from the design-system barrel. The IconButton primitive
+    enforces the a11y contract (icon-only buttons MUST carry
+    an `aria-label`). The `data-action="close-detail"`
+    attribute stays on the element so the selector + data-
+    action delegation contract survives the React cutover."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert re.search(
+        r'<IconButton\b[^>]*\bvariant\s*=\s*["\']subtle["\']',
+        text,
+    ), (
+        "DetailPanel.tsx must render the close button as "
+        '<IconButton variant="subtle"> from @taxa/design-system.'
+    )
+    assert re.search(
+        r'<IconButton\b[^>]*\baria-label\s*=\s*["\']Hide details["\']',
+        text,
+    ), (
+        "DetailPanel.tsx must stamp aria-label=\"Hide details\" "
+        "on the close IconButton (icon-only buttons MUST carry "
+        "an aria-label per the IconButton a11y contract)."
+    )
+    assert re.search(
+        r'<IconButton\b[^>]*\bdata-action\s*=\s*["\']close-detail["\']',
+        text,
+    ), (
+        "DetailPanel.tsx must stamp data-action=\"close-detail\" "
+        "on the close IconButton (selector + data-action delegation "
+        "contract survives the React cutover)."
+    )
+    assert not re.search(
+        r'<button[^>]*\bclassName\s*=\s*["\'][^"\']*\bdetail-close\b',
+        text,
+    ), (
+        "DetailPanel.tsx must NOT render the legacy inline "
+        '<button className="detail-close ..."> close button '
+        "— the IconButton primitive owns the treatment."
+    )
+
+
+def test_detail_panel_uses_text_primitive_for_overview_labels() -> None:
+    """ODD-PHASE2: the Overview description-list label
+    typography (formerly `<dt className="overview-label">`)
+    collapses into `<Text variant="caption" as="span">` from
+    the design-system barrel. The Text primitive owns the
+    caption typography (`text-xs text-on-surface-variant`);
+    the `<dt>` wrapper stays so the semantic description-list
+    structure survives."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert re.search(
+        r'<Text\b[^>]*\bvariant\s*=\s*["\']caption["\']',
+        text,
+    ), (
+        "DetailPanel.tsx must render the Overview description-list "
+        'labels as <Text variant="caption"> from @taxa/design-system.'
+    )
+    # The legacy `<dt className="overview-label">` pattern is
+    # GONE — the label className is dead CSS that collapsed
+    # out of globals.css.
+    assert not re.search(
+        r'<dt\b[^>]*\bclassName\s*=\s*["\'][^"\']*\boverview-label\b',
+        text,
+    ), (
+        "DetailPanel.tsx must NOT render the legacy "
+        '<dt className="overview-label"> label — the '
+        'Text variant="caption" primitive owns the treatment.'
+    )
+
+
+def test_detail_panel_no_inline_rank_badge_span() -> None:
+    """ODD-PHASE2: the legacy inline `<span className="rank-badge
+    ...">` pattern is GONE from DetailPanel. The standalone
+    `.rank-badge` CSS rule stays because `TaxonomyTree.tsx`
+    search-dropdown still consumes it; the DetailPanel
+    consumption migrated to the `<Badge>` primitive."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    # No inline rank-badge spans for any of the rank / status /
+    # extinct / CoL-only badges.
+    for forbidden in (
+        r'<span\b[^>]*\bclassName\s*=\s*["\'][^"\']*\brank-badge\b[^"\']*\btext-primary\b',
+        r'<span\b[^>]*\bclassName\s*=\s*["\'][^"\']*\brank-badge\b[^"\']*\btext-on-surface-variant\b',
+        r'<span\b[^>]*\bclassName\s*=\s*["\'][^"\']*\brank-badge\b[^"\']*\btext-red-700\b',
+    ):
+        assert not re.search(forbidden, text), (
+            "DetailPanel.tsx must NOT render any inline "
+            '<span className="rank-badge ..."> badge — '
+            "the Badge primitive owns the treatment."
+        )
+
+
+def test_detail_panel_no_inline_overview_value_class() -> None:
+    """ODD-PHASE2: the legacy `<dd className="overview-value">`
+    pattern is GONE from DetailPanel. The `.overview-value`
+    CSS rule collapsed out of globals.css; the value
+    typography now comes from `<Text variant="body">`. The
+    semantic `<dd>` wrapper stays so the description-list
+    structure survives."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert not re.search(
+        r'<dd\b[^>]*\bclassName\s*=\s*["\'][^"\']*\boverview-value\b',
+        text,
+    ), (
+        "DetailPanel.tsx must NOT render the legacy "
+        '<dd className="overview-value"> value — the '
+        'Text variant="body" primitive owns the treatment.'
+    )
+    # And the Overview body renders at least one
+    # `<Text variant="body">` for the value column.
+    assert re.search(
+        r'<Text\b[^>]*\bvariant\s*=\s*["\']body["\']',
+        text,
+    ), (
+        "DetailPanel.tsx must render at least one "
+        '<Text variant="body"> for the Overview value column.'
+    )
 
 
 def test_taxonomy_tree_eager_fetches_folder_preview_on_selection() -> None:
