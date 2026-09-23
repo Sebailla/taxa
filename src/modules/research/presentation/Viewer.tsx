@@ -72,6 +72,7 @@ import {
 // follow-up slice that authorizes the barrel extension)
 // would add the helpers to the barrel re-export surface.
 import { parseJsonTree, MAX_JSON_NODES } from "./explorer-state";
+import { EmptyState, InlineMessage, Spinner } from "@taxa/design-system";
 
 /** Props for the `Viewer` component. The Explorer mount owns
  *  the active-tab state and the open-file state; this
@@ -2602,13 +2603,16 @@ export default function Viewer(props: ViewerProps): ReactNode {
         role="status"
         data-viewer-empty=""
       >
-        <span className="fex-empty-state-icon material-symbols-outlined">
-          visibility_off
-        </span>
-        <p className="font-semibold text-on-surface">No file selected</p>
-        <p className="text-on-surface-variant text-body-sm">
-          Double-click a file in the tree to open it.
-        </p>
+        <EmptyState
+          icon={
+            <span aria-hidden="true" className="material-symbols-outlined">
+              visibility_off
+            </span>
+          }
+          title="No file selected"
+          description="Double-click a file in the tree to open it."
+          size="lg"
+        />
       </div>
     );
   }
@@ -2619,9 +2623,11 @@ export default function Viewer(props: ViewerProps): ReactNode {
   // the same shape).
   if (bytesStatus.kind === "error") {
     return (
-      <div className="fex-banner" role="alert" data-viewer-bytes-error="">
-        <span className="material-symbols-outlined text-[20px]">error</span>
-        <span>Failed to load file: {bytesStatus.message}</span>
+      <div role="alert" data-viewer-bytes-error="">
+        <InlineMessage variant="error">
+          <span className="material-symbols-outlined text-[20px]">error</span>
+          <span>Failed to load file: {bytesStatus.message}</span>
+        </InlineMessage>
       </div>
     );
   }
@@ -2630,10 +2636,7 @@ export default function Viewer(props: ViewerProps): ReactNode {
   if (bytesStatus.kind === "loading") {
     return (
       <div className="fex-empty-state" role="status" data-viewer-loading="">
-        <span className="fex-empty-state-icon material-symbols-outlined animate-spin">
-          progress_activity
-        </span>
-        <p>Loading file…</p>
+        <Spinner size="md" label="Loading file…" />
       </div>
     );
   }

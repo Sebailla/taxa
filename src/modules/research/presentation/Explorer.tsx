@@ -109,6 +109,7 @@ import {
   type ViewerTab,
   type SearchAnnotation,
 } from "@taxa/research";
+import { EmptyState, Spinner } from "@taxa/design-system";
 
 /** Props for the Explorer client island. The parent Server
  *  Component (`src/app/explorer/page.tsx`) passes only the
@@ -589,10 +590,7 @@ export default function Explorer(props: ExplorerProps): ReactNode {
       case "loading":
         return (
           <div className="fex-empty-state" role="status" data-tree-loading="">
-            <span className="fex-empty-state-icon material-symbols-outlined animate-spin">
-              progress_activity
-            </span>
-            <p>Loading…</p>
+            <Spinner size="md" label="Loading file tree…" />
           </div>
         );
       case "empty":
@@ -649,13 +647,18 @@ export default function Explorer(props: ExplorerProps): ReactNode {
 function renderEmptyPane(tree: ExplorerTree): ReactNode {
   return (
     <div className="fex-empty-state" role="status" data-tree-empty="">
-      <span className="fex-empty-state-icon material-symbols-outlined">
-        folder_off
-      </span>
-      <p>No research folders yet — materialize a taxon to populate the tree.</p>
-      <p className="text-on-surface-variant text-body-sm">
+      <EmptyState
+        icon={
+          <span aria-hidden="true" className="material-symbols-outlined">
+            folder_off
+          </span>
+        }
+        title="No research folders yet"
+        description="Materialize a taxon to populate the tree."
+        size="lg"
+      >
         {tree.filesystem_path || ""}
-      </p>
+      </EmptyState>
     </div>
   );
 }
@@ -677,21 +680,25 @@ function renderErrorPane(message: string): ReactNode {
   };
   return (
     <div className="fex-empty-state" role="alert" data-tree-error="">
-      <span className="fex-empty-state-icon material-symbols-outlined">
-        error
-      </span>
-      <p className="font-semibold text-on-surface">
-        Could not load file tree
-      </p>
-      <p className="text-on-surface-variant text-body-sm">{message}</p>
-      <button
-        type="button"
-        className="fex-snippet-btn mt-2"
-        onClick={handleRetry}
-        aria-label="Retry loading the file tree"
+      <EmptyState
+        icon={
+          <span aria-hidden="true" className="material-symbols-outlined">
+            error
+          </span>
+        }
+        title="Could not load file tree"
+        description={message}
+        size="lg"
       >
-        Retry
-      </button>
+        <button
+          type="button"
+          className="fex-snippet-btn mt-2"
+          onClick={handleRetry}
+          aria-label="Retry loading the file tree"
+        >
+          Retry
+        </button>
+      </EmptyState>
     </div>
   );
 }

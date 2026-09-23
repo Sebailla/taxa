@@ -5999,3 +5999,458 @@ def test_dom_markers_present_in_rendered_taxonomy_page() -> None:
                 )
         finally:
             browser.close()
+
+
+# ---------------------------------------------------------------------------
+# ODD-EXP-PHASE2-001..004 — Phase 2 design-system migration
+# coverage tests for the Explorer sub-components. These
+# tests pin the contract that the Explorer sub-components
+# use the public `Spinner` + `EmptyState` primitives from
+# `@taxa/design-system` instead of the legacy inline cascade
+# (the pre-Phase 2 `fex-empty-state` chrome with hand-rolled
+# `<span className="material-symbols-outlined animate-spin">`
+# + `<p>` children).
+#
+# The pre-migration Explorer painted three loading/empty/
+# error states with a hand-rolled `<div className="fex-empty-state"
+# role="..." data-tree-...">` wrapper + an inline icon span +
+# an inline `<p>` body. The Phase 2 migration replaces the
+# icon span + the body with `<Spinner>` / `<EmptyState>` from
+# `@taxa/design-system`; the wrapper divs (with their
+# `role="status|alert"` + `data-tree-*` data attributes) stay
+# in place so the existing focus / a11y / test contracts
+# survive. The four tests below pin that the JSX rewrite
+# actually wires the primitives — a regression that reverts
+# to the hand-rolled inline cascade would fail these tests.
+#
+# The FileTree search empty state was painted via an
+# imperative DOM mutation (`document.createElement("div")`
+# inside a `useEffect`) — the Phase 2 migration replaces it
+# with a JSX `<EmptyState>` element wrapped in a `<div
+# data-search-empty>` carrier (the wrapper carries the data
+# attribute the test harness asserts; the `EmptyState`
+# primitive owns the icon + title + size contract).
+# ---------------------------------------------------------------------------
+def test_explorer_uses_spinner_primitive_for_loading_state() -> None:
+    """ODD-EXP-PHASE2-001 — `Explorer.tsx` paints the loading
+    state through `<Spinner size="md" label="Loading file tree…"
+    />` from `@taxa/design-system` instead of the legacy
+    inline `<span className="fex-empty-state-icon animate-spin">`
+    + `<p>Loading…</p>` cascade. The wrapper div (the
+    `<div className="fex-empty-state" role="status"
+    data-tree-loading="">` carrier) MUST stay so the existing
+    a11y + test contracts survive; the inner content is the
+    `<Spinner>` primitive.
+
+    The harness verifies three positive shapes:
+      1. `Spinner` is imported from `@taxa/design-system`.
+      2. The `<Spinner size="md" ...>` element appears inside
+         the loading branch.
+      3. The loading branch carries the `data-tree-loading=""`
+         data attribute on its outermost wrapper div (the
+         contract that downstream tests + the focus ring
+         rely on)."""
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = EXPLORER_FILE.read_text()
+    # 1. Spinner import surface — Phase 2 MUST import the
+    #    Spinner primitive from the public barrel
+    #    (`@taxa/design-system`).
+    assert re.search(
+        r'import\s*\{[^}]*\bSpinner\b[^}]*\}\s*from\s*'
+        r'["\']@taxa/design-system["\']',
+        text,
+    ), (
+        "Explorer.tsx must import `Spinner` from "
+        "`@taxa/design-system` so the loading state uses the "
+        "Phase 2 primitive instead of the legacy inline "
+        "cascade."
+    )
+    # 2. The loading branch MUST render the `<Spinner>` element
+    #    (positive assertion that the primitive is actually
+    #    used, not just imported). The pattern matches the
+    #    opening `<Spinner` tag followed by `size="md"`.
+    spinner_in_loading_branch = re.search(
+        r'<Spinner\b[^>]*size="md"',
+        text,
+    )
+    assert spinner_in_loading_branch, (
+        "Explorer.tsx must render `<Spinner size=\"md\" ...>` "
+        "for the loading state (the Phase 2 primitive "
+        "replaces the legacy inline `material-symbols-outlined "
+        "animate-spin` + `<p>Loading…</p>` cascade)."
+    )
+    # 3. The wrapper div for the loading state MUST still
+    #    carry `data-tree-loading=""` (the data attribute the
+    #    existing tests + the focus contract rely on). The
+    #    primitive lives INSIDE the wrapper; the wrapper is
+    #    the carrier.
+    assert re.search(
+        r'className=["\']fex-empty-state["\'][^>]*'
+        r'data-tree-loading=["\']',
+        text,
+    ), (
+        "Explorer.tsx loading-state wrapper MUST still carry "
+        "`className=\"fex-empty-state\"` + `data-tree-loading=\"\"` "
+        "so the existing a11y + test contracts survive the "
+        "Phase 2 primitive migration."
+    )
+
+
+def test_explorer_uses_emptystate_primitive_for_empty_state() -> None:
+    """ODD-EXP-PHASE2-002 — `Explorer.tsx` paints the empty
+    state through `<EmptyState ... title="No research folders
+    yet" ... size="lg">` from `@taxa/design-system` instead
+    of the legacy inline `<span className="fex-empty-state-icon
+    material-symbols-outlined">folder_off</span>` + `<p>No
+    research folders yet — materialize a taxon to populate
+    the tree.</p>` cascade. The wrapper div (the `<div
+    className="fex-empty-state" role="status" data-tree-empty="">`
+    carrier) MUST stay so the existing a11y + test contracts
+    survive.
+
+    The harness verifies four positive shapes:
+      1. `EmptyState` is imported from `@taxa/design-system`.
+      2. The `<EmptyState>` element appears with `title="No
+         research folders yet"`.
+      3. The empty branch carries the `data-tree-empty=""`
+         data attribute on its outermost wrapper div.
+      4. The empty branch carries the `folder_off` icon
+         (semantically equivalent to the legacy inline
+         glyph)."""
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = EXPLORER_FILE.read_text()
+    # 1. EmptyState import surface.
+    assert re.search(
+        r'import\s*\{[^}]*\bEmptyState\b[^}]*\}\s*from\s*'
+        r'["\']@taxa/design-system["\']',
+        text,
+    ), (
+        "Explorer.tsx must import `EmptyState` from "
+        "`@taxa/design-system` so the empty state uses the "
+        "Phase 2 primitive."
+    )
+    # 2. The empty branch MUST render `<EmptyState ... title="No
+    #    research folders yet" ... size="lg">`. The pattern
+    #    matches the opening `<EmptyState` tag with the title
+    #    attribute (which may be on a separate line in
+    #    multi-line JSX — the `[\s\S]*?` non-greedy match
+    #    spans whitespace + newlines until the `title=`
+    #    attribute appears).
+    empty_state_with_title = re.search(
+        r'<EmptyState\b[\s\S]*?title="No research folders yet"',
+        text,
+    )
+    assert empty_state_with_title, (
+        "Explorer.tsx must render `<EmptyState title=\"No "
+        "research folders yet\" ...>` for the empty state (the "
+        "Phase 2 primitive replaces the legacy inline "
+        "`fex-empty-state-icon` + `<p>No research folders yet — "
+        "materialize a taxon to populate the tree.</p>` "
+        "cascade)."
+    )
+    # 3. The wrapper div MUST still carry `data-tree-empty=""`.
+    assert re.search(
+        r'className=["\']fex-empty-state["\'][^>]*'
+        r'data-tree-empty=["\']',
+        text,
+    ), (
+        "Explorer.tsx empty-state wrapper MUST still carry "
+        "`className=\"fex-empty-state\"` + `data-tree-empty=\"\"` "
+        "so the existing a11y + test contracts survive."
+    )
+    # 4. The `folder_off` icon MUST appear (semantically
+    #    equivalent to the legacy inline glyph).
+    assert "folder_off" in text, (
+        "Explorer.tsx empty state must keep the `folder_off` "
+        "Material Symbols icon (semantically equivalent to "
+        "the legacy inline glyph — the Phase 2 primitive "
+        "wraps it via the `icon={...}` prop)."
+    )
+
+
+def test_explorer_uses_emptystate_primitive_for_error_state() -> None:
+    """ODD-EXP-PHASE2-003 — `Explorer.tsx` paints the error
+    state through `<EmptyState ... title="Could not load file
+    tree" ... size="lg">` from `@taxa/design-system` instead
+    of the legacy inline `<span className="fex-empty-state-icon
+    material-symbols-outlined">error</span>` + `<p>Could not
+    load file tree</p>` cascade. The Retry button (the
+    `role="alert"` + Retry affordance the legacy
+    `web/file_explorer.js::mount()` catch branch paints) MUST
+    stay semantically equivalent — the test asserts the
+    Retry label survives inside the EmptyState children.
+
+    The harness verifies five positive shapes:
+      1. `EmptyState` is imported from `@taxa/design-system`
+         (already pinned by ODD-EXP-PHASE2-002; the assertion
+         is repeated here for the error branch's contract).
+      2. The `<EmptyState>` element appears with `title="Could
+         not load file tree"`.
+      3. The error branch carries the `data-tree-error=""`
+         data attribute + `role="alert"` on its outermost
+         wrapper div.
+      4. The Retry button survives (the
+         `aria-label="Retry loading the file tree"` literal
+         + the visible "Retry" text).
+      5. The `error` Material Symbols icon survives
+         (semantically equivalent to the legacy inline glyph)."""
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = EXPLORER_FILE.read_text()
+    # 1. EmptyState import surface (already pinned by the
+    #    empty-state test; assertion kept for symmetry so a
+    #    regression that drops the import between the two
+    #    assertions still trips).
+    assert re.search(
+        r'import\s*\{[^}]*\bEmptyState\b[^}]*\}\s*from\s*'
+        r'["\']@taxa/design-system["\']',
+        text,
+    ), (
+        "Explorer.tsx must import `EmptyState` from "
+        "`@taxa/design-system` so the error state uses the "
+        "Phase 2 primitive."
+    )
+    # 2. The error branch MUST render `<EmptyState ... title="Could
+    #    not load file tree" ... size="lg">`.
+    error_state_with_title = re.search(
+        r'<EmptyState\b[\s\S]*?title="Could not load file tree"',
+        text,
+    )
+    assert error_state_with_title, (
+        "Explorer.tsx must render `<EmptyState title=\"Could "
+        "not load file tree\" ...>` for the error state (the "
+        "Phase 2 primitive replaces the legacy inline "
+        "`fex-empty-state-icon` + `<p>Could not load file "
+        "tree</p>` cascade)."
+    )
+    # 3. The wrapper div MUST still carry `data-tree-error=""` +
+    #    `role="alert"`.
+    assert re.search(
+        r'className=["\']fex-empty-state["\'][^>]*'
+        r'role=["\']alert["\'][^>]*'
+        r'data-tree-error=["\']',
+        text,
+    ), (
+        "Explorer.tsx error-state wrapper MUST still carry "
+        "`className=\"fex-empty-state\"` + `role=\"alert\"` + "
+        "`data-tree-error=\"\"` so the existing a11y + test "
+        "contracts survive."
+    )
+    # 4. The Retry button + its aria-label MUST survive.
+    assert "Retry" in text, (
+        "Explorer.tsx error state must keep the visible "
+        "`Retry` button text so the recovery affordance the "
+        "legacy `web/file_explorer.js::mount()` catch branch "
+        "paints survives the Phase 2 primitive migration."
+    )
+    assert re.search(
+        r'aria-label=["\']Retry loading the file tree["\']',
+        text,
+    ), (
+        "Explorer.tsx error state must keep the "
+        "`aria-label=\"Retry loading the file tree\"` "
+        "literal so the keyboard + screen-reader contract "
+        "survives."
+    )
+    # 5. The `error` Material Symbols icon survives.
+    assert re.search(
+        r'<span\b[\s\S]*?>\s*error\s*</span>',
+        text,
+    ), (
+        "Explorer.tsx error state must keep the `error` "
+        "Material Symbols icon (semantically equivalent to "
+        "the legacy inline glyph — the Phase 2 primitive "
+        "wraps it via the `icon={...}` prop)."
+    )
+
+
+def test_filetree_uses_emptystate_primitive_for_no_matches() -> None:
+    """ODD-EXP-PHASE2-004 — `FileTree.tsx` paints the "No
+    matches." search empty state through `<EmptyState
+    ... title="No matches." ... size="sm">` from
+    `@taxa/design-system` instead of the legacy imperative
+    DOM mutation (`document.createElement("div")` +
+    `empty.className = "fex-empty-state fex-search-empty"`
+    inside the `showSearchEmptyMutation` helper). The
+    wrapper element carrying `data-search-empty=""` MUST
+    stay so the existing test contract (the `data-search-
+    empty` data attribute the legacy search semantics
+    pin) survives.
+
+    The harness verifies four positive shapes:
+      1. `EmptyState` is imported from `@taxa/design-system`
+         in `FileTree.tsx` (the FileTree is the surface that
+         now owns the search empty primitive, NOT a deep
+         import through `@taxa/research`).
+      2. The `<EmptyState>` element appears with
+         `title="No matches."` + `size="sm"`.
+      3. The wrapper element carries `data-search-empty=""`.
+      4. The `search_off` Material Symbols icon survives
+         (semantically equivalent to the legacy inline
+         glyph)."""
+    if not FILE_TREE_FILE.is_file():
+        pytest.skip("FileTree.tsx not present yet")
+    text = FILE_TREE_FILE.read_text()
+    # 1. EmptyState import surface.
+    assert re.search(
+        r'import\s*\{[^}]*\bEmptyState\b[^}]*\}\s*from\s*'
+        r'["\']@taxa/design-system["\']',
+        text,
+    ), (
+        "FileTree.tsx must import `EmptyState` from "
+        "`@taxa/design-system` so the search empty state "
+        "uses the Phase 2 primitive instead of the legacy "
+        "imperative DOM mutation in "
+        "`showSearchEmptyMutation()`."
+    )
+    # 2. The search empty branch MUST render `<EmptyState ...
+    #    title="No matches." ... size="sm">`.
+    empty_state_search = re.search(
+        r'<EmptyState\b[\s\S]*?title="No matches\."[\s\S]*?size="sm"',
+        text,
+    )
+    assert empty_state_search, (
+        "FileTree.tsx must render `<EmptyState title=\"No "
+        "matches.\" ... size=\"sm\">` for the search empty "
+        "state (the Phase 2 primitive replaces the legacy "
+        "imperative `showSearchEmptyMutation` DOM mutation)."
+    )
+    # 3. The wrapper element carrying `data-search-empty=""`
+    #    MUST survive (the data attribute the test harness
+    #    asserts).
+    assert re.search(
+        r'data-search-empty=["\']',
+        text,
+    ), (
+        "FileTree.tsx must keep the `data-search-empty=\"\"` "
+        "data attribute on the wrapper around the EmptyState "
+        "primitive so the existing test contract survives "
+        "the Phase 2 primitive migration."
+    )
+    # 4. The `search_off` Material Symbols icon survives.
+    assert re.search(
+        r'<span\b[\s\S]*?material-symbols-outlined[\s\S]*?>\s*search_off\s*</span>',
+        text,
+    ), (
+        "FileTree.tsx search empty state must keep the "
+        "`search_off` Material Symbols icon (semantically "
+        "equivalent to the legacy inline glyph — the Phase 2 "
+        "primitive wraps it via the `icon={...}` prop)."
+    )
+
+
+# ---------------------------------------------------------------------------
+# ODD-EXP-PHASE2-TRIANGULATE — negative tests that catch
+# regressions that re-add the legacy inline cascade. The
+# positive tests above pin the new primitives are wired;
+# these negative tests pin the OLD hand-rolled cascade is
+# GONE. A regression that reverts the loading / empty /
+# error / search-empty branches to the legacy inline
+# `<span className="fex-empty-state-icon animate-spin">` /
+# `<p>Loading…</p>` / `showSearchEmptyMutation()` shapes
+# would slip past the positive tests but trip these
+# negative tests.
+# ---------------------------------------------------------------------------
+def test_explorer_loading_state_drops_legacy_inline_cascade() -> None:
+    """ODD-EXP-PHASE2-TRIANGULATE-001 — the loading branch
+    in `Explorer.tsx` MUST NOT carry the legacy inline
+    `<span className="fex-empty-state-icon material-symbols-outlined
+    animate-spin">progress_activity</span>` + `<p>Loading…</p>`
+    cascade. The Phase 2 migration replaced the cascade
+    with `<Spinner size="md" label="Loading file tree…" />`;
+    a regression that reverts the loading branch would
+    slip past the positive `test_explorer_uses_spinner_
+    primitive_for_loading_state` test (which only checks
+    the primitive IS used) but trip this negative test.
+
+    The harness verifies two negatives:
+      1. The literal `<span className="fex-empty-state-icon"
+         cascade (the legacy loading-state icon span) is
+         no longer rendered inside the loading branch.
+      2. The literal `<p>Loading…</p>` body (the legacy
+         loading-state copy) is no longer rendered inside
+         the loading branch.
+
+    The assertions scan the entire file — a regression
+    that re-introduces the legacy cascade anywhere in
+    the file trips the guard. Comments are stripped
+    before scanning so the docblock can quote the legacy
+    cascade verbatim without tripping the assertion."""
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = _strip_ts_comments(EXPLORER_FILE.read_text())
+    # The legacy loading-state icon span MUST NOT survive.
+    legacy_loading_icon = re.search(
+        r'<span\s[^>]*className=["\']fex-empty-state-icon[^>]*'
+        r'material-symbols-outlined[^>]*animate-spin["\']?',
+        text,
+    )
+    assert not legacy_loading_icon, (
+        "Explorer.tsx MUST NOT carry the legacy inline "
+        "<span className=\"fex-empty-state-icon "
+        "material-symbols-outlined animate-spin\"> icon span. "
+        "The Phase 2 migration replaced the cascade with "
+        "`<Spinner size=\"md\" label=\"Loading file tree…\" />`; "
+        "the legacy icon span is dead code that re-introduces "
+        "the inline cascade."
+    )
+    # The legacy loading-state copy `<p>Loading…</p>` MUST
+    # NOT survive (the Spinner's `label` prop now owns the
+    # a11y announcement; the visible `<p>Loading…</p>` body
+    # is dead code that re-introduces the legacy cascade).
+    legacy_loading_copy = re.search(
+        r'<p>\s*Loading\…\s*</p>',
+        text,
+    )
+    assert not legacy_loading_copy, (
+        "Explorer.tsx MUST NOT carry the legacy "
+        "`<p>Loading…</p>` copy inside the loading branch. "
+        "The Phase 2 migration replaced the cascade with "
+        "`<Spinner size=\"md\" label=\"Loading file tree…\" />`; "
+        "the visible `<p>Loading…</p>` body is dead code."
+    )
+
+
+def test_filetree_drops_legacy_imperative_search_empty_mutation() -> None:
+    """ODD-EXP-PHASE2-TRIANGULATE-002 — `FileTree.tsx` MUST
+    NOT carry the legacy imperative
+    `showSearchEmptyMutation` + `hideSearchEmptyMutation`
+    helpers (the `document.createElement("div")` /
+    `empty.remove()` chain). The Phase 2 migration replaced
+    those helpers with the JSX `<EmptyState>` conditional
+    render; a regression that re-introduces the imperative
+    helpers would re-introduce the legacy cascade alongside
+    the new primitive (a layered regression that the
+    positive `test_filetree_uses_emptystate_primitive_for_
+    no_matches` test wouldn't catch).
+
+    The harness verifies two negatives:
+      1. The `showSearchEmptyMutation` identifier is no
+         longer defined or referenced in FileTree.tsx.
+      2. The `hideSearchEmptyMutation` identifier is no
+         longer defined or referenced in FileTree.tsx.
+
+    Comments are stripped before scanning so the docblock
+    can reference the dead names without tripping the
+    assertion."""
+    if not FILE_TREE_FILE.is_file():
+        pytest.skip("FileTree.tsx not present yet")
+    text = _strip_ts_comments(FILE_TREE_FILE.read_text())
+    assert "showSearchEmptyMutation" not in text, (
+        "FileTree.tsx MUST NOT carry the "
+        "`showSearchEmptyMutation` helper — the Phase 2 "
+        "migration replaced the imperative "
+        "`document.createElement(\"div\")` cascade with the "
+        "JSX `<EmptyState>` conditional render. The legacy "
+        "helper is dead code."
+    )
+    assert "hideSearchEmptyMutation" not in text, (
+        "FileTree.tsx MUST NOT carry the "
+        "`hideSearchEmptyMutation` helper — the Phase 2 "
+        "migration rendered the search empty state via JSX "
+        "conditional render (React unmounts the EmptyState "
+        "naturally when the search is cleared); the "
+        "imperative `empty.remove()` chain is dead code."
+    )

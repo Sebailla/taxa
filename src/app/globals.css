@@ -1096,16 +1096,6 @@
   .fex-search-clear .material-symbols-outlined {
     font-size: 16px;
   }
-  /* "No matches." empty-state card painted inside the
-     tree pane when filter mode + active query + zero
-     matches + hideEmpty are all on. Reuses
-     `.fex-empty-state` chrome with tighter padding.
-     Sorts BEFORE hide-empty-btn alphabetically (`e`
-     < `h`). Mirrors the legacy `.fex-search-empty`
-     rule. */
-  .fex-search-empty {
-    padding: 24px 12px;
-  }
   .fex-search-hide-empty-btn {
     display: inline-flex;
     align-items: center;
