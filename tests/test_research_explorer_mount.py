@@ -5888,3 +5888,82 @@ def test_w65_explorer_listener_does_not_touch_other_state() -> None:
             f"`empty` / `error` without touching the "
             f"user's interactive state."
         )
+
+
+# ---------------------------------------------------------------------------
+# ODD-MIGRATE-007-DOM-006 — Playwright probe witness for the legacy
+# DOM marker reproduction. The runtime Playwright probe runs only
+# when the FastAPI server is reachable on port 8765 (the canonical
+# local dev port). The probe asserts all 6 in-scope markers are
+# present in the rendered DOM after hydration, mirroring the byte-
+# for-byte marker contract the legacy `web/index.html` mount shipped.
+# ---------------------------------------------------------------------------
+
+
+def test_dom_markers_present_in_rendered_taxonomy_page() -> None:
+    """ODD-MIGRATE-007-DOM-006 — runtime Playwright probe: every
+    in-scope legacy DOM marker MUST be present in the rendered
+    taxonomy home page after hydration. The probe mirrors the
+    canonical parent-task probe byte-for-byte so a regression on
+    any marker surfaces in CI.
+
+    Skipped when the FastAPI server is unreachable so the test
+    stays hermetic in environments without the local dev server.
+    """
+    import urllib.error
+    import urllib.request
+
+    from playwright.sync_api import sync_playwright  # type: ignore
+
+    # Probe the FastAPI health endpoint first so a dead dev
+    # server skips the test instead of hanging on a timeout.
+    try:
+        with urllib.request.urlopen(
+            "http://127.0.0.1:8765/api/health", timeout=2,
+        ) as resp:
+            if resp.status != 200:
+                pytest.skip("FastAPI health endpoint returned non-200")
+    except (urllib.error.URLError, OSError):
+        pytest.skip("FastAPI server not reachable on 127.0.0.1:8765")
+
+    try:
+        browser = sync_playwright().start().chromium.launch(headless=True)
+    except Exception as exc:
+        pytest.skip(f"chromium binary not available: {exc!r}")
+    try:
+        page = browser.new_page()
+        page.goto(
+            "http://127.0.0.1:8765/",
+            wait_until="domcontentloaded",
+            timeout=10_000,
+        )
+        # Wait for hydration to settle.
+        page.wait_for_timeout(3000)
+        # All 6 in-scope markers MUST be present.
+        for selector in (
+            "#search-input",
+            "#tree-view",
+            "#tree-source-toggle",
+            "#detail-panel",
+            "#breadcrumb",
+            "#version-banner",
+            "script[src=\"/app.js\"]",
+        ):
+            count = page.locator(selector).count()
+            assert count >= 1, (
+                f"ODD-MIGRATE-007-DOM-006 Playwright probe: "
+                f"selector {selector!r} must be present in the "
+                f"rendered taxonomy home page (count={count})."
+            )
+        # Each source button MUST carry the canonical data-tree-source.
+        for src in ("col", "worms", "freshwater"):
+            count = page.locator(
+                f'#tree-source-toggle button[data-tree-source="{src}"]'
+            ).count()
+            assert count == 1, (
+                f"ODD-MIGRATE-007-DOM-006 Playwright probe: "
+                f"#tree-source-toggle button[data-tree-source=\"{src}\"] "
+                f"must render exactly once (count={count})."
+            )
+    finally:
+        browser.close()

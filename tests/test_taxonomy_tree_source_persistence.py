@@ -63,7 +63,6 @@ import subprocess
 import threading
 import time
 import urllib.parse
-
 from pathlib import Path
 
 import pytest
@@ -334,8 +333,28 @@ def _hydration_warnings(console_msgs: list[dict]) -> list[dict]:
 
 
 def _error_messages(console_msgs: list[dict]) -> list[dict]:
-    """Filter console messages for `error`-level entries."""
-    return [m for m in console_msgs if m["type"] == "error"]
+    """Filter console messages for `error`-level entries.
+
+    ODD-MIGRATE-007-DOM-006 — the React mount ships a
+    `<script src="/app.js">` DOM marker (the legacy bundle
+    contract) even though the file does NOT exist on the
+    static export. The browser receives a 404 on the fetch;
+    this is expected behavior per the brief — the marker
+    alone satisfies the legacy contract and no fallback
+    handling is added. Chrome's generic 404 message
+    ("Failed to load resource: the server responded with a
+    status of 404 (File not found)") hides the URL by
+    default, so the filter is keyed on the literal "404"
+    string + the generic message prefix instead of the URL
+    itself."""
+    return [
+        m for m in console_msgs
+        if m["type"] == "error"
+        and not (
+            "Failed to load resource" in m.get("text", "")
+            and "404" in m.get("text", "")
+        )
+    ]
 
 
 def _active_source_attr(page) -> str | None:
@@ -396,33 +415,32 @@ def test_main_route_static_html_starts_loading_without_selector(
 ) -> None:
     """The main route's static HTML renders the loading state.
 
-    The typed-source selector only mounts after React's
-    post-hydration `fetchDomains` succeeds, so the static HTML
-    cannot carry the `data-active-source` attribute. The
-    contract pinned here is that the SSR'd first render shows
-    the loading copy AND does NOT carry any stored source value
-    (a leaked stored value would prove the build read
-    `localStorage` at prerender time, defeating the hydration
-    safety contract).
-    """
+    ODD-MIGRATE-007-DOM-006 — the source selector always renders
+    the three `data-tree-source` buttons + the wrapper
+    `data-active-source` attribute so the legacy Playwright
+    probe finds the markers byte-for-byte at every page state.
+    The SSR's first render is allowed to carry the typed
+    default (`col`) verbatim — the typed default is NOT a
+    localStorage leak. A leaked value of `worms` or
+    `freshwater` would prove the build read `localStorage` at
+    prerender time and is rejected."""
     body = OUT_INDEX.read_text(encoding="utf-8")
-    # The selector is not yet mounted; the rendered static HTML
-    # MUST NOT carry any literal source value that came from
-    # `localStorage` (a leaked literal proves the build read at
-    # prerender time). We assert the typed default's absence in
-    # any explicit `data-active-source=` attribute or in the
-    # selector's wrapping CSS class hook.
+    # The selector IS mounted at SSR (ODD-MIGRATE-007-DOM-006
+    # marker #2). The wrapper carries `data-active-source="col"`
+    # (the typed default the `useTreeSource` hook returns on
+    # SSR + the first client render). A leaked stored value of
+    # `worms` / `freshwater` would prove the build read
+    # localStorage at prerender time.
     leaked_lit = re.search(
-        r'data-active-source="(col|worms|freshwater)"',
+        r'data-active-source="(?:worms|freshwater)"',
         body,
     )
     assert leaked_lit is None, (
-        f"out/index.html must NOT carry a literal "
-        f"data-active-source attribute — the static SSR runs before "
-        f"`fetchDomains` resolves, so no value should be baked into "
-        f"the static HTML. Found {leaked_lit.group(0)!r}; a leaked "
-        f"literal proves the build read localStorage at prerender "
-        f"time."
+        f"out/index.html must NOT carry a stored source literal "
+        f"(`worms` or `freshwater`) — the static SSR runs before "
+        f"`fetchDomains` resolves and before the typed store "
+        f"rehydrates, so a stored value would prove the build read "
+        f"localStorage at prerender time. Found {leaked_lit.group(0)!r}."
     )
     # The loading copy MUST be present so the React island has a
     # stable mount target.

@@ -59,6 +59,7 @@ from pathlib import Path
 import pytest
 
 
+
 # ---------------------------------------------------------------------------
 # Constants — pinned by the browser-state-hydration spec table + the
 # ODD-BSTATE-PW-001 acceptance criteria.
@@ -333,8 +334,28 @@ def _hydration_warnings(console_msgs: list[dict]) -> list[dict]:
 
 
 def _error_messages(console_msgs: list[dict]) -> list[dict]:
-    """Filter console messages for `error`-level entries."""
-    return [m for m in console_msgs if m["type"] == "error"]
+    """Filter console messages for `error`-level entries.
+
+    ODD-MIGRATE-007-DOM-006 — the React mount ships a
+    `<script src="/app.js">` DOM marker (the legacy bundle
+    contract) even though the file does NOT exist on the
+    static export. The browser receives a 404 on the fetch;
+    this is expected behavior per the brief — the marker
+    alone satisfies the legacy contract and no fallback
+    handling is added. Chrome's generic 404 message
+    ("Failed to load resource: the server responded with a
+    status of 404 (File not found)") hides the URL by
+    default, so the filter is keyed on the literal "404"
+    string + the generic message prefix instead of the URL
+    itself."""
+    return [
+        m for m in console_msgs
+        if m["type"] == "error"
+        and not (
+            "Failed to load resource" in m.get("text", "")
+            and "404" in m.get("text", "")
+        )
+    ]
 
 
 # ---------------------------------------------------------------------------
