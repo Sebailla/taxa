@@ -6454,3 +6454,692 @@ def test_filetree_drops_legacy_imperative_search_empty_mutation() -> None:
         "naturally when the search is cleared); the "
         "imperative `empty.remove()` chain is dead code."
     )
+
+
+# ---------------------------------------------------------------------------
+# ODD-SPL-PHASE2 — Phase 2 design-system migration coverage for the
+# Splitter + ExplorerErrorBoundary specialized React components.
+#
+# The ODD-SPL inspection of `Splitter.tsx` + `ExplorerErrorBoundary.tsx`
+# found ZERO substantive migration opportunities for the Phase 2
+# `<Button>` / `<IconButton>` / `<Text>` / `<Card>` / `<EmptyState>` /
+# `<Spinner>` / `<InlineMessage>` / `<Badge>` primitives. Both
+# components are specialized patterns that the design-system primitive
+# set does NOT cover:
+#
+#   - `Splitter.tsx` (387 lines, the drag-handle between the tree pane
+#     and the viewer pane) renders a single native `<div
+#     className="fex-splitter">` element wired to document-level
+#     mousedown / mousemove / mouseup / dblclick listeners. The
+#     `.fex-splitter` cascade lives under `@layer components` in
+#     `globals.css` (a 4px transparent bar with `col-resize` cursor +
+#     `flex-shrink: 0` + an `::after` pseudo-element that extends the
+#     hit area 3px outside the visible bar + a `:hover` /
+#     `.dragging` compound state that paints the primary-color tint +
+#     a `:focus-visible` keyboard-a11y outline). The `fex-splitter`
+#     rules + the `fex-splitter::after` hit-area extension + the
+#     `:hover` / `.dragging` / `:focus-visible` states are
+#     load-bearing for the drag-handle affordance — none of the 8
+#     design-system primitives cover the drag-handle pattern. The
+#     Splitter stays specialized by design.
+#
+#   - `ExplorerErrorBoundary.tsx` (107 lines, the React error boundary
+#     for the Browser-tab Explorer surface) is a CLASS component that
+#     overrides `componentDidCatch` + `getDerivedStateFromError`
+#     (native React lifecycle methods — NOT a primitive candidate).
+#     The fallback renders a heading + a `<button
+#     className="fex-snippet-btn mt-4">` retry button — the same
+#     pattern used in the Viewer.tsx error-fallback branches (the
+#     `<a className="fex-snippet-btn mt-2">` "Download file" link in
+#     the `text-decoder-error` dispatch + the `<button
+#     className="fex-snippet-btn">` controls in the offline banner).
+#     Migrating only the ExplorerErrorBoundary retry button to
+#     `<Button variant="secondary">` would create an inconsistency
+#     between the error-fallback pattern in `Viewer.tsx` (which
+#     keeps `fex-snippet-btn`) and the error-fallback pattern in
+#     `ExplorerErrorBoundary.tsx`. The `.fex-snippet-btn` class is
+#     the codebase's standardized button for the snippet panel +
+#     error-fallback contexts; the ExplorerErrorBoundary retry
+#     button stays specialized to preserve that consistency.
+#
+# Net Phase 2 migration: zero JSX changes to either component. The
+# six tests below document this decision as a regression gate going
+# forward: a future PR that introduces a Phase 2 primitive into the
+# Splitter or the ExplorerErrorBoundary (in a way that breaks the
+# specialized contract) trips one of these tests and is forced to
+# revisit the migration decision.
+# ---------------------------------------------------------------------------
+
+
+# ODD-SPL-PHASE2 — Splitter + ExplorerErrorBoundary import surface
+# audit. The two components must NOT pull a design-system primitive
+# into their render output today; if a future PR introduces one
+# (e.g. a `<Button>` for the retry button or an `<IconButton>` for
+# some new affordance), it MUST come through the public barrel so
+# spec.md rule 5 (cross-module imports anchored at the public
+# barrel) stays in lock-step. The Phase 2 audit scanned every
+# existing import statement in both files + every render output:
+# Splitter.tsx imports only `react` (the React hooks + the
+# ReactMouseEvent type); ExplorerErrorBoundary.tsx imports only
+# `react` (the Component class + the ReactNode type). Neither file
+# imports anything from `@taxa/design-system`.
+def test_splitter_does_not_import_design_system_primitives() -> None:
+    """ODD-SPL-PHASE2 — `Splitter.tsx` MUST NOT import any of
+    the 8 design-system primitives (`Button` / `IconButton` /
+    `Text` / `Card` / `EmptyState` / `Spinner` /
+    `InlineMessage` / `Badge`) from `@taxa/design-system`. The
+    Splitter is a specialized drag-handle (`<div
+    className="fex-splitter">` + native event handlers); the
+    primitive set does NOT cover the drag-handle pattern. The
+    import surface stays React-only — see the existing
+    `test_w6_3_splitter_imports_only_react` contract above for
+    the React-only pin.
+
+    If a future PR decides to migrate the Splitter (e.g. to
+    add a visible focus indicator through an `<IconButton>`),
+    the migration MUST pull the primitive through the public
+    barrel (`@taxa/design-system`) so spec.md rule 5 stays
+    intact. The test pins that the current import surface
+    is React-only, so a regression that adds an unbarreled
+    import trips the assertion.
+
+    Comments are stripped before scanning so the docblock
+    can reference `@taxa/design-system` + the primitive
+    names without tripping the guard."""
+    if not SPLITTER_FILE.is_file():
+        pytest.skip("Splitter.tsx not present yet")
+    text = _strip_ts_comments(SPLITTER_FILE.read_text())
+    # Direct imports from the barrel — must NOT exist.
+    assert not re.search(
+        r'from\s+["\']@taxa/design-system["\']',
+        text,
+    ), (
+        "Splitter.tsx MUST NOT import from "
+        "`@taxa/design-system` — the Splitter is a specialized "
+        "drag-handle and the Phase 2 primitives do not cover "
+        "the drag-handle pattern. If a future PR migrates any "
+        "part of the Splitter to a design-system primitive, "
+        "the primitive MUST come through the public barrel "
+        "(`@taxa/design-system`)."
+    )
+    # Reverse deep imports into the design-system layer
+    # folders — must NOT exist (spec.md rule 5 forbids deep
+    # imports into any layer of any module; the public
+    # barrel is the only legitimate import surface).
+    for deep in (
+        "@taxa/design-system/presentation",
+        "@taxa/design-system/domain",
+        "@taxa/design-system/application",
+        "@taxa/design-system/infrastructure",
+        "src/modules/design-system",
+    ):
+        assert deep not in text, (
+            f"Splitter.tsx must NOT deep-import {deep!r}; the "
+            f"public barrel `@taxa/design-system` is the only "
+            f"legitimate design-system import surface "
+            f"(spec.md rule 5)."
+        )
+
+
+def test_explorer_error_boundary_does_not_import_design_system_primitives() -> None:
+    """ODD-SPL-PHASE2 — `ExplorerErrorBoundary.tsx` MUST NOT
+    import any design-system primitive from
+    `@taxa/design-system`. The boundary is a CLASS component
+    that overrides `componentDidCatch` +
+    `getDerivedStateFromError` (native React lifecycle
+    methods) + renders a heading + a `<button
+    className="fex-snippet-btn mt-4">` retry button. The
+    retry button stays as the codebase-standardized
+    `.fex-snippet-btn` pattern (consistent with the
+    `<button className="fex-snippet-btn">` controls in the
+    Viewer.tsx offline banner + the `<a
+    className="fex-snippet-btn mt-2">` "Download file" link
+    in the `text-decoder-error` dispatch).
+
+    If a future PR migrates the retry button to
+    `<Button variant="secondary">`, the migration MUST pull
+    the primitive through the public barrel
+    (`@taxa/design-system`).
+
+    Comments are stripped before scanning so the docblock
+    can reference `@taxa/design-system` + the primitive
+    names without tripping the guard."""
+    if not ERROR_BOUNDARY_FILE.is_file():
+        pytest.skip("ExplorerErrorBoundary.tsx not present yet")
+    text = _strip_ts_comments(ERROR_BOUNDARY_FILE.read_text())
+    assert not re.search(
+        r'from\s+["\']@taxa/design-system["\']',
+        text,
+    ), (
+        "ExplorerErrorBoundary.tsx MUST NOT import from "
+        "`@taxa/design-system` — the boundary is a "
+        "specialized class component using native React "
+        "lifecycle methods + the codebase-standardized "
+        "`.fex-snippet-btn` button pattern. If a future PR "
+        "migrates the retry button (or any other affordance) "
+        "to a design-system primitive, the primitive MUST "
+        "come through the public barrel "
+        "(`@taxa/design-system`)."
+    )
+    for deep in (
+        "@taxa/design-system/presentation",
+        "@taxa/design-system/domain",
+        "@taxa/design-system/application",
+        "@taxa/design-system/infrastructure",
+        "src/modules/design-system",
+    ):
+        assert deep not in text, (
+            f"ExplorerErrorBoundary.tsx must NOT deep-import "
+            f"{deep!r}; the public barrel `@taxa/design-system` "
+            f"is the only legitimate design-system import "
+            f"surface (spec.md rule 5)."
+        )
+
+
+def test_splitter_uses_native_div_with_fex_splitter_class() -> None:
+    """ODD-SPL-PHASE2-001 — `Splitter.tsx` MUST render the
+    drag-handle as a native `<div className="fex-splitter">`
+    element — NOT a design-system primitive. The primitive
+    set (`Button` / `IconButton` / `Text` / `Card` /
+    `EmptyState` / `Spinner` / `InlineMessage` / `Badge`)
+    does NOT cover the drag-handle pattern; the Splitter
+    stays as a native `<div>` wired to native event
+    handlers + the `@layer components` `.fex-splitter`
+    cascade in `globals.css`.
+
+    The harness verifies three positive shapes + one
+    negative witness:
+
+      1. The Splitter's render output opens with `<div
+         className="fex-splitter"` (the native div with the
+         legacy cascade class — matches the W6.3 splitter
+         contract pinned by `test_w6_3_splitter_renders_
+         legacy_separator_semantics` above).
+      2. The render output does NOT contain any
+         `<Button` / `<IconButton` / `<Card` /
+         `<EmptyState` / `<Spinner` / `<InlineMessage` /
+         `<Badge` / `<Text` JSX element (negative witness —
+         the Splitter is NOT a primitive candidate).
+      3. The Splitter does NOT import any primitive from
+         `@taxa/design-system` (cross-checks test
+         `test_splitter_does_not_import_design_system_primitives`
+         above).
+      4. The Splitter wires `onMouseDown` +
+         `onDoubleClick` on the rendered `<div>` (the
+         drag-handle + reset affordances), matching the
+         W6.3 contract pinned by
+         `test_w6_3_splitter_wires_mousedown_with_prevent_default`
+         + `test_w6_3_splitter_wires_doubleclick_handler`
+         above.
+
+    Comments are stripped before scanning so the docblock
+    can reference primitive names without tripping the
+    negative witness."""
+    if not SPLITTER_FILE.is_file():
+        pytest.skip("Splitter.tsx not present yet")
+    text = _strip_ts_comments(SPLITTER_FILE.read_text())
+    # 1. Positive — the rendered element is a native `<div
+    #    className="fex-splitter">`.
+    splitter_div = re.search(
+        r'<div\b[^>]*\bclassName=["\']fex-splitter["\']',
+        text,
+    )
+    assert splitter_div, (
+        "Splitter.tsx must render `<div className=\"fex-splitter\">` "
+        "— the native drag-handle div with the legacy cascade "
+        "class. The Splitter is a specialized component (NOT a "
+        "design-system primitive candidate)."
+    )
+    # 2. Negative — no design-system primitive appears in
+    #    the Splitter's render output.
+    for primitive_tag in (
+        "Button", "IconButton", "Card", "EmptyState",
+        "Spinner", "InlineMessage", "Badge", "Text",
+    ):
+        primitive_match = re.search(
+            rf'<\s*{primitive_tag}\b', text,
+        )
+        assert not primitive_match, (
+            f"Splitter.tsx must NOT render `<{primitive_tag}>` "
+            f"— the Splitter is a specialized drag-handle and "
+            f"the Phase 2 `{primitive_tag}` primitive does NOT "
+            f"cover the drag-handle pattern. If a future PR "
+            f"migrates any part of the Splitter, the primitive "
+            f"MUST come from `@taxa/design-system`."
+        )
+    # 3. The Splitter does NOT import from
+    #    `@taxa/design-system` (already pinned by
+    #    test_splitter_does_not_import_design_system_primitives;
+    #    the assertion is repeated here for symmetry so a
+    #    regression that adds a primitive import + primitive
+    #    render between the two assertions still trips).
+    assert not re.search(
+        r'from\s+["\']@taxa/design-system["\']',
+        text,
+    ), (
+        "Splitter.tsx must NOT import from `@taxa/design-system` "
+        "— the Splitter is a specialized drag-handle and no "
+        "primitive applies."
+    )
+    # 4. The Splitter wires onMouseDown + onDoubleClick on
+    #    the rendered div (the drag-handle + reset
+    #    affordances; cross-checks the existing W6.3
+    #    contract).
+    assert "onMouseDown={handleMouseDown}" in text, (
+        "Splitter.tsx must wire `onMouseDown={handleMouseDown}` "
+        "on the rendered `<div>` so the drag lifecycle is "
+        "intact."
+    )
+    assert "onDoubleClick={handleDoubleClick}" in text, (
+        "Splitter.tsx must wire `onDoubleClick={handleDoubleClick}` "
+        "on the rendered `<div>` so the legacy reset affordance "
+        "(clear localStorage key + restore the CSS default) is "
+        "intact."
+    )
+
+
+def test_splitter_specialized_drag_handle_contract() -> None:
+    """ODD-SPL-PHASE2-002 — the Splitter's CSS contract MUST
+    live under `@layer components` in `globals.css`:
+    `.fex-splitter` base + `::after` hit-area extension +
+    `:hover` / `.dragging` compound state + `:focus-visible`
+    keyboard-a11y outline. The CSS rules are the
+    load-bearing surface for the drag-handle affordance; a
+    regression that drops them (or moves them under
+    `@layer base`, where Tailwind 4 utilities could
+    override the affordance) silently breaks the Splitter.
+
+    The CSS contract is ALREADY pinned by
+    `tests/test_research_styles.py::test_layer_components_
+    declares_every_w6_3_splitter_selector` + the matching
+    `test_layer_base_does_not_own_w6_3_splitter_selectors`
+    guards. The Phase 2 coverage test re-asserts the
+    contract from the `test_research_explorer_mount.py`
+    side so the Splitter's specialized drag-handle
+    contract is end-to-end pinned (JSX + CSS).
+
+    The harness verifies four positive shapes:
+      1. `globals.css` declares `@layer components { ... }`.
+      2. The `.fex-splitter { ... }` base rule lives under
+         `@layer components` with a non-empty body
+         (matching `width: 4px`, `background: transparent`,
+         `cursor: col-resize`, `flex-shrink: 0`,
+         `position: relative` — the legacy verbatim).
+      3. The `.fex-splitter::after` pseudo-element
+         extension (the hit-area that extends 3px outside
+         the visible 4px bar) lives under `@layer components`
+         with a non-empty body (`content: ""`,
+         `position: absolute`, `inset: 0 -3px`).
+      4. The compound state `.fex-splitter:hover,
+         .fex-splitter.dragging { background: var(--primary) }`
+         + the keyboard-a11y outline `.fex-splitter:
+         focus-visible { outline: 2px solid var(--primary);
+         outline-offset: 2px; }` both live under
+         `@layer components` with non-empty bodies.
+
+    A future PR that drops any of these rules (or moves
+    them out of `@layer components`) trips the
+    assertion."""
+    globals_css = REPO_ROOT / "src" / "app" / "globals.css"
+    if not globals_css.is_file():
+        pytest.skip("globals.css not present yet")
+    css_text = globals_css.read_text()
+    # Extract the @layer components block (the Splitter's
+    # CSS contract lives here; @layer base is reserved for
+    # the Tailwind 4 utility surface + tokens).
+    components_match = re.search(
+        r"@layer\s+components\s*\{",
+        css_text,
+    )
+    assert components_match, (
+        "globals.css must declare `@layer components { ... }` — "
+        "the Splitter's `.fex-splitter` cascade lives here."
+    )
+    # Walk the components block: count braces to find the
+    # matching closing brace.
+    depth = 1
+    i = components_match.end()
+    while i < len(css_text) and depth > 0:
+        if css_text[i] == "{":
+            depth += 1
+        elif css_text[i] == "}":
+            depth -= 1
+        i += 1
+    components_body = css_text[components_match.end():i - 1]
+    # 1. Base rule `.fex-splitter { ... }` must declare
+    #    the legacy verbatim shape (4px transparent bar +
+    #    col-resize cursor + flex-shrink: 0 + position:
+    #    relative).
+    splitter_base = re.search(
+        r"\.fex-splitter\s*\{([^{}]*)\}",
+        components_body,
+    )
+    assert splitter_base, (
+        "`@layer components` must declare `.fex-splitter { ... }` "
+        "with the legacy verbatim body (the drag-handle base rule)."
+    )
+    base_body = splitter_base.group(1)
+    for prop in (
+        "width: 4px",
+        "background: transparent",
+        "cursor: col-resize",
+        "flex-shrink: 0",
+        "position: relative",
+    ):
+        assert prop in base_body, (
+            f"`@layer components::.fex-splitter` must declare "
+            f"`{prop}` — the legacy verbatim shape. Got: "
+            f"{base_body!r}."
+        )
+    # 2. `::after` hit-area extension must declare
+    #    `content: ""` + `position: absolute` + `inset: 0 -3px`
+    #    so the 4px visible bar has a 10px hit area (the
+    #    legacy verbatim shape).
+    splitter_after = re.search(
+        r"\.fex-splitter::after\s*\{([^{}]*)\}",
+        components_body,
+    )
+    assert splitter_after, (
+        "`@layer components` must declare `.fex-splitter::after "
+        "{ ... }` — the hit-area extension that widens the "
+        "4px visible bar to a 10px drag target."
+    )
+    after_body = splitter_after.group(1)
+    for prop in (
+        'content: ""',
+        "position: absolute",
+        "inset: 0 -3px",
+    ):
+        assert prop in after_body, (
+            f"`@layer components::.fex-splitter::after` must "
+            f"declare `{prop}` — the legacy verbatim hit-area "
+            f"shape. Got: {after_body!r}."
+        )
+    # 3. Compound state `.fex-splitter:hover,
+    #    .fex-splitter.dragging { background: var(--primary) }`
+    #    — the primary-color tint that lights up the
+    #    affordance on hover OR while a drag is in flight.
+    hover_dragging = re.search(
+        r"\.fex-splitter:hover[^{}]*\.fex-splitter\.dragging\s*"
+        r"\{([^{}]*)\}",
+        components_body,
+    )
+    assert hover_dragging, (
+        "`@layer components` must declare `.fex-splitter:hover, "
+        ".fex-splitter.dragging { ... }` — the compound state "
+        "that paints the primary-color tint on hover OR while "
+        "a drag is in flight."
+    )
+    hover_dragging_body = hover_dragging.group(1)
+    assert "background: var(--primary)" in hover_dragging_body, (
+        "`@layer components::.fex-splitter:hover, "
+        ".fex-splitter.dragging` must declare `background: "
+        "var(--primary)` — the primary-color tint that lights "
+        "up the affordance. Got: "
+        f"{hover_dragging_body!r}."
+    )
+    # 4. Keyboard-a11y outline `.fex-splitter:focus-visible`
+    #    — the focus ring that mirrors the legacy
+    #    `web/index.html::.fex-row:focus-visible` outline
+    #    so the drag-handle stays in lock-step with the
+    #    focus contract for the rest of the React mount.
+    focus_visible = re.search(
+        r"\.fex-splitter:focus-visible\s*\{([^{}]*)\}",
+        components_body,
+    )
+    assert focus_visible, (
+        "`@layer components` must declare `.fex-splitter:"
+        "focus-visible { ... }` — the keyboard-a11y outline "
+        "the drag-handle exposes when focused via Tab."
+    )
+    focus_visible_body = focus_visible.group(1)
+    assert "outline: 2px solid var(--primary)" in focus_visible_body, (
+        "`@layer components::.fex-splitter:focus-visible` must "
+        "declare `outline: 2px solid var(--primary)` — the "
+        "keyboard-a11y outline. Got: "
+        f"{focus_visible_body!r}."
+    )
+
+
+def test_explorer_error_boundary_uses_native_error_boundary_pattern() -> None:
+    """ODD-SPL-PHASE2-003 — `ExplorerErrorBoundary.tsx` MUST
+    use the native React error-boundary pattern: a CLASS
+    component that overrides `componentDidCatch` +
+    `getDerivedStateFromError`. The native pattern is the
+    portable, framework-agnostic shape that does not need a
+    design-system primitive to render correctly. The W6.1
+    contract pins this approach verbatim (see the
+    `ExplorerErrorBoundary` JSDoc: "Pure React class
+    boundary (no Next 16 `<catchError>` wrapper — the React
+    class boundary is the simpler, more portable shape
+    and keeps the W6.1 mount framework-agnostic)").
+
+    The harness verifies four positive shapes + one
+    negative witness:
+
+      1. The component declares `static
+         getDerivedStateFromError(error: Error)` (the
+         React lifecycle method that flips state to the
+         captured error).
+      2. The component declares `componentDidCatch(error:
+         Error, info)` (the React lifecycle method that
+         logs the failure to the console).
+      3. The component is a CLASS component (`class
+         ExplorerErrorBoundary extends Component<...>`),
+         NOT a function component using a React hook.
+      4. The fallback render produces a `role="alert"`
+         wrapper div with the `data-explorer-error-
+         boundary=""` data attribute (the a11y contract
+         that downstream tests + the focus contract
+         rely on).
+      5. The fallback render does NOT contain a
+         `<Card>` / `<EmptyState>` / `<Button>` /
+         `<IconButton>` / `<Spinner>` / `<InlineMessage>`
+         / `<Badge>` / `<Text>` primitive JSX element
+         (negative witness — the boundary is NOT a
+         primitive candidate).
+
+    Comments are stripped before scanning so the
+    docblock can reference primitive names + the legacy
+    React class boundary pattern without tripping the
+    negative witness."""
+    if not ERROR_BOUNDARY_FILE.is_file():
+        pytest.skip("ExplorerErrorBoundary.tsx not present yet")
+    text = _strip_ts_comments(ERROR_BOUNDARY_FILE.read_text())
+    # 1. Native React lifecycle: `getDerivedStateFromError`.
+    assert re.search(
+        r"static\s+getDerivedStateFromError\s*\(",
+        text,
+    ), (
+        "ExplorerErrorBoundary.tsx must declare `static "
+        "getDerivedStateFromError(...)` — the React lifecycle "
+        "method that flips state to the captured error. The "
+        "boundary is a native React class component, NOT a "
+        "primitive candidate."
+    )
+    # 2. Native React lifecycle: `componentDidCatch`.
+    assert re.search(
+        r"componentDidCatch\s*\(",
+        text,
+    ), (
+        "ExplorerErrorBoundary.tsx must declare `componentDidCatch("
+        "...)` — the React lifecycle method that logs the "
+        "failure to the console for developer debugging."
+    )
+    # 3. CLASS component (extends Component<...>).
+    assert re.search(
+        r"class\s+ExplorerErrorBoundary\s+extends\s+Component\s*<",
+        text,
+    ), (
+        "ExplorerErrorBoundary.tsx must declare `class "
+        "ExplorerErrorBoundary extends Component<...>` — the "
+        "React class component shape that supports the "
+        "lifecycle methods. A function component using a React "
+        "hook would silently break the error-boundary contract."
+    )
+    # 4. Fallback render — `role="alert"` wrapper div +
+    #    `data-explorer-error-boundary=""` data attribute.
+    assert re.search(
+        r'role=["\']alert["\'][^>]*'
+        r'data-explorer-error-boundary=["\']',
+        text,
+    ), (
+        "ExplorerErrorBoundary.tsx must render "
+        "`role=\"alert\"` + `data-explorer-error-boundary=\"\"` "
+        "on the fallback wrapper div so the existing a11y + "
+        "test contracts survive (the wrapper is the carrier for "
+        "the heading + the retry button)."
+    )
+    # 5. Negative — no primitive appears in the fallback
+    #    render output. The boundary is NOT a primitive
+    #    candidate; it stays as the native React class
+    #    shape.
+    for primitive_tag in (
+        "Card", "EmptyState", "Button", "IconButton",
+        "Spinner", "InlineMessage", "Badge", "Text",
+    ):
+        primitive_match = re.search(
+            rf'<\s*{primitive_tag}\b', text,
+        )
+        assert not primitive_match, (
+            f"ExplorerErrorBoundary.tsx must NOT render "
+            f"`<{primitive_tag}>` — the boundary is a "
+            f"specialized class component using native React "
+            f"lifecycle methods and the codebase-standardized "
+            f"`.fex-snippet-btn` button pattern. If a future PR "
+            f"migrates the fallback to a primitive, the "
+            f"primitive MUST come from `@taxa/design-system`."
+        )
+
+
+def test_explorer_error_boundary_retry_button_uses_fex_snippet_btn() -> None:
+    """ODD-SPL-PHASE2-004 — the ExplorerErrorBoundary's retry
+    button MUST render as `<button type="button"
+    className="fex-snippet-btn mt-4" onClick={this.retry}
+    aria-label="Retry explorer">Try again</button>` — the
+    codebase-standardized `.fex-snippet-btn` pattern. The
+    same pattern is used in:
+
+      - `Viewer.tsx::renderOfflineCard` (the offline banner
+        controls + the snippet picker `<select>` +
+        `.fex-snippet-btn` overlay).
+      - `Viewer.tsx::text-decoder-error` dispatch (the
+        `<a className="fex-snippet-btn mt-2">Download
+        file</a>` recovery link).
+      - `Viewer.tsx::image-error` dispatch (the same
+        `<a className="fex-snippet-btn mt-2">Download
+        file</a>` recovery link).
+
+    Migrating only the ExplorerErrorBoundary retry button
+    to `<Button variant="secondary">` would create an
+    inconsistency between the error-fallback pattern in
+    `Viewer.tsx` (which keeps `.fex-snippet-btn`) and the
+    error-fallback pattern in `ExplorerErrorBoundary.tsx`.
+    The `.fex-snippet-btn` class is the codebase's
+    standardized button for the snippet panel + error-
+    fallback contexts; the ExplorerErrorBoundary retry
+    button stays specialized to preserve that
+    consistency.
+
+    The harness verifies five positive shapes:
+
+      1. The retry button renders with
+         `type="button"` (HTML form-safety contract).
+      2. The retry button renders with
+         `className="fex-snippet-btn mt-4"` (the
+         codebase-standardized `.fex-snippet-btn` pattern
+         — `mt-4` is the legacy top margin).
+      3. The retry button renders with `aria-label="Retry
+         explorer"` (the screen-reader label the existing
+         a11y contract relies on).
+      4. The retry button has visible "Try again" copy
+         (the legacy `web/file_explorer.js::mount()`
+         catch-branch message).
+      5. The retry button is wired to the
+         `component.setState({ error: null })` reset (the
+         `this.retry` method declared on the class).
+
+    The test pins the legacy error-recovery contract so a
+    future PR that decides to migrate the retry button
+    trips the assertion and is forced to revisit the
+    migration decision (the plan's "could go either way"
+    framing is resolved by this test as "keep as-is for
+    consistency with Viewer.tsx error fallbacks")."""
+    if not ERROR_BOUNDARY_FILE.is_file():
+        pytest.skip("ExplorerErrorBoundary.tsx not present yet")
+    text = _strip_ts_comments(ERROR_BOUNDARY_FILE.read_text())
+    # Find the retry button (the `<button ...>Try again</button>`
+    # block). The button has `className="fex-snippet-btn mt-4"`
+    # + `aria-label="Retry explorer"` + visible "Try again"
+    # copy.
+    retry_button_match = re.search(
+        r'<button\b[^>]*?>\s*Try again\s*</button>',
+        text,
+    )
+    assert retry_button_match, (
+        "ExplorerErrorBoundary.tsx must render a retry button "
+        "with the visible `Try again` copy. The retry button "
+        "stays as the codebase-standardized `<button "
+        "className=\"fex-snippet-btn mt-4\">` pattern for "
+        "consistency with the Viewer.tsx error fallbacks."
+    )
+    button_open_tag = retry_button_match.group(0).split(">")[0]
+    # 1. `type="button"` (HTML form-safety contract).
+    assert 'type="button"' in button_open_tag, (
+        f"ExplorerErrorBoundary.tsx retry button must declare "
+        f"`type=\"button\"` so the button does not accidentally "
+        f"submit an ancestor form. Got: {button_open_tag!r}."
+    )
+    # 2. `className="fex-snippet-btn mt-4"` (the
+    #    codebase-standardized pattern).
+    assert 'className="fex-snippet-btn mt-4"' in button_open_tag, (
+        f"ExplorerErrorBoundary.tsx retry button must declare "
+        f"`className=\"fex-snippet-btn mt-4\"` — the codebase-"
+        f"standardized button pattern for the snippet panel + "
+        f"error-fallback contexts (consistent with Viewer.tsx "
+        f"error fallbacks). Got: {button_open_tag!r}."
+    )
+    # 3. `aria-label="Retry explorer"` (the screen-reader
+    #    label).
+    assert 'aria-label="Retry explorer"' in button_open_tag, (
+        f"ExplorerErrorBoundary.tsx retry button must declare "
+        f"`aria-label=\"Retry explorer\"` so the screen-reader "
+        f"label matches the existing a11y contract. Got: "
+        f"{button_open_tag!r}."
+    )
+    # 4. Visible "Try again" copy (already checked by the
+    #    surrounding regex; assertion kept for symmetry).
+    assert "Try again" in retry_button_match.group(0), (
+        "ExplorerErrorBoundary.tsx retry button must carry the "
+        "visible `Try again` copy (the legacy "
+        "`web/file_explorer.js::mount()` catch-branch "
+        "message)."
+    )
+    # 5. The retry button is wired to `this.retry` (the
+    #    class method that calls `this.setState({ error:
+    #    null })` to reset the boundary).
+    assert re.search(
+        r"onClick=\{this\.retry\}",
+        button_open_tag,
+    ), (
+        "ExplorerErrorBoundary.tsx retry button must wire "
+        "`onClick={this.retry}` so the boundary resets the "
+        "state to `{ error: null }` on click. Got: "
+        f"{button_open_tag!r}."
+    )
+    # The class must declare the `retry` method that calls
+    # `this.setState({ error: null })`. The source declares
+    # the method as an arrow-function class field
+    # (`retry = (): void => { this.setState({ error: null }); };`)
+    # so the regex tolerates the optional `=>` between the
+    # return type annotation and the opening brace.
+    assert re.search(
+        r"retry\s*=\s*\(\s*\)\s*:\s*void\s*(?:=>\s*)?\{[^}]*"
+        r"this\.setState\s*\(\s*\{\s*error:\s*null\s*\}\s*\)",
+        text,
+        re.DOTALL,
+    ), (
+        "ExplorerErrorBoundary.tsx must declare the `retry` "
+        "class method that calls `this.setState({ error: "
+        "null })` — the boundary reset on click."
+    )
