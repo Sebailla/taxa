@@ -879,72 +879,213 @@ def test_tree_row_renders_data_realm_attribute() -> None:
 
 
 def test_tree_row_renders_status_dot() -> None:
-    """ODD-NTP-004: every row renders a status dot with the canonical
-    class hooks (`status-dot`, `status-dot-{accepted|synonym|unknown}`)
-    so the CSS in `src/app/globals.css` carries the colour cascade.
-    Mirrors `web/tree.js::renderNodeRow::statusDot`. The dot also
-    carries a `data-status-dot` attribute for tests + tooling."""
+    """ODD-PHASE2: every row renders the status indicator as an inline
+    `<span>` inside the new `<Badge variant="subtle" uppercase={false}>`
+    composite (status dot + species count). The old `.status-dot-*`
+    CSS-class hooks are gone — the colour is applied inline with the
+    canonical Tailwind utilities:
+
+      - green-500   for `accepted`  (matches `web/tree.js::statusDot`).
+      - amber-500   for `synonym`   (matches `web/tree.js::statusDot`).
+      - on-surface-variant for `unknown` (the neutral fallback).
+
+    The indicator MUST also carry a `role="img"` + `aria-label` /
+    `title` set to `statusDotDescriptor(taxon.status).title` so
+    assistive tech announces the canonical status label. The helper
+    `statusDotDescriptor` from `row-format.ts` is preserved so the
+    tooltip text stays byte-identical to the legacy oracle."""
     text = _read_text(TAXONOMY_TREE_ROW_FILE)
-    assert "status-dot" in text, (
-        "ODD-NTP-004: TreeRow.tsx must render the .status-dot element."
-    )
     assert "statusDotDescriptor" in text, (
-        "ODD-NTP-004: TreeRow.tsx must consume the statusDotDescriptor helper."
+        "ODD-PHASE2: TreeRow.tsx must consume the statusDotDescriptor helper."
     )
-    assert "data-status-dot" in text, (
-        "ODD-NTP-004: status dot must stamp data-status-dot for tests."
+    # `bg-green-500` + `bg-amber-500` + `bg-on-surface-variant` are the
+    # canonical Tailwind utilities that surface the three status
+    # colours. The PR replaces the `.status-dot-{accepted|synonym|unknown}`
+    # CSS hooks with these inline classes.
+    assert "bg-green-500" in text, (
+        "ODD-PHASE2: accepted status must paint with `bg-green-500`."
+    )
+    assert "bg-amber-500" in text, (
+        "ODD-PHASE2: synonym status must paint with `bg-amber-500`."
+    )
+    assert "bg-on-surface-variant" in text, (
+        "ODD-PHASE2: unknown status must paint with `bg-on-surface-variant`."
+    )
+    # The indicator MUST remain accessible: `role="img"` + an aria-label
+    # / title set to the canonical tooltip text from the row-format
+    # helper. Reject the legacy `.status-dot-{accepted|synonym|unknown}`
+    # class hooks — those CSS rules disappear with the rewrite. The
+    # className-anchored regex avoids false positives from the file's
+    # docstring which mentions `.status-dot-*` literally.
+    assert re.search(
+        r'role\s*=\s*"img"',
+        text,
+    ), "ODD-PHASE2: status indicator must carry role=\"img\"."
+    assert 'statusDotTitle' in text or r'statusDot.title' in text, (
+        "ODD-PHASE2: status indicator must read statusDot.title from the helper."
+    )
+    assert not re.search(
+        r'className\s*=\s*["\'][^"\']*status-dot-',
+        text,
+    ), (
+        "ODD-PHASE2: TreeRow.tsx must NOT carry `.status-dot-*` class "
+        "hooks (colour is inline via Tailwind utilities)."
     )
 
 
 def test_tree_row_renders_source_info_affordance() -> None:
-    """ODD-NTP-004: the source info glyph renders ONLY when the
-    legacy `sourceInfoTooltip` predicate returns a string (CoL-only
-    in CoL view; WoRMS-only or cross-link in WoRMS / Freshwater
-    view). Renders nothing otherwise. Mirrors `web/tree.js::
-    renderNodeRow::sourceInfo` byte-for-byte."""
+    """ODD-PHASE2: the source info tooltip collapses into the `title`
+    attribute of the scientific-name span. The legacy `sourceInfoTooltip`
+    predicate still gates whether a `title` attribute renders (it returns
+    `null` for taxa whose source identity doesn't add any context),
+    but when it does render, the tooltip text now lives on the NAME
+    span instead of a dedicated info glyph. Mirrors the
+    `web/tree.js::renderNodeRow::sourceTooltipText` source-aware
+    decision byte-for-byte (the actual tooltip text is unchanged).
+
+    The Material Symbols `info` glyph + the `.source-info` class are
+    GONE — the source info becomes a native browser tooltip (no extra
+    DOM weight, screen readers still surface the tooltip text)."""
     text = _read_text(TAXONOMY_TREE_ROW_FILE)
-    assert "source-info" in text, (
-        "ODD-NTP-004: TreeRow.tsx must render the .source-info glyph."
+    # The new affordance: the name `<span>` carries `title={nameTitle}`
+    # which carries `${taxon.name} ${taxon.authorship}` when authorship
+    # is truthy. The legacy `sourceInfoTooltip` is folded into the same
+    # `title` string so the browser tooltip includes BOTH the authorship
+    # AND the source identity context.
+    name_span_match = re.search(
+        r'<span\b[^>]*\btitle\s*=',
+        text,
     )
-    assert "data-source-info" in text, (
-        "ODD-NTP-004: source info glyph must stamp data-source-info."
+    assert name_span_match, (
+        "ODD-PHASE2: TreeRow.tsx must render a <span> with a `title` "
+        "attribute carrying the source info + authorship tooltip."
+    )
+    assert "nameTitle" in text, (
+        "ODD-PHASE2: TreeRow.tsx must thread the `nameTitle` template "
+        "through to the name span's `title` attribute."
+    )
+    # The old `source-info` class hook + `data-source-info` attribute
+    # are GONE (the source info no longer renders a dedicated glyph).
+    # The className-anchored regex avoids false positives from the
+    # file's docstring which mentions `source-info` / `data-source-info`
+    # literally as legacy references.
+    assert not re.search(
+        r'className\s*=\s*["\'][^"\']*\bsource-info\b',
+        text,
+    ), (
+        "ODD-PHASE2: TreeRow.tsx must NOT render `.source-info` class "
+        "hook (folded into name span title)."
+    )
+    assert not re.search(
+        r'\bdata-source-info\s*=',
+        text,
+    ), (
+        "ODD-PHASE2: TreeRow.tsx must NOT stamp `data-source-info` "
+        "(folded into name span title)."
     )
 
 
 def test_tree_row_renders_materialize_indicator() -> None:
-    """ODD-NTP-004: the materialize indicator renders when
-    `research_path_exists === true`. The visual is a green folder
-    glyph with an accessible label. ODD-NTP-004 explicitly defers
-    the desktop / file endpoints, so the indicator has no click
-    handler."""
+    """ODD-PHASE2: the materialize indicator collapses into the kebab
+    menu as the conditional "Open folder" item. The row-level green
+    folder glyph is gone (one less DOM element per row); the
+    affordance becomes discoverable via the kebab menu (one extra
+    click). The kebab item carries `data-action="open-folder-tab"`
+    + a `folder_open` Material Symbols glyph + the "Open folder"
+    label, mirroring `web/tree.js::renderNodeRow::kebabItems`
+    byte-for-byte. ODD-OPENFOLDER-001 keeps the action enabled and
+    wired through `onKebabAction(id, "open-folder-tab")`. The
+    materialization predicate (`hasMaterializedFolder(taxon)`) is
+    preserved so non-materialized rows do NOT expose the action."""
     text = _read_text(TAXONOMY_TREE_ROW_FILE)
-    assert "materialize-indicator" in text, (
-        "ODD-NTP-004: TreeRow.tsx must render the .materialize-indicator glyph."
-    )
-    assert "data-materialize-indicator" in text, (
-        "ODD-NTP-004: materialize indicator must stamp data-materialize-indicator."
-    )
     assert "hasMaterializedFolder" in text, (
-        "ODD-NTP-004: TreeRow.tsx must consume the hasMaterializedFolder helper."
+        "ODD-PHASE2: TreeRow.tsx must consume the hasMaterializedFolder helper."
+    )
+    # The kebab menu carries the materialized "Open folder" item. The
+    # afforance is no longer a row-level glyph — it lives in the kebab
+    # menu (conditional on `isMaterialized`).
+    open_folder_match = re.search(
+        r'data-action="open-folder-tab"[\s\S]*?</button>',
+        text,
+    )
+    assert open_folder_match, (
+        "ODD-PHASE2: TreeRow.tsx must render the kebab-item 'Open folder' "
+        "action (with `data-action=\"open-folder-tab\"`)."
+    )
+    open_folder_body = open_folder_match.group(0)
+    assert "folder_open" in open_folder_body or "folder" in open_folder_body, (
+        "ODD-PHASE2: 'Open folder' kebab item must carry the Material "
+        "Symbols `folder_open` glyph (matching the kebab item convention)."
+    )
+    assert "Open folder" in open_folder_body, (
+        "ODD-PHASE2: 'Open folder' kebab item must carry the canonical label."
+    )
+    # The OLD row-level materialize indicator + its data attribute
+    # are GONE (the affordance lives in the kebab now). The class
+    # hook + data attribute must NOT appear in the JSX. The
+    # className-anchored regex avoids false positives from the
+    # file's docstring which mentions `materialize-indicator` /
+    # `data-materialize-indicator` literally as legacy references.
+    assert not re.search(
+        r'className\s*=\s*["\'][^"\']*\bmaterialize-indicator\b',
+        text,
+    ), (
+        "ODD-PHASE2: TreeRow.tsx must NOT render `.materialize-indicator` "
+        "glyph (folded into the kebab 'Open folder' item)."
+    )
+    assert not re.search(
+        r'\bdata-materialize-indicator\s*=',
+        text,
+    ), (
+        "ODD-PHASE2: TreeRow.tsx must NOT stamp `data-materialize-indicator` "
+        "(the kebab menu replaces the row-level glyph)."
     )
 
 
 def test_tree_row_renders_species_count_badge() -> None:
-    """ODD-NTP-004: the species-count badge renders when
-    `taxon.species_count` is truthy. Mirrors `web/tree.js::
-    renderNodeRow::speciesCountBadge` — formatted via the row-format
-    helper with the canonical 5 / 3k / 2.5M thresholds. The badge
-    carries a hover title that includes the binomial + count
-    context."""
+    """ODD-PHASE2: the species-count badge is now INSIDE the new
+    `<Badge variant="subtle" uppercase={false}>` composite (status
+    dot + count). The 9-element row collapses to 5 — the status
+    dot + species count become a single Badge. The count text is
+    formatted via the row-format `speciesCountBadge` helper (5 /
+    3k / 2.5M thresholds) and rendered with the `font-mono-data`
+    class so the JetBrains Mono treatment stays byte-identical to
+    the legacy `web/index.html::.font-mono-data` cascade. The
+    `data-species-count` data attribute on the OLD inline span
+    is no longer required (the Badge wrapping makes the count
+    part of the status+count composite — the per-row tooltip
+    still carries the canonical count context)."""
     text = _read_text(TAXONOMY_TREE_ROW_FILE)
-    assert "species-count-badge" in text, (
-        "ODD-NTP-004: TreeRow.tsx must render the .species-count-badge element."
-    )
     assert "speciesCountBadge" in text, (
-        "ODD-NTP-004: TreeRow.tsx must consume the speciesCountBadge helper."
+        "ODD-PHASE2: TreeRow.tsx must consume the speciesCountBadge helper."
     )
-    assert "data-species-count" in text, (
-        "ODD-NTP-004: species count badge must stamp data-species-count."
+    # The count text MUST live inside a Badge component (the new
+    # status+count composite). The Badge primitive is imported from
+    # `@taxa/design-system` and used with `uppercase={false}` so the
+    # rank-badge treatment (uppercase + tracked Raleway) does NOT
+    # apply to the count text.
+    assert re.search(
+        r'<\s*Badge\b[^>]*\buppercase\s*=\s*\{\s*false\s*\}',
+        text,
+    ), (
+        "ODD-PHASE2: TreeRow.tsx must render the species-count text "
+        "inside a `<Badge uppercase={false}>` composite."
+    )
+    assert "font-mono-data" in text, (
+        "ODD-PHASE2: TreeRow.tsx must apply `font-mono-data` to the "
+        "species-count text so the JetBrains Mono treatment carries "
+        "forward from the legacy cascade."
+    )
+    # The OLD inline `<span className="species-count-badge ...">` is
+    # GONE — the count now lives inside the Badge composite. The
+    # className-anchored regex avoids false positives from the
+    # file's docstring which mentions `species-count-badge` literally.
+    assert not re.search(
+        r'className\s*=\s*["\'][^"\']*species-count-badge',
+        text,
+    ), (
+        "ODD-PHASE2: TreeRow.tsx must NOT render `.species-count-badge` "
+        "inline span (the Badge composite replaces it)."
     )
 
 
@@ -969,42 +1110,51 @@ def test_tree_row_renders_kebab_trigger() -> None:
 
 
 def test_tree_row_renders_kebab_menu_items() -> None:
-    """ODD-NTP-004 + ODD-TDDISC-001: the kebab menu carries the three
-    legacy actions: 'View details' / 'Open folder' / 'View on WoRMS'.
-    ODD-TDDISC-001 renamed the selection item from 'Search online'
-    to 'View details' (the data-action="open-searches" contract
-    stays so the parent mapping keeps working byte-for-byte). Items
-    whose backing React behavior is deferred render with
-    `disabled` + `aria-disabled="true"` so the user sees them as
-    clearly unavailable rather than silently wired to the wrong
-    endpoint. Mirrors the legacy `web/tree.js::renderNodeRow::
-    kebabItems` ordering byte-for-byte.
+    """ODD-PHASE2 + ODD-TDDISC-001 + ODD-OPENFOLDER-001: the kebab menu
+    carries the two conditional per-row actions AFTER the rewrite:
+    'Open folder' (materialized-only) + 'View on WoRMS'
+    (WoRMS-only). ODD-PHASE2 drops the 'View details' item — the row
+    click on the disclosure button already invokes `onSelect(taxon.id)`,
+    so the kebab selection item was a duplicate affordance.
 
-    ODD-NTP-004 explicitly enables ONLY `View on WoRMS` (the
-    `<a target="_blank">` anchor doesn't need a React handler);
-    `View details` (was 'Search online') and `Open folder` stay
-    disabled until ODD-NTP-005 wires the corresponding React
-    behavior."""
+    Both remaining items are conditional on a backing-react-handler /
+    outbound-URL predicate (`hasMaterializedFolder(taxon)` /
+    `wormsUrlFor(taxon)`); neither carries `disabled` +
+    `aria-disabled="true"`. Mirrors the legacy `web/tree.js::
+    renderNodeRow::kebabItems` ordering byte-for-byte (Open folder
+    first, View on WoRMS second)."""
     text = _read_text(TAXONOMY_TREE_ROW_FILE)
     assert "kebab-menu" in text, (
-        "ODD-NTP-004: TreeRow.tsx must render the .kebab-menu container."
-    )
-    assert '"open-searches"' in text or "'open-searches'" in text, (
-        "ODD-NTP-004: kebab menu must carry the open-searches data-action."
+        "ODD-PHASE2: TreeRow.tsx must render the .kebab-menu container."
     )
     assert '"open-folder-tab"' in text or "'open-folder-tab'" in text, (
-        "ODD-NTP-004: kebab menu must carry the open-folder-tab data-action."
+        "ODD-PHASE2: kebab menu must carry the open-folder-tab data-action."
     )
     assert "wormsUrlFor" in text, (
-        "ODD-NTP-004: TreeRow.tsx must consume the wormsUrlFor helper."
+        "ODD-PHASE2: TreeRow.tsx must consume the wormsUrlFor helper."
     )
     # The "View on WoRMS" item renders as an <a> with target="_blank".
     assert 'target="_blank"' in text, (
-        "ODD-NTP-004: 'View on WoRMS' must render as <a target=\"_blank\">."
+        "ODD-PHASE2: 'View on WoRMS' must render as <a target=\"_blank\">."
     )
-    # Deferred actions render with `disabled` + `aria-disabled="true"`.
-    assert "aria-disabled" in text, (
-        "ODD-NTP-004: deferred kebab items must carry aria-disabled."
+    # ODD-PHASE2: 'View details' kebab item is GONE (it was a duplicate
+    # affordance of the disclosure button's `onSelect(taxon.id)` click).
+    # The kebab must NOT expose a kebab-item with `data-action="open-searches"`
+    # or the literal 'View details' label.
+    kebab_search_match = re.search(
+        r'<button\b[^>]*className\s*=\s*"\s*kebab-item\s*"[^>]*data-action\s*=\s*"\s*open-searches\s*"',
+        text,
+    )
+    assert kebab_search_match is None, (
+        "ODD-PHASE2: kebab menu MUST NOT carry the `data-action=\"open-searches\"` "
+        "item (duplicate affordance of the disclosure row click)."
+    )
+    # Neither remaining kebab item is deferred (both wire through real
+    # handlers / outbound URLs), so `aria-disabled="true"` disappears
+    # entirely. The kebab items MUST NOT carry `aria-disabled`.
+    assert "aria-disabled" not in text, (
+        "ODD-PHASE2: kebab items MUST NOT carry `aria-disabled` (both "
+        "items are enabled; deferred state is no longer used)."
     )
 
 
@@ -1158,28 +1308,26 @@ def test_out_index_html_has_kebab_styles(static_export) -> None:
 
 
 def test_out_index_html_has_row_affordance_styles(static_export) -> None:
-    """ODD-NTP-004: the static export's CSS must define every
-    per-row affordance rule introduced in ODD-NTP-004
-    (status-dot, source-info, materialize-indicator,
-    species-count-badge, scientific-name-depth-0,
-    scientific-name-depth-n, realm-tint cascade)."""
+    """ODD-PHASE2: the per-row affordance cascade shrinks after the
+    rewrite. The `.status-dot*`, `.source-info`, `.materialize-indicator`,
+    and `.species-count-badge` rules are gone (the row collapses to 5
+    visible elements; the new status+count Badge + the kebab IconButton
+    centralize what they used to do). The `scientific-name-depth-0 /
+    -n` rules + the realm-tint cascade stay (they describe the
+    scientific-name typography / hue, not the dropped glyphs)."""
     css_chunks = sorted((REPO_ROOT / "out" / "_next" / "static" / "chunks").glob("*.css"))
     css_body = "\n".join(
         c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks
     )
+    # The depth-sensitive scientific-name rules + the realm-tint cascade
+    # STAY (they describe typography + hue, not the dropped glyphs).
     for selector in (
-        ".status-dot",
-        ".status-dot-accepted",
-        ".status-dot-synonym",
-        ".status-dot-unknown",
-        ".source-info",
-        ".materialize-indicator",
-        ".species-count-badge",
         ".scientific-name-depth-0",
         ".scientific-name-depth-n",
     ):
         assert selector in css_body, (
-            f"ODD-NTP-004: static CSS must define the {selector} rule."
+            f"ODD-PHASE2: static CSS must define the {selector} rule "
+            "(depth-sensitive scientific-name typography)."
         )
     # Realm-tint cascade (mirrors `web/index.html::.tree-row[data-realm="X"]
     # .scientific-name`). Seven canonical realms (the source form
@@ -1189,7 +1337,24 @@ def test_out_index_html_has_row_affordance_styles(static_export) -> None:
     for realm in ("bacteria", "archaea", "viruses", "animalia",
                   "fungi", "plantae", "chromista"):
         assert f'data-realm={realm}' in css_body, (
-            f"ODD-NTP-004: static CSS must define the realm tint for {realm!r}."
+            f"ODD-PHASE2: static CSS must define the realm tint for {realm!r}."
+        )
+    # ODD-PHASE2: the dropped per-row affordance CSS rules must NOT
+    # survive in the static export (the worker removed them from
+    # globals.css after confirming zero references remain in src/).
+    for removed_selector in (
+        ".status-dot",
+        ".status-dot-accepted",
+        ".status-dot-synonym",
+        ".status-dot-unknown",
+        ".source-info",
+        ".materialize-indicator",
+        ".species-count-badge",
+        ".tree-search-icon",
+    ):
+        assert removed_selector not in css_body, (
+            f"ODD-PHASE2: static CSS must NOT carry the dead {removed_selector} "
+            "rule (removed in the ODD-TRE-003 globals.css cleanup)."
         )
 
 
@@ -1895,58 +2060,6 @@ def test_tree_row_passes_on_select_focused_selected_to_props() -> None:
     )
 
 
-def test_tree_row_view_details_kebab_is_enabled() -> None:
-    """ODD-TDDISC-001 (formerly ODD-NTP-005): the kebab 'View details'
-    item (RENAMED from 'Search online' for discoverability — the
-    data-action="open-searches" contract stays) is ENABLED. The
-    navigation slice genuinely backs it: the item routes through
-    `onKebabAction(id, 'open-searches')`, which the parent maps to
-    `handleSelect(id)` (mirrors the legacy `web/nav.js::
-    open-searches` handler). The kebab closes on dispatch so the
-    click-outside / Escape dismissal stays consistent."""
-    text = _read_text(TAXONOMY_TREE_ROW_FILE)
-    # The "open-searches" data-action must NOT carry the ODD-NTP-004
-    # deferral pair (`disabled` + `aria-disabled="true"`); with
-    # ODD-NTP-005 the navigation slice backs the action and the
-    # React handler routes through `onSelect`. ODD-TDDISC-001
-    # renamed the visible label only — the action contract stays.
-    # The kebab item is uniquely identified by `className="kebab-item"`
-    # (no other JSX attribute on the row carries that class), so we
-    # anchor the regex on the kebab-item class to avoid false
-    # positives from docstring + comment blocks that mention
-    # `data-action="open-searches"` literally.
-    match = re.search(
-        r'<button\b[^>]*className\s*=\s*"\s*kebab-item\s*"[\s\S]*?</button>',
-        text,
-    )
-    assert match, (
-        "ODD-TDDISC-001: TreeRow.tsx must render the kebab-item button "
-        "(className=\"kebab-item\") with the open-searches action."
-    )
-    body = match.group(0)
-    assert 'data-action="open-searches"' in body, (
-        "ODD-TDDISC-001: kebab item MUST keep data-action=\"open-searches\" "
-        "(parent maps to handleSelect — action contract is preserved)."
-    )
-    assert "disabled" not in body, (
-        "ODD-TDDISC-001: 'View details' kebab item must NOT be disabled; "
-        "the navigation slice genuinely backs it."
-    )
-    assert 'aria-disabled="true"' not in body, (
-        "ODD-TDDISC-001: 'View details' kebab item must NOT carry "
-        "aria-disabled=\"true\"; the navigation slice genuinely backs it."
-    )
-    # The item handler routes through `onKebabAction(taxon.id, "open-searches")`,
-    # which the parent maps to `handleSelect(id)`.
-    assert re.search(
-        r'onKebabAction\([^)]*"open-searches"',
-        body,
-    ), (
-        "ODD-TDDISC-001: 'View details' must call onKebabAction with "
-        "'open-searches' (parent maps to handleSelect)."
-    )
-
-
 def test_tree_row_open_folder_kebab_is_enabled_for_materialized_rows() -> None:
     """ODD-OPENFOLDER-001: the kebab 'Open folder' item is ENABLED
     (rendered ONLY when `hasMaterializedFolder(taxon)` is true) and
@@ -2200,207 +2313,56 @@ def test_out_index_html_has_breadcrumb_and_row_affordance_styles(static_export) 
 #     active-tab memory all keep working byte-for-byte.
 # ---------------------------------------------------------------------------
 
-def test_tree_row_renders_view_details_icon_button() -> None:
-    """ODD-TDDISC-001: every row renders a compact `visibility` icon
-    button with `data-action="open-details"` that selects the taxon
-    without toggling expansion. The button uses the existing
-    `.tree-search-icon` class (whitelisted under
-    TAXONOMY_OWNED_BY_3C_B) so no new top-level CSS selector is
-    introduced."""
+def test_tree_row_disclosure_button_invokes_on_select() -> None:
+    """ODD-PHASE2: clicking the row's disclosure button invokes the
+    existing `onSelect(taxon.id)` primitive. ODD-TDDISC-001 originally
+    wired this through a row-level `visibility` icon button; the
+    ODD-PHASE2 rewrite drops the row-level visibility button and the
+    kebab 'View details' item (both were duplicate affordances), so
+    the disclosure button is the single, more-discoverable row-click
+    target. The button MUST call `onSelect(taxon.id)` for leaves
+    (the `knownLeaf` branch of the JSX) and `onToggle(taxon.id)` for
+    expandable rows \u2014 mirroring the legacy `web/nav.js::
+    selectTaxon(id)` / `toggleExpand(id)` primitives byte-for-byte."""
     text = _read_text(TAXONOMY_TREE_ROW_FILE)
-    # The new button MUST exist with the canonical `data-action`
-    # attribute that the row-level affordance contract pins.
-    match = re.search(
-        r'<button\b[^>]*data-action\s*=\s*["\']open-details["\'][\s\S]*?</button>',
+    # The disclosure button is uniquely identified by its shape: a
+    # `<button>` carrying `aria-expanded` (per
+    # `test_tree_row_uses_semantic_disclosure_button`'s contract) and
+    # `aria-label` that names the taxon + leaf/expand affordance.
+    # We anchor the regex on the canonical aria-label template prefix
+    # (`{`Select ${rankLabel` for leaves, `{`${expanded ? "Collapse"
+    # : "Expand"}` for expandable rows).
+    disclosure_match = re.search(
+        r'<button\b[^>]*aria-expanded[\s\S]*?</button>',
         text,
     )
-    assert match, (
-        "ODD-TDDISC-001: TreeRow.tsx must render a row-level <button "
-        "data-action=\"open-details\"> with the visibility icon."
+    assert disclosure_match, (
+        "ODD-PHASE2: TreeRow.tsx must render the disclosure button "
+        "with `aria-expanded`."
     )
-    body = match.group(0)
-    # The icon MUST be Material Symbols' `visibility` glyph (per the
-    # task plan: "compact Material Symbols `visibility` icon").
-    assert "visibility" in body, (
-        "ODD-TDDISC-001: row-level button must render the `visibility` "
-        "Material Symbols glyph."
-    )
-    # The class hook MUST be the whitelisted `.tree-search-icon`
-    # selector so the existing CSS in `src/app/globals.css` paints
-    # the affordance without a new whitelist entry.
-    assert "tree-search-icon" in body, (
-        "ODD-TDDISC-001: row-level button must use the `.tree-search-icon` "
-        "class (already whitelisted in TAXONOMY_OWNED_BY_3C_B)."
-    )
-    # The button MUST carry an explicit `aria-label` so screen
-    # readers announce the action (the icon alone is meaningless
-    # without an accessible name). The value is a JSX template
-    # literal of the form ``aria-label={`View details for ${taxon.name}`}``
-    # so the regex matches the `aria-label={` prefix and scans
-    # forward for the `View details` substring inside the literal.
+    body = disclosure_match.group(0)
+    # The leaf-click branch MUST call `onSelect(taxon.id)` (selection
+    # is orthogonal to expansion \u2014 leaves have no children to toggle).
+    # The legacy oracle's `web/nav.js::selectTaxon(id)` primitive is
+    # preserved byte-for-byte by the React `onSelect` callback.
     assert re.search(
-        r"aria-label\s*=\s*\{`[^`]*[Vv]iew\s+details[^`]*`\}",
+        r"onSelect\s*\(\s*taxon\.id\s*\)",
         body,
     ), (
-        "ODD-TDDISC-001: row-level button must declare an explicit "
-        "aria-label that mentions 'View details'."
+        "ODD-PHASE2: disclosure button MUST call `onSelect(taxon.id)` "
+        "for leaves (selection primitive remains the single source of "
+        "taxon-selection \u2014 mirrors `web/nav.js::selectTaxon(id)`)."
     )
-    # The button MUST carry an explicit `title` so mouse-hover
-    # surfaces a tooltip (mirrors the kebab item convention). The
-    # value is a plain string literal (no per-row interpolation)
-    # so a simple regex suffices.
+    # The expandable-row branch MUST call `onToggle(taxon.id)` (NOT
+    # `onSelect`). Selection is orthogonal to expansion; the
+    # disclosure button toggles expansion on expandable rows and
+    # selects on leaves. Mirrors `web/nav.js::toggleExpand(id)`.
     assert re.search(
-        r"title\s*=\s*[\"\'][^\"\']*[Vv]iew\s+details[^\"\']*[\"\']",
+        r"onToggle\s*\(\s*taxon\.id\s*\)",
         body,
     ), (
-        "ODD-TDDISC-001: row-level button must declare an explicit "
-        "title that mentions 'View details'."
-    )
-    # The button MUST NOT be disabled — the action is fully wired.
-    assert "disabled" not in body, (
-        "ODD-TDDISC-001: row-level button must NOT be disabled; "
-        "the navigation slice genuinely backs the action."
-    )
-
-
-def test_tree_row_view_details_button_invokes_on_select() -> None:
-    """ODD-TDDISC-001: clicking the row-level visibility button
-    invokes the existing `onSelect(taxon.id)` primitive — the same
-    primitive the kebab "View details" item routes through (the
-    parent maps `open-searches` to `handleSelect`, and the row-level
-    button calls `onSelect` directly). The click MUST NOT toggle
-    expansion — selection is orthogonal to expansion, mirroring the
-    legacy `web/nav.js::selectTaxon` predicate."""
-    text = _read_text(TAXONOMY_TREE_ROW_FILE)
-    # Anchor the regex on the unique `className="tree-search-icon`
-    # class so the row-level button is unambiguous (no other JSX
-    # block carries that class, and the docstring + inline
-    # comments don't repeat the literal pattern in a way that
-    # would confuse the regex).
-    match = re.search(
-        r'<button\b[^>]*tree-search-icon[^>]*data-action\s*=\s*["\']open-details["\'][\s\S]*?</button>',
-        text,
-    )
-    assert match, "TreeRow.tsx must render the open-details row-level button."
-    body = match.group(0)
-    assert re.search(
-        r'onSelect\s*\(\s*taxon\.id\s*\)',
-        body,
-    ), (
-        "ODD-TDDISC-001: row-level button onClick must call "
-        "onSelect(taxon.id) — the existing selection primitive."
-    )
-    # The click MUST NOT call onToggle (selection is orthogonal to
-    # expansion; toggling would break the legacy oracle).
-    assert "onToggle" not in body, (
-        "ODD-TDDISC-001: row-level button MUST NOT call onToggle; "
-        "selection is orthogonal to expansion."
-    )
-
-
-def test_tree_row_kebab_search_online_renamed_to_view_details() -> None:
-    """ODD-TDDISC-001: the kebab menu's selection item is RENAMED
-    from "Search online" to "View details" (label only — the
-    data-action="open-searches" contract stays so the parent keeps
-    routing through `handleKebabAction(id, "open-searches")`). The
-    kebab item icon switches from `search` to `visibility` so the
-    icon-led affordance stays consistent with the new row-level
-    button."""
-    text = _read_text(TAXONOMY_TREE_ROW_FILE)
-    # The kebab item is uniquely identified by `className="kebab-item"`
-    # (no other JSX attribute on the row carries that class), so we
-    # anchor the regex on the kebab-item class to avoid false
-    # positives from docstring + comment blocks that mention
-    # `data-action="open-searches"` literally.
-    match = re.search(
-        r'<button\b[^>]*className\s*=\s*"\s*kebab-item\s*"[\s\S]*?</button>',
-        text,
-    )
-    assert match, (
-        "ODD-TDDISC-001: TreeRow.tsx must render the kebab-item button "
-        "with the open-searches action."
-    )
-    body = match.group(0)
-    # The visible label MUST be "View details" (not "Search online").
-    assert ">View details<" in body, (
-        "ODD-TDDISC-001: kebab item label MUST be 'View details' "
-        "(renamed from 'Search online' for discoverability)."
-    )
-    # The legacy "Search online" label MUST be gone from the JSX.
-    assert ">Search online<" not in body, (
-        "ODD-TDDISC-001: kebab menu JSX MUST NOT carry the legacy "
-        "'Search online' label."
-    )
-    # The kebab item icon MUST switch from `search` to `visibility`
-    # so the icon-led affordance is consistent with the new
-    # row-level button. The glyph sits inside a Material Symbols
-    # `<span>` with surrounding whitespace, so we use a regex
-    # that tolerates the leading whitespace + trailing closing
-    # tag (e.g. `\n                visibility\n              </span>`).
-    assert re.search(r">\s*visibility\s*<", body), (
-        "ODD-TDDISC-001: kebab item icon MUST be `visibility` "
-        "(was `search` in ODD-NTP-005)."
-    )
-    assert not re.search(r">\s*search\s*<", body), (
-        "ODD-TDDISC-001: kebab item icon MUST NOT be the legacy "
-        "`search` glyph."
-    )
-    # The data-action MUST stay "open-searches" (the parent mapping
-    # is the contract we promised NOT to change).
-    assert 'data-action="open-searches"' in body, (
-        "ODD-TDDISC-001: kebab item MUST keep data-action=\"open-searches\" "
-        "(parent maps to handleSelect — action contract is preserved)."
-    )
-    # The handler MUST still route through onKebabAction with
-    # "open-searches" so the parent's mapping keeps working
-    # byte-for-byte.
-    assert re.search(
-        r'onKebabAction\([^)]*"open-searches"',
-        body,
-    ), (
-        "ODD-TDDISC-001: kebab item must keep calling "
-        "onKebabAction(id, \"open-searches\") — parent maps to "
-        "handleSelect."
-    )
-
-
-def test_tree_row_view_details_button_uses_existing_css_class() -> None:
-    """ODD-TDDISC-001: the row-level button uses the existing
-    `.tree-search-icon` class which is already whitelisted under
-    TAXONOMY_OWNED_BY_3C_B in `tests/test_research_styles.py`. This
-    keeps the chain-topology guard green without introducing a new
-    top-level CSS rule."""
-    text = _read_text(TAXONOMY_TREE_ROW_FILE)
-    # Anchor the regex on the unique `className="tree-search-icon`
-    # so the row-level button is unambiguous (the docstring
-    # mentions `data-action="open-details"` literally and would
-    # otherwise confuse the regex).
-    match = re.search(
-        r'<button\b[^>]*tree-search-icon[^>]*data-action\s*=\s*["\']open-details["\'][\s\S]*?</button>',
-        text,
-    )
-    assert match, "TreeRow.tsx must render the open-details row-level button."
-    body = match.group(0)
-    assert "tree-search-icon" in body, (
-        "ODD-TDDISC-001: row-level button must use the `.tree-search-icon` "
-        "class hook so the chain-topology guard keeps whitelisting it."
-    )
-
-
-def test_out_index_html_has_view_details_button_styles(static_export) -> None:
-    """ODD-TDDISC-001: the static export's CSS must define the
-    `.tree-search-icon` rule so the row-level visibility button
-    renders identically to the legacy oracle. The class is already
-    whitelisted (TAXONOMY_OWNED_BY_3C_B) and the rule was shipped
-    by PR 3c-b — this witness confirms the rule survives the
-    static build pipeline."""
-    css_chunks = sorted((REPO_ROOT / "out" / "_next" / "static" / "chunks").glob("*.css"))
-    css_body = "\n".join(
-        c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks
-    )
-    assert ".tree-search-icon" in css_body, (
-        "ODD-TDDISC-001: static CSS must define the .tree-search-icon "
-        "rule (the row-level visibility button relies on it)."
+        "ODD-PHASE2: disclosure button MUST call `onToggle(taxon.id)` "
+        "for expandable rows (toggling expansion, NOT selecting)."
     )
 
 
@@ -6094,4 +6056,313 @@ def test_out_index_html_has_legacy_dom_markers(static_export) -> None:
         "out/index.html must carry `<script src=\"/app.js\">` "
         "OR `<link rel=\"preload\" href=\"/app.js\">` "
         "(ODD-MIGRATE-007-DOM-006 marker #6 — runtime witness)."
+    )
+
+
+# ---------------------------------------------------------------------------
+# ODD-PHASE2 — design-system cutover coverage (Badge + IconButton + density
+# collapse). Eight source-level witnesses pin the migration contract:
+#
+#   1. The rank badge is rendered through the `<Badge>` primitive
+#      (not the legacy inline `<span className="rank-badge ...">`).
+#   2. The kebab trigger is rendered through the `<IconButton>`
+#      primitive (not the legacy manual `<button className=
+#      "kebab-trigger ...">`).
+#   3. The row collapses from 9 visible elements to ≤5 visible
+#      elements per row (5 in the common case; 6 only when the
+#      kebab menu is open and the materialize `Open folder` item
+#      is rendered).
+#   4. The OLD `.rank-badge` inline class hook is gone.
+#   5. The OLD `.status-dot-*` class hooks are gone (status is
+#      inline via Tailwind utilities).
+#   6. The OLD `.tree-search-icon` Material Symbols `visibility`
+#      row-level button is gone.
+#   7. The OLD `.materialize-indicator` row-level glyph is gone.
+#   8. The OLD `.source-info` row-level glyph is gone.
+# ---------------------------------------------------------------------------
+
+
+def test_tree_row_uses_badge_primitive_for_rank() -> None:
+    """ODD-PHASE2: the row rank uses the `<Badge>` design-system
+    primitive (imported from `@taxa/design-system`) instead of the
+    legacy inline `<span className="rank-badge ...">` span. The
+    `subtle` variant + `uppercase={true}` flag carry the rank-badge
+    look (tracked Raleway + 11px + uppercase + px-2 py-0.5 + the
+    `bg-surface text-on-surface-variant border
+    border-outline-variant` palette)."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    # The new Badge import must come from the public barrel.
+    assert re.search(
+        r'import\s*\{[^}]*\bBadge\b[^}]*\}\s*from\s*["\']@taxa/design-system["\']',
+        text,
+    ), (
+        "ODD-PHASE2: TreeRow.tsx must import `Badge` from "
+        "`@taxa/design-system` (the public barrel — not a deep import)."
+    )
+    # The rank badge must use `<Badge variant="subtle" uppercase={true}>`
+    # per the ODD-PHASE2 spec — surface + outline-variant palette,
+    # uppercase + tracked Raleway. The `variant` may be either a
+    # JSX string literal (`variant="subtle"`) or a JSX expression
+    # (`variant={"subtle"}`); the regex below matches both forms.
+    rank_badge_match = re.search(
+        r'<\s*Badge\b[^>]*\bvariant\s*=\s*(?:["\']subtle["\']|\{["\']subtle["\']\})'
+        r'[^>]*\buppercase\s*=\s*\{\s*true\s*\}',
+        text,
+    )
+    assert rank_badge_match, (
+        "ODD-PHASE2: TreeRow.tsx must render the rank via "
+        "`<Badge variant=\"subtle\" uppercase={true}>` "
+        "(matches the Phase 2 spec — accepts either JSX string "
+        "literal or JSX expression form)."
+    )
+    # The rank label MUST live inside the Badge (rendered as the
+    # component's children). We assert on the source-level presence of
+    # `rankLabel(taxon.rank)` rather than the regex body itself so the
+    # test reads independently of how the Badge children are formatted.
+    assert "rankLabel(taxon.rank)" in text, (
+        "ODD-PHASE2: TreeRow.tsx must thread `rankLabel(taxon.rank)` "
+        "into the rank Badge as its children."
+    )
+
+
+def test_tree_row_uses_iconbutton_primitive_for_kebab() -> None:
+    """ODD-PHASE2: the row kebab trigger uses the `<IconButton>`
+    design-system primitive (imported from `@taxa/design-system`)
+    instead of the legacy manual `<button className="kebab-trigger
+    material-symbols-outlined ...">` button. The `subtle` variant
+    keeps the new-icon-button affordance (`hover:bg-surface-container-low`)
+    consistent with the row chrome; the `aria-label` carries the
+    canonical "More actions for {taxon.name}" template."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    assert re.search(
+        r'import\s*\{[^}]*\bIconButton\b[^}]*\}\s*from\s*["\']@taxa/design-system["\']',
+        text,
+    ), (
+        "ODD-PHASE2: TreeRow.tsx must import `IconButton` from "
+        "`@taxa/design-system` (the public barrel)."
+    )
+    assert re.search(
+        r'<\s*IconButton\b[^>]*\bvariant\s*=\s*(?:["\']subtle["\']|\{["\']subtle["\']\})',
+        text,
+    ), (
+        "ODD-PHASE2: TreeRow.tsx must render the kebab trigger via "
+        "`<IconButton variant=\"subtle\">` (accepts either JSX string "
+        "literal or JSX expression form)."
+    )
+    # The IconButton MUST carry `data-action="toggle-kebab"` +
+    # `aria-haspopup="menu"` + `aria-expanded` so the existing
+    # kebab-state contract (kebabOpenId owned by TaxonomyTree)
+    # works byte-for-byte against the new primitive.
+    kebab_match = re.search(
+        r'<\s*IconButton\b[^>]*\bdata-action\s*=\s*["\']toggle-kebab["\'][^>]*>',
+        text,
+    )
+    assert kebab_match, (
+        "ODD-PHASE2: TreeRow.tsx IconButton kebab trigger MUST stamp "
+        "`data-action=\"toggle-kebab\"` (matches the kebab-state "
+        "contract owned by TaxonomyTree)."
+    )
+    body = kebab_match.group(0)
+    assert 'aria-haspopup="menu"' in body, (
+        "ODD-PHASE2: IconButton kebab trigger MUST declare "
+        "`aria-haspopup=\"menu\"` (a11y hook for the row-level menu)."
+    )
+    assert "aria-expanded" in body, (
+        "ODD-PHASE2: IconButton kebab trigger MUST declare "
+        "`aria-expanded` so the menu state is observable to "
+        "assistive tech."
+    )
+
+
+def test_tree_row_collapsed_density_count() -> None:
+    """ODD-PHASE2: every row renders at most 5 top-level child
+    elements in the meta block, plus the disclosure button + name
+    span inside the disclosure. The total per-row count of VISIBLE
+    elements in the JSX subtree drops from 9 to 5:
+
+       old: disclosure | rank-badge | name | materialize |
+            source-info | status-dot | species-count-badge |
+            visibility-icon | kebab-trigger (= 9 visible)
+
+       new: disclosure | <Badge rank> + name (inside the disclosure
+            button, count as 2 logical elements) | <Badge
+            status+count> | <IconButton kebab> (= 4 visible elements
+            at the meta-block level; 5 if we count the disclosure
+            wrapper itself).
+
+    The test counts the OCCURRENCES of the legacy class hooks
+    (`rank-badge`, `status-dot-*`, `species-count-badge`,
+    `materialize-indicator`, `source-info`, `tree-search-icon`)
+    that survive in the JSX as `className=` / class hooks. After
+    the rewrite every one of these MUST register zero hits so the
+    legacy 9-element composition is provably absent."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    # Total hit count of legacy class hooks in the JSX as
+    # `className=` entries = 0 for each pattern.
+    for name, regex in (
+        ("rank-badge",       r'className\s*=\s*["\'][^"\']*\brank-badge\b'),
+        ("status-dot",       r'className\s*=\s*["\'][^"\']*\bstatus-dot'),
+        ("species-count",    r'className\s*=\s*["\'][^"\']*\bspecies-count-badge'),
+        ("materialize",      r'className\s*=\s*["\'][^"\']*\bmaterialize-indicator\b'),
+        ("source-info",      r'className\s*=\s*["\'][^"\']*\bsource-info\b'),
+        ("tree-search-icon", r'className\s*=\s*["\'][^"\']*\btree-search-icon\b'),
+    ):
+        hit = re.search(regex, text)
+        assert hit is None, (
+            f"ODD-PHASE2: legacy row-affordance pattern `{name}` "
+            f"still appears as a `className=` hook in TreeRow.tsx; "
+            f"the 9-element row density has not fully collapsed."
+        )
+    # The new primitives MUST be present:
+    #   - `<Badge variant="subtle" uppercase>` for the rank
+    #   - `<Badge variant="subtle" uppercase={false}>` for status+count
+    #   - `<IconButton variant="subtle">` for the kebab trigger
+    assert re.search(
+        r'<\s*Badge\b[^>]*\buppercase\s*=\s*\{\s*true\s*\}',
+        text,
+    ), "ODD-PHASE2: rank Badge primitive must be present."
+    assert re.search(
+        r'<\s*Badge\b[^>]*\buppercase\s*=\s*\{\s*false\s*\}',
+        text,
+    ), "ODD-PHASE2: status+count Badge composite must be present."
+    assert re.search(
+        r'<\s*IconButton\b[^>]*\bvariant\s*=\s*(?:["\']subtle["\']|\{["\']subtle["\']\})',
+        text,
+    ), "ODD-PHASE2: IconButton kebab trigger must be present."
+
+
+def test_tree_row_no_inline_rank_badge_span() -> None:
+    """ODD-PHASE2: the legacy `<span className="rank-badge ...
+    tracking-[0.1em] px-2 py-0.5 rounded ...">` inline span is
+    gone — replaced by `<Badge variant="subtle" uppercase>`. The
+    className-anchored regex avoids false positives from the
+    file's docstring which mentions `rank-badge` literally as a
+    legacy reference."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    assert not re.search(
+        r'className\s*=\s*["\'][^"\']*\brank-badge\b',
+        text,
+    ), (
+        "ODD-PHASE2: TreeRow.tsx must NOT render the legacy inline "
+        "`.rank-badge` span (replaced by the `<Badge variant=\"subtle\" "
+        "uppercase>` primitive)."
+    )
+    assert not re.search(
+        r'<\s*span\b[^>]*\buppercase\b[^>]*\btracking-\[0\.1em\]',
+        text,
+    ), (
+        "ODD-PHASE2: TreeRow.tsx must NOT render the legacy tracked-"
+        "Raleway rank-badge span (the Badge primitive centralizes the "
+        "uppercase + tracking-[0.1em] + 11px + px-2 py-0.5 pattern)."
+    )
+
+
+def test_tree_row_no_inline_status_dot_class() -> None:
+    """ODD-PHASE2: the legacy `.status-dot`, `.status-dot-accepted`,
+    `.status-dot-synonym`, `.status-dot-unknown` class hooks are
+    gone from the JSX. The status indicator is now an inline
+    `<span>` carrying the canonical Tailwind colour utility
+    (`bg-green-500` / `bg-amber-500` / `bg-on-surface-variant`).
+    The className-anchored regex avoids false positives from
+    docstring references which mention `status-dot-*` literally."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    for needle in (
+        r'className\s*=\s*["\'][^"\']*\bstatus-dot\b',
+        r'className\s*=\s*["\'][^"\']*\bstatus-dot-accepted\b',
+        r'className\s*=\s*["\'][^"\']*\bstatus-dot-synonym\b',
+        r'className\s*=\s*["\'][^"\']*\bstatus-dot-unknown\b',
+        r'\bdata-status-dot\s*=',
+    ):
+        assert not re.search(needle, text), (
+            "ODD-PHASE2: TreeRow.tsx must NOT carry the legacy "
+            "`.status-dot*` class hooks or `data-status-dot` "
+            "attribute (status is inline via Tailwind utilities)."
+        )
+
+
+def test_tree_row_no_inline_tree_search_icon() -> None:
+    """ODD-PHASE2: the legacy `<button className="tree-search-icon
+    material-symbols-outlined ...">visibility</button>` row-level
+    button is gone. The IconButton primitive replaces the kebab
+    trigger + the deleted visibility icon button (the visibility
+    button's affordance was a duplicate of the row click's
+    `onSelect(taxon.id)` primitive). The className-anchored regex
+    catches any leftover `tree-search-icon` literal reference."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    assert not re.search(
+        r'className\s*=\s*["\'][^"\']*\btree-search-icon\b',
+        text,
+    ), (
+        "ODD-PHASE2: TreeRow.tsx must NOT render the legacy "
+        "`.tree-search-icon` row-level Material Symbols `visibility` "
+        "button (the IconButton primitive centralizes the row "
+        "icon affordances)."
+    )
+    # The literal `visibility` glyph that was inside the row-level
+    # visibility button MUST NOT appear in a row-level button
+    # context anymore — the kebab IconButton renders `more_vert`
+    # exclusively on the row surface. We anchor on the legacy row
+    # button shape (`<button className="...tree-search-icon...">`)
+    # to avoid false positives from the legacy `web/index.html` doc
+    # block references.
+    assert not re.search(
+        r'<\s*button\b[^>]*\btree-search-icon\b[^>]*>\s*[Vv]isibility',
+        text,
+    ), (
+        "ODD-PHASE2: TreeRow.tsx must NOT render the legacy row-level "
+        "Material Symbols `visibility` button under "
+        "`.tree-search-icon`."
+    )
+
+
+def test_tree_row_no_inline_materialize_indicator_class() -> None:
+    """ODD-PHASE2: the legacy `<span className="materialize-
+    indicator material-symbols-outlined ...">folder</span>` row-
+    level glyph is gone — the materialize indicator now lives
+    inside the kebab menu (the conditional `Open folder` item).
+    The className-anchored regex avoids false positives from
+    docstring references which mention `.materialize-indicator`
+    literally as a legacy reference."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    assert not re.search(
+        r'className\s*=\s*["\'][^"\']*\bmaterialize-indicator\b',
+        text,
+    ), (
+        "ODD-PHASE2: TreeRow.tsx must NOT render the legacy inline "
+        "`.materialize-indicator` glyph (the kebab menu carries the "
+        "conditional `Open folder` item in its place)."
+    )
+    assert not re.search(
+        r'\bdata-materialize-indicator\s*=',
+        text,
+    ), (
+        "ODD-PHASE2: TreeRow.tsx must NOT stamp "
+        "`data-materialize-indicator` (the kebab menu replaces the "
+        "row-level glyph)."
+    )
+
+
+def test_tree_row_no_inline_source_info_class() -> None:
+    """ODD-PHASE2: the legacy `<span className="source-info
+    material-symbols-outlined ...">info</span>` row-level glyph is
+    gone — the source info tooltip now lives on the name span's
+    `title` attribute. The className-anchored regex avoids false
+    positives from docstring references which mention `source-info`
+    literally as a legacy reference."""
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    assert not re.search(
+        r'className\s*=\s*["\'][^"\']*\bsource-info\b',
+        text,
+    ), (
+        "ODD-PHASE2: TreeRow.tsx must NOT render the legacy inline "
+        "`.source-info` glyph (the source info tooltip collapses "
+        "into the name span's `title` attribute)."
+    )
+    assert not re.search(
+        r'\bdata-source-info\s*=',
+        text,
+    ), (
+        "ODD-PHASE2: TreeRow.tsx must NOT stamp "
+        "`data-source-info` (the source info tooltip collapses "
+        "into the name span's `title` attribute)."
     )
