@@ -38,12 +38,38 @@
  *     `walkBreadcrumbForSource` so the chain never crosses source
  *     boundaries (CoL ↔ WoRMS ↔ Freshwater).
  *
+ * ODD-PHASE2 — design-system cutover (post-PR #386):
+ *   The inline rank badge spans in the header collapse into
+ *   `<Badge variant="primary | subtle | warning">` primitives; the
+ *   inline close button (formerly styled with the detail-close
+ *   hook) collapses into
+ *   `<IconButton variant="subtle" aria-label="Hide details">`;
+ *   the inline div with the detail-card hook collapses into
+ *   `<Card variant="default">`; the inline
+ *   description-list label + value typography collapses into
+ *   `<Text variant="caption | body">` primitives. The dead CSS
+ *   rules (the detail-card wrapper rule, the three Overview-tab
+ *   label / rank / value rules) collapse out of `globals.css`;
+ *   the surviving rules (`.detail-panel`, `.detail-header`,
+ *   `.detail-header-title`, `.detail-section`, `.tab-strip`,
+ *   `.tab-button`, `.tab-button.active`, the `.detail-panel
+ *   [data-realm="X"] .scientific-name` realm tint cascade) stay
+ *   because they are still referenced.
+ *
+ *   The `.rank-badge` standalone rule + the `.authorship`
+ *   standalone rule stay too — the former is still consumed by the
+ *   `TaxonomyTree.tsx` search-dropdown rank chip, the latter is
+ *   still consumed by `SynonymTab.tsx` synonym-item rows. They
+ *   stay in the `TAXONOMY_OWNED_BY_3C_B` whitelist the
+ *   chain-topology guard pins.
+ *
  * spec.md rule 4: presentation → taxonomy domain. Imports stay inside
  * the presentation layer to avoid the barrel cycle (the barrel
  * re-exports `TaxonomyTree`, which mounts this component).
  */
 import { Fragment } from "react";
 import type { ReactNode } from "react";
+import { Badge, Card, IconButton, Text } from "@taxa/design-system";
 import type { Taxon } from "../domain/taxon";
 import {
   rankLabel,
@@ -295,32 +321,37 @@ export default function DetailPanel({
       data-extinct={taxon.is_extinct ? "true" : undefined}
       aria-label={`Selected taxon: ${taxon.name}`}
     >
-      <div className={`detail-card flex flex-col ${extinctCls}`.trim()}>
+      <Card
+        variant="default"
+        className={`flex flex-col overflow-hidden h-auto max-h-[calc(90vh-2px)] rounded-2xl ${extinctCls}`.trim()}
+      >
         <div className="detail-header">
           <div className="flex-1 min-w-0">
             <div className="detail-header-badges flex items-center gap-3 mb-1 flex-wrap">
-              <span className="rank-badge uppercase tracking-[0.1em] px-2 py-0.5 rounded text-primary bg-primary/10">
+              <Badge variant="primary" uppercase={true}>
                 {rankLabel(taxon.rank)}
-              </span>
-              <span className="rank-badge text-on-surface-variant bg-surface-container-highest uppercase tracking-[0.1em] px-2 py-0.5 rounded">
+              </Badge>
+              <Badge variant="subtle" uppercase={true}>
                 {taxon.status ?? "unknown"}
-              </span>
+              </Badge>
               {taxon.is_extinct ? (
-                <span
-                  className="rank-badge text-red-700 bg-red-50 uppercase tracking-[0.1em] px-2 py-0.5 rounded"
+                <Badge
+                  variant="warning"
+                  uppercase={true}
                   data-detail-extinct=""
                 >
                   † Extinct
-                </span>
+                </Badge>
               ) : null}
               {activeSource === "col" && taxon.coldp_id && !taxon.worms_id ? (
-                <span
-                  className="rank-badge uppercase tracking-[0.1em] px-2 py-0.5 rounded text-on-surface-variant bg-surface-container-highest"
+                <Badge
+                  variant="subtle"
+                  uppercase={true}
                   title={`CoL-only — ColDP ID ${taxon.coldp_id} (no WoRMS match).`}
                   data-detail-source-badge="col-only"
                 >
                   CoL · {taxon.coldp_id}
-                </span>
+                </Badge>
               ) : null}
               {taxon.worms_id && activeSource !== "col" ? (
                 <a
@@ -342,24 +373,27 @@ export default function DetailPanel({
               {taxon.name}
             </h2>
             {taxon.authorship ? (
-              <p
-                className="detail-header-authorship text-body-sm text-on-surface-variant mt-1"
+              <Text
+                variant="body-sm"
+                as="p"
+                className="text-on-surface-variant mt-1"
                 data-detail-authorship=""
               >
                 {taxon.authorship}
-              </p>
+              </Text>
             ) : null}
           </div>
-          <button
-            type="button"
-            className="detail-close material-symbols-outlined text-on-surface-variant hover:text-on-surface p-1 rounded"
-            data-action="close-detail"
-            title="Hide details"
+          <IconButton
+            variant="subtle"
             aria-label="Hide details"
+            title="Hide details"
+            data-action="close-detail"
             onClick={onClose}
           >
-            close
-          </button>
+            <span aria-hidden="true" className="material-symbols-outlined">
+              close
+            </span>
+          </IconButton>
         </div>
         <div
           className="tab-strip"
@@ -447,7 +481,7 @@ export default function DetailPanel({
             })
           )}
         </div>
-      </div>
+      </Card>
     </aside>
   );
 }
@@ -484,25 +518,38 @@ function renderOverview(args: OverviewArgs): ReactNode {
         </span>
         Overview
       </h3>
-      <div className="overview-rank" data-detail-overview-rank="">
-        <span className="rank-badge uppercase tracking-[0.1em] px-2 py-0.5 rounded text-primary bg-primary/10">
-          {rankLabel(taxon.rank)}
-        </span>
-      </div>
+      <Badge
+        variant="primary"
+        uppercase={true}
+        data-detail-overview-rank=""
+      >
+        {rankLabel(taxon.rank)}
+      </Badge>
       <dl className="overview-grid" data-detail-overview-grid="">
         <div className="overview-row" data-detail-overview-row="scientific-name">
-          <dt className="overview-label">Scientific name:</dt>
-          <dd
-            className={`overview-value font-display text-display ${scientificNameClass(taxon.rank)}`}
-            data-detail-overview-field="scientific-name"
-          >
-            {taxon.name}
+          <dt>
+            <Text variant="caption" as="span">
+              Scientific name:
+            </Text>
+          </dt>
+          <dd data-detail-overview-field="scientific-name">
+            <Text
+              variant="body"
+              as="span"
+              className={`font-display text-display ${scientificNameClass(taxon.rank)}`}
+            >
+              {taxon.name}
+            </Text>
           </dd>
         </div>
         <div className="overview-row" data-detail-overview-row="status">
-          <dt className="overview-label">Status:</dt>
+          <dt>
+            <Text variant="caption" as="span">
+              Status:
+            </Text>
+          </dt>
           <dd
-            className="overview-value inline-flex items-center gap-2"
+            className="inline-flex items-center gap-2"
             data-detail-overview-field="status"
           >
             <span
@@ -517,29 +564,39 @@ function renderOverview(args: OverviewArgs): ReactNode {
         </div>
         {taxon.authorship ? (
           <div className="overview-row" data-detail-overview-row="authorship">
-            <dt className="overview-label">Authorship:</dt>
-            <dd
-              className="overview-value text-on-surface-variant"
-              data-detail-overview-field="authorship"
-            >
-              ({taxon.authorship})
+            <dt>
+              <Text variant="caption" as="span">
+                Authorship:
+              </Text>
+            </dt>
+            <dd data-detail-overview-field="authorship">
+              <Text variant="body" as="span" className="text-on-surface-variant">
+                ({taxon.authorship})
+              </Text>
             </dd>
           </div>
         ) : null}
         <div className="overview-row" data-detail-overview-row="species-count">
-          <dt className="overview-label">Species count:</dt>
-          <dd
-            className="overview-value"
-            data-detail-overview-field="species-count"
-          >
-            {countDisplay}
+          <dt>
+            <Text variant="caption" as="span">
+              Species count:
+            </Text>
+          </dt>
+          <dd data-detail-overview-field="species-count">
+            <Text variant="body" as="span">
+              {countDisplay}
+            </Text>
           </dd>
         </div>
         {chainSegments.length > 1 ? (
           <div className="overview-row" data-detail-overview-row="parent-chain">
-            <dt className="overview-label">Parent chain:</dt>
+            <dt>
+              <Text variant="caption" as="span">
+                Parent chain:
+              </Text>
+            </dt>
             <dd
-              className="overview-value overview-chain"
+              className="overview-chain"
               data-detail-overview-field="parent-chain"
             >
               {renderChain(chainSegments, onFocusSegment)}
