@@ -2171,13 +2171,13 @@
     text-transform: uppercase;
     color: var(--on-surface-variant);
   }
-  .search-tab > .search-link-list {
+  .search-tab .search-link-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     gap: 12px;
     padding: 4px 2px;
   }
-  .search-tab > .search-link-list > .search-link {
+  .search-link-list > .search-link {
     display: flex;
     flex-direction: column;
     align-items: center;
