@@ -160,6 +160,14 @@ export type {
 // tree without a deep import. `TreeRow` stays internal to the
 // presentation folder — it is not part of the public barrel.
 export { default as TaxonomyTree } from "./presentation/TaxonomyTree";
+// ODD-ASN-002 — re-export the lifted-state surface so the
+// AppShell orchestrator (and any future route that wants to
+// drive the taxonomy search externally) reaches the typed
+// `searchQuery` + `onSearchQueryChange` prop pair through
+// the public barrel — spec.md rule 5. Deep imports into the
+// presentation folder are blocked by `.eslintrc.cjs::
+// no-restricted-imports`.
+export type { TaxonomyTreeProps } from "./presentation/TaxonomyTree";
 
 // ODD-TDO-001 — native selected-taxon detail panel. Renders the
 // native Overview tab inside the existing React tree client island

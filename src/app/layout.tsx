@@ -78,7 +78,29 @@ export default function RootLayout({
      */}
     <span hidden data-testid="g4-probe-marker" />
     {/*
-     * ODD-MIGRATE-007-DOM-006 — marker #5 (`#version-banner`). The
+     * ODD-ASN-002 — skip-to-main link. The WCAG 2.4.1 bypass-block
+     * contract requires the skip-link to be the FIRST focusable
+     * element on every route. The link renders BEFORE the route
+     * subtree (and before the G4 probe marker, which is `hidden`
+     * and not focusable) so a keyboard / screen-reader user can
+     * jump over the navigation surface immediately.
+     * The link lives in the root layout so every route
+     * inherits the affordance — `src/app/explorer/page.tsx`,
+     * `src/app/help/page.tsx`, `src/app/settings/page.tsx`, and
+     * the future not-found route all inherit the contract
+     * without rewriting the skip-link in every page entry.
+     * The `#main` anchor resolves to the `<main id="main">` host
+     * that AppShell (and any other route's main element) mounts.
+     */}
+    <a
+      href="#main"
+      className="app-shell-skip-link sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-primary focus:px-3 focus:py-2 focus:text-on-primary focus:outline-none"
+      data-app-shell-skip-link=""
+      data-app-shell-skip-link-layout=""
+    >
+      Skip to main content
+    </a>
+    {/* ODD-MIGRATE-007-DOM-006 — marker #5 (`#version-banner`). The
      * banner host renders statically in the SSR markup so the legacy
      * Playwright probe finds `#version-banner` byte-for-byte. The
      * spans start with the literal `?` placeholder (matching the
