@@ -1920,28 +1920,10 @@
     cursor: not-allowed;
   }
 
-  /* Per-row materialize indicator — status marker when the taxon's
-     root→taxon folder is on disk. ODD-NTP-004: pure visual state
-     (the desktop / file endpoints are deferred), so the cursor is
-     `default` instead of `pointer` and there is no click handler.
-     The hover affordance lifts the colour but does not advertise
-     a click target. */
-  .materialize-indicator {
-    margin-left: 4px;
-    padding: 2px;
-    border-radius: 4px;
-    background: transparent;
-    border: 0;
-    cursor: default;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: #15803d;
-  }
-  .materialize-indicator:hover {
-    background: var(--surface-container-low);
-    color: #166534;
-  }
+  /* ODD-PHASE2: the per-row `.materialize-indicator` rule +
+     `:hover` companion were removed (the materialize indicator now
+     lives in the kebab menu's conditional 'Open folder' item; the
+     row-level glyph collapsed in the 9→5 row-density cutover). */
 
   /* Overview tab body — scientific name, accepted status, authorship,
      species count. NEVER hide this tab; user-selected policy binds
@@ -2480,63 +2462,28 @@
     background: var(--surface-container-low);
   }
 
-  /* Per-row source info affordance — small info glyph whose
-     tooltip names the taxon's source identity (CoL-only /
-     WoRMS-only / WoRMS cross-link). ODD-NTP-004: the cursor
-     stays `help` so the user knows the icon is informational;
-     the colour flip on hover mirrors the legacy cascade.
-     Descendant of `.tree-row` for the chain-topology guard. */
-  .tree-row .source-info {
-    cursor: help;
-    transition: color 120ms linear;
-  }
-  .tree-row .source-info:hover {
-    color: var(--primary);
-  }
+  /* ODD-PHASE2: the `.tree-row .source-info` + `:hover` rules were
+     removed (the source info glyph collapsed into the name span's
+     `title` attribute in the 9→5 row-density cutover). */
 
-  /* Per-row species-count badge — formatted via the row-format
-     `speciesCountBadge` helper (5 / 3k / 2.5M thresholds).
-     ODD-NTP-004: JetBrains Mono + neutral surface-container
-     background mirrors the legacy `web/index.html::.font-mono-data`
-     cascade. Descendant of `.tree-row` for the chain-topology
-     guard. */
-  .tree-row .species-count-badge {
-    font-family: "JetBrains Mono", monospace;
-    font-size: 11px;
-    line-height: 1.4;
-    color: var(--on-surface-variant);
-    background-color: var(--surface-container);
-    padding: 4px 8px;
-    border-radius: 4px;
-    white-space: nowrap;
-  }
+  /* ODD-PHASE2: the `.tree-row .species-count-badge` rule was
+     removed (the species count is now inside the status+count
+     `<Badge variant="subtle" uppercase={false}>` composite in
+     TreeRow.tsx — JetBrains Mono + neutral background carry
+     forward via Tailwind utilities on the inner `<span>`). */
 
-  /* Per-row status dot — accepted (green) / synonym (amber) /
-     unknown (outline). ODD-NTP-004: the `.status-dot` base rule
-     paints the shared dot size + layout; the per-state modifier
-     classes (`.status-dot-accepted`, `.status-dot-synonym`,
-     `.status-dot-unknown`) carry the colour. Mirrors the legacy
-     `web/index.html` cascade (8px circles with the canonical
-     `bg-green-500` / `bg-amber-500` / `bg-outline` hues).
-     Selectors are descendants of `.tree-row` so the chain-topology
-     guard in `tests/test_research_styles.py` whitelists them under
-     the existing `.tree-row` base class. */
-  .tree-row .status-dot {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-  .tree-row .status-dot-accepted {
-    background-color: #22c55e;
-  }
-  .tree-row .status-dot-synonym {
-    background-color: #f59e0b;
-  }
-  .tree-row .status-dot-unknown {
-    background-color: var(--outline);
-  }
+  /* ODD-PHASE2: the `.tree-row .status-dot` base rule + the
+     `.tree-row .status-dot-{accepted|synonym|unknown}` modifier
+     rules were removed (the status indicator is now an inline
+     `<span>` carrying the canonical Tailwind colour utility —
+     `bg-green-500` / `bg-amber-500` / `bg-on-surface-variant`).
+     The `web/tree.js::statusDot` colour map carries forward
+     verbatim via the new `statusDotColorClass` helper in
+     TreeRow.tsx; the legacy `row-format.ts` helper still returns
+     the `status-dot ...` className strings (legacy DetailPanel
+     + legacy `web/index.html` consumers keep their references;
+     DetailPanel migration to the design-system Badge primitive
+     is Phase 3 work). */
 
   /* The disclosure control is a transparent inline button so the
      row's hover background covers it too — its only job is the
@@ -2655,21 +2602,11 @@
   }
 
   /* Per-row search glyph — end of row's meta block. */
-  .tree-search-icon {
-    margin-left: 8px;
-    padding: 2px;
-    border-radius: 4px;
-    background: transparent;
-    border: 0;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .tree-search-icon:hover {
-    background: var(--surface-container-low);
-    color: var(--primary);
-  }
+  /* ODD-PHASE2: the `.tree-search-icon` + `:hover` rules were
+     removed (the row-level visibility icon button was deleted in
+     the 9→5 row-density cutover; the design-system `IconButton`
+     primitive replaced the manual cascade for the kebab trigger
+     and other future row-icon affordances). */
 
   /* Tree-source toggle (CoL / WoRMS / Freshwater) — segmented control.
      ODD-NTP-002: mirrors the native `web/index.html::.tree-source-toggle`
