@@ -17,12 +17,16 @@
  *     render agree byte-for-byte — the static HTML witness
  *     contract is preserved (the probe body ships in the
  *     document markup).
- *   - After mount, a `useEffect` reads
- *     `window.localStorage.getItem("taxa-internal-ok")`. The
- *     literal string ``"1"`` flips state to ``"allowed"``; any
- *     other value, a missing key, OR a thrown `localStorage`
- *     access (private browsing, blocked storage, etc.) flips
- *     state to ``"denied"``.
+ *   - After mount, a `useEffect` reads the internal flag via
+ *     `readInternalFlag()` from the typed browser-state store
+ *     (`@taxa/browser-state`). The literal string ``"1"`` flips
+ *     state to ``"allowed"``; any other value, a missing key,
+ *     OR a thrown `localStorage` access (private browsing,
+ *     blocked storage, etc.) flips state to ``"denied"``.
+ *     Storage access is centralised in the typed store so the
+ *     presentation layer stays free of `localStorage.*`
+ *     references (the ODD-BSTATE-TAX-001 storage-ownership
+ *     contract).
  *   - ``"allowed"`` and ``"pending"`` both render ``<>{children}</>``
  *     — the probe body ships untouched so the witness contract
  *     holds for the Playwright harness (which seeds the flag via
@@ -38,29 +42,18 @@
  * ``@taxa/browser-state`` barrel so the dedicated
  * `src/app/hydration-probe/layout.tsx` can mount it via
  * `import { HydrationProbeGate } from "@taxa/browser-state";`
- * without deep-importing the presentation layer.
+ * without deep-importing the presentation layer. The flag read
+ * goes through the same public barrel
+ * (`import { readInternalFlag } from "@taxa/browser-state";`)
+ * so the storage-ownership contract holds end-to-end.
  */
 import { useEffect, useState, type ReactElement, type ReactNode } from "react";
+import { readInternalFlag } from "@taxa/browser-state";
 
 type GateState = "pending" | "allowed" | "denied";
 
-const INTERNAL_OK_KEY = "taxa-internal-ok";
-const INTERNAL_OK_VALUE = "1";
-
 export interface HydrationProbeGateProps {
   readonly children: ReactNode;
-}
-
-function readInternalOk(): boolean {
-  try {
-    return (
-      typeof window !== "undefined" &&
-      window.localStorage.getItem(INTERNAL_OK_KEY) === INTERNAL_OK_VALUE
-    );
-  } catch {
-    /* localStorage may throw (private mode, blocked storage, etc.) */
-    return false;
-  }
 }
 
 export default function HydrationProbeGate({
@@ -69,7 +62,7 @@ export default function HydrationProbeGate({
   const [state, setState] = useState<GateState>("pending");
 
   useEffect(() => {
-    setState(readInternalOk() ? "allowed" : "denied");
+    setState(readInternalFlag() ? "allowed" : "denied");
   }, []);
 
   if (state === "denied") {

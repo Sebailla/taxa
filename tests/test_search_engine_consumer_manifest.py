@@ -1293,11 +1293,27 @@ class TestManifestSelfCheck:
 # `data-taxon-id="<id>"` per-row contract so the legacy
 # click-handler shape stays observable.
 #
+# ODD-ASN-002 — the search input is lifted OUT of `TaxonomyTree`
+# and INTO the AppShell frame (the input lives in
+# `src/modules/app-shell/presentation/AppShellGlobalSearch.tsx`,
+# a client island nested inside the AppShellHeader). The
+# route-aware `<div id="search-results" data-search-results>`
+# dropdown stays mounted inside `TaxonomyTree` because the
+# dropdown is route-specific to `/`, but the input itself is
+# now a global shell affordance. The legacy `#search-input`
+# selector lives at the new location under the namespaced
+# `id="app-shell-search-input"` + `data-app-shell-search=""`
+# surface so a future Playwright probe can reach the global
+# input through the new shell hook.
+#
 # This test class pins the ODD-SEARCH-001 contract end-to-end:
-#   - The React mount must own a top-bar `<input id="search-input">`
-#     carrying `data-search-input=""`, `autocomplete="off"`,
+#   - The AppShell frame must own a top-bar
+#     `<input id="app-shell-search-input">` carrying
+#     `data-app-shell-search=""`, `autoComplete="off"`,
 #     `spellCheck={false}`, and a placeholder starting with
-#     "Search taxa" (the brief's required copy).
+#     "Search taxa" (the brief's required copy). Mirrors the
+#     test pattern already applied in
+#     `tests/test_visible_taxonomy_tree.py::test_app_shell_global_search_renders_input_with_legacy_dom_contract`.
 #   - The mount must render `<div id="search-results" data-search-results>`
 #     hosting a `<button data-taxon-id="<id>" data-action="select-taxon">`
 #     for every server-ranked hit.
@@ -1316,52 +1332,145 @@ TAXONOMY_INFRA_API_TS: Path = (
 TAXONOMY_TREE_TSX: Path = (
     REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "TaxonomyTree.tsx"
 )
+# ODD-ASN-002 — AppShell global search input. The input is
+# lifted OUT of TaxonomyTree (which keeps the route-specific
+# dropdown) and INTO the AppShell frame (which keeps the
+# cross-route global header affordance). The ODD-SEARCH-001
+# DOM contract travels with the input: the namespaced
+# `id="app-shell-search-input"` + `data-app-shell-search=""`
+# replace the legacy `#search-input` + `data-search-input=""`
+# pair so a future Playwright probe reaches the global input
+# through the new shell hook.
+APP_SHELL_GLOBAL_SEARCH_TSX: Path = (
+    REPO_ROOT / "src" / "modules" / "app-shell" / "presentation"
+    / "AppShellGlobalSearch.tsx"
+)
 
 
 class TestSearchInputCarveout:
-    """ODD-SEARCH-001 — the React mount's top-bar search input
-    MUST keep the legacy DOM contract (`#search-input` +
-    `#search-results` + `data-action="select-taxon"` +
-    `data-taxon-id`) so a future Playwright probe (or a future
-    legacy-test repoint) can locate the surface via the same
-    hook the ODD-MIGRATE-007 carveout retired.
+    """ODD-SEARCH-001 + ODD-ASN-002 — the AppShell frame's
+    top-bar search input MUST keep the canonical DOM contract
+    (`id="app-shell-search-input"` + `data-app-shell-search=""`
+    + `autoComplete="off"` + `spellCheck={false}` + placeholder
+    starting with "Search taxa") so a future Playwright probe
+    can locate the surface via the same hook the ODD-MIGRATE-007
+    carveout retired.
 
     The legacy `web/` Playwright tests stay skipped under the
     ODD-MIGRATE-007 carveout — they target the LEGACY
     `web/index.html` `#search-input` element, which the
-    static-export at `out/` no longer ships. The React mount's
-    `#search-input` lives in the same single-origin root the
-    legacy oracle targeted, so the React-shaped surface is
-    reachable via Playwright's `page.locator("#search-input")`
-    selector — the carveout just stops the retired legacy tests
-    from racing the React mount.
+    static-export at `out/` no longer ships. The AppShell
+    frame's namespaced input lives in the same single-origin
+    root the legacy oracle targeted, so the React-shaped
+    surface is reachable via Playwright's
+    `page.locator("#app-shell-search-input")` selector — the
+    carveout just stops the retired legacy tests from racing
+    the React mount. The route-specific `<div id="search-results"
+    data-search-results>` dropdown stays inside `TaxonomyTree`
+    because the dropdown is route-specific to `/`.
     """
 
-    def test_taxonomy_tree_renders_top_bar_search_input(self) -> None:
-        """ODD-SEARCH-001: TaxonomyTree.tsx must render a top-bar
-        `<input id="search-input" data-search-input="">` carrying
-        the canonical legacy DOM contract (autocomplete + spellcheck
-        guards) so a future Playwright probe can locate the input
-        via the same selector the legacy `web/index.html` shipped."""
-        if not TAXONOMY_TREE_TSX.is_file():
-            pytest.skip("TaxonomyTree.tsx not present yet")
-        text = TAXONOMY_TREE_TSX.read_text(encoding="utf-8")
+    def test_app_shell_global_search_renders_input_with_legacy_dom_contract(
+        self,
+    ) -> None:
+        """ODD-SEARCH-001 + ODD-ASN-002: the global `<input>`
+        lives in
+        ``src/modules/app-shell/presentation/AppShellGlobalSearch.tsx``
+        (a client island inside the AppShellHeader). The
+        pre-ODD-ASN-002 implementation owned the input inside
+        ``TaxonomyTree.tsx``; the ODD-ASN-002 lift moves it to the
+        shell frame so the same input is reachable on every
+        route the AppShell wraps (Help, Settings, the future
+        hydration-probe stub, etc.) without rewriting the
+        search surface per route.
+
+        The DOM contract the input carries is the canonical
+        React-shaped hook so a future Playwright probe can
+        locate it from the shell surface:
+
+          - `id="app-shell-search-input"` (the namespaced
+            global hook).
+          - `data-app-shell-search=""` (the React-shaped
+            marker).
+          - `autoComplete="off"` (browsers MUST NOT cache the
+            query).
+          - `spellCheck={false}` (no red squiggle on a Latin
+            scientific name).
+          - placeholder starting with "Search taxa" (the
+            brief's required copy; the suffix `…  (Cmd+K)`
+            advertises the keyboard shortcut the AppShell
+            wires).
+
+        Mirrors the canonical assertion already applied in
+        ``tests/test_visible_taxonomy_tree.py::test_app_shell_global_search_renders_input_with_legacy_dom_contract``.
+        """
+        if not APP_SHELL_GLOBAL_SEARCH_TSX.is_file():
+            pytest.skip("AppShellGlobalSearch.tsx not present yet")
+        text = APP_SHELL_GLOBAL_SEARCH_TSX.read_text(encoding="utf-8")
+        # The namespaced id MUST stay present so the global
+        # search is reachable from the shell surface (every
+        # route the AppShell wraps inherits the input).
         assert re.search(
-            r'<input\b[^>]*\bid="search-input"',
+            r'<input\b[^>]*\bid\s*=\s*"app-shell-search-input"',
             text,
             re.DOTALL,
         ), (
-            "TaxonomyTree.tsx MUST render `<input id=\"search-input\">` "
-            "so a future Playwright probe can locate the React mount's "
-            "search input via the same hook the legacy oracle shipped."
+            "AppShellGlobalSearch.tsx must render `<input "
+            "id=\"app-shell-search-input\" ...>` so the global "
+            "search input is reachable from the AppShell frame."
+        )
+        # The data-app-shell-search="" attribute pins the
+        # React-shaped surface so a future Playwright probe can
+        # locate the input via the React hook.
+        assert re.search(
+            r'<input\b[^>]*\bdata-app-shell-search\s*=\s*""',
+            text,
+            re.DOTALL,
+        ), (
+            "AppShellGlobalSearch.tsx must stamp "
+            "`data-app-shell-search=\"\"` on the search input "
+            "(the React-shaped DOM contract)."
+        )
+        # Autocomplete + spellcheck guards mirror the legacy
+        # `web/index.html` `<input id="search-input"
+        # autocomplete="off" spellcheck="false">` shape so the
+        # React mount behaves identically (browsers must NOT
+        # cache the search query, and the red squiggle must
+        # NOT fire on a Latin scientific name). React's JSX
+        # uses the camelCase form (`autoComplete`); the regex
+        # matches either case so a future swap to a typed
+        # native element wouldn't trip the guard.
+        assert re.search(
+            r'<input\b[^>]*\bauto[Cc]omplete\s*=\s*"off"',
+            text,
+            re.DOTALL,
+        ), (
+            "AppShellGlobalSearch.tsx must stamp "
+            "`autoComplete=\"off\"` on the search input (the "
+            "legacy `web/index.html` shape)."
         )
         assert re.search(
-            r'<input\b[^>]*\bdata-search-input\s*=\s*""',
+            r'<input\b[^>]*\bspell[Cc]heck\s*=\s*\{\s*false\s*\}',
             text,
             re.DOTALL,
         ), (
-            "TaxonomyTree.tsx MUST stamp `data-search-input=\"\"` "
-            "on the search input (the React-shaped DOM contract)."
+            "AppShellGlobalSearch.tsx must stamp "
+            "`spellCheck={false}` on the search input (the "
+            "legacy `web/index.html` shape — no red squiggle "
+            "on a Latin scientific name)."
+        )
+        # The placeholder drives the visible copy. The brief
+        # mandates "Search taxa…" or similar (the suffix
+        # `…  (Cmd+K)` advertises the keyboard shortcut the
+        # AppShell wires).
+        assert re.search(
+            r'<input\b[^>]*\bplaceholder\s*=\s*"Search taxa',
+            text,
+            re.DOTALL,
+        ), (
+            "AppShellGlobalSearch.tsx must render a placeholder "
+            "starting with \"Search taxa\" (the brief's "
+            "required copy)."
         )
 
     def test_taxonomy_tree_renders_search_results_container_with_data_attr(self) -> None:

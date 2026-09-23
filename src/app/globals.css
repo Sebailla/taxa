@@ -246,11 +246,11 @@
   .app-shell-footer {
     font-family: "Raleway", sans-serif;
   }
-  .app-shell-footer-col--left {
-    justify-self: start;
-  }
   .app-shell-footer-col--center {
     justify-self: center;
+  }
+  .app-shell-footer-col--left {
+    justify-self: start;
   }
   .app-shell-footer-col--right {
     justify-self: end;

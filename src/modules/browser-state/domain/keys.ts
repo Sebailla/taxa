@@ -36,16 +36,28 @@ export const LAST_TAXON_ID_STORAGE_KEY = "taxa.tree.lastTaxonId" as const;
 /** localStorage key for the kebab-menu open taxon id. */
 export const KEBAB_OPEN_ID_STORAGE_KEY = "taxa.tree.kebabOpenId" as const;
 
+/** localStorage key for the internal-flag witness (ODD-ASN-001).
+ *  Set to the literal `"1"` by the Playwright harness via
+ *  `context.add_init_script` so the dedicated `/hydration-probe`
+ *  route's gate (`presentation/HydrationProbeGate.tsx`) flips to
+ *  the "allowed" state. The literal is deliberately namespaced
+ *  (`taxa-internal-ok`, not `taxa.*`) so it stays out of the
+ *  typed-source chain's bundle (the chunk-boundary witness at
+ *  `tests/test_app_shell_render.py::test_out_index_html_chunks_permit_only_tree_source_key`
+ *  pins the main route's storage surface verbatim). */
+export const INTERNAL_FLAG_STORAGE_KEY = "taxa-internal-ok" as const;
+
 /** Canonical ordered list of every storage key the typed store
  *  owns. The `reset()` affordance iterates this list; the
  *  `subscribe` dispatch table uses it to validate the key at
- *  compile time. A future PR that adds a fifth key must extend
+ *  compile time. A future PR that adds a sixth key must extend
  *  this tuple + the spec table in lock-step. */
 export const ALL_STORAGE_KEYS = [
   THEME_STORAGE_KEY,
   TREE_SOURCE_STORAGE_KEY,
   LAST_TAXON_ID_STORAGE_KEY,
   KEBAB_OPEN_ID_STORAGE_KEY,
+  INTERNAL_FLAG_STORAGE_KEY,
 ] as const;
 
 /** Union of every storage key literal. */
