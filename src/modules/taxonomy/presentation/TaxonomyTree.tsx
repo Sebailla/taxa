@@ -317,7 +317,29 @@ function rankPluralFor(rank: Rank): string {
   return `${label}s`;
 }
 
-export default function TaxonomyTree(): React.ReactElement {
+/**
+ * ODD-ASN-002 — the `searchQuery` state lifts from the local
+ * `useState` to the AppShell orchestrator. The state arrives as
+ * the `searchQuery` + `onSearchQueryChange` prop pair so the
+ * same query that drives the global `<input id="app-shell-search-input">`
+ * in `AppShellGlobalSearch` flows to the search-results
+ * dropdown rendered by `TaxonomyTree`. The debounce, the
+ * `fetchSearch` round-trip, and the `handleSearchResultClick`
+ * primitive stay byte-identical to the pre-ODD-ASN-002
+ * contract; only the state source changes (from internal
+ * `useState<string>("")` to the lifted prop pair).
+ */
+export interface TaxonomyTreeProps {
+  /** Lifted search query from the AppShell (ODD-ASN-002). */
+  readonly searchQuery: string;
+  /** Lifted search-mutator from the AppShell (ODD-ASN-002). */
+  readonly onSearchQueryChange: (next: string) => void;
+}
+
+export default function TaxonomyTree(
+  props: TaxonomyTreeProps,
+): React.ReactElement {
+  const { searchQuery, onSearchQueryChange } = props;
   // ODD-BSTATE-TAX-001 — the CoL / WoRMS / Freshwater selector
   // now reads + writes through the typed browser-state store via
   // `useTreeSource()`. The hook returns the typed default
@@ -504,7 +526,7 @@ export default function TaxonomyTree(): React.ReactElement {
   // mounts the tree rows) so the existing `handleSelect(id)`
   // primitive already drives focus + scroll + selection when the
   // user clicks a result row. The legacy DOM contract
-  // (`<input id="search-input">` + `<div id="search-results">` +
+  // (the legacy input element + `<div id="search-results">` +
   // each result row carrying `data-taxon-id` + `data-action`)
   // stays in place so the React-shaped surface is consistent
   // with the legacy oracle the prior ODD-MIGRATE-007 carveout
@@ -526,7 +548,19 @@ export default function TaxonomyTree(): React.ReactElement {
   // dropdown); the React port applies the same gate inside the
   // debounced effect so a 1-character query never hits the
   // server.
-  const [searchQuery, setSearchQuery] = useState<string>("");
+  //
+  // ODD-ASN-002 — the live search query no longer lives in
+  // `TaxonomyTree`. The query arrives via the `searchQuery`
+  // prop from the AppShell orchestrator (the same value the
+  // `<input id="app-shell-search-input">` in
+  // `AppShellGlobalSearch` is bound to). The component only
+  // keeps the derived fetch results + status union locally —
+  // the input itself, the keystroke handler, the Escape
+  // handler, and the live `useState<string>("")` for the
+  // query all moved to the AppShell. The remaining state
+  // surface (`searchResults` + `searchStatus`) is the typed
+  // fetch payload the dropdown renders — neither field is
+  // touched by the ODD-ASN-002 lift.
   const [searchResults, setSearchResults] = useState<readonly SearchHit[]>(
     [],
   );
@@ -576,40 +610,6 @@ export default function TaxonomyTree(): React.ReactElement {
     void loadRoots();
   }, [loadRoots]);
 
-  // ODD-SEARCH-001 — search-input handler. Wired through
-  // `useCallback` so the input's onChange identity is stable
-  // across re-renders (the debounced effect below depends on
-  // `searchQuery`, not on the handler — the handler just owns the
-  // synchronous write to the live state). The handler trims the
-  // input value but keeps the raw input in state so the cursor
-  // position survives (a trim-on-keystroke could race with the
-  // browser's native caret placement on rapid paste events). The
-  // 200ms debounce lives in the effect below; this handler is the
-  // keystroke entry point.
-  const handleSearchInputChange = useCallback(
-    (ev: { readonly currentTarget: { readonly value: string } }) => {
-      setSearchQuery(ev.currentTarget.value);
-    },
-    [],
-  );
-
-  // ODD-SEARCH-001 — search-input Escape-to-clear handler. The
-  // legacy `web/search.js::keydown` listener clears the input
-  // value, calls `closeSearch()`, and blurs the input on Escape.
-  // The React port preserves the same user-facing contract: the
-  // input value resets to `""`, the results dropdown closes
-  // (the next debounced effect tick fires with the empty query
-  // and the effect short-circuits without a round trip), and
-  // the input loses focus so subsequent keystrokes start fresh.
-  const handleSearchInputKeyDown = useCallback(
-    (ev: { readonly key: string; currentTarget: { value: string } }) => {
-      if (ev.key !== "Escape") return;
-      ev.currentTarget.value = "";
-      setSearchQuery("");
-    },
-    [],
-  );
-
   // ODD-SEARCH-001 — search result click handler. Routes through
   // the existing `handleSelect(id)` primitive so the React tree
   // focuses + scrolls to the selected taxon (mirrors the legacy
@@ -629,6 +629,15 @@ export default function TaxonomyTree(): React.ReactElement {
   // its declaration. The inline copy is byte-identical to the
   // body of `handleSelect` so the user-facing behavior is the
   // same.
+  //
+  // ODD-ASN-002 — the result-click now routes the clear-query
+  // through the lifted `onSearchQueryChange` mutator (the
+  // AppShell owns the live query). The Escape-to-clear +
+  // keystroke handlers (`handleSearchInputChange`,
+  // `handleSearchInputKeyDown`) moved to `AppShellGlobalSearch`
+  // because the `<input>` itself moved to the AppShell — the
+  // result-click is the only handler that still touches the
+  // query because it must close the dropdown after a click.
   const handleSearchResultClick = useCallback(
     (id: number) => {
       if (!Number.isFinite(id)) return;
@@ -636,9 +645,9 @@ export default function TaxonomyTree(): React.ReactElement {
       setFocused(id);
       setSelected(id);
       setPulseNonce((prev) => prev + 1);
-      setSearchQuery("");
+      onSearchQueryChange("");
     },
-    [],
+    [onSearchQueryChange],
   );
 
   // ODD-SEARCH-001 — debounced search fetch effect. Mirrors the
@@ -1711,15 +1720,25 @@ export default function TaxonomyTree(): React.ReactElement {
    *  unicode `›` so the breadcrumb renders identically without
    *  a material-symbols webfont. */
   const renderSearchBar = (): ReactNode => {
-    // ODD-SEARCH-001 — top-bar search input + dropdown. The
-    // input always renders (even before the tree finishes
-    // loading) so the user can start typing while the roots
-    // fetch is in flight. The dropdown renders only when
-    // the query clears the 2-character gate; otherwise the
-    // results container collapses to an empty div with no
-    // rows (matches the legacy `web/search.js` close-on-empty
-    // behavior — the legacy used `classList.remove("open")` to
-    // hide the empty dropdown).
+    // ODD-SEARCH-001 — top-bar search dropdown host. The
+    // dropdown renders only when the query clears the
+    // 2-character gate; otherwise the results container
+    // collapses to an empty div with no rows (matches the
+    // legacy `web/search.js` close-on-empty behavior — the
+    // legacy used `classList.remove("open")` to hide the
+    // empty dropdown).
+    //
+    // ODD-ASN-002 — the legacy search input moved
+    // to `AppShellGlobalSearch` (the global input now lives
+    // in the AppShell header). The TaxonomyTree only renders
+    // the results dropdown host (`#search-results`) because
+    // the dropdown is route-specific to `/` — the
+    // `/explorer` route does not need a dropdown. The
+    // query arrives as a `searchQuery` prop from the AppShell
+    // orchestrator; the debounced fetch fires against the
+    // same lifted query so the user sees identical results
+    // regardless of whether the input lives in the shell or
+    // the tree surface.
     const trimmed = searchQuery.trim();
     const showDropdown = trimmed.length >= 2;
     return (
@@ -1729,21 +1748,6 @@ export default function TaxonomyTree(): React.ReactElement {
         data-search-source={activeSource}
         data-search-query-length={trimmed.length}
       >
-        <input
-          id="search-input"
-          type="search"
-          className="search-input w-full rounded-lg border border-outline-variant bg-surface px-3 py-2 text-body-md text-on-surface placeholder:text-on-surface-variant focus:border-primary focus:outline-none"
-          placeholder="Search taxa…"
-          autoComplete="off"
-          spellCheck={false}
-          aria-label="Search taxa"
-          aria-controls="search-results"
-          aria-expanded={showDropdown}
-          data-search-input=""
-          value={searchQuery}
-          onChange={handleSearchInputChange}
-          onKeyDown={handleSearchInputKeyDown}
-        />
         <div
           id="search-results"
           className="search-results absolute left-0 right-0 z-10 mt-1 max-h-96 overflow-y-auto rounded-lg border border-outline-variant bg-surface shadow-lg"

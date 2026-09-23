@@ -225,6 +225,86 @@
     animation: spin 0.8s linear infinite;
   }
 
+  /* AppShell — ODD-ASN-002 product navigation surface. The
+     header / global-search / nav / footer selectors live
+     here under `@layer components` so the Tailwind 4 utility
+     surface (PR 3c-d) can still override. Each rule reads its
+     value from the upstream `@theme` tokens (or the 3c-e1 /
+     3c-e2 alias chain on `:root`) so the dark-mode
+     `[data-theme="dark"]` override flips every selector at
+     use-time via the var() indirection — no hardcoded hex
+     literals. Ordered alphabetically (PR 3c-e2.4 refactor
+     contract). The realm color tokens live on `:root` so
+     the help page can render the realm-color legend without
+     a separate design-token pass. */
+  .app-shell-brand {
+    font-family: "Raleway", sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .app-shell-footer {
+    font-family: "Raleway", sans-serif;
+  }
+  .app-shell-footer-col--center {
+    justify-self: center;
+  }
+  .app-shell-footer-col--left {
+    justify-self: start;
+  }
+  .app-shell-footer-col--right {
+    justify-self: end;
+  }
+  .app-shell-footer-shortcut-legend {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    color: var(--on-surface-variant);
+  }
+  .app-shell-footer-shortcut-legend kbd {
+    font-family: inherit;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    color: var(--on-surface);
+  }
+  .app-shell-global-search {
+    min-width: 0;
+  }
+  .app-shell-global-search-input {
+    font-family: "Raleway", sans-serif;
+  }
+  .app-shell-nav {
+    flex-wrap: wrap;
+  }
+  .app-shell-nav-link {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 10px;
+    border-radius: 6px;
+    color: var(--on-surface-variant);
+    font-family: "Raleway", sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+    border-bottom: 2px solid transparent;
+    transition: color 120ms ease, border-color 120ms ease,
+      background-color 120ms ease;
+  }
+  .app-shell-nav-link:hover {
+    color: var(--on-surface);
+    background: var(--surface-container-low);
+  }
+  .app-shell-nav-link--active,
+  .app-shell-nav-link[aria-current="page"] {
+    color: var(--primary);
+    border-bottom-color: var(--primary);
+  }
+  .app-shell-skip-link {
+    font-family: "Raleway", sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+  }
+
   /* Authorship — Overview tab body metadata. */
   .authorship {
     color: var(--on-surface-variant);

@@ -50,6 +50,12 @@ const THEME_STORAGE_KEY = "taxa.settings.theme";
 const TREE_SOURCE_STORAGE_KEY = "taxa.tree.source";
 const LAST_TAXON_ID_STORAGE_KEY = "taxa.tree.lastTaxonId";
 const KEBAB_OPEN_ID_STORAGE_KEY = "taxa.tree.kebabOpenId";
+// ODD-ASN-001 — internal-flag witness key. Declared inline so
+// the reset aggregate's sibling store chains stay independent
+// of `domain/keys.ts` at runtime (the canonical declaration in
+// `domain/keys.ts` stays in place for the `ALL_STORAGE_KEYS`
+// tuple contract + the public barrel re-export).
+const INTERNAL_FLAG_STORAGE_KEY = "taxa-internal-ok";
 
 // ---------------------------------------------------------------------------
 // Per-key subscribers — captured at module-load time. Each per-key
@@ -80,6 +86,19 @@ import {
   subscribeKebabOpenId as _subscribeKebabOpenId,
   writeKebabOpenId as _writeKebabOpenId,
 } from "./storeKebabOpenId";
+// ODD-ASN-001 — internal-flag witness key. The gate
+// (`presentation/HydrationProbeGate.tsx`) reads the flag via
+// the typed store; the reset aggregate clears it alongside the
+// four typed keys so the next page load starts from the
+// "denied" default. The import lives below the four sibling
+// stores so the per-file rationale (Turbopack retention per
+// chain) stays in place: the main route's bundle still carries
+// only the typed-source chain because the gate is mounted on
+// `/hydration-probe`, not on `/`.
+import {
+  subscribeInternalFlag as _subscribeInternalFlag,
+  writeInternalFlag as _writeInternalFlag,
+} from "./storeInternalFlag";
 
 /** Reset every key to its typed default. Removes every matching
  *  `localStorage` entry (best-effort, swallowed on failure) and
@@ -105,17 +124,29 @@ export function reset(): void {
   _writeTreeSource(DEFAULT_TREE_SOURCE);
   _writeLastTaxonId(DEFAULT_LAST_TAXON_ID);
   _writeKebabOpenId(DEFAULT_KEBAB_OPEN_ID);
+  // ODD-ASN-001 — clear the internal-flag witness key so the
+  // `/hydration-probe` gate flips to "denied" on the next page
+  // load. `writeInternalFlag(false)` removes the key (the typed
+  // store's write path removes the key when the value is
+  // `false` — see `infrastructure/storeInternalFlag.ts`).
+  _writeInternalFlag(false);
 
-  // 2) Persistence remove — four explicit `localStorage.removeItem`
-  //    sites, one per typed key. Inlined (instead of a
-  //    `safeRemoveItem` loop) so the storage-ownership grep test
-  //    counts exactly four `localStorage.removeItem` occurrences.
+  // 2) Persistence remove — five explicit `localStorage.removeItem`
+  //    sites, one per typed key + one for the internal-flag
+  //    witness key. Inlined (instead of a `safeRemoveItem` loop)
+  //    so the storage-ownership grep test counts the explicit
+  //    `localStorage.removeItem` occurrences (the per-key split
+  //    lifts the count to five: four typed keys + the internal
+  //    flag).
   try {
     if (typeof window !== "undefined" && window.localStorage) {
       window.localStorage.removeItem(THEME_STORAGE_KEY);
       window.localStorage.removeItem(TREE_SOURCE_STORAGE_KEY);
       window.localStorage.removeItem(LAST_TAXON_ID_STORAGE_KEY);
       window.localStorage.removeItem(KEBAB_OPEN_ID_STORAGE_KEY);
+      // ODD-ASN-001 — clear the internal-flag witness key on
+      // reset so the gate's next read returns `false`.
+      window.localStorage.removeItem(INTERNAL_FLAG_STORAGE_KEY);
     }
   } catch {
     // Quota exceeded / private mode — the in-memory cache still
@@ -132,4 +163,8 @@ export {
   _subscribeTreeSource as subscribeTreeSource,
   _subscribeLastTaxonId as subscribeLastTaxonId,
   _subscribeKebabOpenId as subscribeKebabOpenId,
+  // ODD-ASN-001 — internal-flag subscribe shim. Exposed for
+  // aggregate-only test symmetry; NOT re-exported through the
+  // public barrel.
+  _subscribeInternalFlag as subscribeInternalFlag,
 };

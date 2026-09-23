@@ -119,6 +119,30 @@ FEX_EXPLORER_BASES: tuple[str, ...] = (
     ".fex-video-el", ".fex-video-frame",
     ".fex-viewer-pane",
 )
+# ODD-ASN-002 — AppShell frame selectors. The new shell frame
+# (header / footer / nav / global search / brand / skip link)
+# lands under `@layer components` between `.animate-spin` and
+# `.authorship`. The selectors are part of a new top-level
+# concern (the shell) — neither the PR 3c-b taxonomy set nor
+# the PR 3c-c research / chrome set, so the chain-topology
+# guard below whitelists them via this dedicated tuple. The
+# intra-family order MUST stay alphabetical (the
+# `test_top_level_selectors_are_alphabetically_ordered`
+# contract — see also the 3c-c.4 refactor contract below).
+APP_SHELL_SELECTORS: tuple[str, ...] = (
+    ".app-shell-brand",
+    ".app-shell-footer",
+    ".app-shell-footer-col--center",
+    ".app-shell-footer-col--left",
+    ".app-shell-footer-col--right",
+    ".app-shell-footer-shortcut-legend",
+    ".app-shell-global-search",
+    ".app-shell-global-search-input",
+    ".app-shell-nav",
+    ".app-shell-nav-link",
+    ".app-shell-nav-link--active",
+    ".app-shell-skip-link",
+)
 # Search tab category sections in fixed order, matching
 # ``web/search_urls.js::CATEGORIES``.
 SEARCH_TAB_CATEGORIES_IN_ORDER: tuple[str, ...] = (
@@ -351,6 +375,7 @@ def test_layer_components_research_chrome_block_does_not_leak_taxonomy():
         set(TAXONOMY_OWNED_BY_3C_B)
         | set(UTILITY_CLASSES_OWNED_BY_3C_E2)
         | set(FEX_EXPLORER_BASES)
+        | set(APP_SHELL_SELECTORS)
         | {
             ".folder-tab", ".header-browser-tab",
             ".research-explorer", ".search-tab",

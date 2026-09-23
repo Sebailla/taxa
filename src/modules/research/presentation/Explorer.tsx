@@ -120,6 +120,22 @@ import {
  *  client/test boundaries only (per the W6.1 contract). */
 export interface ExplorerProps {
   readonly apiOrigin: string;
+  /** ODD-ASN-002 — lifted search query from the AppShell.
+   *  The Explorer route ignores the value for now (the
+   *  Explorer's local file search in the left pane is the
+   *  primary search surface on `/explorer`); the prop is
+   *  part of the typed surface so the AppShell orchestrator
+   *  can pass the global search input without a TypeScript
+   *  error. A future slice wires the global query into the
+   *  file-search filtering without changing the AppShell
+   *  boundary. */
+  readonly searchQuery?: string;
+  /** ODD-ASN-002 — lifted search-mutator from the AppShell.
+   *  Ignored for the same reason as `searchQuery` (the
+   *  Explorer's local file search owns its own mutation
+   *  cycle). The prop is part of the typed surface for the
+   *  AppShell contract. */
+  readonly onSearchQueryChange?: (next: string) => void;
 }
 
 /** W6.5-BRIDGE-006 — verbatim local constant for the
@@ -141,7 +157,7 @@ const EXPLORER_REFRESH_EVENT_NAME = "taxa:explorer:refresh";
  *  ownership lives at this level so the children stay pure
  *  projections. */
 export default function Explorer(props: ExplorerProps): ReactNode {
-  const { apiOrigin } = props;
+  const { apiOrigin, searchQuery: _searchQuery, onSearchQueryChange: _onSearchQueryChange } = props;
   // The typed load status (idle / loading / loaded / empty /
   // error) drives the left-pane render branch. The status
   // carries the wire `tree` payload verbatim when the request

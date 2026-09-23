@@ -27,7 +27,8 @@ Users work in a browser with taxonomic hierarchies, search links, and file mater
 - The product serves both research and collection-management workflows.
 - The active production runtime remains the existing FastAPI-served experience until a future reviewed boundary decision.
 - Static export is not selected by the disposable evidence probe.
-- The probe must remain isolated from production consumers, API routes, and persisted user state.
+- The /hydration-probe route's static HTML is shipped to every visitor, but a client-only gate (src/modules/browser-state/presentation/HydrationProbeGate.tsx) renders a quiet fallback ("Internal witness — not part of the product") to anyone who navigates without the `taxa-internal-ok` localStorage flag. The Playwright harness sets the flag via `addInitScript` before navigation. Search-engine exposure is closed via the route's `<meta name="robots" content="noindex,nofollow">`. A future FastAPI routing-level 404 is the deferred backend follow-up.
+- The product surface includes four top-level destinations: Classification (`/`, taxonomy hierarchy + detail panel), Browser (`/explorer`, research file browser), Help (`/help`, data-source legend + shortcut map + realm color legend + API docs + attribution), Settings (`/settings`, stub for future slice). The AppShell renders the four destinations in the header with an active-state indicator via `usePathname()`. The /help and /settings pages ship as the W3-audited destinations for in-product onboarding.
 
 ## Evidence on Hand
 
@@ -44,4 +45,4 @@ Users work in a browser with taxonomic hierarchies, search links, and file mater
 
 ## Accessibility & Inclusion
 
-WCAG 2.2 AA is the durable accessibility target for web surfaces.
+- WCAG 2.2 AA is the durable accessibility target for web surfaces. The AppShell renders a skip-to-main `<a>` as the first focusable element on every route; every page has a `<header>` / `<main>` / `<footer>` landmark triple; the navigation nav uses `aria-current="page"` for the active affordance; the global search shortcut (`Cmd+K` / `/`) is announced in a footer one-liner.

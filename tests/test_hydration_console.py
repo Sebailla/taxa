@@ -88,7 +88,45 @@ TYPED_DEFAULT_NULL = "null"
 # not read during the static first render. The idempotent guard
 # prevents double-wrapping if the script is re-injected (defensive —
 # Playwright's `add_init_script` already runs once per navigation).
+#
+# ODD-ASN-001 — internal witness flag. The hydration-probe gate
+# (`src/modules/browser-state/presentation/HydrationProbeGate.tsx`)
+# checks `taxa-internal-ok` in localStorage after mount; setting
+# it via `add_init_script` BEFORE navigation lets the witness
+# contract (the probe component hydrates) hold for the test
+# harness while a non-test visitor without the flag sees the
+# gate fallback. A second copy of the script without the flag
+# (`INIT_SCRIPT_DENIED`) exists so the deny-path test can assert
+# the fallback renders.
 INIT_SCRIPT = """
+(() => {
+  if (window.__storageReadLog) return;
+  window.__storageReadLog = [];
+  try {
+    window.localStorage.setItem('taxa-internal-ok', '1');
+  } catch (e) {
+    /* localStorage may be blocked; the gate will deny in that scenario */
+  }
+  const original = Storage.prototype.getItem;
+  Storage.prototype.getItem = function (key) {
+    try {
+      window.__storageReadLog.push({
+        key: String(key),
+        t: performance.now(),
+      });
+    } catch (e) {
+      /* never break the real storage */
+    }
+    return original.call(this, key);
+  };
+})();
+"""
+
+# ODD-ASN-001 — deny-path init script. Mirrors `INIT_SCRIPT` byte-
+# for-byte EXCEPT it does NOT seed the `taxa-internal-ok` flag.
+# Used by `test_hydration_probe_gate_denies_without_flag` to
+# assert the gate flips to its fallback render path.
+INIT_SCRIPT_DENIED = """
 (() => {
   if (window.__storageReadLog) return;
   window.__storageReadLog = [];
@@ -310,6 +348,53 @@ def chromium_probe(static_server):
             # `subscribe` → `ensureHydrated` → `safeGetItem` path) finished.
             page.wait_for_selector(
                 "[data-testid='hydration-probe']", timeout=5_000
+            )
+            yield page, console_msgs, page_errors
+        finally:
+            browser.close()
+
+
+@pytest.fixture()
+def chromium_probe_denied(static_server):
+    """Open the probe WITHOUT seeding the `taxa-internal-ok` flag.
+
+    ODD-ASN-001 — the deny-path counterpart to `chromium_probe`.
+    Used by `test_hydration_probe_gate_denies_without_flag` to
+    assert the gate flips to its fallback render path. The
+    fixture uses `INIT_SCRIPT_DENIED` (the storage wrapper
+    without the flag seed) and waits for the gate's denied
+    marker (`[data-hydration-probe-gate="denied"]`) instead
+    of the probe marker.
+    """
+    if not _playwright_importable():
+        pytest.skip("playwright not installed (pip install playwright)")
+    from playwright.sync_api import sync_playwright  # type: ignore
+
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch(headless=True)
+        except Exception as exc:
+            pytest.skip(f"chromium binary not available: {exc!r}")
+        try:
+            context = browser.new_context()
+            context.add_init_script(INIT_SCRIPT_DENIED)
+            console_msgs: list[dict] = []
+            page_errors: list[str] = []
+            page = context.new_page()
+            _attach_listeners(page, console_msgs, page_errors)
+            page.goto(
+                static_server + PROBE_URL,
+                wait_until="domcontentloaded",
+                timeout=10_000,
+            )
+            # Wait for the gate's denied marker — proves the
+            # gate's post-mount useEffect ran and flipped to
+            # the denied state. The probe marker may briefly
+            # exist in the static HTML before the gate kicks
+            # in, but the gate marker is the post-hydration
+            # truth.
+            page.wait_for_selector(
+                "[data-hydration-probe-gate='denied']", timeout=5_000
             )
             yield page, console_msgs, page_errors
         finally:
@@ -667,4 +752,88 @@ def test_probe_setter_round_trip_persists_and_rerenders(chromium_probe):
     )
     assert not page_errors, (
         f"setter round trip produced page error(s): {page_errors}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# ODD-ASN-001 — production gate behavior. The static HTML
+# still ships the probe body to every visitor (the witness
+# contract requires `out/hydration-probe.html` to exist + the
+# chunk-boundary test still asserts browser-state lives in the
+# probe route's chunks). The gate flips to its fallback render
+# path after mount when the `taxa-internal-ok` localStorage
+# flag is missing, so non-test visitors see a quiet "internal
+# witness" notice + the canonical destination nav instead of
+# the probe body.
+# ---------------------------------------------------------------------------
+def test_hydration_probe_gate_denies_without_flag(chromium_probe_denied):
+    """Without `taxa-internal-ok`, the gate renders its fallback.
+
+    The fixture waits for `[data-hydration-probe-gate="denied"]`
+    (the post-hydration truth). Asserts the fallback body
+    carries the canonical "Internal witness" notice + a
+    destination link list, and that the probe body is gone
+    from the visible DOM. The probe marker may briefly exist
+    in the static HTML before the gate's useEffect runs; the
+    fallback marker is what proves the gate actually flipped.
+    """
+    page, _console_msgs, page_errors = chromium_probe_denied
+    # No console error → page rendered cleanly through the
+    # gate transition.
+    assert not page_errors, (
+        f"gate fallback produced page error(s): {page_errors}"
+    )
+    # The fallback heading + destination list MUST render.
+    page.wait_for_selector(
+        "h1:has-text('Internal witness')", timeout=3_000
+    )
+    body = page.content()
+    assert "Internal witness" in body, (
+        "gate fallback body must carry the 'Internal witness' notice"
+    )
+    assert "Pick a destination" in body, (
+        "gate fallback body must carry the 'Pick a destination' copy"
+    )
+    # The canonical destinations ship in the fallback nav.
+    for href in ("/", "/explorer", "/help"):
+        assert f'href="{href}"' in body, (
+            f"gate fallback must link to {href!r} so visitors have a path forward"
+        )
+    # No console errors during the gate flip.
+    errors = _error_messages(_console_msgs)
+    assert not errors, (
+        f"gate fallback produced console error(s): {errors}"
+    )
+
+
+def test_hydration_probe_gate_allows_with_flag(chromium_probe):
+    """With `taxa-internal-ok=1`, the probe hydrates and renders.
+
+    The `chromium_probe` fixture seeds the flag via
+    `INIT_SCRIPT` and waits for the probe marker; this test
+    is the witness-contract counterpart to
+    `test_hydration_probe_gate_denies_without_flag`. The
+    existing hydration assertions in the same file already
+    cover the typed-defaults + rehydration paths; this test
+    pins that the gate does NOT hide the probe body when the
+    flag is present.
+    """
+    page, _console_msgs, page_errors = chromium_probe
+    assert not page_errors, (
+        f"gate-allowed mount produced page error(s): {page_errors}"
+    )
+    # The probe marker MUST exist (the fixture waits for it
+    # before yielding; the assertion exists so a future
+    # refactor that silently drops the selector fails this
+    # test loudly).
+    page.wait_for_selector(
+        "[data-testid='hydration-probe']", timeout=3_000
+    )
+    # The gate's denied marker MUST NOT exist — the gate
+    # flipped to allowed, not denied.
+    assert (
+        page.locator("[data-hydration-probe-gate='denied']").count() == 0
+    ), (
+        "gate flipped to denied even though `taxa-internal-ok=1` "
+        "was set via add_init_script"
     )

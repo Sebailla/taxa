@@ -27,10 +27,10 @@ References:
 """
 from __future__ import annotations
 
+from pathlib import Path
 import re
 import shutil
 import subprocess
-from pathlib import Path
 
 import pytest
 
@@ -53,12 +53,22 @@ INFRA_STORE_THEME_FILE = INFRA_DIR / "storeTheme.ts"
 INFRA_STORE_TREE_SOURCE_FILE = INFRA_DIR / "storeTreeSource.ts"
 INFRA_STORE_LAST_TAXON_ID_FILE = INFRA_DIR / "storeLastTaxonId.ts"
 INFRA_STORE_KEBAB_OPEN_ID_FILE = INFRA_DIR / "storeKebabOpenId.ts"
+# ODD-ASN-001 — internal-flag store. The hydration-probe gate
+# (`presentation/HydrationProbeGate.tsx`) reads the flag via the
+# typed store so the presentation layer stays free of
+# `localStorage.*` references (the ODD-BSTATE-TAX-001
+# storage-ownership contract). Registered in `INFRA_STORE_FILES`
+# so the legal-home set in
+# `test_browser_state_infrastructure_owns_local_storage_calls`
+# includes this file alongside the four sibling stores.
+INFRA_STORE_INTERNAL_FLAG_FILE = INFRA_DIR / "storeInternalFlag.ts"
 INFRA_STORE_RESET_FILE = INFRA_DIR / "reset.ts"
 INFRA_STORE_FILES: tuple[Path, ...] = (
     INFRA_STORE_THEME_FILE,
     INFRA_STORE_TREE_SOURCE_FILE,
     INFRA_STORE_LAST_TAXON_ID_FILE,
     INFRA_STORE_KEBAB_OPEN_ID_FILE,
+    INFRA_STORE_INTERNAL_FLAG_FILE,
 )
 APP_HOOK_THEME_FILE = APP_DIR / "useTheme.ts"
 APP_HOOK_TREE_SOURCE_FILE = APP_DIR / "useTreeSource.ts"
@@ -224,10 +234,14 @@ def test_browser_state_barrel_exists() -> None:
         # stay out of the parametrized list so a regression that
         # re-introduces them trips the dedicated
         # `test_monolithic_modules_are_retired` pin below.
+        # ODD-ASN-001 — the `taxa-internal-ok` witness flag owns
+        # its own per-key store file so Turbopack retention
+        # isolates the gate's chain from the typed-source chain.
         INFRA_STORE_THEME_FILE,
         INFRA_STORE_TREE_SOURCE_FILE,
         INFRA_STORE_LAST_TAXON_ID_FILE,
         INFRA_STORE_KEBAB_OPEN_ID_FILE,
+        INFRA_STORE_INTERNAL_FLAG_FILE,
         INFRA_STORE_RESET_FILE,
         APP_HOOK_THEME_FILE,
         APP_HOOK_TREE_SOURCE_FILE,
@@ -507,6 +521,14 @@ def test_browser_state_infrastructure_owns_local_storage_calls() -> None:
     # keys into one chunk (defeating the strict chunk-boundary
     # contract from ODD-BSTATE-TAX-001-B).
     legal_homes: set[Path] = set(INFRA_STORE_FILES) | {INFRA_STORE_RESET_FILE}
+    # ODD-ASN-001 — `INFRA_STORE_INTERNAL_FLAG_FILE` is already
+    # in `INFRA_STORE_FILES` so it lands in `legal_homes` via the
+    # set union above (no separate registration needed). The gate
+    # (`presentation/HydrationProbeGate.tsx`) imports
+    # `readInternalFlag` from the public barrel so the
+    # presentation layer is free of `localStorage.*` references
+    # and the legal-home set keeps the gate off the offender
+    # list.
     offenders: list[tuple[str, str]] = []
     for path in sorted(root.rglob("*.ts")) + sorted(root.rglob("*.tsx")):
         if not path.is_file():

@@ -33,6 +33,15 @@
  *   - `infrastructure/storeKebabOpenId.ts` → typed `readKebabOpenId` /
  *                                          `writeKebabOpenId` /
  *                                          `subscribeKebabOpenId`.
+ *   - `infrastructure/storeInternalFlag.ts` → typed `readInternalFlag` /
+ *                                          `writeInternalFlag` /
+ *                                          `subscribeInternalFlag` for
+ *                                          the `taxa-internal-ok` key
+ *                                          (ODD-ASN-001 — the
+ *                                          `/hydration-probe` gate's
+ *                                          witness flag; the Playwright
+ *                                          harness sets it via
+ *                                          `context.add_init_script`).
  *   - `infrastructure/reset.ts`         → aggregate `reset()` that
  *                                          clears every key to its
  *                                          typed default AND removes
@@ -72,6 +81,7 @@ export {
   TREE_SOURCE_STORAGE_KEY,
   LAST_TAXON_ID_STORAGE_KEY,
   KEBAB_OPEN_ID_STORAGE_KEY,
+  INTERNAL_FLAG_STORAGE_KEY,
   ALL_STORAGE_KEYS,
 } from "./domain/keys";
 export type {
@@ -119,6 +129,20 @@ export {
   subscribeKebabOpenId,
 } from "./infrastructure/storeKebabOpenId";
 
+// ODD-ASN-001 — internal-flag store re-export. Mirrors the
+// per-file rationale of the four sibling store re-exports above:
+// each per-key store lives in its own file so Turbopack can
+// retain only the imported chain. The gate
+// (`presentation/HydrationProbeGate.tsx`) imports
+// `readInternalFlag` from this barrel so the presentation layer
+// stays free of `localStorage.*` references (the
+// ODD-BSTATE-TAX-001 storage-ownership contract).
+export {
+  readInternalFlag,
+  writeInternalFlag,
+  subscribeInternalFlag,
+} from "./infrastructure/storeInternalFlag";
+
 export { reset } from "./infrastructure/reset";
 
 // ODD-BSTATE-TAX-001-A — per-key hook re-exports. Same per-file
@@ -144,3 +168,14 @@ export { useKebabOpenId } from "./application/useKebabOpenId";
 // scoped to the main route (see
 // `test_app_shell_render.py::test_out_index_html_chunks_permit_only_tree_source_key`).
 export { default as HydrationProbe } from "./presentation/HydrationProbe";
+
+// ODD-ASN-001 — production isolation gate for the dedicated
+// `/hydration-probe` route. Lives next to the `HydrationProbe`
+// re-export so the route's `layout.tsx` can mount the gate via
+// `import { HydrationProbeGate } from "@taxa/browser-state";`
+// without deep-linking into the presentation layer. The gate
+// is the route's only client-side production guard; the
+// search-engine side of the contract is enforced by the route
+// layout's `metadata.robots` export (Next.js auto-injects the
+// `<meta name="robots" content="noindex,nofollow">` pair).
+export { default as HydrationProbeGate } from "./presentation/HydrationProbeGate";
