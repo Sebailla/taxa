@@ -4837,41 +4837,124 @@ def test_folder_tab_consumes_canonical_projection() -> None:
 
 
 def test_folder_tab_renders_loading_state() -> None:
-    """ODD-TDFOLDER-001: the loading branch renders a
-    `role="status"` element with `aria-busy="true"` + the
-    canonical loading copy "Loading preview…" + the section
-    header. Mirrors the ODD-TDS-001 + ODD-TDV-001 +
-    ODD-TDSYN-001 + ODD-TDDIST-001 loading contracts
-    byte-for-byte."""
+    """ODD-PHASE2 + ODD-TDFOLDER-001: the loading branch uses
+    the `<Spinner size="md" label="Loading folder preview…" />`
+    design-system primitive (from `@taxa/design-system`) instead
+    of the previous inline `<span className="material-symbols-
+    outlined animate-spin">progress_activity</span>` + `<p>Loading
+    preview…</p>` composition. The Spinner primitive owns the
+    `role="status"` + `aria-live="polite"` + `aria-busy` a11y
+    surface (its internal `<span aria-busy="true">` + the
+    visually-hidden `<div role="status" aria-live="polite">`
+    region). The wrapper carries `data-folder-status="loading"`
+    so the per-state data-attribute contract survives the
+    migration. Mirrors the ODD-TDS-001 + ODD-TDV-001 +
+    ODD-TDSYN-001 + ODD-TDDIST-001 loading contracts byte-for-
+    byte."""
     text = _read_text(FOLDER_TAB_FILE)
+    # The Spinner primitive MUST be imported from the public
+    # barrel (spec.md rule 5 — no deep imports into the layer
+    # folders).
+    assert re.search(
+        r'import\s*\{[^}]*\bSpinner\b[^}]*\}\s*from\s*["\']\@taxa/design-system["\']',
+        text,
+    ), (
+        "ODD-PHASE2: FolderTab.tsx must import `Spinner` from "
+        "`@taxa/design-system` (the public barrel)."
+    )
+    # The Spinner primitive MUST be used at the loading branch
+    # with `size="md"` + the canonical loading label.
+    assert re.search(
+        r'<\s*Spinner\b[^>]*\bsize\s*=\s*["\']md["\']',
+        text,
+    ), (
+        "ODD-PHASE2: FolderTab.tsx must render `<Spinner size=\"md\">` "
+        "for the loading state."
+    )
+    assert 'label="Loading folder preview' in text or "label='Loading folder preview" in text, (
+        "ODD-PHASE2: FolderTab.tsx must pass the canonical loading "
+        "label to the Spinner primitive."
+    )
+    # The wrapper still carries `role="status"` + `aria-busy="true"`
+    # so a screen-reader probe + a legacy Playwright probe can
+    # locate the loading branch via the existing surface.
     assert 'role="status"' in text or "role='status'" in text, (
         "FolderTab.tsx must render a role=\"status\" element for the loading state."
     )
     assert "aria-busy" in text, (
         "FolderTab.tsx must set aria-busy on the loading state for a11y tooling."
     )
-    assert "Loading preview" in text, (
-        "FolderTab.tsx must render the canonical loading copy."
+    assert 'data-folder-status={status.kind}' in text, (
+        "ODD-PHASE2: the loading wrapper must carry "
+        "`data-folder-status={status.kind}` so the per-state "
+        "data-attribute contract survives the migration."
     )
 
 
 def test_folder_tab_renders_error_state() -> None:
-    """ODD-TDFOLDER-001: the error branch renders a
-    `role="alert"` element + the failure message + a Retry
-    button (carrying `data-action="retry-folder-preview"` so
-    the parent can route the click through a delegated
-    handler). The Retry button calls the `onRetryPreview`
-    prop callback so the failure is recoverable without a
-    fresh taxon selection."""
+    """ODD-PHASE2 + ODD-TDFOLDER-001: the error branch now uses
+    the `<InlineMessage variant="error">` design-system primitive
+    (from `@taxa/design-system`) for the inline failure message
+    instead of the previous `<div className="folder-inline-
+    message folder-inline-message-error …">` composition. The
+    InlineMessage primitive owns the `bg-red-50 border-red-200
+    text-red-700` palette; the `data-folder-inline-message="error"`
+    data attribute + `role="alert"` + the wire `{status.message}`
+    value still pass through verbatim. The Retry button now uses
+    `<Button variant="secondary">` (also from
+    `@taxa/design-system`); the click still invokes the
+    `onRetryPreview` prop callback so the failure is recoverable
+    without a fresh taxon selection.
+    """
     text = _read_text(FOLDER_TAB_FILE)
+    # The InlineMessage primitive MUST be imported from the public
+    # barrel (spec.md rule 5).
+    assert re.search(
+        r'import\s*\{[^}]*\bInlineMessage\b[^}]*\}\s*from\s*["\']\@taxa/design-system["\']',
+        text,
+    ), (
+        "ODD-PHASE2: FolderTab.tsx must import `InlineMessage` from "
+        "`@taxa/design-system` (the public barrel)."
+    )
+    # The Button primitive MUST be imported from the public
+    # barrel (the Retry button uses the primitive).
+    assert re.search(
+        r'import\s*\{[^}]*\bButton\b[^}]*\}\s*from\s*["\']\@taxa/design-system["\']',
+        text,
+    ), (
+        "ODD-PHASE2: FolderTab.tsx must import `Button` from "
+        "`@taxa/design-system` (the public barrel — Retry uses it)."
+    )
+    # The error InlineMessage MUST be rendered with
+    # `variant="error"`.
+    assert re.search(
+        r'<\s*InlineMessage\b[^>]*\bvariant\s*=\s*["\']error["\']',
+        text,
+    ), (
+        "ODD-PHASE2: FolderTab.tsx must render `<InlineMessage "
+        "variant=\"error\">` for the error state."
+    )
+    # The wrapper / InlineMessage MUST still carry the canonical
+    # a11y hook (`role="alert"`) + the canonical data attribute
+    # (`data-folder-inline-message="error"`) so the legacy
+    # selectors + Playwright probes still find the error state.
     assert 'role="alert"' in text or "role='alert'" in text, (
         "FolderTab.tsx must render a role=\"alert\" element for the error state."
+    )
+    assert 'data-folder-inline-message="error"' in text or "data-folder-inline-message='error'" in text, (
+        "FolderTab.tsx must stamp data-folder-inline-message=\"error\" on the error InlineMessage."
     )
     assert "Could not load the preview" in text, (
         "FolderTab.tsx must render the canonical error copy."
     )
-    assert "Retry" in text, (
-        "FolderTab.tsx must render a Retry button on the preview error state."
+    # The Retry button uses the `<Button variant="secondary">`
+    # primitive.
+    assert re.search(
+        r'<\s*Button\b[^>]*\bvariant\s*=\s*["\']secondary["\'][\s\S]{0,400}?Retry[\s\S]{0,40}?</Button>',
+        text,
+    ), (
+        "ODD-PHASE2: FolderTab.tsx must render the Retry button "
+        "via `<Button variant=\"secondary\">`."
     )
     assert 'data-action="retry-folder-preview"' in text, (
         "FolderTab.tsx must stamp data-action=\"retry-folder-preview\" on the Retry button."
@@ -4961,19 +5044,44 @@ def test_folder_tab_renders_counts_summary() -> None:
 
 
 def test_folder_tab_renders_info_banner_when_all_exist() -> None:
-    """ODD-TDFOLDER-001: when `preview.all_exist === true`,
-    the renderer paints the "Path already exists on disk."
-    info banner with the check_circle glyph. The branch is
-    conditional on the wire `all_exist` flag (the renderer
-    does NOT compute all_exist client-side — the server is
-    the source of truth). Mirrors the legacy
-    `web/detail.js::renderFolderTab::infoBanner` byte-for-byte."""
+    """ODD-PHASE2 + ODD-TDFOLDER-001: when `preview.all_exist
+    === true`, the renderer paints the info banner via the
+    `<InlineMessage variant="info">` design-system primitive
+    (from `@taxa/design-system`) instead of the previous
+    `<div className="folder-info-banner …">` composition. The
+    `data-folder-info-banner=""` data attribute + the canonical
+    "Path already exists on disk." copy + the `check_circle`
+    Material Symbols glyph all pass through verbatim. The
+    branch is conditional on the wire `all_exist` flag (the
+    renderer does NOT compute all_exist client-side — the
+    server is the source of truth). Mirrors the legacy
+    `web/detail.js::renderFolderTab::infoBanner` byte-for-byte.
+    """
     text = _read_text(FOLDER_TAB_FILE)
-    assert "folder-info-banner" in text, (
-        "FolderTab.tsx must render the .folder-info-banner element when all_exist === true."
+    # The InlineMessage primitive MUST be imported from the public
+    # barrel (spec.md rule 5).
+    assert re.search(
+        r'import\s*\{[^}]*\bInlineMessage\b[^}]*\}\s*from\s*["\']\@taxa/design-system["\']',
+        text,
+    ), (
+        "ODD-PHASE2: FolderTab.tsx must import `InlineMessage` from "
+        "`@taxa/design-system` (the public barrel)."
     )
-    assert "data-folder-info-banner" in text, (
-        "FolderTab.tsx must stamp data-folder-info-banner on the info banner."
+    # The info banner MUST be rendered as an `<InlineMessage
+    # variant="info" data-folder-info-banner="">` opening tag.
+    # We use a regex that captures the FULL opening tag from
+    # `<InlineMessage` through to the closing `>` so the
+    # data-folder-info-banner="" attribute is provably on the
+    # same element as the variant="info" attribute.
+    full_open_match = re.search(
+        r'<\s*InlineMessage\b[^>]*?\bvariant\s*=\s*["\']info["\'][^>]*?\bdata-folder-info-banner\s*=\s*["\']["\'][^>]*?>',
+        text,
+    )
+    assert full_open_match, (
+        "ODD-PHASE2: FolderTab.tsx must render the info banner "
+        "via `<InlineMessage variant=\"info\" "
+        "data-folder-info-banner=\"\">` (both attributes on the "
+        "same opening tag)."
     )
     assert "Path already exists on disk" in text, (
         "FolderTab.tsx must render the canonical info banner copy."
@@ -4984,58 +5092,115 @@ def test_folder_tab_renders_info_banner_when_all_exist() -> None:
 
 
 def test_folder_tab_renders_create_row_when_not_all_exist() -> None:
-    """ODD-TDFOLDER-001: when `preview.all_exist === false`,
-    the renderer paints the create row (initially the bare
-    "Create N folders" CTA — the in-tab confirmation gate
-    flips it to the Confirm row on the next click). The CTA
-    carries `data-action="arm-create-research-folders"` so
-    the parent can route the click through the
-    `handleArmCreate` callback. Mirrors the legacy
-    `web/detail.js::renderFolderTab::createBtn` flow,
-    except the React port adds an explicit gate (the legacy
-    oracle POSTs immediately)."""
+    """ODD-PHASE2 + ODD-TDFOLDER-001: when `preview.all_exist
+    === false`, the renderer paints the create row (initially
+    the bare "Create N folders" CTA — the in-tab confirmation
+    gate flips it to the Confirm row on the next click). The
+    bare CTA now uses the `<Button variant="primary">` design-
+    system primitive (from `@taxa/design-system`) instead of
+    the previous inline `<button className="folder-btn
+    folder-btn-primary …">` composition. The CTA carries the
+    canonical `data-action="create-folders"` (per the ODD-
+    PHASE2 data-action naming cleanup) so the parent can route
+    the click through `onArmCreate`. Mirrors the legacy
+    `web/detail.js::renderFolderTab::createBtn` flow, except
+    the React port adds an explicit gate (the legacy oracle
+    POSTs immediately)."""
     text = _read_text(FOLDER_TAB_FILE)
+    # The Button primitive MUST be imported from the public barrel.
+    assert re.search(
+        r'import\s*\{[^}]*\bButton\b[^}]*\}\s*from\s*["\']\@taxa/design-system["\']',
+        text,
+    ), (
+        "ODD-PHASE2: FolderTab.tsx must import `Button` from "
+        "`@taxa/design-system` (the public barrel)."
+    )
+    # The bare CTA MUST be rendered with
+    # `<Button variant="primary">` AND carry
+    # `data-action="create-folders"`. We anchor on the
+    # data-action first (it's unique across all Button
+    # elements in this file) so the regex distinguishes the
+    # bare Create CTA from the Confirm button (which is also
+    # `variant="primary"`).
+    create_match = re.search(
+        r'<\s*Button\b[^>]*\bvariant\s*=\s*(?:["\']primary["\']|\{["\']primary["\']\})'
+        r'[\s\S]{0,400}?\bdata-action\s*=\s*["\']create-folders["\']',
+        text,
+    )
+    assert create_match, (
+        "ODD-PHASE2: FolderTab.tsx must render the bare Create CTA "
+        "via `<Button variant=\"primary\" data-action=\"create-folders\">`."
+    )
+    assert "onArmCreate" in text, (
+        "FolderTab.tsx must invoke the onArmCreate prop on bare-CTA click."
+    )
     assert "folder-create-row" in text, (
         "FolderTab.tsx must render the .folder-create-row element when all_exist === false."
     )
     assert "data-folder-create-row" in text, (
         "FolderTab.tsx must stamp data-folder-create-row on the create row."
     )
-    assert 'data-action="arm-create-research-folders"' in text, (
-        "FolderTab.tsx must stamp data-action=\"arm-create-research-folders\" on the bare CTA "
-        "(so the parent can route the click through handleArmCreate)."
-    )
-    assert "onArmCreate" in text, (
-        "FolderTab.tsx must invoke the onArmCreate prop on bare-CTA click."
-    )
 
 
 def test_folder_tab_renders_confirm_row_when_armed() -> None:
-    """ODD-TDFOLDER-001: when `createArmed === true`, the
-    renderer paints the in-tab confirmation row instead of
-    the bare CTA. The row carries a Cancel button (which
-    invokes `onDisarmCreate`) + a Confirm create button
-    (which invokes `onCreate` — the parent calls
-    `materializeResearch`). The explicit gate is the
-    ODD-TDFOLDER-001 user constraint: "Require an explicit
-    in-tab confirmation before creating folders,
-    intentionally safer than legacy." The legacy
+    """ODD-PHASE2 + ODD-TDFOLDER-001: when `createArmed === true`,
+    the renderer paints the in-tab confirmation row instead of
+    the bare CTA. The row carries a Cancel button (`<Button
+    variant="secondary">`) which invokes `onDisarmCreate` + a
+    Confirm create button (`<Button variant="primary">`) which
+    invokes `onCreate` (the parent calls `materializeResearch`).
+    The explicit gate is the ODD-TDFOLDER-001 user constraint:
+    "Require an explicit in-tab confirmation before creating
+    folders, intentionally safer than legacy." The legacy
     `web/detail.js::renderFolderTab::createBtn` POSTs
-    immediately on click."""
+    immediately on click.
+
+    Both buttons now use the `<Button>` design-system primitive
+    from `@taxa/design-system` (no more `<button className=
+    "folder-btn folder-btn-primary …">` / `folder-btn-secondary`
+    composition). The data-action names follow the ODD-PHASE2
+    cleanup: `data-action="confirm-create-folders"` +
+    `data-action="disarm-create-folders"`."""
     text = _read_text(FOLDER_TAB_FILE)
+    # The Button primitive MUST be imported from the public barrel.
+    assert re.search(
+        r'import\s*\{[^}]*\bButton\b[^}]*\}\s*from\s*["\']\@taxa/design-system["\']',
+        text,
+    ), (
+        "ODD-PHASE2: FolderTab.tsx must import `Button` from "
+        "`@taxa/design-system` (the public barrel)."
+    )
+    # The Confirm button MUST be rendered with
+    # `<Button variant="primary">` AND carry
+    # `data-action="confirm-create-folders"`. We anchor on the
+    # data-action so the regex distinguishes the Confirm button
+    # from the bare Create CTA (which is also `variant="primary"`).
+    confirm_btn_match = re.search(
+        r'<\s*Button\b[^>]*\bvariant\s*=\s*(?:["\']primary["\']|\{["\']primary["\']\})'
+        r'[\s\S]{0,400}?\bdata-action\s*=\s*["\']confirm-create-folders["\']',
+        text,
+    )
+    assert confirm_btn_match, (
+        "ODD-PHASE2: FolderTab.tsx must render the Confirm button "
+        "via `<Button variant=\"primary\" data-action=\"confirm-create-folders\">`."
+    )
+    # The Cancel button MUST be rendered with
+    # `<Button variant="secondary">` AND carry
+    # `data-action="disarm-create-folders"`.
+    cancel_btn_match = re.search(
+        r'<\s*Button\b[^>]*\bvariant\s*=\s*(?:["\']secondary["\']|\{["\']secondary["\']\})'
+        r'[\s\S]{0,400}?\bdata-action\s*=\s*["\']disarm-create-folders["\']',
+        text,
+    )
+    assert cancel_btn_match, (
+        "ODD-PHASE2: FolderTab.tsx must render the Cancel button "
+        "via `<Button variant=\"secondary\" data-action=\"disarm-create-folders\">`."
+    )
     assert "folder-confirm" in text, (
         "FolderTab.tsx must render the .folder-confirm element when createArmed === true."
     )
     assert "data-folder-confirm" in text, (
         "FolderTab.tsx must stamp data-folder-confirm on the confirm row."
-    )
-    assert 'data-action="confirm-create-research-folders"' in text, (
-        "FolderTab.tsx must stamp data-action=\"confirm-create-research-folders\" on the "
-        "Confirm button."
-    )
-    assert 'data-action="disarm-create-research-folders"' in text, (
-        "FolderTab.tsx must stamp data-action=\"disarm-create-research-folders\" on the "
-        "Cancel button."
     )
     assert "onCreate" in text and "onDisarmCreate" in text, (
         "FolderTab.tsx must invoke the onCreate prop on Confirm click "
@@ -5049,9 +5214,6 @@ def test_folder_tab_renders_confirm_row_when_armed() -> None:
     prompt_block = re.search(
         r"folder-confirm-prompt[\s\S]{0,400}?relative_path",
         text,
-    ), (
-        "FolderTab.tsx must surface the wire `preview.relative_path` "
-        "verbatim in the Confirm row prompt."
     )
     assert prompt_block, (
         "FolderTab.tsx must surface the wire `preview.relative_path` "
@@ -5060,27 +5222,61 @@ def test_folder_tab_renders_confirm_row_when_armed() -> None:
 
 
 def test_folder_tab_renders_path_actions_when_all_exist() -> None:
-    """ODD-TDFOLDER-001: when `preview.all_exist === true`,
-    the renderer paints the Open + Copy path-actions row
-    instead of the create row. The Open button carries the
-    folder_open glyph + invokes `onOpen` (the parent calls
-    `openFolder`); the Copy button carries the content_copy
-    glyph + invokes `onCopy` (the parent calls
-    `navigator.clipboard.writeText`). Mirrors the legacy
-    `web/detail.js::renderFolderTab::pathActions`
-    byte-for-byte."""
+    """ODD-PHASE2 + ODD-TDFOLDER-001: when `preview.all_exist
+    === true`, the renderer paints the Open + Copy path-actions
+    row instead of the create row. The Open + Copy buttons now
+    use the `<Button variant="secondary">` design-system
+    primitive (from `@taxa/design-system`) instead of the
+    previous inline `<button className="folder-btn folder-btn-
+    primary …">` / `folder-btn-secondary` composition. The
+    Open button carries the `folder_open` Material Symbols
+    glyph + invokes `onOpen` (the parent calls `openFolder`);
+    the Copy button carries the `content_copy` glyph + invokes
+    `onCopy` (the parent calls `navigator.clipboard.writeText`).
+    The data-action names follow the ODD-PHASE2 cleanup:
+    `data-action="open-folder-tab"` + `data-action="copy-path"`.
+    Mirrors the legacy `web/detail.js::renderFolderTab::
+    pathActions` byte-for-byte."""
     text = _read_text(FOLDER_TAB_FILE)
+    # The Button primitive MUST be imported from the public barrel.
+    assert re.search(
+        r'import\s*\{[^}]*\bButton\b[^}]*\}\s*from\s*["\']\@taxa/design-system["\']',
+        text,
+    ), (
+        "ODD-PHASE2: FolderTab.tsx must import `Button` from "
+        "`@taxa/design-system` (the public barrel)."
+    )
+    # The Open button MUST be rendered with
+    # `<Button variant="secondary">` AND carry
+    # `data-action="open-folder-tab"`. We anchor on the
+    # data-action so the regex distinguishes the Open button
+    # from the Copy button (both are `variant="secondary"`).
+    open_btn_match = re.search(
+        r'<\s*Button\b[^>]*\bvariant\s*=\s*(?:["\']secondary["\']|\{["\']secondary["\']\})'
+        r'[\s\S]{0,400}?\bdata-action\s*=\s*["\']open-folder-tab["\']',
+        text,
+    )
+    assert open_btn_match, (
+        "ODD-PHASE2: FolderTab.tsx must render the Open button "
+        "via `<Button variant=\"secondary\" data-action=\"open-folder-tab\">`."
+    )
+    # The Copy button MUST be rendered with
+    # `<Button variant="secondary">` AND carry
+    # `data-action="copy-path"`.
+    copy_btn_match = re.search(
+        r'<\s*Button\b[^>]*\bvariant\s*=\s*(?:["\']secondary["\']|\{["\']secondary["\']\})'
+        r'[\s\S]{0,400}?\bdata-action\s*=\s*["\']copy-path["\']',
+        text,
+    )
+    assert copy_btn_match, (
+        "ODD-PHASE2: FolderTab.tsx must render the Copy button "
+        "via `<Button variant=\"secondary\" data-action=\"copy-path\">`."
+    )
     assert "folder-path-actions" in text, (
         "FolderTab.tsx must render the .folder-path-actions element when all_exist === true."
     )
     assert "data-folder-path-actions" in text, (
         "FolderTab.tsx must stamp data-folder-path-actions on the path-actions row."
-    )
-    assert 'data-action="open-research-folder"' in text, (
-        "FolderTab.tsx must stamp data-action=\"open-research-folder\" on the Open button."
-    )
-    assert 'data-action="copy-research-path"' in text, (
-        "FolderTab.tsx must stamp data-action=\"copy-research-path\" on the Copy button."
     )
     assert "onOpen" in text and "onCopy" in text, (
         "FolderTab.tsx must invoke onOpen on the Open button "
@@ -5089,24 +5285,57 @@ def test_folder_tab_renders_path_actions_when_all_exist() -> None:
 
 
 def test_folder_tab_renders_inline_success_and_error_messages() -> None:
-    """ODD-TDFOLDER-001: the create / open / copy actions all
-    surface inline success / error messages (no toast
-    dependency). The success messages carry the wire
-    `MaterializeResult.relative_path` /
-    `OpenFolderResult.opened_with` values verbatim. The
-    error messages carry the failure reason verbatim (the
-    user can retry without a tab refresh). The inline
-    messages use the `.folder-inline-message-success` /
-    `.folder-inline-message-error` modifier classes so the
-    existing CSS palette applies. Mirrors the legacy
-    `web/detail.js::renderFolderTab` toast affordance
-    without the toast helper."""
+    """ODD-PHASE2 + ODD-TDFOLDER-001: the create / open / copy
+    actions all surface inline success / error messages (no toast
+    dependency). The success / error messages now use the
+    `<InlineMessage variant="success">` + `<InlineMessage
+    variant="error">` design-system primitives (from
+    `@taxa/design-system`) instead of the previous
+    `<div className="folder-inline-message folder-inline-
+    message-success …">` / `folder-inline-message-error`
+    composition. The InlineMessage primitive owns the
+    `bg-green-50 border-green-200 text-green-700` /
+    `bg-red-50 border-red-200 text-red-700` palette; the
+    `data-folder-inline-message-success` /
+    `data-folder-inline-message-error` data attributes + the
+    wire `MaterializeResult.relative_path` /
+    `OpenFolderResult.opened_with` values pass through verbatim.
+    Mirrors the legacy `web/detail.js::renderFolderTab` toast
+    affordance without the toast helper."""
     text = _read_text(FOLDER_TAB_FILE)
-    assert "folder-inline-message-success" in text, (
-        "FolderTab.tsx must render the .folder-inline-message-success class on success copy."
+    # The InlineMessage primitive MUST be imported from the public barrel.
+    assert re.search(
+        r'import\s*\{[^}]*\bInlineMessage\b[^}]*\}\s*from\s*["\']\@taxa/design-system["\']',
+        text,
+    ), (
+        "ODD-PHASE2: FolderTab.tsx must import `InlineMessage` from "
+        "`@taxa/design-system` (the public barrel)."
     )
-    assert "folder-inline-message-error" in text, (
-        "FolderTab.tsx must render the .folder-inline-message-error class on error copy."
+    # The success InlineMessage MUST use `<InlineMessage variant="success">`.
+    assert re.search(
+        r'<\s*InlineMessage\b[^>]*\bvariant\s*=\s*["\']success["\']',
+        text,
+    ), (
+        "ODD-PHASE2: FolderTab.tsx must render the inline success "
+        "messages via `<InlineMessage variant=\"success\">`."
+    )
+    # The error InlineMessage MUST use `<InlineMessage variant="error">`.
+    # Multiple occurrences are expected (the create-error branch +
+    # the open-error branch + the copy-error branch all surface
+    # `<InlineMessage variant="error">`).
+    error_inline_count = len(re.findall(
+        r'<\s*InlineMessage\b[^>]*\bvariant\s*=\s*["\']error["\']',
+        text,
+    ))
+    assert error_inline_count >= 1, (
+        "ODD-PHASE2: FolderTab.tsx must render the inline error "
+        "messages via `<InlineMessage variant=\"error\">`."
+    )
+    # The per-state data attributes stay preserved so a legacy
+    # Playwright probe can locate each branch via its canonical
+    # data-action selector.
+    assert 'data-folder-inline-message="created"' in text or "data-folder-inline-message='created'" in text, (
+        "FolderTab.tsx must stamp data-folder-inline-message=\"created\" on the create-success message."
     )
     assert "Folders materialized:" in text, (
         "FolderTab.tsx must render the canonical \"Folders materialized: ...\" success copy."
@@ -5146,6 +5375,304 @@ def test_folder_tab_does_not_invoke_clipboard_directly() -> None:
         "FolderTab.tsx must NOT call navigator.clipboard directly — the parent "
         "owns the clipboard transport so the renderer stays framework-free."
     )
+
+
+# ---------------------------------------------------------------------------
+# ODD-PHASE2 — FolderTab design-system primitive coverage tests.
+#
+# The FolderTab migration to `@taxa/design-system` primitives
+# (Spinner + InlineMessage + Button) closed the third Phase 2
+# consumer. These tests pin the new primitive composition so a
+# future PR cannot silently regress the design-system cutover
+# back to inline Tailwind / bespoke CSS hooks.
+# ---------------------------------------------------------------------------
+
+
+def test_folder_tab_uses_spinner_primitive_for_loading() -> None:
+    """ODD-PHASE2: the loading state uses the `<Spinner size="md"
+    label="Loading folder preview…" />` design-system primitive
+    (from `@taxa/design-system`) instead of the previous inline
+    `<span className="material-symbols-outlined animate-spin">progress_activity</span>`
+    + `<p>Loading preview…</p>` composition. The Spinner primitive
+    owns the `role="status"` + `aria-live="polite"` + `aria-busy`
+    a11y surface (its internal `<span aria-busy="true">` wrapper
+    + the visually-hidden `<div role="status" aria-live="polite">`
+    region). The canonical loading label flows through the `label`
+    prop so screen readers announce the file-preview context."""
+    text = _read_text(FOLDER_TAB_FILE)
+    assert re.search(
+        r'import\s*\{[^}]*\bSpinner\b[^}]*\}\s*from\s*["\']\@taxa/design-system["\']',
+        text,
+    ), (
+        "ODD-PHASE2: FolderTab.tsx must import `Spinner` from "
+        "`@taxa/design-system` (the public barrel)."
+    )
+    assert re.search(
+        r'<\s*Spinner\b[^>]*\bsize\s*=\s*["\']md["\']',
+        text,
+    ), (
+        "ODD-PHASE2: FolderTab.tsx must render `<Spinner size=\"md\">` "
+        "for the loading state."
+    )
+    # The canonical loading label flows through the `label` prop.
+    assert re.search(
+        r'<\s*Spinner\b[^>]*\blabel\s*=\s*["\']Loading folder preview',
+        text,
+    ), (
+        "ODD-PHASE2: FolderTab.tsx must pass the canonical loading "
+        "label (`Loading folder preview…`) to the Spinner primitive."
+    )
+
+
+def test_folder_tab_uses_inlinemessage_primitive_for_info_banner() -> None:
+    """ODD-PHASE2: the info banner uses the `<InlineMessage
+    variant="info">` design-system primitive (from
+    `@taxa/design-system`) instead of the previous `<div
+    className="folder-info-banner …">` composition. The
+    InlineMessage primitive owns the
+    `bg-surface-container-low border-outline-variant
+    text-on-surface-variant` palette; the `data-folder-info-
+    banner=""` data attribute + the `check_circle` glyph +
+    the canonical copy pass through verbatim."""
+    text = _read_text(FOLDER_TAB_FILE)
+    assert re.search(
+        r'import\s*\{[^}]*\bInlineMessage\b[^}]*\}\s*from\s*["\']\@taxa/design-system["\']',
+        text,
+    ), (
+        "ODD-PHASE2: FolderTab.tsx must import `InlineMessage` from "
+        "`@taxa/design-system` (the public barrel)."
+    )
+    # The info banner opening tag carries BOTH `variant="info"` AND
+    # `data-folder-info-banner=""` so the per-banner data-attribute
+    # contract survives the migration.
+    info_open_match = re.search(
+        r'<\s*InlineMessage\b[^>]*?\bvariant\s*=\s*["\']info["\'][^>]*?\bdata-folder-info-banner\s*=\s*["\']["\'][^>]*?>',
+        text,
+    )
+    assert info_open_match, (
+        "ODD-PHASE2: FolderTab.tsx must render the info banner via "
+        "`<InlineMessage variant=\"info\" data-folder-info-banner=\"\">` "
+        "(both attributes on the same opening tag)."
+    )
+
+
+def test_folder_tab_uses_inlinemessage_primitive_for_error_message() -> None:
+    """ODD-PHASE2: the error messages use the `<InlineMessage
+    variant="error">` design-system primitive (from
+    `@taxa/design-system`) instead of the previous `<div
+    className="folder-inline-message folder-inline-message-error …">`
+    composition. Multiple `<InlineMessage variant="error">`
+    occurrences are expected: the create-error branch + the
+    open-error branch + the copy-error branch all surface the
+    primitive. The InlineMessage primitive owns the `bg-red-50
+    border-red-200 text-red-700` palette; the `role="alert"` +
+    `data-folder-inline-message-error=""` attributes pass
+    through verbatim so legacy Playwright probes still locate
+    the error state."""
+    text = _read_text(FOLDER_TAB_FILE)
+    error_inline_count = len(re.findall(
+        r'<\s*InlineMessage\b[^>]*\bvariant\s*=\s*["\']error["\']',
+        text,
+    ))
+    assert error_inline_count >= 1, (
+        "ODD-PHASE2: FolderTab.tsx must render at least one "
+        "`<InlineMessage variant=\"error\">` for the error "
+        "branches (create-error + open-error + copy-error)."
+    )
+    # The `data-folder-inline-message-error=""` attribute MUST
+    # be on at least one of the error InlineMessages so the
+    # legacy Playwright probe can locate the error state.
+    assert 'data-folder-inline-message-error=""' in text, (
+        "ODD-PHASE2: FolderTab.tsx must stamp "
+        "`data-folder-inline-message-error=\"\"` on the error "
+        "InlineMessage(s) (the legacy Playwright probe anchor)."
+    )
+
+
+def test_folder_tab_uses_inlinemessage_primitive_for_success_message() -> None:
+    """ODD-PHASE2: the success messages use the `<InlineMessage
+    variant="success">` design-system primitive (from
+    `@taxa/design-system`) instead of the previous `<div
+    className="folder-inline-message folder-inline-message-
+    success …">` composition. Multiple `<InlineMessage
+    variant="success">` occurrences are expected: the
+    create-success branch + the open-success branch. The
+    InlineMessage primitive owns the `bg-green-50
+    border-green-200 text-green-700` palette; the canonical
+    `data-folder-inline-message-success=""` attribute passes
+    through verbatim."""
+    text = _read_text(FOLDER_TAB_FILE)
+    assert re.search(
+        r'<\s*InlineMessage\b[^>]*\bvariant\s*=\s*["\']success["\']',
+        text,
+    ), (
+        "ODD-PHASE2: FolderTab.tsx must render at least one "
+        "`<InlineMessage variant=\"success\">` for the success "
+        "branches (create-success + open-success)."
+    )
+    # The `data-folder-inline-message-success=""` attribute MUST
+    # be on at least one of the success InlineMessages so the
+    # legacy Playwright probe can locate the success state.
+    assert 'data-folder-inline-message-success=""' in text, (
+        "ODD-PHASE2: FolderTab.tsx must stamp "
+        "`data-folder-inline-message-success=\"\"` on the success "
+        "InlineMessage(s) (the legacy Playwright probe anchor)."
+    )
+
+
+def test_folder_tab_uses_button_primitive_for_create() -> None:
+    """ODD-PHASE2: the bare "Create N folders" CTA uses the
+    `<Button variant="primary">` design-system primitive (from
+    `@taxa/design-system`) instead of the previous inline
+    `<button className="folder-btn folder-btn-primary …">`
+    composition. The CTA carries the canonical
+    `data-action="create-folders"` (per the ODD-PHASE2
+    data-action naming cleanup) so the parent can route the
+    click through `onArmCreate`."""
+    text = _read_text(FOLDER_TAB_FILE)
+    assert re.search(
+        r'import\s*\{[^}]*\bButton\b[^}]*\}\s*from\s*["\']\@taxa/design-system["\']',
+        text,
+    ), (
+        "ODD-PHASE2: FolderTab.tsx must import `Button` from "
+        "`@taxa/design-system` (the public barrel)."
+    )
+    create_match = re.search(
+        r'<\s*Button\b[^>]*?\bvariant\s*=\s*["\']primary["\'][^>]*?\bdata-action\s*=\s*["\']create-folders["\'][^>]*?>',
+        text,
+    )
+    assert create_match, (
+        "ODD-PHASE2: FolderTab.tsx must render the bare Create "
+        "CTA via `<Button variant=\"primary\" data-action=\"create-folders\">`."
+    )
+
+
+def test_folder_tab_uses_button_primitive_for_confirm() -> None:
+    """ODD-PHASE2: the Confirm button (in the in-tab
+    confirmation row when `createArmed === true`) uses the
+    `<Button variant="primary">` design-system primitive (from
+    `@taxa/design-system`) instead of the previous inline
+    `<button className="folder-btn folder-btn-primary …">`
+    composition. The button carries the canonical
+    `data-action="confirm-create-folders"` (per the ODD-PHASE2
+    data-action naming cleanup) so the parent can route the
+    click through `onCreate`."""
+    text = _read_text(FOLDER_TAB_FILE)
+    confirm_match = re.search(
+        r'<\s*Button\b[^>]*?\bvariant\s*=\s*["\']primary["\'][^>]*?\bdata-action\s*=\s*["\']confirm-create-folders["\'][^>]*?>',
+        text,
+    )
+    assert confirm_match, (
+        "ODD-PHASE2: FolderTab.tsx must render the Confirm "
+        "button via `<Button variant=\"primary\" data-action=\"confirm-create-folders\">`."
+    )
+
+
+def test_folder_tab_uses_button_primitive_for_open() -> None:
+    """ODD-PHASE2: the Open button (in the path-actions row
+    when `all_exist === true`) uses the `<Button
+    variant="secondary">` design-system primitive (from
+    `@taxa/design-system`) instead of the previous inline
+    `<button className="folder-btn folder-btn-primary …">`
+    composition. The button carries the canonical
+    `data-action="open-folder-tab"` (per the ODD-PHASE2
+    data-action naming cleanup) so the parent can route the
+    click through `onOpen`."""
+    text = _read_text(FOLDER_TAB_FILE)
+    open_match = re.search(
+        r'<\s*Button\b[^>]*?\bvariant\s*=\s*["\']secondary["\'][^>]*?\bdata-action\s*=\s*["\']open-folder-tab["\'][^>]*?>',
+        text,
+    )
+    assert open_match, (
+        "ODD-PHASE2: FolderTab.tsx must render the Open button "
+        "via `<Button variant=\"secondary\" data-action=\"open-folder-tab\">`."
+    )
+
+
+def test_folder_tab_uses_button_primitive_for_copy() -> None:
+    """ODD-PHASE2: the Copy button (in the path-actions row
+    when `all_exist === true`) uses the `<Button
+    variant="secondary">` design-system primitive (from
+    `@taxa/design-system`) instead of the previous inline
+    `<button className="folder-btn folder-btn-secondary …">`
+    composition. The button carries the canonical
+    `data-action="copy-path"` (per the ODD-PHASE2 data-action
+    naming cleanup) so the parent can route the click
+    through `onCopy`."""
+    text = _read_text(FOLDER_TAB_FILE)
+    copy_match = re.search(
+        r'<\s*Button\b[^>]*?\bvariant\s*=\s*["\']secondary["\'][^>]*?\bdata-action\s*=\s*["\']copy-path["\'][^>]*?>',
+        text,
+    )
+    assert copy_match, (
+        "ODD-PHASE2: FolderTab.tsx must render the Copy button "
+        "via `<Button variant=\"secondary\" data-action=\"copy-path\">`."
+    )
+
+
+def test_folder_tab_no_inline_folder_btn_classes() -> None:
+    """ODD-PHASE2: the legacy `<button className="folder-btn
+    folder-btn-primary …">` / `folder-btn-secondary` /
+    `folder-btn` class hooks are GONE from FolderTab.tsx. The
+    `<Button>` design-system primitive owns the treatment +
+    the variant palette. The className-anchored regex avoids
+    false positives from the file's docstring which mentions
+    `folder-btn*` literally as legacy references."""
+    raw = _read_text(FOLDER_TAB_FILE)
+    # Strip every JSDoc / block comment + line comment so the
+    # assertion doesn't trip on the docstring's prose
+    # explanation (the file documents the legacy composition
+    # it replaced; the assertion enforces the legacy class
+    # hooks are gone from the body code).
+    block = re.compile(r"/\*[\s\S]*?\*/")
+    line = re.compile(r"//[^\n]*")
+    blank = lambda m: re.sub(r"[^\n]", " ", m.group(0))  # noqa: E731
+    text = block.sub(blank, raw)
+    text = line.sub(blank, text)
+    for forbidden in (
+        r'className\s*=\s*["\'][^"\']*\bfolder-btn\b',
+        r'className\s*=\s*["\'][^"\']*\bfolder-btn-primary\b',
+        r'className\s*=\s*["\'][^"\']*\bfolder-btn-secondary\b',
+    ):
+        assert not re.search(forbidden, text), (
+            "ODD-PHASE2: FolderTab.tsx must NOT carry the legacy "
+            "`.folder-btn*` class hooks (the Button primitive "
+            "owns the variant palette)."
+        )
+
+
+def test_folder_tab_no_inline_folder_inline_message_classes() -> None:
+    """ODD-PHASE2: the legacy `<div className="folder-inline-
+    message folder-inline-message-error …">` / `folder-inline-
+    message-success` / `folder-inline-message` class hooks are
+    GONE from FolderTab.tsx. The `<InlineMessage>` design-
+    system primitive owns the treatment + the variant palette.
+    The className-anchored regex avoids false positives from
+    the file's docstring which mentions `folder-inline-
+    message*` literally as legacy references."""
+    raw = _read_text(FOLDER_TAB_FILE)
+    # Strip every JSDoc / block comment + line comment so the
+    # assertion doesn't trip on the docstring's prose
+    # explanation (the file documents the legacy composition
+    # it replaced; the assertion enforces the legacy class
+    # hooks are gone from the body code).
+    block = re.compile(r"/\*[\s\S]*?\*/")
+    line = re.compile(r"//[^\n]*")
+    blank = lambda m: re.sub(r"[^\n]", " ", m.group(0))  # noqa: E731
+    text = block.sub(blank, raw)
+    text = line.sub(blank, text)
+    for forbidden in (
+        r'className\s*=\s*["\'][^"\']*\bfolder-inline-message\b',
+        r'className\s*=\s*["\'][^"\']*\bfolder-inline-message-error\b',
+        r'className\s*=\s*["\'][^"\']*\bfolder-inline-message-success\b',
+        r'className\s*=\s*["\'][^"\']*\bfolder-info-banner\b',
+    ):
+        assert not re.search(forbidden, text), (
+            "ODD-PHASE2: FolderTab.tsx must NOT carry the legacy "
+            "`.folder-inline-message*` / `.folder-info-banner` "
+            "class hooks (the InlineMessage primitive owns the "
+            "variant palette)."
+        )
 
 
 def test_detail_panel_enables_folder_tab() -> None:
@@ -5737,16 +6264,21 @@ def test_barrel_reexports_folder_contract() -> None:
 
 
 def test_globals_css_declares_folder_tab_selectors() -> None:
-    """ODD-TDFOLDER-001: `src/app/globals.css` must declare
-    the new `.folder-tab` cascade so the per-row
-    `.folder-segment-item` rows + the ✓ / + markers +
-    the cumulative path + the count summary + the info
-    banner + the Create row + the Confirm row + the path-
-    actions row + the inline success / error messages
-    all render identically to the legacy oracle. The
-    selectors live under `@layer components` and are in
-    alphabetical order so the chain-topology guard in
-    `tests/test_research_styles.py` keeps whitelisting
+    """ODD-PHASE2 + ODD-TDFOLDER-001: `src/app/globals.css` must
+    declare the `.folder-tab` cascade for the still-in-use
+    specialized panel patterns: the wrapper itself, the
+    segment-list descendants (item / marker / marker-exists /
+    marker-new / path / wrap), the section-header / section-
+    count / section-title chrome, the counts summary, the
+    create-row wrapper, the confirm-step descendants, and
+    the path-actions row. The 7 dead rules removed by ODD-
+    PHASE2 (`.folder-info-banner` + `.folder-inline-message`
+    variants + `.folder-btn` variants) are NOT in the
+    whitelist — they were replaced by `<InlineMessage
+    variant=…>` + `<Button variant=…>` primitives from
+    `@taxa/design-system`. Selectors live under `@layer
+    components` in alphabetical order so the chain-topology
+    guard in `tests/test_research_styles.py` keeps whitelisting
     them."""
     text = _read_text(TAXONOMY_GLOBALS_CSS)
     layer = re.search(r"@layer\s+components\s*\{", text)
@@ -5761,19 +6293,12 @@ def test_globals_css_declares_folder_tab_selectors() -> None:
     # accept the bare class names without descendants.
     for needle in (
         ".folder-tab",
-        ".folder-tab .folder-btn",
-        ".folder-tab .folder-btn-primary",
-        ".folder-tab .folder-btn-secondary",
         ".folder-tab .folder-confirm",
         ".folder-tab .folder-confirm-actions",
         ".folder-tab .folder-confirm-path",
         ".folder-tab .folder-confirm-prompt",
         ".folder-tab .folder-counts",
         ".folder-tab .folder-create-row",
-        ".folder-tab .folder-info-banner",
-        ".folder-tab .folder-inline-message",
-        ".folder-tab .folder-inline-message-error",
-        ".folder-tab .folder-inline-message-success",
         ".folder-tab .folder-path-actions",
         ".folder-tab .folder-section-count",
         ".folder-tab .folder-section-header",
@@ -5788,6 +6313,26 @@ def test_globals_css_declares_folder_tab_selectors() -> None:
     ):
         assert needle in body, (
             f"globals.css @layer components must declare {needle}."
+        )
+    # ODD-PHASE2: the 7 dead rules (replaced by
+    # `<InlineMessage variant=…>` + `<Button variant=…>` primitives)
+    # MUST NOT appear in `@layer components` anymore. Pin each one
+    # explicitly so a future refactor that re-introduces them trips
+    # this test before review.
+    for dead_selector in (
+        ".folder-tab .folder-info-banner",
+        ".folder-tab .folder-inline-message",
+        ".folder-tab .folder-inline-message-error",
+        ".folder-tab .folder-inline-message-success",
+        ".folder-tab .folder-btn",
+        ".folder-tab .folder-btn-primary",
+        ".folder-tab .folder-btn-secondary",
+    ):
+        assert dead_selector not in body, (
+            f"ODD-PHASE2: globals.css @layer components MUST NOT declare "
+            f"the dead selector {dead_selector} — it was replaced by "
+            f"a design-system primitive (`<InlineMessage>` or `<Button>`) "
+            f"in the JSX rewrite."
         )
 
 

@@ -1569,54 +1569,26 @@
      `tests/test_research_styles.py` keeps whitelisting the
      base selector under the 3c-c research / chrome surface.
      Every descendant selector is scoped under `.folder-tab`
-     so the alphabetic ordering contract keeps passing (the
-     alphabetic contract strips `:pseudo-class` tokens before
-     the sort, so `.folder-tab .folder-btn:disabled` sorts
-     against `.folder-tab .folder-btn-primary`, etc.). */
+     so the alphabetic ordering contract keeps passing.
+
+     ODD-PHASE2 (design-system cutover): the 7 rules for the
+     inline `.folder-btn` + `.folder-btn-primary` +
+     `.folder-btn-secondary` + `.folder-info-banner` +
+     `.folder-inline-message` + `.folder-inline-message-error`
+     + `.folder-inline-message-success` selectors collapsed
+     out — those surfaces are now owned by the
+     `<Button variant="…">` + `<InlineMessage variant="…">`
+     primitives from `@taxa/design-system` (the public
+     barrel). The cascade below now only owns the wrapper +
+     the specialized segment list + section header + counts
+     summary + create row wrapper + confirm step + path-
+     actions row (the specialized surface patterns the
+     primitives don't subsume). */
   .folder-tab {
     display: flex;
     flex-direction: column;
     gap: 12px;
     padding: 16px 24px;
-  }
-  .folder-tab .folder-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-family: "Raleway", sans-serif;
-    font-size: 14px;
-    font-weight: 600;
-    line-height: 1;
-    padding: 10px 16px;
-    border-radius: 8px;
-    border: 1px solid transparent;
-    cursor: pointer;
-    transition:
-      background 0.12s ease-out,
-      color 0.12s ease-out;
-  }
-  .folder-tab .folder-btn:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-  .folder-tab .folder-btn-primary {
-    background: #15803d;
-    color: white;
-  }
-  .folder-tab .folder-btn-primary:hover:not(:disabled) {
-    background: color-mix(in srgb, #15803d 88%, black);
-  }
-  .folder-tab .folder-btn-secondary {
-    background: transparent;
-    color: var(--primary, #15803d);
-    border: 1px solid currentColor;
-  }
-  .folder-tab .folder-btn-secondary:hover:not(:disabled) {
-    background: color-mix(
-      in srgb,
-      var(--primary, #15803d) 12%,
-      transparent
-    );
   }
   .folder-tab .folder-confirm {
     display: flex;
@@ -1653,42 +1625,11 @@
     justify-content: flex-end;
     margin-top: 4px;
   }
-  .folder-tab .folder-info-banner {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    background: color-mix(in srgb, #15803d 12%, transparent);
-    color: #15803d;
-    font-size: 14px;
-    font-weight: 600;
-  }
-  .folder-tab .folder-inline-message {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
-    border-radius: 6px;
-    font-size: 13px;
-    line-height: 1.4;
-  }
-  .folder-tab .folder-inline-message-error {
-    background: color-mix(in srgb, var(--error) 12%, transparent);
-    color: var(--error, #b91c1c);
-  }
-  .folder-tab .folder-inline-message-success {
-    background: color-mix(in srgb, #15803d 12%, transparent);
-    color: #15803d;
-  }
   .folder-tab .folder-path-actions {
     display: flex;
     gap: 0.5rem;
     flex-wrap: wrap;
     margin-top: 0.75rem;
-  }
-  .folder-tab .folder-path-actions .folder-btn {
-    flex: 0 0 auto;
   }
   .folder-tab .folder-section-count {
     font-size: 11px;
