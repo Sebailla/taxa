@@ -665,6 +665,14 @@ PROBE_GATE = (
     REPO_ROOT / "src" / "modules" / "browser-state"
     / "presentation" / "HydrationProbeGate.tsx"
 )
+STORE_INTERNAL_FLAG_FILE = (
+    REPO_ROOT
+    / "src"
+    / "modules"
+    / "browser-state"
+    / "infrastructure"
+    / "storeInternalFlag.ts"
+)
 
 
 def test_probe_layout_renders_noindex_meta():
@@ -746,6 +754,16 @@ def test_probe_gate_component_exists():
     would break the gate behaviour. Text-level checks are
     sufficient because the runtime behaviour is pinned by
     `tests/test_hydration_console.py` (Chromium-driven).
+
+    Layering note: the `taxa-internal-ok` literal used to live in
+    this gate file. It was lifted into the typed browser-state
+    store (`storeInternalFlag.ts` as ``INTERNAL_FLAG_STORAGE_KEY``)
+    so the presentation layer reads through
+    ``readInternalFlag()`` instead of touching ``localStorage``
+    directly. The gate still owns `"use client"` and the
+    `denied` fallback literal; the storage-key literal now
+    lives with the store that owns the layering rule from
+    `tests/test_browser_state_keys.py`.
     """
     if not PROBE_GATE.is_file():
         pytest.skip(
@@ -758,16 +776,33 @@ def test_probe_gate_component_exists():
         f"`\"use client\"` at the top so the gate's `useEffect` "
         f"runs after hydration."
     )
-    assert "taxa-internal-ok" in text, (
-        f"{PROBE_GATE.relative_to(REPO_ROOT)} must read the "
-        f"`taxa-internal-ok` localStorage key — the ODD-ASN-001 "
-        f"flag the Playwright harness seeds via `add_init_script`."
-    )
     assert "denied" in text, (
         f"{PROBE_GATE.relative_to(REPO_ROOT)} must render the "
         f"`data-hydration-probe-gate=\"denied\"` fallback when "
         f"the flag is missing."
     )
+    if STORE_INTERNAL_FLAG_FILE.is_file():
+        # Post-refactor home of the literal: the typed store
+        # that owns the layering rule (presentation must not
+        # touch localStorage directly).
+        store_text = STORE_INTERNAL_FLAG_FILE.read_text(
+            encoding="utf-8"
+        )
+        assert "taxa-internal-ok" in store_text, (
+            f"{STORE_INTERNAL_FLAG_FILE.relative_to(REPO_ROOT)} "
+            f"must own the `taxa-internal-ok` storage key "
+            f"(`INTERNAL_FLAG_STORAGE_KEY`) — the ODD-ASN-001 "
+            f"flag the Playwright harness seeds via "
+            f"`add_init_script`."
+        )
+    else:
+        # Legacy branch: the gate itself still owns the literal.
+        assert "taxa-internal-ok" in text, (
+            f"{PROBE_GATE.relative_to(REPO_ROOT)} must read the "
+            f"`taxa-internal-ok` localStorage key — the "
+            f"ODD-ASN-001 flag the Playwright harness seeds via "
+            f"`add_init_script`."
+        )
 
 
 def test_probe_route_still_serves_static_html():
