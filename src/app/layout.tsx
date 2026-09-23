@@ -1,5 +1,18 @@
 import type { Metadata, Viewport } from "next";
 import { Raleway } from "next/font/google";
+// ODD-MIGRATE-007-DOM-006 — marker #5 (`#version-banner`). The legacy
+// `web/index.html` mount shipped `<div id="version-banner" hidden>` with
+// `#version-banner-actual` + `#version-banner-expected` spans that JS
+// populates from `/api/health`. The React root layout mirrors the
+// server-rendered DOM contract via Next 16's `<Script>` component (see
+// `node_modules/next/dist/docs/01-app/03-api-reference/02-components/script.md`)
+// — the banner host renders statically in the SSR markup, and a tiny
+// inline `<Script strategy="afterInteractive">` fetches `/api/health`
+// after hydration, writes the schema-version literals into the two
+// spans, and flips `hidden={false}` when the DB schema is older than
+// the API's expected version. The layout stays a server component;
+// the inline script is the only client-side touchpoint.
+import Script from "next/script";
 
 import "./globals.css";
 
@@ -64,6 +77,33 @@ export default function RootLayout({
      * guard in `tests/test_app_shell_render.py` stays green.
      */}
     <span hidden data-testid="g4-probe-marker" />
+    {/*
+     * ODD-MIGRATE-007-DOM-006 — marker #5 (`#version-banner`). The
+     * banner host renders statically in the SSR markup so the legacy
+     * Playwright probe finds `#version-banner` byte-for-byte. The
+     * spans start with the literal `?` placeholder (matching the
+     * legacy `web/index.html` cascade); the inline `<Script>` below
+     * fetches `/api/health` after hydration, writes the actual /
+     * expected schema-version literals into the spans, and flips
+     * `hidden={false}` when the DB schema is older than the API's
+     * expected version. The banner stays hidden when the schema is
+     * current (the canonical "no-op" path).
+     */}
+    <div
+      id="version-banner"
+      hidden
+      role="status"
+      aria-live="polite"
+      data-version-banner=""
+      data-version-banner-actual=""
+      data-version-banner-expected=""
+    >
+      <span id="version-banner-actual">?</span>
+      <span id="version-banner-expected">?</span>
+    </div>
+    <Script id="version-banner-loader" strategy="afterInteractive">
+      {`fetch('/api/health').then(function(r){return r.json()}).then(function(d){var b=document.getElementById('version-banner');var a=document.getElementById('version-banner-actual');var e=document.getElementById('version-banner-expected');if(a){a.textContent=String(d.db_schema_version);}if(e){e.textContent=String(d.expected_schema_version);}if(b&&d.db_schema_version<d.expected_schema_version){b.hidden=false;b.setAttribute('data-version-banner-actual',String(d.db_schema_version));b.setAttribute('data-version-banner-expected',String(d.expected_schema_version));}}).catch(function(){});`}
+    </Script>
     {children}
    </body>
   </html>

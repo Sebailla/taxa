@@ -1085,3 +1085,56 @@ def test_w65_folder_tab_dispatch_is_idempotent_via_status_kind_change() -> None:
             f"the same status does NOT fire a duplicate "
             f"dispatch. W6.5-BRIDGE-006 contract."
         )
+
+
+# ---------------------------------------------------------------------------
+# ODD-MIGRATE-007-DOM-006 — legacy DOM marker reproduction
+#
+# Cross-module companion tests to the per-marker source guards in
+# `tests/test_visible_taxonomy_tree.py`. The companion tests live
+# here so the marker contract is enforced from BOTH the
+# source-level pin (TaxonomyTree.tsx) AND the state-kernel level
+# (tree-state.ts) — a future refactor that drops one half of the
+# contract fails one or the other before review.
+# ---------------------------------------------------------------------------
+
+
+def test_tree_state_module_is_unchanged_by_dom_markers() -> None:
+    """ODD-MIGRATE-007-DOM-006 — companion pin: `tree-state.ts`
+    must STAY a pure framework-free state kernel (no DOM /
+    HTML / fetch / React / Next tokens). The DOM-marker
+    reproduction lives in `TaxonomyTree.tsx` (the client
+    island) — the state kernel is untouched. This test pins
+    the contract: any DOM-marker-related drift in
+    `tree-state.ts` would silently couple the kernel to a
+    framework, so the focused tests fail before review."""
+    if not TREE_STATE_FILE.exists():
+        pytest.skip("tree-state.ts not present yet")
+    text = TREE_STATE_FILE.read_text()
+    # Strip comments so an explanatory doc-block that references
+    # `web/app.js` (the legacy bundle marker) is NOT a false
+    # positive. The marker contract belongs to TaxonomyTree.tsx,
+    # not the kernel's documentation.
+    block = re.compile(r"/\*[\s\S]*?\*/")
+    line = re.compile(r"//[^\n]*")
+    blank = lambda m: re.sub(r"[^\n]", " ", m.group(0))  # noqa: E731
+    stripped = block.sub(blank, text)
+    stripped = line.sub(blank, stripped)
+    # No DOM-marker literals (the source-level guards live in
+    # the client island, not the kernel). A literal id like
+    # `"tree-view"` would leak the React surface into the
+    # framework-free kernel.
+    for marker in (
+        '"tree-view"', "'tree-view'",
+        '"tree-source-toggle"', "'tree-source-toggle'",
+        '"detail-panel"', "'detail-panel'",
+        '"breadcrumb"', "'breadcrumb'",
+        '"version-banner"', "'version-banner'",
+        "/app.js",
+    ):
+        assert marker not in stripped, (
+            f"tree-state.ts must NOT carry the DOM-marker "
+            f"literal {marker!r} — the marker contract belongs "
+            f"to TaxonomyTree.tsx, not the framework-free kernel "
+            f"(ODD-MIGRATE-007-DOM-006)."
+        )
