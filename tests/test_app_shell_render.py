@@ -2517,3 +2517,422 @@ def test_help_page_shortcut_map_lists_question_for_help():
         f"copy the ODD-EXP-002 critique identified. The `/` "
         f"shortcut focuses the global search input."
     )
+
+
+# ---------------------------------------------------------------------------
+# ODD-APL-001 / ODD-PHASE2 (AppShell migration, no substantive
+# migration shipped) — Phase 2 coverage tests pinning the
+# AppShell-specific reasoning.
+#
+# The ODD-APL-001 inspection of all five AppShell sub-components
+# (`AppShell.tsx` + `AppShellHeader.tsx` + `AppShellFooter.tsx` +
+# `AppShellNav.tsx` + `AppShellGlobalSearch.tsx`) found ZERO
+# migration opportunities for the Phase 2 `<Button>` / `<IconButton>` /
+# `<Text>` primitives: the navigation surface ALREADY uses specialized
+# primitives (`<a>` for static links, `next/link` `<Link>` for routing,
+# native `<input>` for the search field) instead of `<button>`, and
+# the footer's three-column layout already centralizes its typography
+# decisions via inline Tailwind utilities. Migration to the design-system
+# primitives would add indirection without removing an inline pattern.
+#
+# The four tests below document this decision as a regression gate
+# going forward: a future PR that introduces an inline `<button>` /
+# `<IconButton>` / `<Text>` opportunity into the AppShell surface will
+# trip one of these tests and be forced to use the design-system
+# primitive at that time. The two triangulation tests pin the
+# AppShell-specific primitives so the test suite documents the decision
+# end-to-end.
+# ---------------------------------------------------------------------------
+
+
+def test_appshell_does_not_use_inline_button_classes():
+    """ODD-APL-001 / ODD-PHASE2: AppShell sub-components must NOT
+    render raw `<button className="...">` inline button
+    compositions (the patterns Phase 2 `<Button>` migration
+    closes in OTHER consumers like `TreeRow` + `FolderTab`).
+
+    The ODD-APL-001 inspection of all five AppShell
+    sub-components found ZERO raw `<button>` elements:
+
+      - `AppShell.tsx` (orchestrator, 118 lines): pure
+        layout wrapper — `data-app-shell` host + skip-link
+        `<a href=\"#main\">` + `<AppShellHeader />` +
+        `<main>` + `<AppShellFooter />`. No buttons.
+      - `AppShellHeader.tsx` (65 lines): brand mark
+        `<a href=\"/\">taxa</a>` + `<AppShellGlobalSearch />` +
+        `<AppShellNav />`. No buttons.
+      - `AppShellFooter.tsx` (82 lines): three-column footer
+        copy + `<kbd>` legend markers. No buttons (the kbd
+        elements are specialized legend markers, NOT
+        buttons).
+      - `AppShellNav.tsx` (85 lines): nav destinations are
+        `next/link` `<Link>` (the routing primitive). No
+        buttons.
+      - `AppShellGlobalSearch.tsx` (255 lines): global
+        search is a native `<input>` element with keyboard
+        wiring. No buttons.
+
+    The negative witness this test pins: if a future PR
+    adds an inline button class pattern to any AppShell
+    sub-component, this test fails and the migration to
+    `<Button>` is forced.
+    """
+    offenders: list[tuple[Path, str]] = []
+    for path in (
+        APP_SHELL_FILE,
+        APP_SHELL_HEADER_FILE,
+        APP_SHELL_FOOTER_FILE,
+        APP_SHELL_NAV_FILE,
+        APP_SHELL_GLOBAL_SEARCH_FILE,
+    ):
+        text = _read_text(path)
+        # Strip block comments + line comments first so the
+        # docstring prose that REFERENCES `<button>` (the
+        # migration reasoning the docstring carries) does
+        # not trip the gate — the witness checks the JSX
+        # render, not the prose.
+        code_only = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+        code_only = re.sub(r"//[^\n]*", "", code_only)
+        for match in re.finditer(r"<button\b", code_only):
+            offenders.append((path, match.group(0)))
+    assert not offenders, (
+        "AppShell sub-components must NOT render raw `<button>` "
+        "elements — the ODD-APL-001 inspection found zero inline "
+        "button patterns in the navigation surface. The Phase 2 "
+        "`<Button>` migration has no targets here. Offending "
+        f"(path, tag) pairs: {offenders}."
+    )
+
+
+def test_appshell_uses_text_primitive_or_inline_typography():
+    """ODD-APL-001 / ODD-PHASE2: AppShell sub-components use EITHER
+    the `<Text>` primitive (from `@taxa/design-system`) OR inline
+    Tailwind typography utilities on specialized layout spans.
+
+    The `<Text>` primitive centralizes the small set of
+    font-size + weight + colour combinations — `body`, `body-sm`,
+    `mono`, `caption`, `label`. The AppShell audit traced the
+    existing inline typography decisions in the surface:
+
+      - `AppShellHeader.tsx::app-shell-brand`: Tailwind utilities
+        `font-semibold tracking-tight text-on-surface` on the
+        `<a href=\"/\">taxa</a>` brand mark.
+      - `AppShellFooter.tsx`: the three-column host carries
+        `text-xs` and child columns carry `font-mono` /
+        `font-semibold` utilities — the footer's whole copy
+        surface already centralizes its typography decision via
+        Tailwind utilities.
+
+    Migration to `<Text>` would add a primitive indirection
+    without removing an inline pattern (the Tailwind utilities
+    ALREADY centralize the decision). The decision is to
+    KEEP the inline Tailwind utilities here — and the test
+    pins that contract.
+
+    The positive witness: at least one Tailwind typography
+    utility class (or `<Text>` primitive import) appears in
+    the AppShell sub-components. If a future PR deletes the
+    typography decisions entirely (e.g. drops the `text-xs`
+    utility on the footer), this test fails.
+    """
+    typography_utilities: tuple[str, ...] = (
+        "text-xs",
+        "text-sm",
+        "text-base",
+        "font-semibold",
+        "font-mono",
+        "tracking-tight",
+    )
+    found_utilities: set[str] = set()
+    text_primitive_used = False
+    for path in (
+        APP_SHELL_FILE,
+        APP_SHELL_HEADER_FILE,
+        APP_SHELL_FOOTER_FILE,
+        APP_SHELL_NAV_FILE,
+        APP_SHELL_GLOBAL_SEARCH_FILE,
+    ):
+        text = _read_text(path)
+        for utility in typography_utilities:
+            if utility in text:
+                found_utilities.add(utility)
+        if (
+            'from "@taxa/design-system"' in text
+            and re.search(r"<\s*Text\b", text)
+        ):
+            text_primitive_used = True
+    assert text_primitive_used or len(found_utilities) >= 3, (
+        "AppShell sub-components must use the `<Text>` primitive "
+        f"(from `@taxa/design-system`) OR at least 3 of the "
+        f"following inline Tailwind typography utilities: "
+        f"{typography_utilities!r}. Found utilities: "
+        f"{sorted(found_utilities)!r}; `<Text>` primitive used: "
+        f"{text_primitive_used}. The ODD-APL-001 inspection "
+        f"traced both forms; the decision is to keep the inline "
+        f"Tailwind utilities where the surface already centralizes "
+        f"the typography."
+    )
+
+
+def test_appshell_uses_iconbutton_primitive_or_native_input():
+    """ODD-APL-001 / ODD-PHASE2: AppShell's icon-button surface is
+    covered by EITHER the `<IconButton>` primitive (from
+    `@taxa/design-system`) OR a native `<input>` element.
+
+    The ODD-APL-001 inspection found NO `<IconButton>` opportunity
+    in the AppShell sub-components — the search input is a native
+    ``<input type="search">`` element (specialized because it
+    needs focus management + keyboard wiring for `Cmd+K` / `/`
+    shortcuts), and there is no close button inside the search
+    dropdown (the search dropdown does not exist as a separate
+    component). The native `<input>` is the correct primitive for
+    this surface.
+
+    The positive witness: every AppShell sub-component must
+    satisfy one of the two clauses:
+
+      (a) Renders a native `<input>` element (the search field),
+          OR
+      (b) Imports and uses `<IconButton>` from
+          `@taxa/design-system`.
+
+    In the current surface, `AppShellGlobalSearch.tsx` renders the
+    native ``<input id="app-shell-search-input">``. The other four
+    sub-components carry no icon buttons at all — the contract
+    they satisfy is clause (b): they don't render any icon
+    button. The test asserts the (input) clause holds for the
+    search sub-component specifically.
+    """
+    # Clause (a): the search sub-component renders a native
+    # `<input>` with the canonical id. This is the load-bearing
+    # surface — without it the global search input loses its
+    # focusable affordance for keyboard users.
+    search_text = _read_text(APP_SHELL_GLOBAL_SEARCH_FILE)
+    assert re.search(
+        r"""<input\b[^>]*\bid\s*=\s*["']app-shell-search-input["']""",
+        search_text,
+        re.DOTALL,
+    ), (
+        "AppShellGlobalSearch.tsx must render a native `<input "
+        'id="app-shell-search-input">` element — the native '
+        "input is the AppShell's icon-button-equivalent affordance "
+        "for the global search surface (specialized because it "
+        "needs focus management + keyboard wiring)."
+    )
+    # Clause (b): other AppShell sub-components either use
+    # <IconButton> OR don't render any icon button affordance.
+    # The four non-search sub-components carry zero `<button>`
+    # (already covered by test_appshell_does_not_use_inline_button_classes)
+    # AND zero `<IconButton>` (the design-system primitive is
+    # for action icon buttons, not for chrome placeholders). The
+    # surface therefore satisfies the (b) clause vacuously.
+    # The witness verifies clause (b) by asserting: IF an
+    # `<IconButton>` were introduced, it must come from
+    # `@taxa/design-system`.
+    iconbutton_paths: list[tuple[Path, str]] = []
+    for path in (
+        APP_SHELL_FILE,
+        APP_SHELL_HEADER_FILE,
+        APP_SHELL_FOOTER_FILE,
+        APP_SHELL_NAV_FILE,
+        APP_SHELL_GLOBAL_SEARCH_FILE,
+    ):
+        text = _read_text(path)
+        # Strip docstrings + line comments first so docstring
+        # prose doesn't trip the gate.
+        code_only = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+        code_only = re.sub(r"//[^\n]*", "", code_only)
+        if re.search(r"<IconButton\b", code_only):
+            iconbutton_paths.append((path, "IconButton used"))
+    for path, _ in iconbutton_paths:
+        text = _read_text(path)
+        # Triple-quoted raw string so the inner ["'] class can
+        # hold both quote characters without delimiting the
+        # string early.
+        assert re.search(
+            r"""import\s*\{[^}]*\bIconButton\b[^}]*\}\s*from\s*["']\@taxa/design-system["']""",
+            text,
+        ), (
+            f"{path.relative_to(REPO_ROOT)} uses `<IconButton>` "
+            f"but does not import it from `@taxa/design-system` "
+            f"— the design-system primitive must come through "
+            f"the public barrel."
+        )
+
+
+def test_appshell_uses_button_primitive_where_applicable():
+    """ODD-APL-001 / ODD-PHASE2: AppShell sub-components must use
+    the `<Button>` primitive (from `@taxa/design-system`)
+    WHENEVER they render a button-like element.
+
+    The ODD-APL-001 inspection found ZERO raw `<button>` elements
+    in any AppShell sub-component (the surface already uses
+    specialized primitives — `<a>` + `next/link` `<Link>` +
+    native `<input>`). The Phase 2 `<Button>` migration
+    therefore has zero targets here.
+
+    The contingent positive witness this test pins: if a
+    future PR introduces a `<button>` element into any
+    AppShell sub-component, it MUST be the `<Button>`
+    primitive (with the import from `@taxa/design-system`),
+    NOT an inline `<button className="...">` composition.
+
+    Formally the contract is:
+
+      For each component file F in AppShell sub-components:
+        raw_button_count(F) = 0
+        OR (
+          raw_button_count(F) > 0
+          AND `<Button>` imported from `@taxa/design-system`
+          AND primitive_button_count(F) >= raw_button_count(F)
+        )
+
+    The current code satisfies the LEFT disjunct (raw_button_count
+    = 0 everywhere). A regression that adds a raw `<button>`
+    without importing the primitive fails the test.
+    """
+    for path in (
+        APP_SHELL_FILE,
+        APP_SHELL_HEADER_FILE,
+        APP_SHELL_FOOTER_FILE,
+        APP_SHELL_NAV_FILE,
+        APP_SHELL_GLOBAL_SEARCH_FILE,
+    ):
+        text = _read_text(path)
+        # Strip docstrings + line comments first so docstring
+        # prose that REFERENCES `<button>` doesn't trip the
+        # gate (the AppShell sub-component docstrings document
+        # the migration reasoning).
+        code_only = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+        code_only = re.sub(r"//[^\n]*", "", code_only)
+        raw_buttons = len(re.findall(r"<button\b", code_only))
+        primitive_buttons = len(re.findall(r"<\s*Button\b", code_only))
+        # Count the `<Button>` import (if any) for the
+        # contingent check below. Triple-quoted raw string
+        # so the ["'] class can hold both quote characters.
+        primitive_imported = bool(
+            re.search(
+                r"""import\s*\{[^}]*\bButton\b[^}]*\}\s*from\s*["']\@taxa/design-system["']""",
+                text,
+            )
+        )
+        if raw_buttons > 0:
+            # If any raw `<button>` exists, the file MUST
+            # have imported the `<Button>` primitive AND
+            # used it at least once (the contingent
+            # positive witness).
+            assert primitive_imported, (
+                f"{path.relative_to(REPO_ROOT)} renders "
+                f"{raw_buttons} raw `<button>` element(s) "
+                f"but does not import `<Button>` from "
+                f"`@taxa/design-system` — the Phase 2 "
+                f"`<Button>` primitive must replace inline "
+                '`<button className="...">` patterns.'
+            )
+            assert primitive_buttons >= raw_buttons, (
+                f"{path.relative_to(REPO_ROOT)} renders "
+                f"{raw_buttons} raw `<button>` element(s) "
+                f"but only {primitive_buttons} `<Button>` "
+                f"primitive usage(s) — every raw `<button>` "
+                f"must be the `<Button>` primitive."
+            )
+
+
+def test_appshell_uses_next_link_routing_primitive():
+    """ODD-APL-001 / ODD-PHASE2 (TRIANGULATE): AppShellNav uses
+    `next/link`'s `<Link>` as the routing primitive — NOT the
+    design-system `<Button>` primitive (which has no `as="a"`
+    polymorphic support) and NOT raw `<a>` elements (which
+    would force a hard reload on every navigation).
+
+    The Phase 2 `<Button>` primitive is documented as a
+    button-only primitive (`<button type=...>`); it does NOT
+    support an `as=\"a\"` polymorphic surface. The AppShell's
+    nav destinations need client-side routing, so they need
+    `next/link` `<Link>` — a primitive the design-system
+    doesn't include in its surface.
+
+    The positive witness this test pins: `AppShellNav.tsx`
+    imports `Link from \"next/link\"` AND uses `<Link` as the
+    rendered element for the four destinations. A future PR
+    that drops `next/link` (e.g. to migrate to the design-system
+    `<Button>`) loses the client-side routing — the test
+    catches the regression.
+    """
+    text = _read_text(APP_SHELL_NAV_FILE)
+    assert re.search(
+        r'import\s+Link\s+from\s+[\"\']next/link[\"\']',
+        text,
+    ), (
+        "AppShellNav.tsx must import `Link` from `next/link` "
+        "— the routing primitive the AppShell uses for client-"
+        "side navigation. The design-system primitives do NOT "
+        "include a routing link primitive (per the ODD-APL-001 "
+        "AppShell audit)."
+    )
+    assert re.search(r"<\s*Link\b", text), (
+        "AppShellNav.tsx must render at least one `<Link>` "
+        "element — the nav destinations must use the "
+        "`next/link` routing primitive, NOT raw `<a>` "
+        "(hard reload) or `<button>` (no anchor semantics)."
+    )
+
+
+def test_appshell_brand_link_is_anchor_not_button():
+    """ODD-APL-001 / ODD-PHASE2 (TRIANGULATE): AppShellHeader's
+    brand mark is an `<a>` (or `<Link>`) element — NOT a
+    `<button>`.
+
+    The brand mark (`taxa`) navigates to `/` — that is
+    navigation, not mutation. The semantically correct element
+    is an anchor (`<a>` or `next/link` `<Link>`), not a
+    `<button>`. A future PR that migrates the brand mark to
+    `<Button>` (because the design-system primitive is the
+    "right" choice for clickable elements) would introduce a
+    regression: the brand mark is a LINK, not a control.
+
+    The positive witness: `AppShellHeader.tsx` renders the
+    brand mark as either `<a href=\"/\">taxa</a>` OR
+    `<Link href=\"/\">taxa</Link>`. The negative witness:
+    the brand mark MUST NOT be rendered as `<button>`.
+    """
+    text = _read_text(APP_SHELL_HEADER_FILE)
+    # The brand mark appears as `<a href="/" ...>taxa</a>` (or
+    # `<Link href="/" ...>taxa</Link>` if a future refactor
+    # migrates to next/link — out of scope for Phase 2 but
+    # semantically valid).
+    anchor_pattern = re.search(
+        r'<a\b[^>]*\bhref\s*=\s*[\"\']/[\"\'][^>]*>\s*taxa\s*</a>',
+        text,
+        re.DOTALL,
+    )
+    link_pattern = re.search(
+        r'<\s*Link\b[^>]*\bhref\s*=\s*[\"\']/[\"\'][^>]*>\s*taxa\s*'
+        r'</\s*Link\s*>',
+        text,
+        re.DOTALL,
+    )
+    assert anchor_pattern or link_pattern, (
+        "AppShellHeader.tsx must render the brand mark as an "
+        "anchor `<a href=\"/\">taxa</a>` (or `<Link "
+        "href=\"/\">taxa</Link>` from next/link) — the brand "
+        "is a NAVIGATION link, not a control. `<Button>` is "
+        "the wrong primitive for navigation links."
+    )
+    # Negative witness: brand mark must NOT be a `<button>`.
+    # Strip docstrings + line comments first so the docstring
+    # prose doesn't trip the gate.
+    code_only = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
+    assert not re.search(
+        r'<button\b[^>]*>\s*taxa\s*</button>',
+        code_only,
+        re.DOTALL,
+    ), (
+        "AppShellHeader.tsx must NOT render the brand mark "
+        "as `<button>taxa</button>` — the brand is a "
+        "navigation link, not a control. The design-system "
+        "`<Button>` primitive is the wrong element for a "
+        "navigation link (anchor / next/link `<Link>` is the "
+        "correct primitive)."
+    )
