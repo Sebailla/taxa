@@ -71,6 +71,7 @@ import type {
   ExplorerTree,
   SearchAnnotation,
 } from "@taxa/research";
+import { EmptyState } from "@taxa/design-system";
 
 /** Props for the recursive `FileTree` component. The mount owns
  *  the expanded-set state (passed in via `expanded` /
@@ -482,42 +483,6 @@ function restoreTreeMutation(rootEl: HTMLElement): void {
   rootEl.querySelectorAll(".fex-row").forEach((row) => {
     if (row instanceof HTMLElement) row.classList.remove("search-match");
   });
-  hideSearchEmptyMutation(rootEl);
-}
-
-/** Internal: paint the `No matches.` placeholder inside the
- *  tree pane when filter mode + active query + zero matches +
- *  hideEmpty are all true. Mirrors the legacy
- *  `web/file_explorer.js::showSearchEmpty(pane)` shape
- *  byte-for-byte: appends a `.fex-search-empty` block with
- *  the `search_off` Material Symbols icon + the exact
- *  `No matches.` text, stamped with `data-search-empty` so
- *  a future restore pass can find + remove it. Idempotent —
- *  a no-op when the placeholder is already up. */
-function showSearchEmptyMutation(rootEl: HTMLElement): void {
-  rootEl.classList.add("fex-search-empty-active");
-  if (rootEl.querySelector("[data-search-empty]") !== null) return;
-  const empty = document.createElement("div");
-  empty.className = "fex-empty-state fex-search-empty";
-  empty.setAttribute("data-search-empty", "");
-  const icon = document.createElement("span");
-  icon.className = "fex-empty-state-icon";
-  icon.textContent = "search_off";
-  const p = document.createElement("p");
-  p.textContent = "No matches.";
-  empty.append(icon, p);
-  rootEl.append(empty);
-}
-
-/** Internal: hide + remove the `No matches.` placeholder if
- *  it was up. Mirrors the legacy
- *  `web/file_explorer.js::hideSearchEmpty(pane)` shape
- *  verbatim. Idempotent — a no-op when the placeholder
- *  isn't on the DOM. */
-function hideSearchEmptyMutation(rootEl: HTMLElement): void {
-  rootEl.classList.remove("fex-search-empty-active");
-  const empty = rootEl.querySelector("[data-search-empty]");
-  if (empty !== null) empty.remove();
 }
 
 /** Top-level recursive tree. Renders the root node and recurses
@@ -566,19 +531,29 @@ export default function FileTree(props: FileTreeProps): ReactNode {
     setInternalSelectedFolder(folderPath);
   }, []);
   const root = tree.root;
+  // ODD-EXP-PHASE2-004 — the search empty state now renders
+  // through the JSX `<EmptyState>` primitive below instead
+  // of the legacy imperative `showSearchEmptyMutation`
+  // helper. The boolean `showSearchEmpty` is the typed
+  // handle the JSX uses to conditionally render the
+  // primitive vs the recursive tree.
+  const showSearchEmpty =
+    searchAnnotation !== null &&
+    searchMode === "filter" &&
+    searchHideEmpty &&
+    searchAnnotation.matches.size === 0;
   // Search `useEffect` — applies the legacy `render-time
   // toggle, not re-mount` semantics on every annotation
   // flip. The effect:
   //   - When `searchAnnotation === null`, restores the
   //     tree (un-hides every wrap, removes every
-  //     `.search-match` class, clears the `No matches.`
-  //     placeholder).
+  //     `.search-match` class).
   //   - When `searchMode === "filter"`, applies the filter
-  //     pass: hide non-matches, auto-expand ancestors, and
-  //     paint `No matches.` when `searchHideEmpty` is true
-  //     and `matches.size === 0`. The `No matches.` card
-  //     fires ONLY in filter mode + hideEmpty on (the
-  //     legacy `filter + hideEmpty + no matches` triple).
+  //     pass: hide non-matches, auto-expand ancestors. The
+  //     `No matches.` card is now rendered via the JSX
+  //     `<EmptyState>` conditional above (the legacy
+  //     `filter + hideEmpty + no matches` triple), so this
+  //     effect no longer paints the imperative placeholder.
   //   - When `searchMode === "highlight"`, applies the
   //     highlight pass: toggle `.search-match` on rows
   //     whose path is in `matches`. Never touches
@@ -586,7 +561,9 @@ export default function FileTree(props: FileTreeProps): ReactNode {
   //     `Highlight mode keeps expand/collapse state`
   //     contract). `searchHideEmpty` is a no-op in
   //     highlight mode.
-  // The effect runs after the render commits (the legacy
+  // The effect no-ops when `showSearchEmpty` is true (no
+  // tree is rendered, so no DOM mutations apply). The
+  // effect runs after the render commits (the legacy
   // `useEffect` dependency array includes the rendered
   // tree's DOM so React's commit phase has already painted
   // the rows). The effect is stable across renders —
@@ -594,6 +571,7 @@ export default function FileTree(props: FileTreeProps): ReactNode {
   // triggers a re-run, so a fast-typing user never blocks
   // on a stale mutation pass.
   useEffect(() => {
+    if (showSearchEmpty) return;
     const rootEl = treeRootRef.current;
     if (rootEl === null) return;
     if (searchAnnotation === null) {
@@ -602,19 +580,34 @@ export default function FileTree(props: FileTreeProps): ReactNode {
     }
     if (searchMode === "filter") {
       applyFilterMutation(rootEl, searchAnnotation);
-      if (
-        searchHideEmpty &&
-        searchAnnotation.matches.size === 0
-      ) {
-        showSearchEmptyMutation(rootEl);
-      } else {
-        hideSearchEmptyMutation(rootEl);
-      }
     } else {
       applyHighlightMutation(rootEl, searchAnnotation);
-      hideSearchEmptyMutation(rootEl);
     }
-  }, [searchAnnotation, searchMode, searchHideEmpty]);
+  }, [searchAnnotation, searchMode, searchHideEmpty, showSearchEmpty]);
+  // ODD-EXP-PHASE2-004 — the `filter + hideEmpty + zero
+  // matches` triple now renders the `<EmptyState>` JSX
+  // primitive (the `data-search-empty` wrapper carries
+  // the data attribute the test harness asserts; the
+  // EmptyState primitive owns the icon + title + size
+  // contract). When `showSearchEmpty` is true, the
+  // recursive tree is NOT rendered (the EmptyState
+  // replaces it), so the `useEffect` above skips the
+  // tree DOM mutations.
+  if (showSearchEmpty) {
+    return (
+      <div data-search-empty="" className="fex-tree-root">
+        <EmptyState
+          icon={
+            <span aria-hidden="true" className="material-symbols-outlined">
+              search_off
+            </span>
+          }
+          title="No matches."
+          size="sm"
+        />
+      </div>
+    );
+  }
   if (root === null) {
     return null;
   }
