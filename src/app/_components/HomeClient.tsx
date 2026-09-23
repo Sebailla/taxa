@@ -47,6 +47,7 @@ export function HomeClient(): React.ReactElement {
       apiOrigin="/api"
       searchQuery={searchQuery}
       onSearchQueryChange={setSearchQuery}
+      currentRoute="classification"
     >
       <TaxonomyTree
         searchQuery={searchQuery}

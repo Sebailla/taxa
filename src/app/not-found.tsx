@@ -68,7 +68,7 @@ const NOT_FOUND_DESTINATIONS: ReadonlyArray<{
 
 export default function NotFound(): React.ReactElement {
   return (
-    <AppShell title="404" apiOrigin="/api" schemaVersion="1">
+    <AppShell title="404" apiOrigin="/api" schemaVersion="1" currentRoute="not-found">
       <article
         className="app-not-found flex flex-col gap-6"
         data-app-not-found=""

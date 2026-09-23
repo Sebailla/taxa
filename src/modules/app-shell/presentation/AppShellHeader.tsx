@@ -20,6 +20,20 @@ export interface AppShellHeaderProps {
   readonly searchQuery?: string;
   /** Optional lifted search-mutator (ODD-ASN-002 controlled mode). */
   readonly onSearchQueryChange?: (next: string) => void;
+  /**
+   * ODD-EXP-001 — the route that is rendering the AppShell.
+   * Threads into `AppShellGlobalSearch` so the header search
+   * input can become inert on `/explorer` (the global search
+   * produces no results dropdown on the explorer route). On
+   * every other route the search input stays fully active.
+   */
+  readonly currentRoute?:
+    | "classification"
+    | "explorer"
+    | "help"
+    | "settings"
+    | "hydration-probe"
+    | "not-found";
 }
 
 export default function AppShellHeader(
@@ -42,6 +56,7 @@ export default function AppShellHeader(
           <AppShellGlobalSearch
             searchQuery={props.searchQuery}
             onSearchQueryChange={props.onSearchQueryChange}
+            currentRoute={props.currentRoute}
           />
         </div>
         <AppShellNav />

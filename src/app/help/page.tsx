@@ -39,7 +39,7 @@ export const metadata = {
 
 export default function HelpPage(): React.ReactElement {
   return (
-    <AppShell title="Help" apiOrigin="/api" schemaVersion="1">
+    <AppShell title="Help" apiOrigin="/api" schemaVersion="1" currentRoute="help">
       <article
         className="app-help flex flex-col gap-8"
         data-app-help=""
@@ -124,6 +124,20 @@ export default function HelpPage(): React.ReactElement {
               search query when non-empty. The TaxonomyTree
               also uses <kbd>Esc</kbd> to dismiss an open kebab
               menu.
+            </dd>
+            {/* ODD-EXP-002 — `?` opens the help page (the
+                navigation is a `useRouter().push("/help")`
+                call inside the AppShellGlobalSearch keydown
+                listener; same editable-field skip the `/`
+                shortcut uses). */}
+            <dt className="font-mono text-on-surface">
+              <kbd>?</kbd>
+            </dt>
+            <dd className="text-on-surface-variant">
+              Open this help page. Skipped when you are already
+              typing inside another input / textarea /
+              contenteditable element so the `?` key stays
+              available for normal typing.
             </dd>
             <dt className="font-mono text-on-surface">
               <kbd>Enter</kbd> / <kbd>Space</kbd>
