@@ -19,5 +19,28 @@
  *
  * An empty barrel is intentionally a no-op re-export so this file is
  * a valid TypeScript module and `tsc --noEmit` accepts it.
+ *
+ * Phase 1 of ODD-DSE expands the barrel below: the typed token surface
+ * (mirrors the `@theme` block in `globals.css`) + eight Server-Component
+ * primitives (Button / IconButton / Badge / Card / EmptyState /
+ * Spinner / InlineMessage / Text). Spinner is the only `"use client"`
+ * primitive — it owns the aria-live announcement region via
+ * `useEffect`. Cross-module consumers MUST keep importing from this
+ * file (the `.eslintrc.cjs::no-restricted-imports` rule blocks deep
+ * imports into the layer folders).
  */
 export {};
+
+// Re-exports added by ODD-DSE Phase 1. Order: tokens first, then
+// presentation primitives. Keep the `export {};` placeholder above —
+// the PR 2a comment block is the public rationale for the empty barrel
+// and MUST stay byte-identical until the design-system fully retires.
+export * from "./domain/tokens";
+export { default as Button } from "./presentation/Button";
+export { default as IconButton } from "./presentation/IconButton";
+export { default as Badge } from "./presentation/Badge";
+export { default as Card } from "./presentation/Card";
+export { default as EmptyState } from "./presentation/EmptyState";
+export { default as Spinner } from "./presentation/Spinner";
+export { default as InlineMessage } from "./presentation/InlineMessage";
+export { default as Text } from "./presentation/Text";
