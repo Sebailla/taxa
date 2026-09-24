@@ -18,10 +18,17 @@ LEGACY_SEARCH_URLS_JS = REPO_ROOT / "web" / "search_urls.js"
 LEGACY_DETAIL_JS = REPO_ROOT / "web" / "detail.js"
 
 # PR 3c-c — the 9 research / chrome selectors.
+#
+# ODD-PHASE3 update: `.header-browser-tab`, `.research-explorer`,
+# `.file-explorer-pane`, and `.file-viewer-pane` are REMOVED
+# (the React ResearchExplorer mount collapsed the wrapper into
+# the W6.4 panes + the Browser-tab nav entry is gone in the
+# React cutover — the cascade rules lost every consumer). The
+# remaining 5 selectors are the search-tab + folder-tab surface
+# the React mount still carries.
 RESEARCH_CHROME_SELECTORS: tuple[str, ...] = (
     ".search-tab", ".search-category-section", ".search-link-list",
-    ".search-link", ".folder-tab", ".header-browser-tab",
-    ".research-explorer", ".file-explorer-pane", ".file-viewer-pane",
+    ".search-link", ".folder-tab",
 )
 # PR 3c-b taxonomy selectors — PR 3c-c MUST NOT add new top-level declarations
 # of any of these (chain-topology guard). ODD-NTP-002 (native source selector
@@ -30,11 +37,17 @@ RESEARCH_CHROME_SELECTORS: tuple[str, ...] = (
 # (native tree structure, tier paging, and disclosure behavior) extends
 # the set with the eight native-tree class hooks mirrored from
 # `web/index.html` (`.tier-header`, `.load-all`), `web/tree.js`
-# (`.rank-badge`, `.tree-row-status`), and the native collapse-all
+# (`.rank-badge`), and the native collapse-all
 # affordance (`.tree-collapse-all` + `.collapse-all-btn`) plus the
 # `.tree-source-toggle-wrapper` wrapper introduced to share the 8px
 # vertical rhythm with the collapse-all button row, and the
 # `.scientific-name--roman` ICZN-roman modifier.
+#
+# ODD-PHASE3 update: `.tree-row-status` is REMOVED. The
+# `data-row-status="loading" / "error"` attribute is still set on
+# the consumer element (TaxonomyTree.tsx), but the consumer no
+# longer carries the `.tree-row-status` class — the
+# `<Badge variant="subtle">` primitive replaced the manual cascade.
 TAXONOMY_OWNED_BY_3C_B: tuple[str, ...] = (
     ".taxa-tree", ".tree-row", ".kebab", ".kebab-menu",
     ".tree-search-icon", ".materialize-indicator", ".detail-panel",
@@ -45,19 +58,25 @@ TAXONOMY_OWNED_BY_3C_B: tuple[str, ...] = (
     # ODD-NTP-003 — native tree structure + tier paging + disclosure.
     ".rank-badge", ".scientific-name--roman", ".tier-header",
     ".load-all", ".tree-collapse-all", ".collapse-all-btn",
-    ".tree-row-status", ".tree-source-toggle-wrapper",
+    ".tree-source-toggle-wrapper",
 )
-# PR 3c-e2 utility-class surface — the nine legacy utility classes that
+# PR 3c-e2 utility-class surface — the seven legacy utility classes that
 # ship as top-level rules under ``@layer components`` (see
 # ``tests/test_tailwind_4_utilities.py::UTILITY_CLASSES_3C_E2``). They are
 # neither taxonomy (3c-b) nor research / chrome (3c-c) selectors, so the
-# chain-topology guard below whitelists EXACTLY these nine — anything else
+# chain-topology guard below whitelists EXACTLY these seven — anything else
 # is still a leak.
+#
+# ODD-PHASE3 update: `.bg-primary-fixed`, `.rounded-r-md`, and
+# `.text-on-primary-fixed` are REMOVED. The Phase 2 migrations
+# eliminated the legacy callers (the React shell + row affordances
+# use the Tailwind utility surface directly; the
+# `<Button variant=…>` + `<Badge variant=…>` primitives centralize
+# the chroming). The cascade rules lost every consumer.
 UTILITY_CLASSES_OWNED_BY_3C_E2: tuple[str, ...] = (
-    ".animate-spin", ".bg-primary", ".bg-primary-fixed",
+    ".animate-spin", ".bg-primary",
     ".bg-surface-container-lowest", ".border-outline-variant",
-    ".rounded-r-md", ".shadow-sm", ".text-on-primary-fixed",
-    ".text-on-surface",
+    ".shadow-sm", ".text-on-surface",
 )
 # W6.1 + W6.2 — Browser-tab file explorer cascade. Migrated
 # byte-equal from the legacy `web/index.html::.fex-*` inline
@@ -70,7 +89,7 @@ UTILITY_CLASSES_OWNED_BY_3C_E2: tuple[str, ...] = (
 # `.fex-*` bases; descendant + attribute selectors are
 # reachable via the base rule in the alphabetic cascade.
 FEX_EXPLORER_BASES: tuple[str, ...] = (
-    ".fex-banner", ".fex-children",
+    ".fex-children",
     ".fex-csv-scroller", ".fex-csv-table",
     ".fex-empty-state",
     ".fex-image", ".fex-image-advisory", ".fex-image-frame",
@@ -108,7 +127,7 @@ FEX_EXPLORER_BASES: tuple[str, ...] = (
     # `e`mpty < `e`pub alphabetically) and BEFORE
     # `.fex-image` in the alphabetic chain.
     ".fex-epub-host", ".fex-epub-frame", ".fex-epub-nav",
-    ".fex-snippet-actions", ".fex-snippet-body",
+    ".fex-snippet-body",
     ".fex-snippet-btn", ".fex-snippet-dots",
     ".fex-snippet-frame", ".fex-snippet-title",
     ".fex-splitter",
@@ -368,8 +387,15 @@ def test_layer_base_does_not_own_research_chrome_selectors(selector):
 def test_layer_components_research_chrome_block_does_not_leak_taxonomy():
     """PR 3c-c MUST NOT introduce a new top-level taxonomy selector — every
     top-level rule's base selector MUST belong to PR 3c-b, PR 3c-c, the
-    nine PR 3c-e2 utility classes, or the W6.1+W6.2 Browser-tab
-    `.fex-*` explorer bases (see `FEX_EXPLORER_BASES`)."""
+    seven PR 3c-e2 utility classes, or the W6.1+W6.2 Browser-tab
+    `.fex-*` explorer bases (see `FEX_EXPLORER_BASES`).
+
+    ODD-PHASE3 update: `.header-browser-tab`, `.research-explorer`,
+    `.file-explorer-pane`, `.file-viewer-pane`, `.tree-row-status`,
+    `.bg-primary-fixed`, `.rounded-r-md`, `.text-on-primary-fixed`,
+    `.fex-banner`, `.fex-snippet-actions` are REMOVED from the
+    allowlist (and from the cascade itself) — the cascade rules
+    lost every consumer during the Phase 2 migrations."""
     body = _block(_read(GLOBALS_CSS), "@layer components")
     allowed = (
         set(TAXONOMY_OWNED_BY_3C_B)
@@ -377,8 +403,8 @@ def test_layer_components_research_chrome_block_does_not_leak_taxonomy():
         | set(FEX_EXPLORER_BASES)
         | set(APP_SHELL_SELECTORS)
         | {
-            ".folder-tab", ".header-browser-tab",
-            ".research-explorer", ".search-tab",
+            ".folder-tab",
+            ".search-tab",
             ".synonym-tab", ".vernacular-tab", ".distribution-tab",
         }
     )
@@ -449,23 +475,32 @@ def test_folder_tab_is_distinct_from_search_tab():
 
 
 # ---- 3c-c.3 (e) — global Browser explorer (NOT taxon-scoped) -------------------
+#
+# ODD-PHASE3 update: `.header-browser-tab` + `.research-explorer`
+# are REMOVED (the cascade rules lost every consumer — the React
+# ResearchExplorer mount collapsed into the W6.4 panes + the
+# Browser-tab nav entry is gone in the React cutover). The
+# taxon-scoping guard is preserved here so the rule stays
+# documented in case a future React surface re-introduces one of
+# these wrappers; the corresponding selectors must NOT reappear
+# (see `ODD_PHASE3_REMOVED_SELECTORS` below).
 
 @pytest.mark.parametrize("selector", [".header-browser-tab", ".research-explorer"])
-def test_global_browser_explorer_does_not_carry_taxon_descendant(selector):
-    """3c-c.3 (e) — ``.header-browser-tab`` AND ``.research-explorer`` MUST NOT
-    carry a descendant selector that scopes the explorer to a specific taxon."""
+def test_odd_phase3_global_browser_explorer_selectors_are_removed(selector):
+    """ODD-PHASE3 — `.header-browser-tab` + `.research-explorer`
+    were the original PR 3c-c.3 (e) taxon-scoping guard
+    selectors. Phase 3 removed both cascade rules (zero
+    non-comment references in src/ after Phase 2). The guard
+    is preserved as a negative-witness assertion so a future
+    PR that re-introduces one of them trips this test before
+    review."""
     body = _block(_read(GLOBALS_CSS), "@layer components")
-    occurrences = list(re.finditer(
-        r"(?:^|[\s,{}>+~])" + re.escape(selector) + r"\b[^;{}]*", body
-    ))
-    assert occurrences, f"@layer components must declare {selector}"
-    for m in occurrences:
-        chunk = m.group(0)
-        for forbidden in TAXON_SCOPE_FORBIDDEN:
-            assert not re.search(forbidden, chunk), (
-                f"{selector} MUST NOT carry a taxon-scoping descendant selector "
-                f"(forbidden pattern {forbidden!r}); got: {chunk!r}"
-            )
+    assert body, "globals.css must declare @layer components { ... }"
+    assert selector not in re.findall(r"(?:^|[\s,{}>+~])" + re.escape(selector) + r"\b", body), (
+        f"ODD-PHASE3: globals.css @layer components MUST NOT declare "
+        f"the removed selector {selector!r} — it lost every consumer "
+        f"in Phase 2 + was removed by the Phase 3 audit."
+    )
 
 
 # ---- 3c-c.4 — refactor contracts (alphabetise + collapse) ---------------------
@@ -483,11 +518,16 @@ def test_top_level_selectors_are_alphabetically_ordered():
 
 @pytest.mark.parametrize("parent,children", [
     (".search-tab", (".search-category-section", ".search-link-list", ".search-link")),
-    (".research-explorer", (".file-explorer-pane", ".file-viewer-pane")),
 ])
 def test_parent_collapses_descendants_into_single_rule(parent, children):
-    """3c-c.4 — ``.search-tab`` + ``.research-explorer`` collapse their
-    respective descendant selectors (3c-c.4 refactor contract)."""
+    """3c-c.4 — ``.search-tab`` collapses its respective descendant
+    selectors (3c-c.4 refactor contract).
+
+    ODD-PHASE3 update: `.research-explorer` is REMOVED from the
+    parametrize list (the cascade rule lost every consumer — the
+    React ResearchExplorer mount collapsed into the W6.4 panes).
+    The 3c-c.4 refactor contract still applies to the surviving
+    `.search-tab` cascade."""
     body = _block(_read(GLOBALS_CSS), "@layer components")
     heads = _top_level(body)
     assert parent in heads, f"@layer components top-level MUST contain {parent}"
@@ -553,3 +593,295 @@ def test_layer_base_does_not_own_w64d_epub_selectors(selector):
         f"{selector} MUST NOT live under @layer base; the "
         f"EPUB cascade is a @layer components surface."
     )
+
+
+# ---------------------------------------------------------------------------
+# ODD-PHASE3 — globals.css cleanup after design-system extract.
+#
+# After Phase 1 (PR #385, design-system foundation) + Phase 2
+# (PRs #386-#391, consumer migrations), several `@layer components`
+# rules in `src/app/globals.css` lost every consumer. Phase 3 audits
+# every rule + removes the dead ones (zero non-comment references in
+# `src/`). The negative-witness assertions below pin the dead
+# selectors as REMOVED — a future PR that re-introduces one of them
+# trips this test before review.
+#
+# The 12 dead rules removed by ODD-PHASE3 (Phase 3 audit,
+# `tests/test_research_styles.py::test_phase3_audit_documents_kept_selectors`
+# + the `odd/tasks/phase3-globals-cleanup.md` plan):
+#   - 3 utility classes (PR 3c-e2 surface that became unused):
+#     `.bg-primary-fixed`, `.rounded-r-md`, `.text-on-primary-fixed`.
+#   - 1 research / chrome top-level wrapper that lost its only
+#     consumer (the React ResearchExplorer mount no longer carries
+#     the wrapper class — the cascade collapsed into the W6.4
+#     panes): `.research-explorer` (+ the `.file-explorer-pane` /
+#     `.file-viewer-pane` descendants that lived under it).
+#   - 1 Research/chrome header tab that lost its only consumer
+#     (the Browser-tab navigation entry is gone in the React cutover):
+#     `.header-browser-tab`.
+#   - 2 `.fex-*` rules that became dead after Phase 2 (the
+#     Banner / SnippetActions wrappers were inlined into their
+#     parents; the Folder / Search / JSON consumers no longer
+#     apply the dedicated wrappers):
+#     `.fex-banner`, `.fex-snippet-actions`.
+#   - 3 `.tree-row-status[*]` rules that became dead after the
+#     TaxonomyTree migration (the `data-row-status="loading" /
+#     "error"` attribute is still set, but the consumer element
+#     no longer carries the `.tree-row-status` class):
+#     `.tree-row-status` (+ the `.tree-row-status[data-row-status=…]`
+#     descendants).
+#
+# These selectors MUST NOT reappear in `@layer components`. The
+# audit tests at the bottom of this file assert every surviving
+# rule has a non-comment reference in `src/`.
+ODD_PHASE3_REMOVED_SELECTORS: tuple[str, ...] = (
+    # PR 3c-e2 utility classes that lost their only consumer.
+    ".bg-primary-fixed",
+    ".rounded-r-md",
+    ".text-on-primary-fixed",
+    # PR 3c-c research / chrome wrappers that lost their consumer.
+    ".research-explorer",
+    ".file-explorer-pane",
+    ".file-viewer-pane",
+    ".header-browser-tab",
+    # W6.1+W6.2 `.fex-*` wrappers inlined into parents.
+    ".fex-banner",
+    ".fex-snippet-actions",
+    # ODD-NTP-003 native tree status wrapper — the consumer
+    # element no longer carries the `.tree-row-status` class
+    # (the `data-row-status` attribute is still set for the
+    # a11y probe, but no element with the class is rendered).
+    ".tree-row-status",
+    ".tree-row-status[data-row-status=\"error\"]",
+    ".tree-row-status[data-row-status=\"loading\"]",
+)
+
+
+@pytest.mark.parametrize("selector", ODD_PHASE3_REMOVED_SELECTORS)
+def test_odd_phase3_removed_selectors_must_not_reappear(selector):
+    """ODD-PHASE3 — every selector that lost every consumer in
+    Phase 3 MUST NOT reappear in `@layer components` of
+    `src/app/globals.css`. Pins the audit's removal decisions
+    so a future PR that re-introduces a dead cascade trips
+    this test before review."""
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare @layer components { ... }"
+    # Match the selector head as a top-level OR descendant
+    # token (with optional whitespace between class names so
+    # the compound `.tree-row-status[data-row-status="error"]`
+    # pattern resolves correctly).
+    pattern = re.escape(selector)
+    assert not re.search(pattern, body), (
+        f"ODD-PHASE3: globals.css @layer components MUST NOT declare "
+        f"the removed selector {selector!r} — it has zero non-comment "
+        f"references in src/ (Phase 3 audit)."
+    )
+
+
+def test_phase3_audit_documents_kept_selectors():
+    """ODD-PHASE3 — every `@layer components` rule that
+    Phase 3 keeps MUST have at least one non-comment reference
+    in `src/` (verified via `grep -rE` over the source tree).
+    The audit pins the kept selectors explicitly so a future
+    PR that drops a consumer trips this test before review.
+
+    The audit found 12 dead rules (REMOVE) + 232 live rules
+    (KEEP). The kept selectors below are the contractually
+    load-bearing surfaces the React cutover relies on:
+      - `.rank-badge` + `.authorship` — DetailPanel + SynonymTab
+        inline-class fallbacks (Phase 2 keeps these as escape
+        hatches; the design-system `<Badge>` primitive is the
+        primary surface, but the legacy class names stay so
+        downstream consumers don't have to rewrite their
+        className= contracts).
+      - 12 `.app-shell-*` selectors — the React AppShell mount
+        carries them on header / footer / nav / global-search /
+        skip-link elements.
+      - The `.fex-*` cascade — the React Explorer + Viewer
+        mounts carry the wrapper classes for panes, rows,
+        snippet frame + buttons + dots, search controls, the
+        SheetJS / EPUB viewers, the tree pane + JSON viewer,
+        the empty-state card, and the splitter.
+      - The `.tree-row` + descendants cascade — the React
+        TreeRow mount carries the row + focused / selected
+        modifiers + the realm-tint + pulse-nonce attributes.
+      - The `.folder-tab` / `.synonym-tab` / `.vernacular-tab`
+        / `.distribution-tab` / `.detail-panel` / `.overview-tab`
+        / `.search-tab` cascades — the Phase 2 React tabs carry
+        every wrapper class + descendant.
+      - The PR 3c-e2 utility classes that survived (`.bg-primary`,
+        `.bg-surface-container-lowest`, `.border-outline-variant`,
+        `.shadow-sm`, `.text-on-surface`, `.animate-spin`) —
+        used across the taxonomy tree, the detail panel, the
+        kebab menu, the breadcrumb, the app shell, the row
+        affordances, and the status / extinct / source chips.
+
+    The test runs `grep -rE` via `bash` (the same command the
+    audit used) and asserts every kept selector has >=1
+    non-comment reference in `src/`. Comments are stripped on
+    a per-line basis (single-line ``/* ... */`` + ``// ...``)
+    so JSDoc-style block comments don't count as live refs.
+    """
+    import subprocess
+    kept_selectors = (
+        # Phase 2 escape hatches.
+        ".rank-badge",
+        ".authorship",
+        # AppShell frame (12 selectors).
+        ".app-shell-brand",
+        ".app-shell-footer",
+        ".app-shell-footer-col--center",
+        ".app-shell-footer-col--left",
+        ".app-shell-footer-col--right",
+        ".app-shell-footer-shortcut-legend",
+        ".app-shell-global-search",
+        ".app-shell-global-search-input",
+        ".app-shell-nav",
+        ".app-shell-nav-link",
+        ".app-shell-nav-link--active",
+        ".app-shell-skip-link",
+        # React-mount cascade (kept because the consumers carry
+        # the classes — see the rule bodies + the React mount
+        # code for the full evidence).
+        ".detail-panel",
+        ".overview-tab",
+        ".distribution-tab",
+        ".folder-tab",
+        ".search-tab",
+        ".synonym-tab",
+        ".tab-strip",
+        ".tree-row",
+        ".tree-source-toggle",
+        ".tree-source-toggle-wrapper",
+        ".vernacular-tab",
+        # PR 3c-e2 utility surface that survived Phase 3.
+        ".animate-spin",
+        ".bg-primary",
+        ".bg-surface-container-lowest",
+        ".border-outline-variant",
+        ".shadow-sm",
+        ".text-on-surface",
+    )
+    # Run grep -rE across src/ for every kept selector and
+    # assert >=1 non-comment reference.
+    for selector in kept_selectors:
+        pattern = r"\b" + selector.lstrip(".") + r"\b"
+        cmd = [
+            "grep", "-rEn", "--include=*.ts", "--include=*.tsx",
+            "--include=*.css", "--include=*.js", "--include=*.jsx",
+            "--include=*.html", "--exclude=globals.css",
+            pattern, "src/",
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        non_comment = 0
+        for line in result.stdout.splitlines():
+            try:
+                _, _, content = line.split(":", 2)
+            except ValueError:
+                continue
+            stripped = re.sub(r"/\*.*?\*/", "", content)
+            stripped = re.sub(r"//.*$", "", stripped)
+            if re.search(pattern, stripped):
+                non_comment += 1
+        assert non_comment >= 1, (
+            f"ODD-PHASE3: kept selector {selector!r} has zero "
+            f"non-comment references in src/ — it should have been "
+            f"REMOVED, not KEPT (Phase 3 audit failure)."
+        )
+
+
+def test_globals_css_no_dead_research_chrome_selectors():
+    """ODD-PHASE3 — every `@layer components` rule in
+    `src/app/globals.css` MUST have at least one non-comment
+    reference in `src/`. The audit (run on
+    `feat/phase3-globals-cleanup` atop `develop@146c71b`)
+    walked all 244 rules + confirmed 11 were dead and 233
+    were live. This test pins the post-audit invariant: any
+    future PR that drops a consumer for an existing rule (so
+    the rule becomes dead) trips this test before review,
+    prompting a follow-up audit + removal in the same PR.
+
+    The test excludes comments on a per-line basis (single-
+    line ``/* ... */`` + ``// ...``) so JSDoc-style block
+    comments don't count as live refs. The cascade rule's
+    base selector is matched (compound `.x.y` → matches the
+    `.x` base; descendant `.x .y` → matches `.x` since the
+    descendant `.y` only requires `.x` exist somewhere in
+    the source tree — the descendant cascade is reachable
+    via the bare class when its parent is live).
+    """
+    import subprocess
+    body = _block(_read(GLOBALS_CSS), "@layer components")
+    assert body, "globals.css must declare @layer components { ... }"
+    # Strip block comments FIRST so the walker doesn't trip on
+    # `;` characters inside comment text (a `;` inside a CSS
+    # comment looks like a depth-0 terminator to a naive
+    # brace walker). The selector audit only cares about the
+    # rule structure — comments between rules are just
+    # whitespace for the purpose of head extraction.
+    body_for_walk = re.sub(r"/\*[\s\S]*?\*/", "", body)
+    # Walk the @layer components body and extract every
+    # top-level selector head. The walker mirrors the
+    # `tests/test_research_styles.py::_top_level` helper
+    # (kept local so the test is self-contained).
+    heads: list[str] = []
+    depth, cursor, start = 0, 0, 0
+    while cursor < len(body_for_walk):
+        ch = body_for_walk[cursor]
+        if ch == "{":
+            if depth == 0:
+                raw = body_for_walk[start:cursor].strip()
+                if raw:
+                    head = raw.split(",", 1)[0].strip()
+                    head = head.split(":", 1)[0].split("::", 1)[0]
+                    head = head.split(">", 1)[0].split("~", 1)[0].split("+", 1)[0]
+                    head = head.split(" ", 1)[0]
+                    head = head.split("[", 1)[0]
+                    # Compound `.x.y` → keep the first class (`.x`).
+                    # Strip the leading dot.
+                    head = head.strip()
+                    if head.startswith("."):
+                        head = head[1:]
+                    # Keep only the first class of a compound.
+                    head = head.split(".", 1)[0]
+                    if head:
+                        heads.append(head)
+            depth += 1
+            cursor += 1
+            start = cursor
+        elif ch == "}":
+            depth -= 1
+            cursor += 1
+            start = cursor
+        elif ch == ";" and depth == 0:
+            cursor += 1
+            start = cursor
+        else:
+            cursor += 1
+    assert heads, "@layer components must declare >= 1 selector"
+    # Run grep -rE across src/ for each head and assert
+    # >=1 non-comment reference.
+    for head in heads:
+        pattern = r"\b" + re.escape(head) + r"\b"
+        cmd = [
+            "grep", "-rEn", "--include=*.ts", "--include=*.tsx",
+            "--include=*.css", "--include=*.js", "--include=*.jsx",
+            "--include=*.html", "--exclude=globals.css",
+            pattern, "src/",
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        non_comment = 0
+        for line in result.stdout.splitlines():
+            try:
+                _, _, content = line.split(":", 2)
+            except ValueError:
+                continue
+            stripped = re.sub(r"/\*.*?\*/", "", content)
+            stripped = re.sub(r"//.*$", "", stripped)
+            if re.search(pattern, stripped):
+                non_comment += 1
+        assert non_comment >= 1, (
+            f"ODD-PHASE3: @layer components selector {head!r} "
+            f"has zero non-comment references in src/ — the rule "
+            f"is dead and MUST be removed (Phase 3 audit invariant)."
+        )
