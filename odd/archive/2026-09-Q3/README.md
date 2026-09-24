@@ -25,8 +25,9 @@ artifact rather than active planning.
 | `close-skip-link-duplicate.md` | PR #394 | `f53f5d8` |
 | `close-sticky-breakpoint.md` | PR #395 | `1e27c07` |
 | `hoist-source-selector.md` | PR #396 | `d61ebc3` |
+| `phase2-explorer-viewer-migrate.md` | PR #390 + #393 (implicit) | `d4fabcd` + `9debb9a` |
 
-The 14th file (`g4-integration-delivery.md`) was **explicitly abandoned by the
+The 15th file (`g4-integration-delivery.md`) was **explicitly abandoned by the
 user** per ODD-G4-INTEGRATION-005 — the plan itself records the abandonment
 and is preserved here as a historical record of the G4 delivery decision.
 
@@ -34,11 +35,11 @@ and is preserved here as a historical record of the G4 delivery decision.
 
 Only drafts whose work is **not yet merged into develop**:
 
-- `phase2-explorer-viewer-migrate.md` — seventh + final Phase 2 consumer
-  migration; partial plan, mostly coverage tests + specialized reasoning for
-  Viewer panels.
-- `test-cleanup.md` — close 12 pre-existing test failures left on develop
-  after the Next.js migration.
+- `test-cleanup.md` — close the remaining pre-existing test failures on
+  develop (12 originally, 6 resolved implicitly by post-plan PRs, 6 fixed
+  by skipping the legacy `web/` Playwright tests in PR + `feat/test-cleanup`).
+  Two additional pre-existing failures were discovered during that sweep
+  and remain to be addressed.
 
 ## Project docs vs ODD drafts
 
