@@ -2653,4 +2653,21 @@
       position: static;
     }
   }
+  /* ODD-MHRO-001 — the header row used `flex items-center
+     gap-4 px-6 py-3` without `flex-wrap`, so on viewports
+     below ~768px the source-selector (~250px) + the 4-destination
+     nav (~200px) overflowed horizontally. `flex-wrap` +
+     `gap-y-2` lets the source-selector + nav wrap to a second
+     line when the brand + search already consume the first
+     row. The horizontal padding drops to `px-4` so the brand
+     + wrapped affordances stay within the viewport on phones
+     (360px). The 768px breakpoint matches the existing
+     detail-panel breakpoint; the responsive pattern stays
+     one media query block away from the rest of the CSS. */
+  @media (max-width: 768px) {
+    .app-shell-header {
+      padding-left: 1rem;
+      padding-right: 1rem;
+    }
+  }
 }
