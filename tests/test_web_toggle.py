@@ -276,6 +276,9 @@ def test_freshwater_view_expands_to_families(api_server):
     _check_playwright_available() is None,
     reason="playwright not installed (pip install playwright)",
 )
+@pytest.mark.skip(
+    reason="ODD-MIGRATE-007 retired — legacy DOM markers (#tree-view, #detail-panel, [data-tree-source], [data-tab], [data-tab-content], #search-input, #version-banner, #breadcrumb, etc.) replaced by the React static export at out/; the React mount lives on the W6+ chain (PR #350 + PR #351 + W6.1/W6.5 + AC-21 manifest) with its own React-shaped DOM contract that these legacy web/ Playwright tests do not target. The React parity coverage is the ODD-MIGRATE-005 G4 capture (docs/cutover-evidence/parity-reports/*) + W6.1/W6.2/W6.3 + W65 React tests."
+)
 def test_search_tab_renders_with_14_links(api_server):
     """Click a taxon and assert the detail panel shows a Search tab
     with 14 search-engine links.
@@ -351,6 +354,9 @@ def test_search_tab_renders_with_14_links(api_server):
 @pytest.mark.skipif(
     _check_playwright_available() is None,
     reason="playwright not installed (pip install playwright)",
+)
+@pytest.mark.skip(
+    reason="ODD-MIGRATE-007 retired — legacy DOM markers (#tree-view, #detail-panel, [data-tree-source], [data-tab], [data-tab-content], #search-input, #version-banner, #breadcrumb, etc.) replaced by the React static export at out/; the React mount lives on the W6+ chain (PR #350 + PR #351 + W6.1/W6.5 + AC-21 manifest) with its own React-shaped DOM contract that these legacy web/ Playwright tests do not target. The React parity coverage is the ODD-MIGRATE-005 G4 capture (docs/cutover-evidence/parity-reports/*) + W6.1/W6.2/W6.3 + W65 React tests."
 )
 def test_search_engines_rendered_as_button_grid(api_server):
     """The 14 search-engine links render as a grid of buttons inside the
@@ -765,6 +771,9 @@ def test_kebab_menu_reopens_after_each_close_method(
     _check_playwright_available() is None,
     reason="playwright not installed (pip install playwright)",
 )
+@pytest.mark.skip(
+    reason="ODD-MIGRATE-007 retired — legacy DOM markers (#tree-view, #detail-panel, [data-tree-source], [data-tab], [data-tab-content], #search-input, #version-banner, #breadcrumb, etc.) replaced by the React static export at out/; the React mount lives on the W6+ chain (PR #350 + PR #351 + W6.1/W6.5 + AC-21 manifest) with its own React-shaped DOM contract that these legacy web/ Playwright tests do not target. The React parity coverage is the ODD-MIGRATE-005 G4 capture (docs/cutover-evidence/parity-reports/*) + W6.1/W6.2/W6.3 + W65 React tests."
+)
 def test_view_details_reopens_detail_panel_after_close(api_server):
     """Regression: clicking "View details" (RENAMED from "Search
     online" in ODD-TDDISC-001 — the data-action="open-searches"
@@ -979,6 +988,9 @@ def test_folder_tab_renders_for_unmaterialized_taxon(api_server):
     _check_playwright_available() is None,
     reason="playwright not installed (pip install playwright)",
 )
+@pytest.mark.skip(
+    reason="ODD-MIGRATE-007 retired — legacy DOM markers (#tree-view, #detail-panel, [data-tree-source], [data-tab], [data-tab-content], #search-input, #version-banner, #breadcrumb, etc.) replaced by the React static export at out/; the React mount lives on the W6+ chain (PR #350 + PR #351 + W6.1/W6.5 + AC-21 manifest) with its own React-shaped DOM contract that these legacy web/ Playwright tests do not target. The React parity coverage is the ODD-MIGRATE-005 G4 capture (docs/cutover-evidence/parity-reports/*) + W6.1/W6.2/W6.3 + W65 React tests."
+)
 def test_folder_tab_shows_open_and_copy_after_materialize(api_server):
     """When the Research folder already exists on disk (all_exist=true),
     the Folder tab must show [Open in Finder] + [Copy path] buttons in
@@ -1110,6 +1122,9 @@ def test_folder_tab_shows_open_and_copy_after_materialize(api_server):
 @pytest.mark.skipif(
     _check_playwright_available() is None,
     reason="playwright not installed (pip install playwright)",
+)
+@pytest.mark.skip(
+    reason="ODD-MIGRATE-007 retired — legacy DOM markers (#tree-view, #detail-panel, [data-tree-source], [data-tab], [data-tab-content], #search-input, #version-banner, #breadcrumb, etc.) replaced by the React static export at out/; the React mount lives on the W6+ chain (PR #350 + PR #351 + W6.1/W6.5 + AC-21 manifest) with its own React-shaped DOM contract that these legacy web/ Playwright tests do not target. The React parity coverage is the ODD-MIGRATE-005 G4 capture (docs/cutover-evidence/parity-reports/*) + W6.1/W6.2/W6.3 + W65 React tests."
 )
 def test_open_in_finder_button_calls_endpoint(api_server):
     """Clicking [Open in Finder] must POST to /api/taxon/{id}/open-folder
