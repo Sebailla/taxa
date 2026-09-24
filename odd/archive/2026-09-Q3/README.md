@@ -64,6 +64,14 @@ either merged to `develop` via the listed PR(s) or explicitly superseded.
 | `supersede-frontend-migration-plan.md` | superseded (PR #143 closed without merge per this plan) | n/a |
 | `test-cleanup.md` | PR #400 + #401 + #402 | `33997e8` + `56b2166` + `0e975df` |
 
+### Wave 3 — P1 render-puro refactor (this branch)
+
+One additional draft archived after the wave-2 ship. The plan described a bounded refactor that has since merged.
+
+| Draft | Merged via | Commit |
+|---|---|---|
+| `render-puro-file-tree-search.md` | PR #407 | `ebd4bfa` |
+
 ## What stays in `odd/tasks/`
 
 After wave 2, two drafts remain because they are **actively referenced by
