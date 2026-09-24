@@ -2913,6 +2913,112 @@ def test_barrel_reexports_detail_panel_contract() -> None:
 
 
 # ---------------------------------------------------------------------------
+# ODD-SBP-001 — detail-panel sticky breakpoint responsive flip.
+#
+# `globals.css:423-424` pins `.detail-panel { position: sticky;
+# top: 144px; z-index: 30; }`. At viewports below ~800px the
+# sticky offset eats the visible tree (the tree header +
+# breadcrumb + source selector consume the first 144px, then
+# the detail panel sticks). Users on 13" laptops see tree rows
+# slide under the panel; tablet users see the panel consume
+# half the viewport; phone users see the panel eat the entire
+# tree. The fix: a single `@media (max-width: 768px)` rule
+# inside `@layer components` (after the original `.detail-panel`
+# rule, so CSS source order wins the cascade tiebreak) that
+# flips `.detail-panel` from `position: sticky` to in-flow
+# (`position: static`). The in-card `.detail-panel
+# .detail-header` sticky header also flips at the same
+# breakpoint so the card body collapses cleanly into the
+# in-flow panel. The pre-existing `.detail-panel { position:
+# sticky; top: 144px; z-index: 30; }` rule MUST stay intact
+# for viewports >= md — the @media rule only overrides below
+# the md breakpoint.
+# ---------------------------------------------------------------------------
+
+def test_detail_panel_below_md_is_static() -> None:
+    r"""ODD-SBP-001: `src/app/globals.css` MUST declare a
+    `@media (max-width: 768px) { .detail-panel { position:
+    static; ... } }` rule so the detail panel flips to in-flow
+    at viewports below the md breakpoint (was sticky + top:
+    144px at >= md viewport).
+
+    The regex anchors on three pieces in order:
+      1. `@media (max-width: 768px) {` — the media query
+         opener (whitespace-tolerant so the source remains
+         lint-clean).
+      2. `.detail-panel {` — the selector that flips inside
+         the media block (the descendant `.detail-panel
+         .detail-header` is allowed to follow in the same
+         block; the non-greedy `[\s\S]*?` jumps over it).
+      3. `position: static` — the first declaration inside the
+         `.detail-panel` rule (the non-greedy `[^}]*?` jumps
+         over intervening whitespace + comments).
+
+    The @media rule lives AFTER the outer `.detail-panel { ... }`
+    rule inside `@layer components` so CSS source order wins the
+    cascade specificity tiebreak — both selectors carry (0,1,0)
+    specificity, so the later rule wins when the media query
+    matches. The alphabetic-order contract (the `_top_level`
+    helper in `tests/test_research_styles.py`) keeps passing
+    because the `@media` block head does not start with `.`,
+    so it is not added to the alphabetic heads list; the inner
+    selectors live at depth 1 inside the @media block, also
+    not added."""
+    text = _read_text(TAXONOMY_GLOBALS_CSS)
+    assert re.search(
+        r"@media\s*\(\s*max-width\s*:\s*768px\s*\)\s*\{[\s\S]*?"
+        r"\.detail-panel\s*\{[^}]*?position\s*:\s*static",
+        text,
+    ), (
+        "globals.css must declare a `@media (max-width: 768px) "
+        "{ .detail-panel { position: static; … } }` rule so the "
+        "detail panel flips to in-flow at viewports below the md "
+        "breakpoint (was sticky + top: 144px at >= md viewport)."
+    )
+
+
+def test_detail_panel_above_md_remains_sticky() -> None:
+    r"""ODD-SBP-001 (regression guard): the existing
+    `.detail-panel { position: sticky; top: 144px; z-index: 30; }`
+    rule in `@layer components` MUST remain intact for viewports
+    >= md — the new `@media (max-width: 768px)` rule only
+    overrides below the md breakpoint, leaving the sticky
+    behavior unchanged for desktop + tablet-landscape viewports.
+
+    The regex anchors on the four pieces in source order inside
+    the FIRST `.detail-panel { ... }` block (the outer rule,
+    not any descendant or attribute variant):
+      1. `.detail-panel {` — exact selector (no descendant,
+      no `[data-realm=...]` attribute modifier). The
+      `\s*` after `\.detail-panel` matches the opening brace
+      directly; the descendant `.detail-panel .detail-header`
+      and attribute `.detail-panel[data-realm=...]` selectors
+      are skipped because they have additional tokens between
+      `.detail-panel` and `{`.
+      2. `position: sticky` — the sticky declaration.
+      3. `top: 144px` — the offset.
+      4. `z-index: 30` — the stacking order.
+
+    The new `@media` block's `.detail-panel { position: static;
+    ... }` rule MUST NOT satisfy this regex because the second
+    declaration is `position: static`, not `position: sticky`.
+    The regression guard only passes when the original sticky
+    rule survives intact."""
+    text = _read_text(TAXONOMY_GLOBALS_CSS)
+    assert re.search(
+        r"\.detail-panel\s*\{[^}]*?position\s*:\s*sticky[^}]*?"
+        r"top\s*:\s*144px[^}]*?z-index\s*:\s*30",
+        text,
+        re.DOTALL,
+    ), (
+        "globals.css must keep `.detail-panel { position: sticky; "
+        "top: 144px; z-index: 30; }` for >= md viewports "
+        "(ODD-SBP-001 regression guard — the @media rule only "
+        "overrides below the md breakpoint)."
+    )
+
+
+# ---------------------------------------------------------------------------
 # ODD-TDS-001 — native Search tab data contract + UI.
 #
 #   - `fetchSearches` is the canonical typed projection for
