@@ -2388,24 +2388,27 @@
      AFTER `.tree-row-status` (dash separator) and BEFORE
      `.tree-row[data-*]` (bracket separator) under the ASCII
      ordering. */
-  /* ODD-SBP-001-P3: border softened 3px → 2px (impeccable critique 2026-09-23).
-     Keeps the affordance readable while reducing visual weight on
-     dense tree rows. Brand signal preserved via the primary color. */
+  /* ODD-SBP-001-P3: side-tab accent border REMOVED (impeccable critique
+     2026-09-24). The detector's `side-tab` rule pattern-matches the
+     shape (colored left border on a card), not the weight — PR #406's
+     softening (3px → 2px) did not close the rule. The affordance now
+     rides on the bg tint alone: selected = color-mix primary 8% /
+     surface; focused = surface-container-low. Selected's resting tint
+     is bumped from 5% to 8% so the resting and hover states remain
+     visually distinct (hover now bumps to 12%). */
   .tree-row.focused {
     background: var(--surface-container-low);
-    border-left: 2px solid var(--outline);
     border-radius: 0 0.5rem 0.5rem 0;
   }
   .tree-row.focused:hover {
     background: var(--surface-container);
   }
   .tree-row.selected {
-    background: color-mix(in srgb, var(--primary) 5%, var(--surface));
-    border-left: 2px solid var(--primary);
+    background: color-mix(in srgb, var(--primary) 8%, var(--surface));
     border-radius: 0 0.5rem 0.5rem 0;
   }
   .tree-row.selected:hover {
-    background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+    background: color-mix(in srgb, var(--primary) 12%, var(--surface));
   }
   .tree-row[data-pulse-nonce] {
     animation: search-pulse-anim 1.6s linear;

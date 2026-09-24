@@ -521,10 +521,19 @@ export default function TreeRow({
 // already applies.
 function rowClassFor(isSelected: boolean, isFocused: boolean): string {
   if (isSelected) {
-    return "selected bg-primary/5 border-l-[3px] border-primary rounded-r-lg cursor-pointer";
+    // ODD-SBP-001-P3 (impeccable 2026-09-24): the colored left border
+    // was removed in favor of a stronger bg tint. The Tailwind
+    // utility classes (`bg-primary/5`, `border-l-[3px]`, `border-primary`)
+    // are gone — the canonical bg + radius now lives in the CSS rule
+    // alone (`.tree-row.selected { background: color-mix(... 8% ...);
+    // border-radius: 0 0.5rem 0.5rem 0; }`).
+    return "selected rounded-r-lg cursor-pointer";
   }
   if (isFocused) {
-    return "focused bg-surface-container-low border-l-[3px] border-outline rounded-r-lg cursor-pointer";
+    // Same: focused row's bg + radius live in the CSS rule; the
+    // Tailwind `bg-surface-container-low` is also gone (the CSS
+    // owns the bg now, so this class only needs to identify the row).
+    return "focused rounded-r-lg cursor-pointer";
   }
   return "hover:bg-surface-container-low transition-colors rounded-r-lg cursor-pointer";
 }
