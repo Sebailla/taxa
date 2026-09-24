@@ -269,6 +269,38 @@ export default function Explorer(props: ExplorerProps): ReactNode {
     void loadTree();
   }, [loadTree]);
 
+  // Cmd+K / Ctrl+K — focus the file-search input.
+  // Mirrors the AppShellGlobalSearch route-aware guard:
+  // when the Explorer route is active, the AppShell input
+  // is inert, so Cmd+K must route to the file-search input
+  // instead of being a no-op. The handler prevents the
+  // default browser quick-search behaviour and selects the
+  // existing value so the user can immediately overwrite
+  // it. Same editable-field skip pattern as the
+  // AppShellGlobalSearch handler so a researcher typing
+  // Cmd+K inside another input never has their keystroke
+  // stolen.
+  useEffect(() => {
+    const onKeyDown = (ev: KeyboardEvent): void => {
+      if (!(ev.metaKey || ev.ctrlKey)) return;
+      if (ev.key.toLowerCase() !== "k") return;
+      const target = ev.target;
+      if (target instanceof HTMLElement) {
+        const tag = target.tagName;
+        const editable =
+          tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable;
+        if (editable) return;
+      }
+      ev.preventDefault();
+      searchInputRef.current?.focus({ preventScroll: true });
+      searchInputRef.current?.select();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return (): void => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
+
   // W6.5-BRIDGE-006 — FolderTab → Explorer refresh bridge.
   // The native FolderTab (ODD-TDFOLDER-001, in the taxonomy
   // module) dispatches a

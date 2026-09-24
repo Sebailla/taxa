@@ -843,6 +843,65 @@ def test_w6_2_explorer_escape_clears_debounce_synchronously() -> None:
     )
 
 
+def test_w6_2_explorer_cmd_k_focuses_file_search_input() -> None:
+    """ODD-EXPCMDK-001: on the /explorer route, Cmd+K / Ctrl+K
+    must focus the file-search input instead of being a
+    no-op (the AppShell input is inert on this route per
+    ODD-EXP-001). The Explorer mount owns a document-level
+    keydown listener that mirrors the AppShellGlobalSearch
+    route-aware guard: skip when an editable element has
+    focus, preventDefault on match, focus + select the
+    file-search input. The effect has an empty dependency
+    array so the listener is registered exactly once per
+    mount + cleaned up on unmount.
+    """
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = _strip_ts_comments(EXPLORER_FILE.read_text())
+    # The Explorer must add a document-level keydown listener
+    # that handles Cmd/Ctrl+K.
+    assert (
+        'document.addEventListener("keydown"' in text
+    ), (
+        "Explorer.tsx must add a document-level keydown "
+        "listener that handles Cmd+K / Ctrl+K to focus the "
+        "file-search input on the /explorer route. The "
+        "AppShell global-search input is inert here per "
+        "ODD-EXP-001 — without this listener Cmd+K is a "
+        "no-op on /explorer."
+    )
+    # The handler MUST focus the existing file-search input
+    # by reference (not by querySelector) so it picks up the
+    # React-controlled value immediately.
+    assert (
+        "searchInputRef.current?.focus" in text
+    ), (
+        "Explorer.tsx Cmd+K handler must focus "
+        "`searchInputRef.current` (the React-controlled file-search "
+        "input ref). DOM lookup via querySelector would race the "
+        "controlled-input state."
+    )
+    # preventDefault stops the browser's quick-search bar.
+    assert (
+        "ev.preventDefault" in text
+    ), (
+        "Explorer.tsx Cmd+K handler must call "
+        "`ev.preventDefault()` to stop the browser's "
+        "quick-search behaviour on Chrome / Firefox / Safari."
+    )
+    # The editable-field skip mirrors the AppShellGlobalSearch
+    # pattern so a researcher typing Cmd+K inside another input
+    # never has their keystroke stolen.
+    assert "isContentEditable" in text, (
+        "Explorer.tsx Cmd+K handler must skip when the "
+        "active element is editable (input / textarea / "
+        "select / contenteditable) so typing Cmd+K inside "
+        "another field never has the keystroke stolen. "
+        "Mirrors the AppShellGlobalSearch editable-field "
+        "guard."
+    )
+
+
 def test_w6_2_explorer_has_no_dead_empty_annotation_handle() -> None:
     """W6.2 contract — Explorer.tsx MUST NOT carry the dead
     `emptyAnnotation` useMemo + `void emptyAnnotation` block
