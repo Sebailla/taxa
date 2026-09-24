@@ -1228,24 +1228,113 @@ def test_app_shell_marks_active_route():
 
 
 def test_app_shell_has_skip_to_main():
-    """ODD-ASN-002: the AppShell must render a skip-to-main link
-    as the FIRST focusable element. Source-level check: the AppShell
-    orchestrator file emits `<a ... href="#main">Skip to main</a>`
-    (or equivalent copy) BEFORE the `<main>` block."""
-    text = _read_text(APP_SHELL_FILE)
+    """ODD-SKL — the AppShell's skip-link authority MUST live in
+    the root layout (every route mounts `src/app/layout.tsx`
+    above `{children}`), not inside `AppShell.tsx`.
+
+    Originally the AppShell orchestrator emitted its own
+    `<a href="#main">` as a defensive duplicate "to cover the
+    edge case where the layout does not pin the link in
+    advance" — but every AppShell-mounted route IS mounted
+    under the root layout, so the duplicate caused screen
+    readers to hear "Skip to main content" twice on every
+    AppShell-mounted route (`/`, `/explorer`, `/help`,
+    `/settings`, `/_not-found`).
+
+    Contract: the skip-link is rendered by
+    `src/app/layout.tsx` (the layout's `<a href="#main">`
+    appears BEFORE `{children}` so it is the FIRST focusable
+    element on every route) and NOT redundantly rendered
+    inside `src/modules/app-shell/presentation/AppShell.tsx`.
+
+    The "AppShell does not re-render the link" half of the
+    contract is the negative witness pinned by
+    `test_app_shell_does_not_render_duplicate_skip_to_main`
+    below; this test pins the positive witness (layout
+    owns the link) plus the ordering invariant (before
+    `{children}`). Together they close the duplicate
+    skip-link regression: one anchor, in the layout, in
+    front of every route.
+    """
+    text = _read_text(SRC_LAYOUT)
     assert re.search(
         r'<a\b[^>]*\bhref\s*=\s*"#main"',
         text,
     ), (
-        "AppShell.tsx must render a skip-to-main link "
-        "(`<a href=\"#main\">Skip to main</a>`) so the "
-        "first focusable element jumps over the nav."
+        "src/app/layout.tsx must render the skip-to-main link "
+        "(`<a href=\"#main\">Skip to main content</a>`) — the "
+        "root layout is the sole authority for the WCAG 2.4.1 "
+        "bypass-block affordance; every AppShell-mounted route "
+        "inherits the contract through `{children}`."
     )
     skip_idx = text.find('href="#main"')
-    main_idx = text.find("<main")
-    assert 0 <= skip_idx < main_idx, (
-        f"the skip-to-main link must render BEFORE the `<main>` "
-        f"block; got skip_idx={skip_idx}, main_idx={main_idx}."
+    children_idx = text.find("{children}")
+    assert 0 <= skip_idx < children_idx, (
+        f"src/app/layout.tsx must render the skip-to-main link "
+        f"BEFORE {{children}} so it is the FIRST focusable "
+        f"element on every route; got skip_idx={skip_idx}, "
+        f"children_idx={children_idx}."
+    )
+
+
+def test_app_shell_does_not_render_duplicate_skip_to_main():
+    """ODD-SKL — negative witness: the AppShell orchestrator
+    MUST NOT render its own skip-link anchor.
+
+    `src/app/layout.tsx` owns the skip-link (see
+    `test_app_shell_has_skip_to_main` above for the positive
+    witness + ordering invariant). Every AppShell-mounted
+    route (`/`, `/explorer`, `/help`, `/settings`,
+    `/_not-found`) renders `<AppShell>{route-body}</AppShell>`
+    inside the root layout, so the layout already pins a
+    skip-link in front of the AppShell subtree.
+
+    Re-emitting the skip-link inside the AppShell made
+    screen readers read "Skip to main content" twice on
+    every AppShell-mounted route. Closing the duplicate
+    means the AppShell's source MUST NOT contain the
+    JSX skip-link form — the negative witness that catches
+    a regression that re-introduces the duplicate.
+
+    The pattern matches the JSX form (the `<a` opener is
+    followed by a newline and indented attributes, as
+    React JSX renders it) rather than a single-line
+    literal — that keeps the check robust against
+    documentation prose that mentions the skip-link by
+    name without quoting its JSX form. Two witness
+    anchors are checked: the skip-link's href attribute
+    in JSX form, and the `data-app-shell-skip-link`
+    attribute that previously marked the JSX element.
+    """
+    text = _read_text(APP_SHELL_FILE)
+    jsx_skip_link_match = re.search(
+        r'<a\s*\n\s*href\s*=\s*"#main"',
+        text,
+    )
+    data_marker_match = re.search(
+        r'\bdata-app-shell-skip-link\s*=\s*""',
+        text,
+    )
+    assert jsx_skip_link_match is None, (
+        "src/modules/app-shell/presentation/AppShell.tsx must NOT "
+        "render its own JSX skip-link anchor (matched the "
+        "multiline `<a` opener followed by `href=\"#main\"`) — the "
+        "root layout (src/app/layout.tsx) already pins the skip-link "
+        "BEFORE `{children}`, so every AppShell-mounted route "
+        "already satisfies the WCAG 2.4.1 bypass-block contract. "
+        "The in-Shell duplicate made screen readers hear "
+        "`Skip to main content` twice on every AppShell-mounted "
+        "route. Remove the duplicate anchor and the obsolete "
+        "ODD-ASN-002 comment block that justified it."
+    )
+    assert data_marker_match is None, (
+        "src/modules/app-shell/presentation/AppShell.tsx must NOT "
+        "carry the `data-app-shell-skip-link=\"\"` marker — that "
+        "data attribute belongs to the JSX skip-link the layout "
+        "owns. A regression that re-introduces the JSX element "
+        "would carry the marker; a regression that adds the marker "
+        "alone is also rejected so the layout-vs-Shell boundary "
+        "stays explicit."
     )
 
 
