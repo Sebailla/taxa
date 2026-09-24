@@ -27,7 +27,8 @@
  *   - `Escape`         → blur the currently focused element
  *                        (so the active element loses focus)
  *                        and clear the global search query when
- *                        non-empty.
+ *                        non-empty, except on the inert
+ *                        `/explorer` route.
  *
  * The component supports the ODD-ASN-002 lift-state contract:
  * callers MAY pass `searchQuery` + `onSearchQueryChange` to take
@@ -188,13 +189,15 @@ export default function AppShellGlobalSearch(
         return;
       }
       // Escape — blur the currently focused element so the
-      // active element loses focus + clear the global search
-      // query when non-empty.
+      // active element loses focus. Clear the global search
+      // query only when the input is active on this route;
+      // `/explorer` deliberately renders the global search as
+      // inert, so Escape must not mutate its hidden state.
       if (ev.key === "Escape") {
         if (document.activeElement instanceof HTMLElement) {
           document.activeElement.blur();
         }
-        if (value.length > 0) {
+        if (!isInert && value.length > 0) {
           setValue("");
         }
       }

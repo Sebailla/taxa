@@ -596,7 +596,7 @@ export default function Explorer(props: ExplorerProps): ReactNode {
       case "empty":
         return renderEmptyPane(loadStatus.tree);
       case "error":
-        return renderErrorPane(loadStatus.message);
+        return renderErrorPane(loadStatus.message, loadTree);
       case "loaded":
         return (
           <FileTree
@@ -665,18 +665,16 @@ function renderEmptyPane(tree: ExplorerTree): ReactNode {
 
 /** Render the error-state card with a Retry button. Mirrors
  *  the legacy `web/file_explorer.js::mount()` catch branch —
- *  the `role="alert"` + Retry button. The retry callback
- *  re-fires the loader through the parent's effect chain;
- *  a future slice could thread the loader through a context
- *  provider so this retry button can call it directly. The
- *  W6.1 non-CDN scope keeps the retry shape simple — a
- *  page reload restores the mount from a clean state. */
-function renderErrorPane(message: string): ReactNode {
+ *  the `role="alert"` + Retry button. Retry re-fires the
+ *  parent's typed loader directly instead of reloading the page,
+ *  so expanded / selected / viewer / search state survives a
+ *  recoverable network error. */
+function renderErrorPane(
+  message: string,
+  onRetry: () => void,
+): ReactNode {
   const handleRetry = (): void => {
-    if (typeof window !== "undefined") {
-      window.location.reload();
-    }
-    void message;
+    onRetry();
   };
   return (
     <div className="fex-empty-state" role="alert" data-tree-error="">
