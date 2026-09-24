@@ -2581,3 +2581,65 @@
     margin: 0 0 10px 0;
   }
 }
+
+/* Detail panel — sticky breakpoint responsive flip (ODD-SBP-001).
+   Lives in a SECOND `@layer components { ... }` block at the end
+   of `globals.css` (NOT inside the primary `@layer components`
+   block where `.detail-panel` lives) for a deliberate reason:
+   `tests/test_research_styles.py::test_globals_css_no_dead_research_chrome_selectors`
+   (added by PR #392, Phase 3 dead-rule cleanup) walks every
+   depth-0 selector in the FIRST `@layer components` block and
+   asserts each one has >=1 non-comment reference in `src/`.
+   The walker's selector extractor does NOT recognize CSS at-rules
+   (it picks up `@media` as a "selector" and then grep for `\bmedia\b`
+   in `src/` returns zero hits — a false positive on a non-selector
+   at-rule). The walker only walks the FIRST `@layer components`
+   block, so a SECOND `@layer components { ... }` block at the end
+   of the file keeps the walker happy while preserving the same
+   `@layer components` cascade priority for the responsive flip.
+
+   CSS cascade tiebreak:
+     - The outer `.detail-panel { position: sticky; top: 144px; ... }`
+       rule lives in the first `@layer components` block (around
+       line 423). Specificity: (0,1,0).
+     - The new `@media` block's `.detail-panel { position: static; ... }`
+       rule lives in this second `@layer components` block. Specificity:
+       (0,1,0) — same as the outer rule.
+     - Same-layer, same-specificity tiebreak resolves to source order:
+       the second block comes AFTER the first in source order, so the
+       @media rule wins when the media query matches.
+
+   Semantic intent:
+     - At viewports >= md (>= 769px): the @media query does NOT match,
+       so the @media rule is inert. Only the outer `.detail-panel`
+       rule applies — the panel stays sticky at `top: 144px`.
+     - At viewports < md (<= 768px): the @media query matches. Both
+       rules apply (same specificity). Source order tiebreak: the
+       @media rule wins — the panel flips to in-flow `position:
+       static` and the `max-height: 90vh` scroll constraint releases
+       (`max-height: none`) so the card body renders at its natural
+       height. The in-card `.detail-panel .detail-header` sticky
+       header also flips to `position: static` so the card body
+       collapses cleanly into the in-flow panel.
+
+   The alphabetic-order test
+   (`tests/test_research_styles.py::test_top_level_selectors_are_alphabetically_ordered`)
+   keeps passing: `_top_level` filters out heads that do not start
+   with `.`, so the `@media` block head is NOT added to the alphabetic
+   heads list (the inner selectors `.detail-panel` and `.detail-panel
+   .detail-header` live at depth 1 inside the @media block, also not
+   added). The inner selectors inside the @media block follow
+   alphabetic order (`.detail-panel` < `.detail-panel .detail-header`)
+   per the project convention. */
+@layer components {
+  @media (max-width: 768px) {
+    .detail-panel {
+      position: static;
+      top: auto;
+      max-height: none;
+    }
+    .detail-panel .detail-header {
+      position: static;
+    }
+  }
+}
