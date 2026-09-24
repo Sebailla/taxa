@@ -161,23 +161,37 @@ export default function HelpPage(): React.ReactElement {
           >
             Realm color legend
           </h2>
+          {/* ODD-REALM-001 — JSX tokens aligned with the canonical
+              `--realm-*` declarations in `globals.css:43-50`
+              (bacteria / archaea / viruses / animalia / fungi /
+              plantae / chromista / other). The previous round
+              referenced `--realm-animal` / `--realm-plant` /
+              `--realm-freshwater` — none of which exist in the
+              CSS, so the swatches rendered in the page's text
+              color. The third swatch now shows Fungi (a real
+              hue) instead of Freshwater (Freshwater is a
+              `non-null freshwater_id flag` layered on top of
+              whichever realm the row belongs to, not a fourth
+              hue of its own). */}
           <ul className="mt-2 flex flex-col gap-1 text-body-sm text-on-surface-variant">
             <li>
-              <span className="mr-2 inline-block h-3 w-3 rounded-sm bg-[color:var(--realm-animal)]" />
-              <strong className="text-on-surface">Animal.</strong>{" "}
+              <span className="mr-2 inline-block h-3 w-3 rounded-sm bg-[color:var(--realm-animalia)]" />
+              <strong className="text-on-surface">Animalia.</strong>{" "}
               The row belongs to the WoRMS / CoL animal
               kingdom branch.
             </li>
             <li>
-              <span className="mr-2 inline-block h-3 w-3 rounded-sm bg-[color:var(--realm-plant)]" />
-              <strong className="text-on-surface">Plant.</strong>{" "}
+              <span className="mr-2 inline-block h-3 w-3 rounded-sm bg-[color:var(--realm-plantae)]" />
+              <strong className="text-on-surface">Plantae.</strong>{" "}
               The row belongs to the CoL plant branch.
             </li>
             <li>
-              <span className="mr-2 inline-block h-3 w-3 rounded-sm bg-[color:var(--realm-freshwater)]" />
-              <strong className="text-on-surface">Freshwater.</strong>{" "}
-              The row carries a non-null `freshwater_id` and
-              belongs to the Freshwater mirror.
+              <span className="mr-2 inline-block h-3 w-3 rounded-sm bg-[color:var(--realm-fungi)]" />
+              <strong className="text-on-surface">Fungi.</strong>{" "}
+              The row carries the fungi realm tint from the
+              CoL backbone. Freshwater rows inherit their
+              realm tint and add a separate Freshwater flag
+              (visible in the kebab row actions).
             </li>
           </ul>
         </section>
