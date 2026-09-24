@@ -27,35 +27,46 @@
  *
  * W6.2 contract (extends W6.1 with the Browser-tab tree
  * search semantics mirroring the legacy
- * `web/file_explorer.js` byte-for-byte):
- *  - Filter mode: hide non-match rows + auto-expand every
- *    folder on the ancestor chain. The DOM mutation runs
- *    in a `useEffect` keyed on the typed `searchAnnotation`
- *    prop — the React tree itself never re-renders on a
- *    keystroke (mirrors the legacy
- *    `render-time toggle, not re-mount` strategy).
- *  - Highlight mode: paint every matching row with the
- *    `.search-match` class. The class toggle is idempotent
- *    so a fast-typing user never sees stale matches; the
- *    `aria-expanded` + chevron state is NEVER touched in
- *    highlight mode so the user's manual expand/collapse
- *    choices survive (the legacy
- *    `applyHighlightToTree` contract preserved verbatim).
+ * `web/file_explorer.js` byte-for-byte). The refactor is
+ * **render-puro**: visibility, expansion, and the
+ * `.search-match` paint are derived at render time from
+ * the typed `(tree, expanded, searchAnnotation, searchMode,
+ * searchHideEmpty)` props — there is no post-render
+ * `useEffect`, no `querySelector` lookup, and no DOM
+ * mutation. The user-visible contract (data attributes,
+ * ARIA, classes, behavior) stays byte-for-byte identical
+ * to the legacy mutation-driven mount; only *how* the
+ * contract is *applied* changes:
+ *  - Filter mode: rows whose path is not in the
+ *    `matches ∪ ancestors` set are SKIPPED in the
+ *    recursive walker (no DOM element is rendered for
+ *    them); every folder on the ancestor chain is added
+ *    to the derived `expandedSet` so it renders expanded
+ *    on the next commit. The `aria-expanded` + chevron +
+ *    folder-icon state flips naturally because the row
+ *    receives `isExpanded` from the derived set.
+ *  - Highlight mode: every matching row receives the
+ *    `search-match` class at render time; the derived
+ *    `expandedSet` is the unchanged user-controlled set
+ *    so `aria-expanded` + chevron state are NEVER touched
+ *    (the legacy `Highlight mode keeps expand/collapse
+ *    state` contract preserved verbatim).
  *  - `filter + hideEmpty + zero matches`: paint the exact
  *    `No matches.` card inside the tree pane (reuses the
  *    `.fex-empty-state` chrome).
- *  - Clear / empty annotation: restore the tree — every
- *    wrap un-hidden, every `.search-match` class removed,
- *    the `No matches.` placeholder cleared.
+ *  - Clear / empty annotation: the walker derives from
+ *    `searchAnnotation === null` so every row is visible
+ *    and no row carries `search-match` — the React render
+ *    is the single source of truth, no separate "restore"
+ *    pass is needed.
  *
- * The DOM mutations stay inside a `useEffect` so React's
- * render cycle stays deterministic. The annotation is
- * computed by the parent `Explorer.tsx` via the pure
- * kernel helper `annotateMatches(tree, query)`; this
- * component receives the annotation as a typed prop and
- * applies it via DOM lookup (mirrors the legacy's
- * `applySearchToTree(host, annotation)` /
- * `applyHighlightToTree(host, annotation)` shape).
+ * The annotation is computed by the parent `Explorer.tsx`
+ * via the pure kernel helper `annotateMatches(tree, query)`;
+ * this component receives the annotation as a typed prop
+ * and renders the derived view. Three pure helpers
+ * (`deriveExpandedSet`, `isRowVisible`, `rowHasMatchClass`)
+ * own the derivation — the component itself only wires
+ * them into the recursive walker.
  *
  * spec.md rule 4: presentation depends on the public barrel +
  * domain. The component imports through `@taxa/research`
@@ -63,7 +74,7 @@
  * application / domain / infrastructure layers.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import type {
   ExplorerTreeNode,
   ExplorerFolderNode,
@@ -168,13 +179,98 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+/** Internal — derive the expanded set the recursive walker
+ *  reads at render time. Pure function: same inputs always
+ *  produce the same output.
+ *   - When `searchAnnotation === null` (no active query) the
+ *     user-controlled `expanded` set is returned unchanged.
+ *   - When `searchMode === "highlight"` the user-controlled
+ *     `expanded` set is returned unchanged — highlight mode
+ *     never auto-expands (the legacy `Highlight mode keeps
+ *     expand/collapse state` contract).
+ *   - When `searchMode === "filter"` the derived set is
+ *     `expanded ∪ searchAnnotation.ancestors` — every
+ *     folder on the ancestor chain auto-expands so a
+ *     collapsed chain never hides a match. The new set is
+ *     a fresh `Set` so the parent's read-only contract
+ *     stays honest (the union is a derived view, never a
+ *     mutation of the caller's set). */
+function deriveExpandedSet(
+  expanded: ReadonlySet<string>,
+  searchAnnotation: SearchAnnotation | null,
+  searchMode: "filter" | "highlight",
+): ReadonlySet<string> {
+  if (searchAnnotation === null || searchMode === "highlight") {
+    return expanded;
+  }
+  const next = new Set<string>(expanded);
+  for (const ancestor of searchAnnotation.ancestors) {
+    next.add(ancestor);
+  }
+  return next;
+}
+
+/** Internal — decide whether a row should render at all. Pure
+ *  function. The walker SKIPS children whose path is not
+ *  visible so the filter pass is a render-time conditional
+ *  (the equivalent of the legacy `style.display = "none"`
+ *  toggle, without touching the DOM).
+ *   - When `searchAnnotation === null` every row is visible.
+ *   - When `searchMode === "highlight"` every row is visible
+ *     (highlight only paints a class, never hides).
+ *   - When `searchMode === "filter"` a row is visible iff
+ *     its path is in `matches ∪ ancestors`. */
+function isRowVisible(
+  path: string,
+  searchAnnotation: SearchAnnotation | null,
+  searchMode: "filter" | "highlight",
+): boolean {
+  if (searchAnnotation === null) return true;
+  if (searchMode === "highlight") return true;
+  return (
+    searchAnnotation.matches.has(path) ||
+    searchAnnotation.ancestors.has(path)
+  );
+}
+
+/** Internal — decide whether a row should carry the
+ *  `search-match` class at render time. Pure function.
+ *   - When `searchAnnotation === null` no row carries the
+ *     class (the legacy `restoreTree()` un-paint).
+ *   - When `searchMode === "highlight"` rows whose path is
+ *     in `matches` carry the class.
+ *   - When `searchMode === "filter"` NO row carries the
+ *     class — filter mode hides non-matches via the
+ *     render-time conditional in `isRowVisible`, the class
+ *     is highlight-only.
+ *  The class is computed at render time so the render
+ *  itself is the single source of truth — there is no
+ *  post-render pass that toggles it. */
+function rowHasMatchClass(
+  path: string,
+  searchAnnotation: SearchAnnotation | null,
+  searchMode: "filter" | "highlight",
+): boolean {
+  if (searchAnnotation === null) return false;
+  if (searchMode === "highlight") {
+    return searchAnnotation.matches.has(path);
+  }
+  return false;
+}
+
 /** Build the folder row element. Single-click selects the
  *  folder (highlights the row, mirrors the legacy `selectFolder`
  *  shape — folders do not open any file, the legacy selection
  *  is highlight-only). The chevron click toggles expansion.
  *  The row carries `role="button"` + `tabindex="0"` so a
  *  keyboard user can select the folder without a mouse.
- *  `aria-expanded` reflects the expansion state verbatim. */
+ *  `aria-expanded` reflects the expansion state verbatim.
+ *
+ *  Render-puro contract: `isExpanded` is derived from the
+ *  walker-supplied `expandedSet` (which has already merged
+ *  the filter-mode ancestor chain), and `rowClass` includes
+ *  the `search-match` class when the highlight pass paints
+ *  this row. There is no post-render DOM mutation. */
 function renderFolderRow(
   folder: ExplorerFolderNode,
   depth: number,
@@ -183,11 +279,17 @@ function renderFolderRow(
   onToggleExpand: (path: string) => void,
   onSelectFolder: (path: string) => void,
   childRows: ReactNode,
+  searchAnnotation: SearchAnnotation | null,
+  searchMode: "filter" | "highlight",
 ): ReactNode {
   const folderPath = folder.path || "";
   const chevron = isExpanded ? "keyboard_arrow_down" : "keyboard_arrow_right";
   const folderIcon = isExpanded ? "folder" : "folder_open";
-  const rowClass = `fex-row folder${isSelected ? " selected" : ""}`;
+  const hasMatch = rowHasMatchClass(folderPath, searchAnnotation, searchMode);
+  const rowClass =
+    `fex-row folder` +
+    (isSelected ? " selected" : "") +
+    (hasMatch ? " search-match" : "");
   return (
     <div data-row-wrap="folder" className="fex-row-wrap" key={`folder:${folderPath}`}>
       <div
@@ -252,16 +354,26 @@ function renderFolderRow(
 /** Build the file row element. Single-click selects the file
  *  (highlights the row only — no network), double-click opens
  *  the file in the right viewer. Mirrors the legacy
- *  `web/file_explorer.js::renderFileRow` shape verbatim. */
+ *  `web/file_explorer.js::renderFileRow` shape verbatim.
+ *
+ *  Render-puro contract: `rowClass` includes the
+ *  `search-match` class when the highlight pass paints
+ *  this row. There is no post-render DOM mutation. */
 function renderFileRow(
   file: ExplorerFileNode,
   depth: number,
   isSelected: boolean,
   onSelectFile: (file: ExplorerFileNode) => void,
   onOpenFile: (file: ExplorerFileNode) => void,
+  searchAnnotation: SearchAnnotation | null,
+  searchMode: "filter" | "highlight",
 ): ReactNode {
   const filePath = file.path || "";
-  const rowClass = `fex-row file${isSelected ? " selected" : ""}`;
+  const hasMatch = rowHasMatchClass(filePath, searchAnnotation, searchMode);
+  const rowClass =
+    `fex-row file` +
+    (isSelected ? " selected" : "") +
+    (hasMatch ? " search-match" : "");
   const size = formatBytes(file.size);
   return (
     <div data-row-wrap="file" className="fex-row-wrap" key={`file:${filePath}`}>
@@ -309,7 +421,24 @@ function renderFileRow(
  *  skip the recursion (the legacy `display: none` toggle lives
  *  in `renderFolderRow`'s conditional render — no DOM is
  *  rendered for collapsed subtrees, which matches the legacy
- *  DOM-only toggle and keeps the React tree small). */
+ *  DOM-only toggle and keeps the React tree small).
+ *
+ *  Render-puro contract:
+ *   - `expanded` is the walker-supplied DERIVED set (already
+ *     `expanded ∪ ancestors` for filter mode). The walker
+ *     reads from this set so `aria-expanded` + chevron +
+ *     folder-icon flip naturally on the next commit.
+ *   - Children whose path is not visible in the current
+ *     `(searchAnnotation, searchMode)` triple are SKIPPED
+ *     in the recursive walk (no DOM element is rendered for
+ *     them). This replaces the legacy
+ *     `style.display = "none"` pass with a render-time
+ *     conditional — the React tree is the single source of
+ *     truth.
+ *   - `searchAnnotation` + `searchMode` are threaded into
+ *     every row renderer + every recursive call so the
+ *     highlight pass can paint `search-match` on the same
+ *     pass. */
 function renderChildren(
   folder: ExplorerFolderNode,
   depth: number,
@@ -320,11 +449,21 @@ function renderChildren(
   onSelectFolder: (folderPath: string) => void,
   onSelectFile: (file: ExplorerFileNode) => void,
   onOpenFile: (file: ExplorerFileNode) => void,
+  searchAnnotation: SearchAnnotation | null,
+  searchMode: "filter" | "highlight",
 ): ReactNode {
   const out: ReactNode[] = [];
   for (const child of folder.children) {
+    const childPath = child.path || "";
+    // Render-puro filter pass — skip children whose path is
+    // not visible in the current `(annotation, mode)` triple.
+    // Highlight mode always renders every child; filter mode
+    // hides non-matches via the walker, not via DOM mutation.
+    if (!isRowVisible(childPath, searchAnnotation, searchMode)) {
+      continue;
+    }
     if (child.type === "folder") {
-      const childIsExpanded = expanded.has(child.path || "");
+      const childIsExpanded = expanded.has(childPath);
       const childIsSelected = selectedFolderPath === child.path;
       out.push(
         renderFolderRow(
@@ -351,7 +490,11 @@ function renderChildren(
             onSelectFolder,
             onSelectFile,
             onOpenFile,
+            searchAnnotation,
+            searchMode,
           ),
+          searchAnnotation,
+          searchMode,
         ),
       );
     } else {
@@ -363,126 +506,13 @@ function renderChildren(
           childIsSelected,
           onSelectFile,
           onOpenFile,
+          searchAnnotation,
+          searchMode,
         ),
       );
     }
   }
   return out;
-}
-
-/** CSS.escape polyfill — mirrors the legacy
- *  `web/file_explorer.js::cssEscape` shape verbatim so
- *  paths with spaces, accents, quotes, or brackets round-trip
- *  through `querySelector('[data-folder-path="..."]')`
- *  without DOM errors. Falls back to a character-level escape
- *  when `CSS.escape` isn't available (older browsers).
- *  Internal to this module — not exported. */
-function cssEscape(s: string): string {
-  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
-    return CSS.escape(s);
-  }
-  return String(s).replace(/(["\\\]])/g, "\\$1");
-}
-
-/** Internal: apply the filter-mode search annotation to the
- *  rendered tree DOM. Mirrors the legacy
- *  `web/file_explorer.js::applySearchToTree(host, annotation)`
- *  byte-for-byte: expand every folder on the ancestor chain
- *  (flipping `aria-expanded` + chevron + folder icon); then
- *  hide every wrap whose path is not in `matches` or
- *  `ancestors`. The wrap selector (`[data-row-wrap]`) avoids
- *  the parent-might-be-shared trap where a file row's parent
- *  is the shared children container. Never touches `.selected`
- *  or any `.search-match` class so prior selection survives
- *  every keystroke. */
-function applyFilterMutation(
-  rootEl: HTMLElement,
-  annotation: SearchAnnotation,
-): void {
-  const { matches, ancestors } = annotation;
-  // First, expand every folder on the ancestor chain.
-  for (const folderPath of ancestors) {
-    const row = rootEl.querySelector(
-      `[data-folder-path="${cssEscape(folderPath)}"]`,
-    );
-    if (!(row instanceof HTMLElement)) continue;
-    const wrap = row.closest("[data-row-wrap]");
-    if (!(wrap instanceof HTMLElement)) continue;
-    const childrenContainer = wrap.querySelector(
-      `[data-folder-children-of="${cssEscape(folderPath)}"]`,
-    );
-    if (childrenContainer instanceof HTMLElement) {
-      childrenContainer.style.display = "";
-    }
-    if (row.getAttribute("aria-expanded") !== "true") {
-      row.setAttribute("aria-expanded", "true");
-      const chevron = row.querySelector("[data-folder-toggle]");
-      if (chevron !== null) chevron.textContent = "keyboard_arrow_down";
-      const icon = row.querySelector(".fex-icon");
-      if (icon !== null) icon.textContent = "folder";
-    }
-  }
-  // Then hide every wrap whose path is not in the visible set.
-  const wraps = rootEl.querySelectorAll("[data-row-wrap]");
-  wraps.forEach((wrap) => {
-    if (!(wrap instanceof HTMLElement)) return;
-    const row = wrap.querySelector(".fex-row");
-    if (!(row instanceof HTMLElement)) return;
-    const isFolder = row.classList.contains("folder");
-    const path = isFolder
-      ? row.dataset.folderPath || ""
-      : row.dataset.filePath || "";
-    if (matches.has(path) || ancestors.has(path)) {
-      wrap.style.display = "";
-    } else {
-      wrap.style.display = "none";
-    }
-  });
-}
-
-/** Internal: apply the highlight-mode search annotation to the
- *  rendered tree DOM. Mirrors the legacy
- *  `web/file_explorer.js::applyHighlightToTree(host, annotation)`
- *  byte-for-byte: idempotently add `.search-match` to every
- *  matching row + remove the class from every non-match. Never
- *  touches `aria-expanded`, the chevron glyph, or the children
- *  container's display — the user's manual expand/collapse
- *  choices survive every keystroke (the legacy
- *  `Highlight mode keeps expand/collapse state` contract). */
-function applyHighlightMutation(
-  rootEl: HTMLElement,
-  annotation: SearchAnnotation,
-): void {
-  const { matches } = annotation;
-  const rows = rootEl.querySelectorAll(".fex-row");
-  rows.forEach((row) => {
-    if (!(row instanceof HTMLElement)) return;
-    const isFolder = row.classList.contains("folder");
-    const path = isFolder
-      ? row.dataset.folderPath || ""
-      : row.dataset.filePath || "";
-    if (matches.has(path)) {
-      row.classList.add("search-match");
-    } else {
-      row.classList.remove("search-match");
-    }
-  });
-}
-
-/** Internal: restore the rendered tree to its pre-search state.
- *  Mirrors the legacy
- *  `web/file_explorer.js::restoreTree()` shape: un-hide every
- *  row wrap, remove every `.search-match` class, and clear
- *  the `No matches.` placeholder if it was up. Does NOT
- *  touch `aria-expanded` / chevron / folder icon — those are
- *  the user's domain in the absence of a search query. */
-function restoreTreeMutation(rootEl: HTMLElement): void {
-  rootEl.querySelectorAll("[data-row-wrap]").forEach((wrap) => {
-    if (wrap instanceof HTMLElement) wrap.style.display = "";
-  });
-  rootEl.querySelectorAll(".fex-row").forEach((row) => {
-    if (row instanceof HTMLElement) row.classList.remove("search-match");
-  });
 }
 
 /** Top-level recursive tree. Renders the root node and recurses
@@ -502,15 +532,6 @@ export default function FileTree(props: FileTreeProps): ReactNode {
     searchMode,
     searchHideEmpty,
   } = props;
-  // Ref to the rendered tree's wrapping element — the
-  // search `useEffect` below applies the legacy
-  // `render-time toggle, not re-mount` mutations against
-  // this root (the same `_currentHost.querySelector(
-  // ".fex-tree-pane")` lookup the legacy
-  // `applySearchToTree(host, annotation)` performs).
-  // Mounted in `useEffect` so the first render commits
-  // before the DOM lookup fires.
-  const treeRootRef = useRef<HTMLDivElement | null>(null);
   // Internal folder-selection highlight state. The Explorer
   // prop `selectedPath` is reserved for file selection (single-
   // click on a file selects; the Viewer mounts on double-click).
@@ -536,54 +557,29 @@ export default function FileTree(props: FileTreeProps): ReactNode {
   // of the legacy imperative `showSearchEmptyMutation`
   // helper. The boolean `showSearchEmpty` is the typed
   // handle the JSX uses to conditionally render the
-  // primitive vs the recursive tree.
+  // primitive vs the recursive tree. The boolean is
+  // derived at render time (no `useEffect`, no DOM
+  // mutation) so the empty card flips synchronously with
+  // the `(annotation, mode, hideEmpty)` props.
   const showSearchEmpty =
     searchAnnotation !== null &&
     searchMode === "filter" &&
     searchHideEmpty &&
     searchAnnotation.matches.size === 0;
-  // Search `useEffect` — applies the legacy `render-time
-  // toggle, not re-mount` semantics on every annotation
-  // flip. The effect:
-  //   - When `searchAnnotation === null`, restores the
-  //     tree (un-hides every wrap, removes every
-  //     `.search-match` class).
-  //   - When `searchMode === "filter"`, applies the filter
-  //     pass: hide non-matches, auto-expand ancestors. The
-  //     `No matches.` card is now rendered via the JSX
-  //     `<EmptyState>` conditional above (the legacy
-  //     `filter + hideEmpty + no matches` triple), so this
-  //     effect no longer paints the imperative placeholder.
-  //   - When `searchMode === "highlight"`, applies the
-  //     highlight pass: toggle `.search-match` on rows
-  //     whose path is in `matches`. Never touches
-  //     expansion (the legacy
-  //     `Highlight mode keeps expand/collapse state`
-  //     contract). `searchHideEmpty` is a no-op in
-  //     highlight mode.
-  // The effect no-ops when `showSearchEmpty` is true (no
-  // tree is rendered, so no DOM mutations apply). The
-  // effect runs after the render commits (the legacy
-  // `useEffect` dependency array includes the rendered
-  // tree's DOM so React's commit phase has already painted
-  // the rows). The effect is stable across renders —
-  // only the (annotation, mode, hideEmpty) identity
-  // triggers a re-run, so a fast-typing user never blocks
-  // on a stale mutation pass.
-  useEffect(() => {
-    if (showSearchEmpty) return;
-    const rootEl = treeRootRef.current;
-    if (rootEl === null) return;
-    if (searchAnnotation === null) {
-      restoreTreeMutation(rootEl);
-      return;
-    }
-    if (searchMode === "filter") {
-      applyFilterMutation(rootEl, searchAnnotation);
-    } else {
-      applyHighlightMutation(rootEl, searchAnnotation);
-    }
-  }, [searchAnnotation, searchMode, searchHideEmpty, showSearchEmpty]);
+  // Render-puro expansion derivation — the recursive walker
+  // reads from `derivedExpanded` instead of the raw `expanded`
+  // prop. The helper folds the filter-mode ancestor chain into
+  // a fresh `Set` so the user's read-only `expanded` prop
+  // stays untouched. Highlight mode returns `expanded`
+  // unchanged; `searchAnnotation === null` returns `expanded`
+  // unchanged. The fresh set is created on every render — the
+  // walker is cheap (collapsed folders skip their subtree) so
+  // the cost is bounded.
+  const derivedExpanded = deriveExpandedSet(
+    expanded,
+    searchAnnotation,
+    searchMode,
+  );
   // ODD-EXP-PHASE2-004 — the `filter + hideEmpty + zero
   // matches` triple now renders the `<EmptyState>` JSX
   // primitive (the `data-search-empty` wrapper carries
@@ -591,8 +587,8 @@ export default function FileTree(props: FileTreeProps): ReactNode {
   // EmptyState primitive owns the icon + title + size
   // contract). When `showSearchEmpty` is true, the
   // recursive tree is NOT rendered (the EmptyState
-  // replaces it), so the `useEffect` above skips the
-  // tree DOM mutations.
+  // replaces it), so the render-puro derivation above is
+  // unused for that branch.
   if (showSearchEmpty) {
     return (
       <div data-search-empty="" className="fex-tree-root">
@@ -613,7 +609,6 @@ export default function FileTree(props: FileTreeProps): ReactNode {
   }
   return (
     <div
-      ref={treeRootRef}
       data-tree-root=""
       className="fex-tree-root"
     >
@@ -625,13 +620,15 @@ export default function FileTree(props: FileTreeProps): ReactNode {
           children: root.type === "folder" ? root.children : [root],
         },
         0,
-        expanded,
+        derivedExpanded,
         selectedPath,
         internalSelectedFolder,
         onToggleExpand,
         handleSelectFolder,
         onSelectFile,
         onOpenFile,
+        searchAnnotation,
+        searchMode,
       )}
     </div>
   );
@@ -642,7 +639,13 @@ export default function FileTree(props: FileTreeProps): ReactNode {
  *  top-level component wraps it in a synthetic folder so the
  *  recursion stays consistent). The exported function above is
  *  the public surface; the synthetic-root wrap is private to
- *  this module. */
+ *  this module.
+ *
+ *  Render-puro contract: threads `searchAnnotation` +
+ *  `searchMode` into the recursion. Visibility is decided
+ *  via `isRowVisible` (skip the child) and the
+ *  `search-match` class is computed at render time in the
+ *  row renderers. */
 function renderChildrenShim(
   node: ExplorerTreeNode,
   depth: number,
@@ -653,18 +656,30 @@ function renderChildrenShim(
   onSelectFolder: (folderPath: string) => void,
   onSelectFile: (file: ExplorerFileNode) => void,
   onOpenFile: (file: ExplorerFileNode) => void,
+  searchAnnotation: SearchAnnotation | null,
+  searchMode: "filter" | "highlight",
 ): ReactNode {
   if (node.type === "file") {
+    const filePath = node.path || "";
+    if (!isRowVisible(filePath, searchAnnotation, searchMode)) {
+      return null;
+    }
     return renderFileRow(
       node,
       depth,
       selectedPath === (node.path || ""),
       onSelectFile,
       onOpenFile,
+      searchAnnotation,
+      searchMode,
     );
   }
   const folder = node;
-  const isExpanded = expanded.has(folder.path || "");
+  const folderPath = folder.path || "";
+  if (!isRowVisible(folderPath, searchAnnotation, searchMode)) {
+    return null;
+  }
+  const isExpanded = expanded.has(folderPath);
   const isSelected = selectedFolderPath === folder.path;
   const childRows = node.children.map((child: ExplorerTreeNode) =>
     renderChildrenShim(
@@ -677,6 +692,8 @@ function renderChildrenShim(
       onSelectFolder,
       onSelectFile,
       onOpenFile,
+      searchAnnotation,
+      searchMode,
     ),
   );
   return renderFolderRow(
@@ -692,6 +709,8 @@ function renderChildrenShim(
     // chevron + ArrowRight/ArrowLeft still drive expansion.
     onSelectFolder,
     childRows,
+    searchAnnotation,
+    searchMode,
   );
 }
 
@@ -700,7 +719,13 @@ function renderChildrenShim(
  *  the canonical entry point; this function exists so tests
  *  can exercise the recursive walker with explicit
  *  `(tree, depth, ...)` arguments without a React render
- *  harness. */
+ *  harness.
+ *
+ *  Render-puro contract: callers pass `(searchAnnotation,
+ *  searchMode)` so the walker derives visibility + the
+ *  `search-match` class at render time. The exported
+ *  function deliberately has no `useEffect` and never
+ *  mutates the DOM. */
 export function renderFileTree(
   tree: ExplorerTree,
   expanded: ReadonlySet<string>,
@@ -710,6 +735,8 @@ export function renderFileTree(
   onSelectFolder: (folderPath: string) => void,
   onSelectFile: (file: ExplorerFileNode) => void,
   onOpenFile: (file: ExplorerFileNode) => void,
+  searchAnnotation: SearchAnnotation | null,
+  searchMode: "filter" | "highlight",
 ): ReactNode {
   const root = tree.root;
   if (root === null) return null;
@@ -723,5 +750,7 @@ export function renderFileTree(
     onSelectFolder,
     onSelectFile,
     onOpenFile,
+    searchAnnotation,
+    searchMode,
   );
 }
