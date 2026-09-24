@@ -2513,11 +2513,14 @@ def test_out_index_html_has_breadcrumb_and_row_affordance_styles(static_export) 
     # Row affordances.
     assert ".tree-row.selected" in css_body, (
         "ODD-NTP-005: static CSS must define the .tree-row.selected "
-        "rule (primary-tinted background + 2px primary left border)."
+        "rule (primary-tinted background, 8% primary color-mix, no left "
+        "border — the side-tab border was removed per the 2026-09-24 "
+        "impeccable re-critique to close the detector's `side-tab` rule)."
     )
     assert ".tree-row.focused" in css_body, (
         "ODD-NTP-005: static CSS must define the .tree-row.focused "
-        "rule (surface-container-low tint + 2px outline left border)."
+        "rule (surface-container-low tint, no left border — the side-tab "
+        "border was removed per the 2026-09-24 impeccable re-critique)."
     )
     assert ".tree-row[data-pulse-nonce]" in css_body, (
         "ODD-NTP-005: static CSS must define the "
