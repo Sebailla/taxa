@@ -1702,10 +1702,12 @@
      surfaces the global ResearchExplorer via the AppShell nav
      + the `.fex-tree-pane` / `.fex-viewer-pane` wrappers). */
   /* Kebab + per-row kebab-menu (3c-b.4: collapsed into parent).
-     ODD-NTP-004: the trigger is hover-only visible (`.tree-row:hover
-     .kebab-trigger`, `.tree-row:focus-within .kebab-trigger`,
-     `.kebab .kebab-trigger:focus-visible`) so the visual weight
-     stays low for full-tree scrolls; the menu opens via the
+     ODD-NTP-004: the trigger is a quiet passive hint at rest
+     (`opacity: 0.3`) and fully visible on `.tree-row:hover`,
+     `.tree-row:focus-within`, `.kebab[data-kebab-open]`, or
+     `.kebab-trigger:focus-visible`. The resting hint keeps the
+     row-action affordance discoverable without restoring the
+     previous full-weight visual noise; the menu opens via the
      `[data-kebab-open]` flag on the `.kebab` wrapper. Item states
      (`disabled`, `aria-disabled`) follow the legacy
      `.kebab-item:hover` cascade and stay focus-visible for keyboard
@@ -1763,7 +1765,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    opacity: 0;
+    opacity: 0.3;
     transition:
       opacity 120ms linear,
       background-color 120ms linear;
