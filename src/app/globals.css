@@ -322,9 +322,9 @@
   .bg-primary {
     background-color: var(--color-primary);
   }
-  .bg-primary-fixed {
-    background-color: var(--primary-fixed);
-  }
+  /* ODD-PHASE3 audit — removed in feat/phase3-globals-cleanup
+     atop develop@146c71b, zero non-comment references in src/
+     after the Phase 2 migrations. */
   .bg-surface-container-lowest {
     background-color: var(--surface-container-lowest);
   }
@@ -631,21 +631,12 @@
      (base → descendants → child → different base →
      period modifier → attribute modifier). */
 
-  /* CDN-failure banner — amber, flat, inline inside the
-     right pane when loadScriptOnce rejects. Mirrors the
-     legacy `web/index.html::.fex-banner` rule. */
-  .fex-banner {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    background: color-mix(in srgb, #b45309 12%, transparent);
-    border: 1px solid color-mix(in srgb, #b45309 30%, transparent);
-    color: #b45309;
-    font-size: 13px;
-    font-weight: 600;
-  }
+  /* ODD-PHASE3 audit — removed in feat/phase3-globals-cleanup
+     atop develop@146c71b, zero non-comment references in src/
+     after the Phase 2 migrations (the legacy
+     `web/index.html::.fex-banner` CDN-failure banner was the
+     last consumer; the React Viewer surfaces the script
+     failure inline at the load-script error boundary now). */
   /* Vertical guide line for indented folder children —
      1px left border + 60% opacity on the outline-variant
      token. Mirrors the legacy `.fex-children` rule. */
@@ -1254,14 +1245,11 @@
   }
   /* Snippet frame — macOS-style window chrome. Mirrors
      the legacy `.fex-snippet-*` rules. */
-  .fex-snippet-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    padding: 8px 12px;
-    border-top: 1px solid var(--outline-variant);
-    background: var(--surface-container-lowest);
-  }
+  /* ODD-PHASE3 audit — removed in feat/phase3-globals-cleanup
+     atop develop@146c71b, zero non-comment references in src/
+     after the Phase 2 migrations (the actions row was the
+     last consumer; the React Viewer mounts the prev / next
+     snippet controls inside `.fex-snippet-body` now). */
   .fex-snippet-body {
     flex: 1;
     overflow: auto;
@@ -1707,24 +1695,12 @@
     gap: 6px;
   }
 
-  /* Header Browser tab (PR 3c-c) — GLOBAL Research / file explorer
-     (NOT a detail-panel tab, NOT taxon-scoped). */
-  .header-browser-tab {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 12px;
-    font-family: "Raleway", sans-serif;
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    color: var(--on-surface-variant);
-    background: transparent;
-    border: 0;
-    border-bottom: 2px solid transparent;
-    cursor: pointer;
-  }
-
+  /* ODD-PHASE3 audit — removed in feat/phase3-globals-cleanup
+     atop develop@146c71b, zero non-comment references in src/
+     after the Phase 2 migrations (the Browser-tab navigation
+     entry is gone in the React cutover — the React mount
+     surfaces the global ResearchExplorer via the AppShell nav
+     + the `.fex-tree-pane` / `.fex-viewer-pane` wrappers). */
   /* Kebab + per-row kebab-menu (3c-b.4: collapsed into parent).
      ODD-NTP-004: the trigger is hover-only visible (`.tree-row:hover
      .kebab-trigger`, `.tree-row:focus-within .kebab-trigger`,
@@ -1943,48 +1919,13 @@
     letter-spacing: 1px;
   }
 
-  /* Research explorer (PR 3c-c) — global two-pane folder tree /
-     file viewer pair. Descendants collapse into this parent (3c-c.4
-     refactor). GLOBAL — NOT taxon-scoped (3c-c.3 (e) contract). */
-  .research-explorer {
-    display: flex;
-    gap: 0;
-    width: 100%;
-    min-height: calc(100vh - 96px);
-    overflow-x: auto;
-  }
-  .research-explorer > .file-explorer-pane {
-    min-width: 14rem;
-    width: 30%;
-    max-width: 30%;
-    flex-shrink: 0;
-    border-right: 1px solid var(--outline-variant);
-    background: var(--surface);
-    padding: 12px 8px;
-    overflow-y: auto;
-    max-height: calc(100vh - 96px);
-  }
-  .research-explorer > .file-viewer-pane {
-    flex: 1;
-    min-width: 0;
-    padding: 16px 24px;
-    background: var(--surface-container-lowest);
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    max-height: calc(100vh - 96px);
-    overflow-y: auto;
-  }
-
-
-  /* Utility class (PR 3c-e2) — right-side rounded corner helper for
-     the file/folder affordance rows the legacy `web/index.html`
-     cascade emitted via the `rounded-r-md` Tailwind class. */
-  .rounded-r-md {
-    border-top-right-radius: 0.375rem;
-    border-bottom-right-radius: 0.375rem;
-  }
-
+  /* ODD-PHASE3 audit — removed in feat/phase3-globals-cleanup
+     atop develop@146c71b, zero non-comment references in src/
+     after the Phase 2 migrations (the React ResearchExplorer
+     mount collapsed the wrapper into the W6.4 panes
+     `.fex-tree-pane` / `.fex-viewer-pane`; the `.research-explorer`
+     + `.file-explorer-pane` / `.file-viewer-pane` selectors lost
+     every consumer). */
   /* Scientific name — italic by ICZN convention; --roman modifier
      (PR 5a) flips higher ranks back to roman. */
   .scientific-name {
@@ -2245,14 +2186,14 @@
   }
 
   /* Utility classes (PR 3c-e2) — text-color helpers. `.text-on-surface`
-     reads from the `--color-on-surface` 3c-a alias;
-     `.text-on-primary-fixed` routes through the 3c-e1
-     `--on-primary-fixed` alias so the dark-mode
-     `[data-theme="dark"]` override flips both at use-time via the
-     var() indirection. */
-  .text-on-primary-fixed {
-    color: var(--on-primary-fixed);
-  }
+     reads from the `--color-on-surface` 3c-a alias. The dark-mode
+     `[data-theme="dark"]` override flips the var() indirection
+     at use-time. */
+  /* ODD-PHASE3 audit — removed in feat/phase3-globals-cleanup
+     atop develop@146c71b, zero non-comment references in src/
+     after the Phase 2 migrations (no React consumer paints on a
+     primary-fixed background; the AppShell + DetailPanel surfaces
+     all use the surface-container tokens instead). */
   .text-on-surface {
     color: var(--color-on-surface);
   }
@@ -2427,24 +2368,16 @@
   /* Per-row loading / error affordance (ODD-NTP-003) — flat sibling
      of the row, indent matches the row's depth + 24 (one level
      deeper than the row that triggered the fetch). The status
-     attribute (`[data-row-status="loading" | "error"]`) drives the
-     color flip; the rule body stays Raleway 13px with the
-     loading-state muted to `--on-surface-variant` and the
-     error-state resting on `--on-surface` (legacy
-     `web/tree.js::renderRowStatus`). */
-  .tree-row-status {
-    width: 100%;
-    box-sizing: border-box;
-    font-family: "Raleway", sans-serif;
-    font-size: 13px;
-  }
-  .tree-row-status[data-row-status="error"] {
-    color: var(--on-surface);
-  }
-  .tree-row-status[data-row-status="loading"] {
-    color: var(--on-surface-variant);
-  }
-
+     attribute (`[data-row-status="loading" | "error"]`) is still
+     set on the consumer element by TaxonomyTree.tsx; the colour
+     flip is now driven by the design-system `<Badge variant="subtle">`
+     primitive instead of a manual cascade. */
+  /* ODD-PHASE3 audit — removed in feat/phase3-globals-cleanup
+     atop develop@146c71b, zero non-comment references in src/
+     after the Phase 2 migrations (the consumer element no
+     longer carries the `.tree-row-status` class; the
+     `<Badge>` primitive + Tailwind colour utilities own the
+     chroming now). */
   /* ODD-NTP-005 — per-row focused / selected affordances. The
      `.focused` modifier (subtle surface-container-low tint +
      outline border) sits BEFORE `.selected` (primary-tinted
