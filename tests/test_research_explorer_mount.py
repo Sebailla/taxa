@@ -737,8 +737,8 @@ def test_w6_1_file_tree_folder_row_separates_select_from_expand() -> None:
 # ---------------------------------------------------------------------------
 # W6.2 Escape-clears-tree synchronously — Explorer.tsx must
 # flush the debounced query in the same Escape handler so the
-# FileTree `useEffect` fires `restoreTreeMutation` immediately,
-# not 200 ms later. Mirrors the legacy
+# FileTree render-puro walker paints the unfiltered tree
+# immediately, not 200 ms later. Mirrors the legacy
 # `web/file_explorer.js::wireSearch()` Escape branch that
 # calls `runSearch("")` synchronously in the same handler.
 # ---------------------------------------------------------------------------
@@ -759,11 +759,11 @@ def test_w6_2_explorer_escape_clears_debounce_synchronously() -> None:
     The React equivalent MUST clear BOTH `searchQuery` (the
     live input value) AND `debouncedQuery` (the value the
     `searchAnnotation` `useMemo` depends on) inside the same
-    Escape branch so the FileTree `useEffect` flips
-    `searchAnnotation === null` and calls
-    `restoreTreeMutation()` on the next render — without
-    waiting for the debounce `useEffect`'s 200 ms timer to
-    fire.
+    Escape branch so the `searchAnnotation` flips to `null`
+    and the FileTree render-puro walker re-renders the
+    unfiltered view (every row visible, no row carries
+    `search-match`) on the next render — without waiting
+    for the debounce `useEffect`'s 200 ms timer to fire.
 
     The harness verifies the AST shape: the Escape branch
     in `handleSearchKeyDown` MUST call `setDebouncedQuery`
@@ -807,11 +807,13 @@ def test_w6_2_explorer_escape_clears_debounce_synchronously() -> None:
         "`setDebouncedQuery(\"\")` synchronously alongside "
         "`setSearchQuery(\"\")` so the `searchAnnotation` "
         "`useMemo` flips to `null` on the next render and "
-        "the FileTree `useEffect` calls `restoreTreeMutation` "
-        "without waiting for the 200 ms debounce timer. The "
-        "legacy `runSearch(\"\")` is called synchronously "
-        "in the same handler — the React equivalent must "
-        "not wait for the input-debounce `setTimeout`."
+        "the FileTree render-puro walker paints the "
+        "unfiltered view (every row visible, no row carries "
+        "`search-match`) without waiting for the 200 ms "
+        "debounce timer. The legacy `runSearch(\"\")` is "
+        "called synchronously in the same handler — the "
+        "React equivalent must not wait for the "
+        "input-debounce `setTimeout`."
     )
     # The Escape handler MUST still call setSearchQuery("")
     # (the input-clear contract is preserved verbatim).
