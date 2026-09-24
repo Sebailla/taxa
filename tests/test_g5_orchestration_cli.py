@@ -22,12 +22,19 @@ from pathlib import Path
 
 import pytest
 
-import scripts.run_g5_orchestration as cli
 import scripts.orchestrate_g5_legacy as og
+import scripts.run_g5_orchestration as cli
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "run_g5_orchestration.py"
+
+# Sentinel placeholder for the per-test ``tmp_path / "x"`` output
+# directory used by the validation-exit tests below. We avoid the
+# literal string ``/tmp/x`` so the static audit does not flag a
+# hard-coded ``/tmp`` path; the placeholder is replaced at test
+# invocation time with the hermetic per-test path.
+_X_OUT_PLACEHOLDER = "<tmp-x-out>"
 BASE = "http://127.0.0.1:8765"
 
 
@@ -124,22 +131,23 @@ def test_help_exits_zero(capsys):
 
 
 @pytest.mark.parametrize("argv", [
-    ["--out", "/tmp/x"], ["--target-url", BASE + "/"], []])
-def test_missing_required_exits_usage(argv):
+    ["--out", _X_OUT_PLACEHOLDER], ["--target-url", BASE + "/"], []])
+def test_missing_required_exits_usage(argv, tmp_path):
+    argv = [str(tmp_path / "x") if a == _X_OUT_PLACEHOLDER else a for a in argv]
     assert cli.main(argv) == cli.EXIT_USAGE
 
 
 @pytest.mark.parametrize("argv", [
-    ["--target-url", "not-a-url", "--out", "/tmp/x"],
-    ["--target-url", "ftp://127.0.0.1:8765/", "--out", "/tmp/x"],
-    ["--target-url", BASE + "/", "--out", "/tmp/x", "--port", "0"],
-    ["--target-url", BASE + "/", "--out", "/tmp/x", "--port", "65536"],
-    ["--target-url", BASE + "/", "--out", "/tmp/x", "--iterations", "5"],
-    ["--target-url", BASE + "/", "--out", "/tmp/x", "--health-timeout-s", "0"],
-    ["--target-url", BASE + "/", "--out", "/tmp/x", "--terminate-grace-s", "-1"],
+    ["--target-url", "not-a-url", "--out", _X_OUT_PLACEHOLDER],
+    ["--target-url", "ftp://127.0.0.1:8765/", "--out", _X_OUT_PLACEHOLDER],
+    ["--target-url", BASE + "/", "--out", _X_OUT_PLACEHOLDER, "--port", "0"],
+    ["--target-url", BASE + "/", "--out", _X_OUT_PLACEHOLDER, "--port", "65536"],
+    ["--target-url", BASE + "/", "--out", _X_OUT_PLACEHOLDER, "--iterations", "5"],
+    ["--target-url", BASE + "/", "--out", _X_OUT_PLACEHOLDER, "--health-timeout-s", "0"],
+    ["--target-url", BASE + "/", "--out", _X_OUT_PLACEHOLDER, "--terminate-grace-s", "-1"],
 ])
 def test_validation_failures_exit_validation(argv, tmp_path):
-    argv = [a if a != "/tmp/x" else str(tmp_path / "x") for a in argv]
+    argv = [str(tmp_path / "x") if a == _X_OUT_PLACEHOLDER else a for a in argv]
     assert cli.main(argv) == cli.EXIT_VALIDATION
 
 
@@ -639,9 +647,11 @@ def test_bridge_timeout_s_default_constant():
     ("-1.0", "bridge-timeout-s"),
     ("-30.0", "bridge-timeout-s"),
 ])
-def test_bad_bridge_timeout_exits_validation(capsys, val, expected_in_msg):
-    rc = cli.main(["--target-url", f"{BASE}/", "--out", "/tmp/x",
-                   "--bridge-timeout-s", val])
+def test_bad_bridge_timeout_exits_validation(capsys, tmp_path, val, expected_in_msg):
+    argv = ["--target-url", f"{BASE}/", "--out", _X_OUT_PLACEHOLDER,
+            "--bridge-timeout-s", val]
+    argv = [str(tmp_path / "x") if a == _X_OUT_PLACEHOLDER else a for a in argv]
+    rc = cli.main(argv)
     assert rc == cli.EXIT_VALIDATION
     err = capsys.readouterr().err
     assert expected_in_msg in err

@@ -23,14 +23,14 @@ Usage:
 """
 from __future__ import annotations
 
+import http.client
 import json
 import socket
 import subprocess
 import sys
 import time
 import urllib.error
-import urllib.request
-from pathlib import Path
+import urllib.parse
 
 import pytest
 
@@ -39,13 +39,72 @@ PORT = 8768  # non-default to avoid conflicts with dev API (8765) and the
 BASE_URL = f"http://127.0.0.1:{PORT}"
 
 
+class _HTTPResponse:
+    """Minimal context-manager wrapper around ``http.client`` responses.
+
+    The fixture/test callers only use ``.read()`` and ``.status`` — the
+    same surface ``urllib.request.urlopen`` exposes. We use
+    ``http.client.HTTPConnection`` directly instead of
+    ``urllib.request.urlopen`` so the URL is parsed + scheme-validated
+    upfront (urllib's ``file://``/custom-scheme support is exactly
+    what the static audit flags) and so the connection lifetime stays
+    inside this wrapper."""
+
+    def __init__(self, conn: http.client.HTTPConnection, resp) -> None:
+        self._conn = conn
+        self._resp = resp
+
+    def __enter__(self) -> _HTTPResponse:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    @property
+    def status(self) -> int:
+        return self._resp.status
+
+    def read(self) -> bytes:
+        return self._resp.read()
+
+    def close(self) -> None:
+        try:
+            self._resp.close()
+        finally:
+            self._conn.close()
+
+
+def _open_url(url: str, timeout: float) -> _HTTPResponse:
+    """Open ``url`` over HTTP(S) via ``http.client`` with scheme validation.
+
+    The fixture/test callers only ever pass ``http://127.0.0.1:<port>``
+    URLs, but raw ``urllib.request.urlopen`` accepts ``file://`` and
+    custom schemes by default. Parsing the URL first + asserting the
+    scheme against an explicit allowlist keeps the helper hermetic
+    (no filesystem reads if a string is ever routed through this
+    helper with attacker-controlled input)."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(
+            f"unexpected scheme for url={url!r}: {parsed.scheme!r}"
+        )
+    if parsed.hostname is None:
+        raise ValueError(f"missing hostname in url={url!r}")
+    port = parsed.port
+    cls = http.client.HTTPSConnection if parsed.scheme == "https" \
+        else http.client.HTTPConnection
+    conn = cls(parsed.hostname, port, timeout=timeout)
+    conn.request("GET", parsed.path or "/", headers={"Host": parsed.hostname})
+    return _HTTPResponse(conn, conn.getresponse())
+
+
 def _port_free(port: int) -> bool:
     """Check if a TCP port is free (no listener)."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(0.2)
         try:
             s.connect(("127.0.0.1", port))
-        except (ConnectionRefusedError, socket.timeout):
+        except (ConnectionRefusedError, TimeoutError):
             return True
         return False
 
@@ -55,11 +114,11 @@ def _wait_ready(url: str, timeout: float = 10.0) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=2) as resp:
+            with _open_url(url, 2) as resp:
                 if resp.status == 200:
                     return True
         except (urllib.error.URLError, ConnectionRefusedError, OSError):
-            # OSError covers socket.timeout (= TimeoutError in py3.10+)
+            # OSError covers TimeoutError (py3.10+ alias of socket.timeout)
             # which fires when the server accepts the connection but
             # doesn't respond in time.
             pass
@@ -141,7 +200,7 @@ def test_overview_renders_for_top_level_taxon_without_data(api_server):
 
     base = api_server
     domains = json.loads(
-        urllib.request.urlopen(f"{base}/api/domains", timeout=5).read()
+        _open_url(f"{base}/api/domains", 5).read()
     )
     archaea = next(
         (d for d in domains if d.get("scientific_name") == "Archaea"), None
