@@ -1295,15 +1295,26 @@ def test_make_bridge_log_path_not_given_writes_nothing(monkeypatch, tmp_path):
     assert list(tmp_path.glob("**/bridge-logs")) == []
 
 
-@pytest.mark.parametrize("flag,expected", [
-    ("--bridge-log-dir", str(__import__("pathlib").Path("/tmp") / "x")),
+@pytest.mark.parametrize("flag,expected_subpath", [
+    ("--bridge-log-dir", "bridge-logs"),
     (None, None),
 ])
 def test_non_dry_run_threads_bridge_log_dir_into_factory(
-    monkeypatch, tmp_path, flag, expected,
+    monkeypatch, tmp_path, flag, expected_subpath,
 ):
     """``--bridge-log-dir <path>`` is threaded into ``make_bridge`` as
-    ``bridge_log_dir``; absent → default ``<out>/raw/bridge-logs``."""
+    ``bridge_log_dir``; absent → default ``<out>/raw/bridge-logs``.
+
+    The bridge log dir does not need to exist on disk — the CLI only
+    validates that the path, IF it exists, is a directory (an existing
+    file would shadow the log directory semantics — see
+    ``test_bad_bridge_log_dir_exits_validation``). The previous
+    hardcoded ``/tmp/x`` parameter was fragile: that path can exist
+    as a stray file in some environments, which would trip the
+    existing-file validation and make this test fail spuriously.
+    Resolving the subpath against the per-test ``tmp_path`` keeps the
+    assertion hermetic."""
+    expected = str(tmp_path / expected_subpath) if expected_subpath else None
     cap = _patch_all_factories(monkeypatch)
     monkeypatch.setattr(cli.og, "run_orchestration",
                         lambda **kw: {"schema": "taxa.g5-orchestrator.legacy/1",
