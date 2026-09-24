@@ -58,6 +58,61 @@ def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _od_hss_source_switch_effect_body(text: str) -> str:
+    """Return the body of the ODD-HSS-001 source-switch ``useEffect``.
+
+    The pre-ODD-HSS source-selector mount inside TaxonomyTree.tsx
+    owned a ``handleSourceChange`` callback that performed the
+    source-bound reset cascade (closes kebab + clears focused /
+    selected + clears per-taxon search / folder caches).
+
+    ODD-HSS-001 hoists the source-selector to the AppShell header
+    so the click handler (``setActiveSource(src)``) writes through
+    the typed ``useTreeSource`` hook from the AppShell side.
+    TaxonomyTree still owns the cleanup cascade — it moves into a
+    ``useEffect`` that fires whenever ``activeSource`` changes.
+    This helper extracts the effect body so the legacy witnesses
+    that pinned the cascade contract (in ``handleSourceChange``)
+    continue to pass against the new effect-based contract.
+
+    The matched block MUST start with a ``setKebabOpenId(null);``
+    line — the unique opener the pre-ODD-HSS-001 cascade starts
+    with — and end with a ``}, [activeSource]);`` closer. The
+    combined open-AND-close anchor isolates the right effect
+    block from the other six-or-so ``useEffect`` blocks that
+    live elsewhere in the file (each pinned to its own deps
+    array: ``[loadRoots]``, ``[rawRoots, setSearchHits]``,
+    ``[rawRoots + activeSource]``, ``[kebabOpenId]``,
+    ``[selected, ...]`` etc. — those blocks have DIFFERENT
+    dep arrays so a naive ``}, [activeSource]);`` match can
+    span across them when DOTALL is on).
+    """
+    match = re.search(
+        r"useEffect\(\(\)\s*=>\s*\{\s*//\s*ODD-NTP-005:\s*a source switch clears focused \+ selected[\s\S]*?"
+        r"\}\s*,\s*\[activeSource\]\s*\)\s*;",
+        text,
+    )
+    assert match is not None, (
+        "ODD-HSS-001 source-switch effect: TaxonomyTree.tsx must "
+        "declare a `useEffect(() => { ... }, [activeSource])` block "
+        "whose opener is the `// ODD-NTP-005: a source switch clears "
+        "focused + selected` comment + whose body performs the pre-"
+        "hoist `handleSourceChange` source-bound cascade "
+        "(`setKebabOpenId(null)` + `setFocused(null)` + "
+        "`setSelected(null)` + `setSearchesByTaxonId(new Map())` + "
+        "the five folder caches + deps `[activeSource]`). The hoist "
+        "moved the source-selector to the AppShell header so the "
+        "cleanup that used to live in the selector's click handler "
+        "now lives in a reactive effect on `activeSource`."
+    )
+    # Return the body between the opener `useEffect(() => {` and
+    # the closer `}, [activeSource]);`.
+    raw = match.group(0)
+    body_open = raw.index("{") + 1
+    body_close = raw.rindex("}, [activeSource]")
+    return raw[body_open:body_close]
+
+
 # ---------------------------------------------------------------------------
 # File presence + extension (RED gates for ODD-VTREE-002)
 # ---------------------------------------------------------------------------
@@ -495,22 +550,42 @@ def test_taxonomy_tree_result_click_routes_through_select_primitive() -> None:
 
 def test_taxonomy_tree_search_input_does_not_break_existing_pins() -> None:
     """ODD-SEARCH-001: adding the search input MUST NOT regress
-    the pre-existing TaxonomyTree contracts — the source toggle,
-    the breadcrumb, the initial loading / error / empty states,
-    and the `'use client'` directive stay intact."""
+    the pre-existing TaxonomyTree contracts — the breadcrumb,
+    the initial loading / error / empty states, and the
+    `'use client'` directive stay intact.
+
+    ODD-HSS-002 — negative witness: hoisting the source-selector
+    to the AppShell header REMOVES the `renderSourceSelector()`
+    helper from TaxonomyTree (the segment owns a different host
+    now). The new contract is that the toggle lives in the
+    AppShell (positive witness:
+    `tests/test_app_shell_render.py::test_appshell_renders_source_selector`)
+    and TaxonomyTree keeps only the tree surface (the breadcrumb
+    + the collapse-all affordance).
+    """
     text = _read_text(TAXONOMY_TREE_FILE)
     assert text.lstrip().startswith('"use client"'), (
         "TaxonomyTree.tsx MUST keep the 'use client' directive "
         "(the search input is owned by the same client island)."
     )
-    # The source-toggle wrapper still renders after the search
-    # input — the search input sits ABOVE the breadcrumb + source
-    # toggle, never inside or after.
-    assert "renderSourceSelector()" in text, (
-        "TaxonomyTree.tsx MUST keep `renderSourceSelector()` "
-        "(the CoL / WoRMS / Freshwater selector stays intact)."
+    # ODD-HSS-002: the source-selector was hoisted to the AppShell
+    # header so it lives above every page state (loading / error /
+    # empty / loaded) — TaxonomyTree no longer renders the
+    # segmented control. Strip block + line comments first so a
+    # docstring that references the legacy `renderSourceSelector()`
+    # literal as documentation of the closed regression does NOT
+    # trip the negative witness — the witness checks the JSX render
+    # + the helper declarations, not the prose.
+    code_only = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
+    assert "renderSourceSelector()" not in code_only, (
+        "ODD-HSS-002: TaxonomyTree.tsx MUST NOT keep "
+        "`renderSourceSelector()` — the source-selector was hoisted "
+        "to the AppShell header. The positive witness for the new "
+        "mount lives in "
+        "tests/test_app_shell_render.py::test_appshell_renders_source_selector."
     )
-    assert "renderBreadcrumb()" in text, (
+    assert "renderBreadcrumb()" in code_only, (
         "TaxonomyTree.tsx MUST keep `renderBreadcrumb()` "
         "(the native breadcrumb stays intact below the search bar)."
     )
@@ -1218,27 +1293,23 @@ def test_taxonomy_tree_dismisses_kebab_on_source_switch() -> None:
     menu never lingers over a row that has been re-projected under
     a different source. Mirrors the legacy `web/nav.js::
     tree-source toggle` reset (which cleared the kebab as part of
-    the source-bound state reset)."""
+    the source-bound state reset).
+
+    ODD-HSS-001 — the source-selector mount moved to the AppShell
+    header so the source-bound cleanup cascade moved from the
+    `handleSourceChange` callback into a `useEffect` that fires
+    whenever `activeSource` changes. The regression guard pins
+    the contract against the new effect-based location: the
+    effect body MUST carry a `setKebabOpenId(null)` call so the
+    kebab dismisses on a source switch regardless of which
+    surface wrote through the typed hook."""
     text = _read_text(TAXONOMY_TREE_FILE)
-    # The handler must reset kebabOpenId alongside the source-bound
-    # reset state. The body may contain nested `{ ... }` from
-    # `setState((prev) => ...)` updater tuples; anchor on the
-    # literal `setKebabOpenId(null)` call site instead of trying to
-    # match braces.
-    handle_idx = text.find("const handleSourceChange")
-    assert handle_idx != -1, (
-        "TaxonomyTree.tsx must declare handleSourceChange."
-    )
-    # Find the next occurrence of `setActiveSource(next);` which is
-    # the last line of the handler body. Use that as a tail anchor.
-    set_active_idx = text.find("setActiveSource(next);", handle_idx)
-    assert set_active_idx != -1, (
-        "TaxonomyTree.tsx must call setActiveSource(next) in handleSourceChange."
-    )
-    body = text[handle_idx:set_active_idx]
+    body = _od_hss_source_switch_effect_body(text)
     assert "setKebabOpenId(null)" in body, (
-        "ODD-NTP-004: handleSourceChange must close the open kebab "
-        "as part of the source-bound reset."
+        "ODD-NTP-004: the ODD-HSS-001 source-switch "
+        "`useEffect(() => { ... }, [activeSource])` body must close "
+        "the open kebab via `setKebabOpenId(null)` so a stale menu "
+        "cannot linger over a row re-projected under the new source."
     )
 
 
@@ -1512,29 +1583,80 @@ def test_out_index_html_keeps_static_origin(static_export):
 # ---------------------------------------------------------------------------
 
 def test_taxonomy_tree_renders_source_selector() -> None:
-    """ODD-NTP-002: TaxonomyTree must render the source selector inside
-    the tree surface (`role=\"group\" aria-label=\"Tree data source\"`).
-    Mirrors the legacy ``#tree-source-toggle`` native control."""
+    """ODD-HSS-001 — negative witness: TaxonomyTree must NOT render the
+    source selector inside the tree surface anymore.
+
+    The pre-PR source-selector lived inside `TaxonomyTree.tsx` as
+    `renderSourceSelector()` (a `<div role="group">` with three
+    `<button className="tree-source-btn" data-tree-source="col|worms|freshwater">`
+    rows). The selector only became visible AFTER the user expanded
+    the tree (`state.rootIds.length > 0`), so a first-time visitor
+    who had never opened the tree never saw the three data sources.
+
+    ODD-HSS-001 hoists the selector to the AppShell header so it is
+    visible on every route (CoL / WoRMS / Freshwater become a
+    first-class concept from the first paint). The positive witness
+    for the new host lives in
+    `tests/test_app_shell_render.py::test_appshell_renders_source_selector`;
+    this test pins the negative half so a regression that re-mounts
+    the toggle inside `TaxonomyTree.tsx` trips the gate.
+
+    The five contract-bearing strings/hooks that USED to live in
+    TaxonomyTree.tsx:
+      - `role=\"group\"` on the toggle host.
+      - The aria-label literal `\"Tree data source\"` (the
+        `selectorLabel` constant).
+      - `aria-label` attribute on the toggle host.
+      - `.tree-source-toggle` class hook (the segmented control).
+      - `.tree-source-btn` class hook (each per-source button).
+
+    After the hoist every one of these MUST be absent from the
+    TaxonomyTree source — the AppShell owns the surface.
+
+    The complementary data-attribute witnesses
+    (`<div id=\"tree-source-toggle\">`, per-button
+    `data-tree-source=\"col|worms|freshwater\"`,
+    `data-tree-source-toggle=\"\"`, `data-active-source`,
+    `aria-pressed`) live in `test_taxonomy_tree_renders_tree_source_toggle_id`
+    below (also a negative witness for TaxonomyTree) AND in
+    `tests/test_app_shell_render.py::test_appshell_renders_source_selector`
+    (the positive witness on the AppShell).
+    """
     text = _read_text(TAXONOMY_TREE_FILE)
-    assert 'role="group"' in text, (
-        "TaxonomyTree.tsx must render the source selector with role=\"group\""
+    # Strip block comments + line comments so docstring references
+    # to the legacy class hooks don't trip the negative witnesses.
+    # The witness checks the JSX render, not the prose.
+    code_only = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
+    assert re.search(r'role="group"', code_only) is None, (
+        "ODD-HSS-001: TaxonomyTree.tsx must NOT render `role=\"group\"` "
+        "anymore — the source selector was hoisted to the AppShell "
+        "header. The positive witness for the new host lives in "
+        "tests/test_app_shell_render.py::test_appshell_renders_source_selector."
     )
-    # The aria-label literal lives as a JS string (selectorLabel
-    # constant) rather than inlined on the attribute — pin both
-    # the label string and the attribute hook.
-    assert '"Tree data source"' in text, (
-        "TaxonomyTree.tsx must declare the source-selector label as the literal \"Tree data source\""
+    assert '"Tree data source"' not in code_only, (
+        "ODD-HSS-001: TaxonomyTree.tsx must NOT declare the source-"
+        "selector label `\"Tree data source\"` anymore — the "
+        "selector was hoisted to the AppShell header."
     )
-    assert "aria-label" in text, (
-        "TaxonomyTree.tsx must render the source selector with aria-label"
+    # The aria-label attribute hook may still appear elsewhere in
+    # the file (the breadcrumb host carries
+    # `aria-label=\"Active taxonomy path\"`). The selector-specific
+    # check pins that the file does NOT carry the
+    # `aria-label={selectorLabel}` form.
+    assert "selectorLabel" not in code_only, (
+        "ODD-HSS-001: TaxonomyTree.tsx must NOT carry `selectorLabel` "
+        "anymore — the source-selector label constant is removed."
     )
-    # Class hooks so the focused segmented-control CSS in globals.css
-    # can attach without a redesign pass.
-    assert "tree-source-toggle" in text, (
-        "TaxonomyTree.tsx must stamp the .tree-source-toggle class on the selector"
+    assert "tree-source-toggle" not in code_only, (
+        "ODD-HSS-001: TaxonomyTree.tsx must NOT stamp `.tree-source-toggle` "
+        "anymore — the segmented control class hook lives in the "
+        "AppShell source-selector now."
     )
-    assert "tree-source-btn" in text, (
-        "TaxonomyTree.tsx must stamp the .tree-source-btn class on each source button"
+    assert "tree-source-btn" not in code_only, (
+        "ODD-HSS-001: TaxonomyTree.tsx must NOT stamp `.tree-source-btn` "
+        "anymore — the per-source button class hook lives in the "
+        "AppShell source-selector now."
     )
 
 
@@ -1560,56 +1682,121 @@ def test_taxonomy_tree_starts_with_col_active() -> None:
 
 
 def test_taxonomy_tree_selector_orders_col_then_worms() -> None:
-    """ODD-NTP-002: native order is CoL → WoRMS → Freshwater (conditional)."""
+    """ODD-NTP-002 (now-ODD-HSS-001): the source-selector label
+    ORDER (CoL → WoRMS → Freshwater) lives in the AppShell-scope
+    source-selector sub-component after the ODD-HSS-001 hoist.
+    The pre-ODD-HSS-001 native-order ternary lived inside
+    `renderSourceSelector()` in TaxonomyTree; after the hoist the
+    selector owns its own label table
+    (`const SOURCE_LABELS: Record<TreeSource, string> = { col: "CoL",
+    worms: "WoRMS", freshwater: "Freshwater" };`) and renders the
+    three sources in declared `ALL_SOURCES` order
+    (`["col", "worms", "freshwater"]`).
+
+    The post-ODD-HSS-001 contract: the
+    `ODD-NTP-002` label-order ternary need NOT live in
+    TaxonomyTree.tsx anymore (the segment owns a different
+    surface), AND the AppShell-scope source-selector
+    (`AppShellSourceSelector`) is the new location of the
+    CoL → WoRMS → Freshwater sequence + the typed-source
+    keys.
+
+    Negative witness for TaxonomyTree + positive witness for
+    AppShellSourceSelector = the two complementary pins.
+    The TaxonomyTree negative witness: the file MUST NOT
+    carry the `src === \"col\" ? \"CoL\" : src === \"worms\" ?
+    \"WoRMS\" : \"Freshwater\"` ternary anymore (the segment
+    owns a different surface). The positive witness lives
+    in
+    `tests/test_app_shell_render.py::test_appshell_renders_source_selector`
+    (data-tree-source attrs for col / worms / freshwater on
+    the AppShell-scope mount).
+    """
     text = _read_text(TAXONOMY_TREE_FILE)
-    # The label sequence must appear in the segmented control mapping.
+    # The label sequence MUST NOT live inside TaxonomyTree.tsx anymore.
     seq = re.search(
         r"src\s*===\s*[\"\']col[\"\']\s*\?\s*[\"\']CoL[\"\']\s*:\s*"
         r"src\s*===\s*[\"\']worms[\"\']\s*\?\s*[\"\']WoRMS[\"\']\s*:\s*[\"\']Freshwater[\"\']",
         text,
     )
-    assert seq, (
-        "TaxonomyTree.tsx must label CoL → WoRMS → Freshwater in the native order"
+    assert seq is None, (
+        "ODD-NTP-002 (now-ODD-HSS-001): TaxonomyTree.tsx must NOT "
+        "carry the `src === \"col\" ? \"CoL\" : src === \"worms\" ? "
+        "\"WoRMS\" : \"Freshwater\"` label-order ternary anymore — "
+        "the source-selector was hoisted to the AppShell header. "
+        "The positive witness for the AppShell-scope selector label "
+        "order lives in "
+        "tests/test_app_shell_render.py::test_appshell_renders_source_selector."
     )
 
 
 def test_taxonomy_tree_selector_is_conditional_on_freshwater_root() -> None:
-    """ODD-NTP-002: Freshwater appears ONLY when the fetched root
-    payload carries at least one row with a non-null `freshwater_id`.
-    Mirrors the legacy `web/app.js::boot` check
-    `roots.some(r => r.freshwater_id != null)`. The React helper
-    `availableSourcesFor(rawRoots)` encapsulates it; the component must
-    consume that helper so the Freshwater toggle is data-driven, not
-    hardcoded.
+    """ODD-NTP-002 (now-ODD-HSS-001): the source-selector
+    conditional-Freshwater gating lives in
+    `availableSourcesFor(rawRoots)` (the typed-source helper in
+    `tree-state.ts`) which the data-loading path
+    `loadRoots` consumes via `withRootsForSource`. After
+    ODD-HSS-001 hoists the source-selector to the AppShell
+    header, the typing meta — the `availableSourcesFor`
+    consumption + the pre-fetch defaults
+    `["col", "worms", "freshwater"]` — has been REFACTORED
+    from a JSX-render-time memo into the
+    `useTreeSource` + `availableSourcesFor` typed-state
+    pipeline.
 
-    ODD-MIGRATE-007-DOM-006 — the legacy DOM marker contract
-    requires all three `data-tree-source` buttons to render
-    byte-for-byte so the Playwright probe finds every
-    selector at every page state (loading / error / empty /
-    loaded). The `availableSources` typed-source filter is
-    applied at the data-loading path: pre-fetch, all three
-    sources ship verbatim so the SSR markup carries every
-    `[data-tree-source="<key>"]` button; post-fetch, the
-    `availableSourcesFor(rawRoots)` helper filters the list
-    to data-confirmed sources only."""
+    The post-ODD-HSS-001 contract: TaxonomyTree MUST NOT
+    carry an `availableSourcesFor` call site nor a
+    pre-fetch `["col", "worms", "freshwater"]` default
+    list (the segment owns a different surface — the
+    AppShell-scope `AppShellSourceSelector` always
+    renders the three canonical sources). The typed-source
+    pipeline for the `fetchChildren({ source: activeSource })`
+    call site lives in `loadRoots` / `attachChildrenForSource`
+    / `withRootsForSource` (consumed by `TaxonomyTree`'s
+    `useEffect` on `rawRoots + activeSource`).
+
+    The companion positive witness for the AppShell-scope
+    selector (always-three-buttons contract) lives in
+    `tests/test_app_shell_render.py::test_appshell_renders_source_selector`.
+    """
     text = _read_text(TAXONOMY_TREE_FILE)
-    assert "availableSourcesFor" in text, (
-        "TaxonomyTree.tsx must consume the availableSourcesFor helper"
+    # Strip block + line comments first so a docstring that
+    # references the legacy `availableSourcesFor` filter as
+    # documentation of the closed behaviour does NOT trip
+    # the negative witness.
+    code_only = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
+    # The `availableSourcesFor` call site must NOT live in
+    # TaxonomyTree.tsx anymore — the typed-source helper
+    # moved to the AppShell-scope source-selector file
+    # (`AppShellSourceSelector` owns its own internal source
+    # list, so the helper is no longer needed at the JSX
+    # render site). TaxonomyTree still consumes the
+    # `attachChildrenForSource` / `withRootsForSource`
+    # downstream helpers in the source-AWARE fetch effect.
+    assert "availableSourcesFor" not in code_only, (
+        "ODD-NTP-002 (now-ODD-HSS-001): TaxonomyTree.tsx must "
+        "NOT consume the `availableSourcesFor` helper anymore "
+        "— the source-selector was hoisted to the AppShell "
+        "header. The data-loading path uses the typed-source "
+        "helper `withRootsForSource` in the `rawRoots + "
+        "activeSource` effect (still in TaxonomyTree)."
     )
-    # The default sources (pre-fetch) must include all three
-    # sources (col / worms / freshwater) so the SSR markup +
-    # the initial `idle` / `loading` state ship every
-    # `data-tree-source` button byte-for-byte. The
-    # `availableSourcesFor(rawRoots)` filter still owns the
-    # post-fetch gating.
+    # The pre-fetch `["col", "worms", "freshwater"]` default
+    # array MUST NOT live in TaxonomyTree.tsx anymore — the
+    # AppShell-scope `AppShellSourceSelector` always renders
+    # the three canonical sources via its own
+    # `ALL_SOURCES` constant.
     assert re.search(
-        r"if\s*\(\s*!rawRoots\s*\)\s*return\s*\[\s*[\"\']col[\"\']\s*,\s*[\"\']worms[\"\']\s*,\s*[\"\']freshwater[\"\']\s*\]",
-        text,
-    ), (
-        "TaxonomyTree.tsx must default the source list to "
-        "CoL + WoRMS + Freshwater so the legacy DOM marker "
-        "contract carries all three `data-tree-source` buttons "
-        "at SSR (ODD-MIGRATE-007-DOM-006 marker #2)."
+        r"\[\s*[\"\']col[\"\']\s*,\s*[\"\']worms[\"\']\s*,\s*[\"\']freshwater[\"\']\s*\]",
+        code_only,
+    ) is None, (
+        "ODD-NTP-002 (now-ODD-HSS-001): TaxonomyTree.tsx must "
+        "NOT carry the pre-fetch `[\"col\", \"worms\", "
+        "\"freshwater\"]` default array anymore — the source-"
+        "selector was hoisted to the AppShell header (the "
+        "AppShell-scope selector owns its own `ALL_SOURCES` "
+        "constant)."
     )
 
 
@@ -1648,20 +1835,58 @@ def test_taxonomy_tree_resets_source_state_on_switch() -> None:
     SURVIVES the switch — `loadRoots` runs once on mount and the
     `rawRoots + activeSource` effect re-projects the cached payload
     against the new source without a second `/api/domains` round
-    trip."""
+    trip.
+
+    ODD-HSS-001 — the `handleSourceChange` callback was removed
+    (the source-selector hoist moved the click handler to the
+    AppShell), and the source-bound `resetSourceState(prev)` reset
+    now fires from the `useEffect` on
+    `[activeSource, rawRoots]` instead of from the click
+    handler. The early-out `if (next === activeSource) return`
+    guard USED to short-circuit a re-click on the same source
+    inside TaxonomyTree; after the hoist the equivalent
+    short-circuit lives inside the typed `useTreeSource` hook
+    itself (the `useSyncExternalStore` server snapshot returns
+    `DEFAULT_TREE_SOURCE` and the post-mount re-render surfaces
+    the stored value; the `useTreeSource` setter does not
+    re-fire if the caller writes the same value the store
+    already holds, so the click handler is idempotent on
+    re-click).
+
+    The post-ODD-HSS-001 contract: the `resetSourceState`
+    helper MUST still be consumed on every source switch (the
+    `useEffect([activeSource, rawRoots])` blocks drives the
+    same source-bound reset cascade that the pre-hoist click
+    handler drove). The early-out click-handler guard is NOT
+    expected in TaxonomyTree.tsx anymore (the typed hook owns
+    the re-click short-circuit).
+    """
     text = _read_text(TAXONOMY_TREE_FILE)
     assert "resetSourceState" in text, (
-        "TaxonomyTree.tsx must consume resetSourceState on source switch"
+        "TaxonomyTree.tsx must consume resetSourceState on the "
+        "`rawRoots + activeSource` source-switch effect — the "
+        "helper cleared every source-bound React state on a "
+        "switch in the pre-ODD-HSS-001 click handler AND the "
+        "post-ODD-HSS-001 reactive effect."
     )
-    # The handler must (a) early-out when the user re-clicks the
-    # active source (matching the legacy `if (state.treeSource ===
-    # source) return;` guard) and (b) clear the per-row error before
-    # the next effect re-applies the source filter.
+    # The click-handler early-out guard MUST NOT live in
+    # TaxonomyTree.tsx anymore — the typed `useTreeSource` hook
+    # owns the re-click short-circuit (writing the same value
+    # the store already holds is a no-op so the `useEffect`
+    # dependencies don't change). Strip block + line comments
+    # first so docstring prose that references the legacy guard
+    # as documentation of the closed behaviour does NOT trip
+    # the negative witness.
+    code_only = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
     assert re.search(
         r"if\s*\(\s*next\s*===\s*activeSource\s*\)\s*return",
-        text,
-    ), (
-        "TaxonomyTree.tsx must early-out on re-clicking the active source"
+        code_only,
+    ) is None, (
+        "ODD-NTP-002 (now-ODD-HSS-001): TaxonomyTree.tsx must "
+        "NOT carry the `if (next === activeSource) return` "
+        "click-handler early-out anymore — the typed "
+        "`useTreeSource` hook owns the re-click short-circuit."
     )
 
 
@@ -1983,20 +2208,27 @@ def test_taxonomy_tree_handle_select_sets_focused_and_selected() -> None:
 def test_taxonomy_tree_source_change_clears_focused_and_selected() -> None:
     """ODD-NTP-005: source switches clear focused + selected in
     addition to the source-bound React state. Mirrors the legacy
-    `web/nav.js::tree-source toggle` reset."""
+    `web/nav.js::tree-source toggle` reset.
+
+    ODD-HSS-001 — the source-bound cleanup moved into the
+    `useEffect` body that fires on `activeSource` changes. The
+    regression guard pins the contract against the new
+    effect-based location: the effect body MUST carry
+    `setFocused(null)` AND `setSelected(null)` so the
+    focused / selected clear-cascade survives the hoist."""
     text = _read_text(TAXONOMY_TREE_FILE)
-    handle_idx = text.find("const handleSourceChange")
-    assert handle_idx != -1, (
-        "TaxonomyTree.tsx must declare handleSourceChange."
-    )
-    body = text[handle_idx:handle_idx + 800]
+    body = _od_hss_source_switch_effect_body(text)
     assert "setFocused(null)" in body, (
-        "ODD-NTP-005: handleSourceChange must call setFocused(null) "
-        "so the breadcrumb rebuilds against the new source's cache."
+        "ODD-NTP-005: the ODD-HSS-001 source-switch "
+        "`useEffect(() => { ... }, [activeSource])` body must "
+        "call `setFocused(null)` so the breadcrumb rebuilds "
+        "against the new source's cache."
     )
     assert "setSelected(null)" in body, (
-        "ODD-NTP-005: handleSourceChange must call setSelected(null) "
-        "so the new source's detail-panel selection is clean."
+        "ODD-NTP-005: the ODD-HSS-001 source-switch "
+        "`useEffect(() => { ... }, [activeSource])` body must "
+        "call `setSelected(null)` so the new source's "
+        "detail-panel selection is clean."
     )
 
 
@@ -2768,19 +3000,21 @@ def test_taxonomy_tree_close_detail_clears_selection() -> None:
 def test_taxonomy_tree_source_switch_clears_panel() -> None:
     """ODD-TDO-001: a source switch clears `selected` (already in
     the ODD-NTP-005 source-switch reset), which collapses the
-    DetailPanel. The existing `handleSourceChange` already calls
-    `setSelected(null)`; the regression test pins the contract so
-    a future PR cannot silently break the panel-close-on-source-
-    switch behaviour."""
+    DetailPanel.
+
+    ODD-HSS-001 — the source-bound cleanup moved from the
+    `handleSourceChange` callback into the reactive
+    `useEffect(() => { ... }, [activeSource])` body. The
+    regression test pins the contract against the new location:
+    the effect body MUST call `setSelected(null)` so the
+    DetailPanel unmounts when the user switches sources."""
     text = _read_text(TAXONOMY_TREE_FILE)
-    handle_idx = text.find("const handleSourceChange")
-    assert handle_idx != -1, (
-        "TaxonomyTree.tsx must declare handleSourceChange."
-    )
-    body = text[handle_idx:handle_idx + 800]
+    body = _od_hss_source_switch_effect_body(text)
     assert "setSelected(null)" in body, (
-        "ODD-TDO-001: handleSourceChange must call setSelected(null) "
-        "so the DetailPanel unmounts when the user switches sources."
+        "ODD-TDO-001: the ODD-HSS-001 source-switch "
+        "`useEffect(() => { ... }, [activeSource])` body must "
+        "call `setSelected(null)` so the DetailPanel unmounts "
+        "when the user switches sources."
     )
 
 
@@ -3449,16 +3683,24 @@ def test_taxonomy_tree_clears_search_cache_on_source_switch() -> None:
     themselves are taxon-name-based and source-agnostic, but
     clearing keeps the panel contract aligned with the other
     source-bound caches (focused / selected /
-    per-taxon-active-tab)."""
+    per-taxon-active-tab).
+
+    ODD-HSS-001 — the source-bound cleanup moved from the
+    `handleSourceChange` callback into the reactive
+    `useEffect(() => { ... }, [activeSource])` body. The
+    regression test pins the contract against the new
+    location: the effect body MUST call
+    `setSearchesByTaxonId(new Map())` so the per-taxon
+    search-link cache clears alongside the focused /
+    selected / kebab clears."""
     text = _read_text(TAXONOMY_TREE_FILE)
-    handle_idx = text.find("const handleSourceChange")
-    assert handle_idx != -1, (
-        "TaxonomyTree.tsx must declare handleSourceChange."
-    )
-    body = text[handle_idx:handle_idx + 1200]
+    body = _od_hss_source_switch_effect_body(text)
     assert "setSearchesByTaxonId" in body, (
-        "ODD-TDS-001: handleSourceChange must clear the per-taxon "
-        "search-link cache alongside the other source-bound resets."
+        "ODD-TDS-001: the ODD-HSS-001 source-switch "
+        "`useEffect(() => { ... }, [activeSource])` body must "
+        "clear the per-taxon search-link cache so a stale URL "
+        "set from a previous source's selected taxon cannot leak "
+        "into the next source's selection."
     )
 
 
@@ -3790,30 +4032,34 @@ def test_taxonomy_tree_keeps_vernacular_cache_across_source_switch() -> None:
     vernacular cache (the `/api/taxon/{id}/vernaculars` endpoint
     is source-agnostic, so a previously cached payload stays
     valid under the new active source). The cached payload
-    survives `handleSourceChange` so re-selecting the same taxon
-    after a source switch is also instant (mirrors how
-    `perTaxonActiveTab` memory survives deselects). The
-    regression guard pins the contract so a future PR cannot
-    silently break the source-switch retention."""
+    survives the source-switch cascade so re-selecting the same
+    taxon after a source switch is also instant (mirrors how
+    `perTaxonActiveTab` memory survives deselects).
+
+    ODD-HSS-001 — the cascade moved from `handleSourceChange` to
+    the reactive `useEffect(() => { ... }, [activeSource])`
+    body. The regression guard pins the contract against the
+    new effect-based location: the effect body MUST carry
+    `setSearchesByTaxonId` (the ODD-TDS-001 invalidate) AND
+    MUST NOT carry `setVernacularsByTaxonId` (the ODD-TDV-001
+    retention contract)."""
     text = _read_text(TAXONOMY_TREE_FILE)
-    handle_idx = text.find("const handleSourceChange")
-    assert handle_idx != -1, (
-        "TaxonomyTree.tsx must declare handleSourceChange."
-    )
-    body = text[handle_idx:handle_idx + 1200]
+    body = _od_hss_source_switch_effect_body(text)
     # The search-link cache IS cleared (ODD-TDS-001 contract).
     assert "setSearchesByTaxonId" in body, (
-        "ODD-TDS-001: handleSourceChange must clear the per-taxon "
-        "search-link cache alongside the other source-bound resets."
+        "ODD-TDS-001: the ODD-HSS-001 source-switch effect body "
+        "must clear the per-taxon search-link cache alongside the "
+        "other source-bound resets."
     )
     # The vernacular cache MUST NOT be cleared (ODD-TDV-001
-    # contract). The function body must NOT carry a
-    # `setVernacularsByTaxonId(new Map())` call. Reading the
-    # source surface as text proves the contract; any future PR
-    # that adds the clear-call must also update the test.
+    # contract). The effect body must NOT carry a
+    # `setVernacularsByTaxonId(...)` call. Reading the source
+    # surface as text proves the contract; any future PR that
+    # adds the clear-call must also update this test.
     assert "setVernacularsByTaxonId" not in body, (
-        "ODD-TDV-001: handleSourceChange MUST NOT clear the per-taxon "
-        "vernacular cache (the vernacular endpoint is source-agnostic)."
+        "ODD-TDV-001: the ODD-HSS-001 source-switch effect body "
+        "MUST NOT clear the per-taxon vernacular cache (the "
+        "vernacular endpoint is source-agnostic)."
     )
 
 
@@ -4261,36 +4507,41 @@ def test_taxonomy_tree_keeps_synonym_cache_across_source_switch() -> None:
     the FastAPI SQL pre-filters by `parent_id = taxon_id AND
     status != 'accepted'` regardless of the active tree source
     — so a previously cached payload stays valid under the new
-    active source). The cached payload survives
-    `handleSourceChange` so re-selecting the same taxon after
+    active source). The cached payload survives the
+    source-switch cascade so re-selecting the same taxon after
     a source switch is also instant (mirrors how
     `vernacularsByTaxonId` survives source switches — the
-    source-agnostic retention contract)."""
+    source-agnostic retention contract).
+
+    ODD-HSS-001 — the cascade moved from `handleSourceChange`
+    to the reactive `useEffect(() => { ... }, [activeSource])`
+    body. The regression guard pins the ODD-TDSYN-001 retention
+    against the new location: the effect body MUST NOT carry
+    `setSynonymsByTaxonId`."""
     text = _read_text(TAXONOMY_TREE_FILE)
-    handle_idx = text.find("const handleSourceChange")
-    assert handle_idx != -1, (
-        "TaxonomyTree.tsx must declare handleSourceChange."
-    )
-    body = text[handle_idx:handle_idx + 1400]
+    body = _od_hss_source_switch_effect_body(text)
     # The search-link cache IS cleared (ODD-TDS-001 contract).
     assert "setSearchesByTaxonId" in body, (
-        "ODD-TDS-001: handleSourceChange must clear the per-taxon "
-        "search-link cache alongside the other source-bound resets."
+        "ODD-TDS-001: the ODD-HSS-001 source-switch effect body "
+        "must clear the per-taxon search-link cache alongside "
+        "the other source-bound resets."
     )
     # The vernacular cache MUST NOT be cleared (ODD-TDV-001
     # contract).
     assert "setVernacularsByTaxonId" not in body, (
-        "ODD-TDV-001: handleSourceChange MUST NOT clear the per-taxon "
-        "vernacular cache (the vernacular endpoint is source-agnostic)."
+        "ODD-TDV-001: the ODD-HSS-001 source-switch effect body "
+        "MUST NOT clear the per-taxon vernacular cache (the "
+        "vernacular endpoint is source-agnostic)."
     )
     # The synonym cache MUST NOT be cleared (ODD-TDSYN-001
-    # contract). The function body must NOT carry a
+    # contract). The effect body must NOT carry a
     # `setSynonymsByTaxonId(new Map())` call. The regression
     # guard pins the contract so a future PR cannot silently
     # break the source-switch retention.
     assert "setSynonymsByTaxonId" not in body, (
-        "ODD-TDSYN-001: handleSourceChange MUST NOT clear the per-taxon "
-        "synonym cache (the synonym endpoint is source-agnostic)."
+        "ODD-TDSYN-001: the ODD-HSS-001 source-switch effect "
+        "body MUST NOT clear the per-taxon synonym cache (the "
+        "synonym endpoint is source-agnostic)."
     )
 
 
@@ -4718,43 +4969,49 @@ def test_taxonomy_tree_keeps_distribution_cache_across_source_switch() -> None:
     source-agnostic — the FastAPI SQL filters by
     `taxon_id = ?` regardless of the active tree source — so
     a previously cached payload stays valid under the new
-    active source). The cached payload survives
-    `handleSourceChange` so re-selecting the same taxon after
+    active source). The cached payload survives the
+    source-switch cascade so re-selecting the same taxon after
     a source switch is also instant (mirrors how
     `vernacularsByTaxonId` + `synonymsByTaxonId` survive
     source switches — the source-agnostic retention
-    contract)."""
+    contract).
+
+    ODD-HSS-001 — the cascade moved from `handleSourceChange`
+    to the reactive `useEffect(() => { ... }, [activeSource])`
+    body. The regression guard pins the ODD-TDDIST-001
+    retention against the new location: the effect body MUST
+    NOT carry `setDistributionByTaxonId`."""
     text = _read_text(TAXONOMY_TREE_FILE)
-    handle_idx = text.find("const handleSourceChange")
-    assert handle_idx != -1, (
-        "TaxonomyTree.tsx must declare handleSourceChange."
-    )
-    body = text[handle_idx:handle_idx + 1400]
+    body = _od_hss_source_switch_effect_body(text)
     # The search-link cache IS cleared (ODD-TDS-001 contract).
     assert "setSearchesByTaxonId" in body, (
-        "ODD-TDS-001: handleSourceChange must clear the per-taxon "
-        "search-link cache alongside the other source-bound resets."
+        "ODD-TDS-001: the ODD-HSS-001 source-switch effect body "
+        "must clear the per-taxon search-link cache alongside "
+        "the other source-bound resets."
     )
     # The vernacular cache MUST NOT be cleared (ODD-TDV-001
     # contract).
     assert "setVernacularsByTaxonId" not in body, (
-        "ODD-TDV-001: handleSourceChange MUST NOT clear the per-taxon "
-        "vernacular cache (the vernacular endpoint is source-agnostic)."
+        "ODD-TDV-001: the ODD-HSS-001 source-switch effect body "
+        "MUST NOT clear the per-taxon vernacular cache (the "
+        "vernacular endpoint is source-agnostic)."
     )
     # The synonym cache MUST NOT be cleared (ODD-TDSYN-001
     # contract).
     assert "setSynonymsByTaxonId" not in body, (
-        "ODD-TDSYN-001: handleSourceChange MUST NOT clear the per-taxon "
-        "synonym cache (the synonym endpoint is source-agnostic)."
+        "ODD-TDSYN-001: the ODD-HSS-001 source-switch effect "
+        "body MUST NOT clear the per-taxon synonym cache (the "
+        "synonym endpoint is source-agnostic)."
     )
     # The distribution cache MUST NOT be cleared
-    # (ODD-TDDIST-001 contract). The function body must NOT
+    # (ODD-TDDIST-001 contract). The effect body must NOT
     # carry a `setDistributionByTaxonId(new Map())` call.
     # The regression guard pins the contract so a future PR
     # cannot silently break the source-switch retention.
     assert "setDistributionByTaxonId" not in body, (
-        "ODD-TDDIST-001: handleSourceChange MUST NOT clear the per-taxon "
-        "distribution cache (the distribution endpoint is source-agnostic)."
+        "ODD-TDDIST-001: the ODD-HSS-001 source-switch effect "
+        "body MUST NOT clear the per-taxon distribution cache "
+        "(the distribution endpoint is source-agnostic)."
     )
 
 
@@ -6218,15 +6475,17 @@ def test_taxonomy_tree_invalidates_folder_cache_on_source_switch() -> None:
     materialize preview walks the active source's parent
     column — different from the source-AGNOSTIC
     vernaculars / synonyms / distribution caches. The
-    cache therefore does NOT survive `handleSourceChange`.
-    The function body MUST carry a
-    `setFolderByTaxonId(new Map())` call."""
+    cache therefore does NOT survive the source-switch
+    cascade.
+
+    ODD-HSS-001 — the cascade moved from `handleSourceChange`
+    to the reactive `useEffect(() => { ... }, [activeSource])`
+    body. The effect body MUST carry
+    `setFolderByTaxonId(new Map())` + the four side-effect
+    map clears so the ODD-TDFOLDER-001 folder-invalidation
+    contract survives the hoist."""
     text = _read_text(TAXONOMY_TREE_FILE)
-    handle_idx = text.find("const handleSourceChange")
-    assert handle_idx != -1, (
-        "TaxonomyTree.tsx must declare handleSourceChange."
-    )
-    body = text[handle_idx:handle_idx + 3500]
+    body = _od_hss_source_switch_effect_body(text)
     # The folder cache MUST be cleared (ODD-TDFOLDER-001
     # contract). The source-agnostic retention that
     # protects the vernacular / synonyms / distribution
@@ -6235,10 +6494,11 @@ def test_taxonomy_tree_invalidates_folder_cache_on_source_switch() -> None:
     # CoL preview yields a different chain under WoRMS when
     # the parent_id columns diverge.
     assert "setFolderByTaxonId" in body, (
-        "ODD-TDFOLDER-001: handleSourceChange MUST clear the per-taxon "
-        "folder preview cache (the materialize preview walks the active "
-        "source's parent column, so the source-AGNOSTIC retention "
-        "contract does not apply)."
+        "ODD-TDFOLDER-001: the ODD-HSS-001 source-switch effect "
+        "body MUST clear the per-taxon folder preview cache (the "
+        "materialize preview walks the active source's parent "
+        "column, so the source-AGNOSTIC retention contract does "
+        "not apply)."
     )
     # The folder-create / folder-open / folder-copy
     # side-effect maps + the create-armed gate MUST be
@@ -6253,8 +6513,9 @@ def test_taxonomy_tree_invalidates_folder_cache_on_source_switch() -> None:
         "setFolderCreateArmedByTaxonId",
     ):
         assert name in body, (
-            f"ODD-TDFOLDER-001: handleSourceChange MUST clear the per-taxon "
-            f"{name} side-effect map (the stale message / gate cannot bleed "
+            f"ODD-TDFOLDER-001: the ODD-HSS-001 source-switch "
+            f"effect body MUST clear the per-taxon {name} "
+            f"side-effect map (the stale message / gate cannot bleed "
             f"into the next source's selection)."
         )
 
@@ -6618,32 +6879,36 @@ def test_taxonomy_tree_does_not_own_active_source_local_state() -> None:
     the stored value via `subscribeTreeSource` →
     `ensureHydrated` → `safeGetItem`.
 
+    ODD-HSS-001 — the source-selector hoist moved the source
+    setter (`setActiveSource(next)`) to the AppShell-scope
+    `AppShellSourceSelector` sub-component. TaxonomyTree now
+    reads the source through a read-only destructuring
+    `const [activeSource] = useTreeSource();`. The post-hoist
+    contract:
+      - `useState<TreeSource>(DEFAULT_SOURCE)` for
+        `activeSource` is REJECTED (typed-hook boundary).
+      - The `setActiveSource(next)` call site MUST NOT live in
+        TaxonomyTree anymore — the source-switch setter lives
+        in the AppShell-scope source-selector file
+        (`AppShellSourceSelector.tsx`).
+
     The contract is the LITERAL non-existence of the previous
-    local-state declaration. A future refactor that re-introduces
-    the local useState (e.g. to "stage" the source during a fetch)
-    would re-break the hydration contract; this test pins the
-    boundary so the regression fails before review.
+    local-state declaration AND the previous
+    `setActiveSource(next)` call site in TaxonomyTree. A future
+    refactor that re-introduces the local useState (e.g. to
+    "stage" the source during a fetch) would re-break the
+    hydration contract; this test pins the boundary so the
+    regression fails before review.
     """
     text = _read_text(TAXONOMY_TREE_FILE)
-    # Reject the previous `useState<TreeSource>(DEFAULT_SOURCE)`
-    # declaration AND any `useState<...>(<local default>)` for the
-    # `activeSource` identifier. The check is anchored on the
-    # `activeSource` setter line so a future refactor that adds a
-    # benign `useState<number>` for `selected` (a different
-    # identifier) stays out of scope.
     forbidden_patterns = (
-        # The exact previous declaration — pinned by the ODD-NTP-002
-        # slice this work unit migrates away from.
+        # The local-state declaration — pinned by the ODD-BSTATE-TAX-001
+        # slice the ODD-NTP-002 + ODD-HSS-001 slices migrate away from.
         r"const\s+\[\s*activeSource\s*,\s*setActiveSource\s*\]\s*=\s*useState\b",
-        # The default-initializer form the previous slice used.
+        # The pre-ODD-HSS-001 click-handler setter call site
+        # that the hoist moved to AppShellSourceSelector.
         r"setActiveSource\s*\(\s*next\s*\)",
     )
-    # The setter is still produced by `useTreeSource()` so a literal
-    # `setActiveSource(next)` call inside the source-change handler
-    # is expected. The pin: `setActiveSource(next)` MUST come from
-    # the typed-hook destructure, not from a `useState` call. We
-    # accept the call site (one occurrence in `handleSourceChange`)
-    # while still rejecting the local-state declaration.
     assert not re.search(forbidden_patterns[0], text), (
         "ODD-BSTATE-TAX-001: TaxonomyTree.tsx MUST NOT declare a "
         "local `useState<TreeSource>(...)` pair for "
@@ -6651,17 +6916,22 @@ def test_taxonomy_tree_does_not_own_active_source_local_state() -> None:
         "source so SSR + the first client render stay byte-equal "
         "and the stored value rehydrates on the post-mount render."
     )
-    # The component still calls `setActiveSource(next)` from inside
-    # `handleSourceChange`; this is the typed-hook setter (returned
-    # by `useTreeSource`), not a `useState` setter. The pin below
-    # asserts the call site stays alive — the source-change handler
-    # MUST continue writing through the typed setter so the
-    # stored value persists across reload.
-    assert re.search(forbidden_patterns[1], text), (
-        "ODD-BSTATE-TAX-001: `handleSourceChange` must continue "
-        "calling `setActiveSource(next)` (the typed setter from "
-        "`useTreeSource()`) so the user-picked source persists to "
-        "`taxa.tree.source` across reload."
+    # After the ODD-HSS-001 hoist the `setActiveSource(next)` call
+    # site MUST NOT live in TaxonomyTree anymore — the
+    # source-switch setter lives in the AppShell-scope
+    # `AppShellSourceSelector` sub-component. The companion
+    # positive witness for the new call-site location lives in
+    # `tests/test_app_shell_render.py::test_appshell_renders_source_selector`
+    # (the `data-tree-source="col|worms|freshwater"` + `setActiveSource(src)`
+    # wiring inside the AppShell-scope source-selector file).
+    assert not re.search(forbidden_patterns[1], text), (
+        "ODD-BSTATE-TAX-001 (now-ODD-HSS-001): TaxonomyTree.tsx "
+        "MUST NOT carry a `setActiveSource(next)` call site "
+        "anymore — the source-selector hoist moved the source-"
+        "switch setter to the AppShell-scope "
+        "`AppShellSourceSelector.tsx`. The positive witness for "
+        "the new call-site location lives in "
+        "`tests/test_app_shell_render.py::test_appshell_renders_source_selector`."
     )
     # The `DEFAULT_SOURCE` constant is retired — the typed default
     # lives in `@taxa/browser-state` (`DEFAULT_TREE_SOURCE`). A
@@ -6678,41 +6948,69 @@ def test_taxonomy_tree_does_not_own_active_source_local_state() -> None:
 
 
 def test_taxonomy_tree_handle_source_change_preserves_reset_cascade() -> None:
-    """ODD-BSTATE-TAX-001 (handleSourceChange reset cascade preserved):
-    the source-switch reset cascade must stay byte-equal so a
-    switch still mirrors the legacy `web/nav.js::tree-source toggle`
-    reset. The handler:
-      - early-outs when the user re-clicks the active source
-      - clears `state` via `resetSourceState` (roots / expanded /
-        child cache / load status / showAll / per-row error)
-      - clears the open kebab
-      - clears focused + selected
-      - clears the per-taxon search-link cache (source-bound)
-      - clears the per-taxon folder cache + side-effect maps (source-bound)
-      - writes through the typed `setActiveSource(next)` setter so
-        the user-picked source persists to `taxa.tree.source` across
-        reload.
+    """ODD-BSTATE-TAX-001 (now-ODD-HSS-001 — reset-cascade
+    preservation): the source-switch reset cascade must stay
+    byte-equal so a switch still mirrors the legacy
+    `web/nav.js::tree-source toggle` reset. The pre-hoist
+    `handleSourceChange` callback ran the cascade. After the
+    hoist the cascade split into TWO effects — the witness
+    pins both halves:
+
+      Half 1 (source-bound tree state on
+        `useEffect([activeSource, rawRoots])`):
+        - clears `state` via `resetSourceState(prev)` so roots /
+          expanded / child cache / load status / showAll /
+          per-row error get cleared on a switch — the existing
+          ODD-NTP-002 cascade half.
+
+      Half 2 (UI side effects on `useEffect([activeSource])`):
+        - clears the open kebab via `setKebabOpenId(null)`.
+        - clears focused + selected via `setFocused(null)` +
+          `setSelected(null)`.
+        - clears the per-taxon search-link cache via
+          `setSearchesByTaxonId(new Map())` (source-bound).
+        - clears the per-taxon folder cache + four side-effect
+          maps via `setFolderByTaxonId(new Map())` +
+          `setFolderCreateByTaxonId(new Map())` +
+          `setFolderOpenByTaxonId(new Map())` +
+          `setFolderCopyByTaxonId(new Map())` +
+          `setFolderCreateArmedByTaxonId(new Map())`.
+
+      Source-switch setter (post-hoist):
+        - the typed `setActiveSource(src)` setter call site
+          lives in the AppShell-scope `AppShellSourceSelector.tsx`
+          (pinned by
+          `tests/test_app_shell_render.py::test_appshell_renders_source_selector`).
     """
     text = _read_text(TAXONOMY_TREE_FILE)
-    handle_idx = text.find("const handleSourceChange")
-    assert handle_idx != -1, (
-        "ODD-BSTATE-TAX-001: TaxonomyTree.tsx must declare "
-        "handleSourceChange."
+    # Half 1: the source-bound `resetSourceState` lives on the
+    # existing `useEffect([activeSource, rawRoots])` block.
+    # Strip block + line comments + locate the effect body by
+    # its deps array (`[activeSource, rawRoots]`); the body
+    # MUST carry `resetSourceState(` so the ODD-NTP-002 cascade
+    # half survives the hoist.
+    source_bound_match = re.search(
+        r"useEffect\(\(\)\s*=>\s*\{(.*?)\}\s*,\s*\[activeSource\s*,\s*rawRoots\]\s*\)\s*;",
+        text,
+        re.DOTALL,
     )
-    # Anchor on `setActiveSource(next);` — the typed-hook setter
-    # call the cascade terminates with.
-    set_active_idx = text.find("setActiveSource(next);", handle_idx)
-    assert set_active_idx != -1, (
-        "ODD-BSTATE-TAX-001: handleSourceChange must terminate "
-        "with `setActiveSource(next)` (the typed-hook setter) so "
-        "the user-picked source persists to `taxa.tree.source`."
+    assert source_bound_match is not None, (
+        "ODD-HSS-001 source-bound effect: TaxonomyTree.tsx must "
+        "declare a `useEffect(() => { ... }, [activeSource, rawRoots])` "
+        "block that carries the ODD-NTP-002 `resetSourceState(prev)` "
+        "cascade half (the source-bound tree state reset on a switch)."
     )
-    body = text[handle_idx:set_active_idx]
-    # The reset cascade is the ODD-NTP-005 + ODD-TDFOLDER-001
-    # union. Every step is pinned so a future refactor that drops
-    # one of them trips this test before review.
+    source_bound_body = source_bound_match.group(1)
+    assert "resetSourceState" in source_bound_body, (
+        "ODD-BSTATE-TAX-001 (now-ODD-HSS-001): TaxonomyTree.tsx's "
+        "`useEffect([activeSource, rawRoots])` body must call "
+        "`resetSourceState(prev)` so the ODD-NTP-002 source-bound "
+        "tree state clears on a switch."
+    )
+    # Half 2: the UI side effects live on the new
+    # `useEffect([activeSource])` block.
+    body = _od_hss_source_switch_effect_body(text)
     cascade_checks = (
-        ("resetSourceState", "ODD-NTP-002: must reset the source-bound tree state"),
         ("setKebabOpenId(null)", "ODD-NTP-004: must close the open kebab"),
         ("setFocused(null)", "ODD-NTP-005: must clear focused"),
         ("setSelected(null)", "ODD-NTP-005: must clear selected"),
@@ -6725,19 +7023,27 @@ def test_taxonomy_tree_handle_source_change_preserves_reset_cascade() -> None:
     )
     for needle, reason in cascade_checks:
         assert needle in body, (
-            f"ODD-BSTATE-TAX-001: handleSourceChange reset cascade "
-            f"lost {needle!r} — {reason}. The typed-source migration "
-            f"must preserve the existing source-bound reset."
+            f"ODD-BSTATE-TAX-001: source-switch reset cascade "
+            f"lost {needle!r} \u2014 {reason}. The typed-source "
+            f"migration must preserve the existing source-bound "
+            f"reset."
         )
-    # The early-out guard — clicking the already-active source is a
-    # no-op so the cascade does NOT fire and the persisted value
-    # stays unchanged.
+    # The click-handler early-out guard MUST NOT live in
+    # TaxonomyTree.tsx anymore \u2014 the typed `useTreeSource` hook
+    # owns the re-click short-circuit. Strip block + line
+    # comments first so docstring prose that references the
+    # legacy guard as documentation of the closed behaviour
+    # does NOT trip the negative witness.
+    code_only = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
     assert re.search(
         r"if\s*\(\s*next\s*===\s*activeSource\s*\)\s*return",
-        text,
-    ), (
-        "ODD-BSTATE-TAX-001: handleSourceChange must keep the "
-        "`if (next === activeSource) return;` early-out guard."
+        code_only,
+    ) is None, (
+        "ODD-BSTATE-TAX-001 (now-ODD-HSS-001): TaxonomyTree.tsx "
+        "MUST NOT carry the `if (next === activeSource) return;` "
+        "click-handler early-out guard anymore \u2014 the typed "
+        "`useTreeSource` hook owns the re-click short-circuit."
     )
 
 
@@ -6847,42 +7153,156 @@ def test_taxonomy_tree_renders_tree_view_id() -> None:
 
 
 def test_taxonomy_tree_renders_tree_source_toggle_id() -> None:
-    """ODD-MIGRATE-007-DOM-006 — marker #2: the React source
-    toggle must render inside a `<div id="tree-source-toggle">`
-    containing three `<button data-tree-source="col">` /
-    `"worms"` / `"freshwater">` buttons. The legacy selector
-    stays verbatim so the Playwright probe finds it."""
+    """ODD-HSS-001 — negative witness (marker #2 migration).
+
+    The pre-ODD-HSS-001 source toggle rendered inside `TaxonomyTree.tsx`
+    as a `<div id="tree-source-toggle">` host with three
+    `<button data-tree-source="col">` / `"worms"` / `"freshwater">`
+    rows (the legacy selector the legacy Playwright probe used).
+
+    ODD-HSS-001 hoists that toggle to the AppShell header. The
+    rendered `out/index.html` still carries the
+    `<div id="tree-source-toggle">` host + the three buttons (the
+    renderer that emits the markup is now the AppShell header, not
+    TaxonomyTree — the static-export witness stays byte-equal). The
+    SOURCE-level negative witness pins the absence of the marker in
+    `TaxonomyTree.tsx` so a regression that re-mounts the toggle in
+    the tree surface trips the gate (and a future consolidation
+    could remove this test once the renderer fully migrates).
+
+    The complementary DOM-rendered witness
+    (`test_out_index_html_has_legacy_dom_markers`) still passes
+    because the rendered HTML carries the marker (the renderer just
+    moved from TaxonomyTree to AppShell). The complementary positive
+    source-level witness on the new host lives in
+    `tests/test_app_shell_render.py::test_appshell_renders_source_selector`.
+    """
     text = _read_text(TAXONOMY_TREE_FILE)
+    # Strip block comments + line comments so docstring prose that
+    # DOCUMENTED the pre-hoist contract doesn't trip the negative
+    # witness — the witness checks the JSX render, not the prose.
+    code_only = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
+    # Marker #2 host (`<div id="tree-source-toggle">`) must NOT
+    # appear in TaxonomyTree.tsx anymore.
     assert re.search(
         r'<div\b[^>]*\bid="tree-source-toggle"',
-        text,
-        re.DOTALL,
-    ), (
-        "TaxonomyTree.tsx must render `<div id=\"tree-source-toggle\">` "
-        "wrapping the three source buttons "
-        "(ODD-MIGRATE-007-DOM-006 marker #2)."
+        code_only,
+    ) is None, (
+        "ODD-HSS-001: TaxonomyTree.tsx must NOT render "
+        "`<div id=\"tree-source-toggle\">` anymore — the marker #2 "
+        "host was hoisted to the AppShell header."
     )
-    # All three source buttons must carry the canonical
-    # `data-tree-source="<key>"` attribute the Playwright probe
-    # selects on. The selector pair the probe uses is
-    # `#tree-source-toggle button[data-tree-source="col|worms|freshwater"]`.
-    # The JSX source uses `data-tree-source={src}` (a curly-brace
-    # expression that resolves to "col" / "worms" / "freshwater"
-    # at runtime) — accept either the JSX form OR a literal-quoted
-    # form so a future refactor to a typed native element doesn't
-    # trip the guard.
+    # All three per-source buttons must NOT render inside
+    # TaxonomyTree.tsx anymore.
     for src in ("col", "worms", "freshwater"):
         assert re.search(
             rf'<button\b[^>]*\bdata-tree-source\s*=\s*(?:["\']{src}["\']|\{{src\}})',
-            text,
+            code_only,
             re.DOTALL,
-        ), (
-            f"TaxonomyTree.tsx must render "
-            f"`<button data-tree-source=\"{src}\">` (or the "
-            f"JSX `data-tree-source={{src}}` form) inside the "
-            f"#tree-source-toggle container "
-            f"(ODD-MIGRATE-007-DOM-006 marker #2)."
+        ) is None, (
+            f"ODD-HSS-001: TaxonomyTree.tsx must NOT render "
+            f"`<button data-tree-source=\"{src}\">` anymore — "
+            f"the per-source button was hoisted to the AppShell "
+            f"header source-selector."
         )
+
+
+# ODD-HSS-002 — additional negative witness (regression guard). The
+# companion `test_taxonomy_tree_renders_tree_source_toggle_id` covers
+# the data-attribute side (id selector + per-button attributes).
+# `test_taxonomy_tree_does_not_render_source_selector` covers the
+# JSX-helper side: TaxonomyTree.tsx must NOT declare the
+# `renderSourceSelector()` helper anymore, must NOT import the
+# design-system `tree-source-toggle` + `tree-source-btn` class hooks
+# in a JSX-renderable form, and must NOT stamp the
+# `aria-pressed`-bearing source buttons. Together the three negative
+# witnesses pin the hoist from three independent angles so a single
+# overlooked reference trips the gate.
+def test_taxonomy_tree_does_not_render_source_selector() -> None:
+    """ODD-HSS-002 — regression guard: TaxonomyTree.tsx must NOT
+    render the source-selector (CoL / WoRMS / Freshwater) anymore.
+    The selector lives in the AppShell header (positive witness:
+    `tests/test_app_shell_render.py::test_appshell_renders_source_selector`)
+    so CoL / WoRMS / Freshwater become a first-class concept visible
+    on every page state (loading / error / empty / loaded) instead
+    of a buried affordance after the user expands the tree.
+
+    Three complementary negative checks:
+
+      1. The `renderSourceSelector()` helper must NOT be declared
+         (the helper lived in the pre-hoist TaxonomyTree; after the
+         hoist the helper lives in the new
+         `AppShellSourceSelector` sub-component instead).
+      2. The `tree-source-toggle` + `tree-source-btn` class hooks
+         must NOT appear in the JSX render (the segmented control
+         host + per-button class hooks live in the AppShell host
+         now). The className-anchored regex avoids false positives
+         from docstring prose that references the class hooks as
+         legacy references.
+      3. The `tree-source-toggle-wrapper` class hook must NOT appear
+         in the JSX render (the segmented-control wrapper that the
+         pre-hoist TaxonomyTree used to share the 8px vertical
+         rhythm with the collapse-all button row is gone — the
+         collapse-all alone remains in TaxonomyTree, in a wrapper
+         that's no longer tied to the toggle).
+
+    If any of the three observations fires, the regression that
+    re-mounts the source-selector inside `TaxonomyTree.tsx` trips
+    this test before the compiled bundle reaches the static export.
+    """
+    text = _read_text(TAXONOMY_TREE_FILE)
+    # Strip block comments + line comments so docstring prose that
+    # DOCUMENTS the hoist (and any future prose mention of the
+    # legacy class hooks / helper) doesn't trip the negative
+    # witness — the witness checks the JSX render + the helper
+    # declarations, not the prose.
+    code_only = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
+    # 1. The `renderSourceSelector()` helper is gone.
+    assert "renderSourceSelector" not in code_only, (
+        "ODD-HSS-002: TaxonomyTree.tsx must NOT declare "
+        "`renderSourceSelector()` — the source-selector was hoisted "
+        "to the AppShell header. The positive witness for the new "
+        "mount lives in "
+        "tests/test_app_shell_render.py::test_appshell_renders_source_selector."
+    )
+    # 2. The `tree-source-toggle` + `tree-source-btn` class hooks
+    # are gone from the JSX render. Anchor on a className form so
+    # docstring references to the literal class hooks (which
+    # document the hoist + the legacy reference) don't trip the
+    # gate — the witness checks the JSX render, not the prose.
+    # The negative-end anchors (`(?:[^-a-zA-Z]|$)`) protect
+    # against a false positive on the `.tree-source-toggle-wrapper`
+    # descendant rule (a hyphen is NOT a word character so a
+    # naïve `\b` anchor would match `toggle-` inside
+    # `tree-source-toggle-wrapper`).
+    for class_hook in ("tree-source-toggle", "tree-source-btn"):
+        jsx_render_match = re.search(
+            rf'className\s*=\s*["\'][^"\']*[\.\s"\']{re.escape(class_hook)}(?:[^-a-zA-Z]|$)',
+            code_only,
+        )
+        assert jsx_render_match is None, (
+            f"ODD-HSS-002: TaxonomyTree.tsx must NOT render "
+            f"`{class_hook}` as a JSX className anymore — the class "
+            f"hook lives in the AppShell header source-selector. "
+            f"Found JSX render at: {jsx_render_match.group(0)!r}."
+        )
+    # 3. The `tree-source-toggle-wrapper` class hook that the
+    # pre-hoist code used to share the 8px vertical rhythm with the
+    # collapse-all row is gone.
+    wrapper_match = re.search(
+        r'className\s*=\s*["\'][^"\']*\btree-source-toggle-wrapper\b',
+        code_only,
+    )
+    assert wrapper_match is None, (
+        "ODD-HSS-002: TaxonomyTree.tsx must NOT render the "
+        "`.tree-source-toggle-wrapper` wrapper anymore — the "
+        "wrapper hosted the source-selector + the collapse-all "
+        "row together; after the hoist only the collapse-all row "
+        "remains in TaxonomyTree, in a single-child wrapper. "
+        f"Found JSX render at: {wrapper_match.group(0)!r}."
+    )
 
 
 def test_taxonomy_tree_renders_detail_panel_placeholder() -> None:
