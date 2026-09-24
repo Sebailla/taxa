@@ -167,6 +167,31 @@ export function isExpanded(state: TreeState, id: number): boolean {
   return state.expandedIds.has(id);
 }
 
+/** ODD-JKNAV-001 — flat list of visible taxon ids in render
+ *  order. The walker recurses through `rootIds` then each
+ *  parent's `childIdsByParent`, descending only into ids that
+ *  are in `expandedIds` (so a collapsed subtree contributes
+ *  only its root row, matching what the user sees on screen).
+ *  Pure helper — no React, no DOM, no refs. The j/k keyboard
+ *  handler in TaxonomyTree.tsx uses this to compute the next /
+ *  previous row when the user presses `j` or `k`. */
+export function flattenVisibleRows(state: TreeState): readonly number[] {
+  const out: number[] = [];
+  const visit = (parentId: number | null): void => {
+    const ids =
+      parentId === null
+        ? state.rootIds
+        : (state.childIdsByParent.get(parentId) ?? []);
+    for (const id of ids) {
+      if (!state.nodes.has(id)) continue;
+      out.push(id);
+      if (state.expandedIds.has(id)) visit(id);
+    }
+  };
+  visit(null);
+  return out;
+}
+
 /** Mark `id` as expanded. Idempotent. */
 export function expand(state: TreeState, id: number): TreeState {
   if (state.expandedIds.has(id)) return state;
