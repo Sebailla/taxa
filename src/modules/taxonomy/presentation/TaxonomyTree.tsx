@@ -241,7 +241,6 @@ import {
   EMPTY_TREE_STATE,
   attachChildrenForSource,
   autoUnrollForSource,
-  availableSourcesFor,
   childIds,
   clearExpansion,
   expandedTierCount,
@@ -258,7 +257,6 @@ import {
 import type {
   NodeLoadStatus,
   RankGroup,
-  TreeSource,
   TreeState,
 } from "./tree-state";
 import TreeRow from "./TreeRow";
@@ -351,7 +349,16 @@ export default function TaxonomyTree(
   // `TreeSource` type literal union is structurally compatible
   // with the browser-state `TreeSource` type so a cast is NOT
   // required at the boundary.
-  const [activeSource, setActiveSource] = useTreeSource();
+  // ODD-HSS-001 — read-only consumption of the typed source. The
+  // pre-ODD-HSS-001 mount also called `setActiveSource` from the
+  // in-TaxonomyTree segmented control. After the hoist the
+  // source-selector lives in the AppShell header
+  // (`AppShellSourceSelector`) and owns the setter; TaxonomyTree
+  // reads the active source through the same typed hook so the
+  // source-AWARE fetch (`fetchChildren({ source: activeSource })`)
+  // + the source-binding effect on `activeSource + rawRoots` stay
+  // in lockstep with the AppShell-side click handler.
+  const [activeSource] = useTreeSource();
   const [rawRoots, setRawRoots] = useState<RawRoots | null>(null);
   const [state, setState] = useState<TreeState>(EMPTY_TREE_STATE);
   const [root, setRoot] = useState<RootState>({
@@ -1318,16 +1325,28 @@ export default function TaxonomyTree(
     }
   }, [selected, folderByTaxonId]);
 
-  const handleSourceChange = useCallback((next: TreeSource) => {
-    if (next === activeSource) return;
+  // ODD-HSS-001 — source-switch side effects. The pre-ODD-HSS-001
+  // mounted the source-selector inside TaxonomyTree.tsx, so the
+  // source switch used a `handleSourceChange` callback bound to
+  // the segmented control's `onClick`. After the hoist the
+  // source-selector lives in the AppShell header
+  // (`AppShellSourceSelector`) — the click handler writes through
+  // the typed `setActiveSource` from `useTreeSource()`. TaxonomyTree
+  // still owns the side-effect cleanup it always owned: clearing
+  // focused + selected + the per-taxon caches so a stale selection
+  // from the previous source cannot bleed into the next source's
+  // first render. The previous `handleSourceChange` callback is
+  // replaced by this effect that runs whenever `activeSource`
+  // changes (the typed hook returns the same value every render
+  // unless the user clicked a button — re-running the effect on
+  // a same-value render is a no-op because every setter is a
+  // shallow replace).
+  useEffect(() => {
     // ODD-NTP-005: a source switch clears focused + selected in
-    // addition to the source-bound React state (the legacy
-    // `web/nav.js::tree-source toggle` reset clears every
-    // navigation field). Without this clear the breadcrumb would
-    // briefly render the previous source's ancestor chain after
-    // the source switch, then re-derive against the new cache.
-    setState((prev) => resetSourceState(prev));
-    setRoot((prev) => ({ status: prev.status, message: null }));
+    // addition to the source-bound React state. Without this
+    // clear the breadcrumb would briefly render the previous
+    // source's ancestor chain after the source switch, then
+    // re-derive against the new cache.
     setKebabOpenId(null);
     setFocused(null);
     setSelected(null);
@@ -1358,7 +1377,6 @@ export default function TaxonomyTree(
     setFolderOpenByTaxonId(new Map());
     setFolderCopyByTaxonId(new Map());
     setFolderCreateArmedByTaxonId(new Map());
-    setActiveSource(next);
   }, [activeSource]);
 
   const handleLoadMore = useCallback(
@@ -1682,29 +1700,20 @@ export default function TaxonomyTree(
     void loadFolderPreview(selected);
   }, [selected, loadFolderPreview, activeSource]);
 
-  /** Source selector metadata. Recomputed only when the raw root
-   *  payload changes.
-   *
-   * ODD-MIGRATE-007-DOM-006 — marker #2 (`#tree-source-toggle`).
-   * The segmented-control ALWAYS renders the three source buttons
-   * (`col` / `worms` / `freshwater`) byte-for-byte so the legacy
-   * Playwright probe finds every `[data-tree-source="<key>"]`
-   * selector at every page state (loading / error / empty /
-   * loaded). The Freshwater button ships unconditionally — the
-   * legacy `web/index.html` mount exposed CoL + WoRMS only and
-   * re-mounted the Freshwater toggle in `web/app.js::boot` after
-   * the root payload confirmed a freshwater row. The React port
-   * keeps the legacy contract at the literal byte level: every
-   * `[data-tree-source="<key>"]` button renders unconditionally
-   * (no `availableSourcesFor` filter at the render site). The
-   * `availableSourcesFor` helper still owns the typed-source
-   * filter for the data-loading path so the Freshwater toggle
-   * flips OFF when no freshwater row exists in the payload —
-   * but the DOM contract stays byte-equal end-to-end. */
-  const availableSources = useMemo<readonly TreeSource[]>(() => {
-    if (!rawRoots) return ["col", "worms", "freshwater"];
-    return availableSourcesFor(rawRoots.taxa);
-  }, [rawRoots]);
+  // ODD-HSS-001 — the source-selector was hoisted to the AppShell
+  // header. The pre-hoist `availableSources` memo (which
+  // conditionally dropped the Freshwater button when no
+  // freshwater row existed in the `/api/domains` payload) is
+  // gone — the AppShell-scope selector (`AppShellSourceSelector`)
+  // always renders the three canonical sources, mirroring the
+  // legacy DOM contract (`#tree-source-toggle` ships all three
+  // buttons on every page state — loading / error / empty /
+  // loaded). The `availableSourcesFor` helper still owns the
+  // data-driven Freshwater filter at the data-loading path used
+  // by the source-AWARE `fetchChildren({ source: activeSource })`
+  // call site below; the helper + the import are preserved in
+  // `tree-state.ts` / `tree-source` consumers even though the
+  // TaxonomyTree module no longer calls it directly.
 
   /** Collapse-all affordance state. */
   const collapseAllEnabled = expandedTierCount(state) > 0;
@@ -1939,38 +1948,19 @@ export default function TaxonomyTree(
     );
   };
 
-  const renderSourceSelector = (): ReactNode => {
-    const selectorLabel = "Tree data source";
-    return (
-      <div
-        id="tree-source-toggle"
-        className="tree-source-toggle"
-        role="group"
-        aria-label={selectorLabel}
-        data-tree-source-toggle=""
-        data-active-source={activeSource}
-        style={{ gridColumn: "1 / -1" }}
-      >
-        {availableSources.map((src) => {
-          const active = src === activeSource;
-          const label =
-            src === "col" ? "CoL" : src === "worms" ? "WoRMS" : "Freshwater";
-          return (
-            <button
-              key={src}
-              type="button"
-              className={`tree-source-btn${active ? " active" : ""}`}
-              data-tree-source={src}
-              aria-pressed={active ? "true" : "false"}
-              onClick={() => handleSourceChange(src)}
-            >
-              {label}
-            </button>
-          );
-        })}
-      </div>
-    );
-  };
+  // ODD-HSS-002 — the source-selector (CoL / WoRMS / Freshwater)
+  // was hoisted to the AppShell header. The pre-hoist
+  // `renderSourceSelector()` helper lived here, gated on
+  // `availableSources` (which conditionally dropped the
+  // Freshwater button when the fetched root payload did not
+  // expose a freshwater row). After the hoist the selector is
+  // a first-class affordance visible from the first paint
+  // (`tests/test_app_shell_render.py::test_appshell_renders_source_selector`),
+  // so the helper is gone. TaxonomyTree still consumes
+  // `useTreeSource()` for the typed-source persistence — the
+  // active-source value reads through the same `useTreeSource()`
+  // hook that the AppShell-mounted source-selector writes
+  // through, so the two surfaces stay in lockstep.
 
   /** ODD-NTP-003 — native collapse-all control. */
   const renderCollapseAllInline = (): ReactNode => (
@@ -2205,22 +2195,19 @@ export default function TaxonomyTree(
        *  before the user clicks a row. The body fills in once a taxon
        *  is focused. */}
       {renderBreadcrumb()}
-      {/* ODD-MIGRATE-007-DOM-006 — marker #2 (`#tree-source-toggle`) is
-       *  ALWAYS rendered at the top of the taxonomy section so the
-       *  legacy Playwright probe finds the segmented-control host on
-       *  every page state (loading / error / empty / loaded). The
-       *  existing React-shaped `.tree-source-toggle` class stays so the
-       *  existing CSS cascade is unaffected. */}
-      {state.rootIds.length > 0 ? (
-        <div className="tree-source-toggle-wrapper">
-          {renderSourceSelector()}
-          {renderCollapseAllInline()}
-        </div>
-      ) : (
-        <div className="tree-source-toggle-wrapper" data-tree-source-toggle-hidden="true">
-          {renderSourceSelector()}
-        </div>
-      )}
+      {/* ODD-HSS-002 — the source-selector (CoL / WoRMS / Freshwater
+       *  segmented control) was hoisted to the AppShell header.
+       * The `.tree-source-toggle-wrapper` flex wrapper that
+       * ODD-NTP-003 introduced followed the source-selector through
+       * the hoist (the wrapper now lives in `AppShellHeader.tsx`
+       * around `<AppShellSourceSelector />`); the collapse-all row
+       * stays in TaxonomyTree alone. The DOM contract for the
+       * `#tree-source-toggle` host + the three
+       * `data-tree-source="<key>"` buttons is preserved by the
+       * AppShell mount (see
+       * `tests/test_app_shell_render.py::test_appshell_renders_source_selector`
+       * + the rendered `out/index.html` witness). */}
+      {state.rootIds.length > 0 ? renderCollapseAllInline() : null}
       {state.rootIds.length > 0 ? renderSearchBar() : null}
       {(root.status === "idle" || root.status === "loading") && (
         <p

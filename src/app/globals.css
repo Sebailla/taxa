@@ -2495,11 +2495,14 @@
     color: var(--on-primary);
   }
 
-  /* ODD-NTP-003: the segmented control is wrapped in
-     `.tree-source-toggle-wrapper` so the segmented control sits
-     flush with the collapse-all button row; both share the same 8px
-     vertical rhythm so the tree surface reads as one cohesive
-     toolbar. */
+  /* ODD-HSS-001 — the segmented control + the wrapper now
+     live in the AppShell header (see
+     `src/modules/app-shell/presentation/AppShellHeader.tsx`).
+     The wrapper hosts `<AppShellSourceSelector />` so the
+     8px vertical margin + flex layout stays applied to the
+     hoisted selector (the toggle sits flush in the header
+     row, with the same vertical rhythm the ODD-NTP-003
+     segment established). */
   .tree-source-toggle-wrapper {
     display: flex;
     align-items: center;
