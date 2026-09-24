@@ -141,6 +141,134 @@ def test_taxonomy_tree_file_exists() -> None:
     assert TAXONOMY_TREE_FILE.suffix == ".tsx", "TaxonomyTree must be `.tsx`."
 
 
+def test_taxonomy_tree_flatten_visible_rows_is_exported() -> None:
+    """ODD-JKNAV-001: the pure `flattenVisibleRows` helper must be
+    exported from `tree-state.ts` so the j/k keyboard handler in
+    `TaxonomyTree.tsx` can walk the visible row order without
+    duplicating the recursive shape. Collapsed subtrees must
+    contribute only their root row (the walker descends only
+    into ids that are in `expandedIds`).
+    """
+    text = _read_text(TAXONOMY_TREE_STATE_FILE)
+    assert "export function flattenVisibleRows" in text, (
+        "tree-state.ts must export a `flattenVisibleRows` pure "
+        "helper. The j/k row navigation handler depends on the "
+        "flattened render-order list to compute the next / "
+        "previous visible row."
+    )
+    # The walker MUST descend only into expanded ids so a
+    # collapsed subtree contributes only its root row (matching
+    # what the user sees on screen). Pin via the `expandedIds`
+    # reference inside the helper body.
+    function_match = re.search(
+        r"export function flattenVisibleRows[\s\S]+?\n\}",
+        text,
+    )
+    assert function_match, (
+        "tree-state.ts must export `flattenVisibleRows` with a "
+        "complete function body."
+    )
+    body = function_match.group(0)
+    assert "expandedIds" in body, (
+        "`flattenVisibleRows` must consult `expandedIds` so a "
+        "collapsed subtree contributes only its root row to "
+        "the flattened list. A walker that descends into every "
+        "child would make j / k navigation feel broken — the "
+        "user would jump past collapsed subtrees."
+    )
+
+
+def test_taxonomy_tree_jk_keyboard_navigation_handler() -> None:
+    """ODD-JKNAV-001: TaxonomyTree.tsx must attach a document-level
+    keydown listener for `j` (move selection one row down) and
+    `k` (move selection one row up) that:
+
+      - uses the pure `flattenVisibleRows` kernel helper so the
+        order matches what the user sees (collapsed subtrees are
+        skipped — their root row counts, their children do not),
+      - skips when the active element is editable (so typing
+        `j` / `k` inside another input / textarea /
+        contenteditable never has the keystroke stolen),
+      - skips when the kebab menu is open (the kebab owns
+        keyboard navigation while it is open),
+      - calls `handleSelect(rows[nextIdx])` so the existing
+        pulse animation + scrollIntoView effect wired for the
+        search-result-click path fire verbatim,
+      - `preventDefault`s so a future vim-mode browser
+        extension does not also fire on the key.
+    """
+    text = _read_text(TAXONOMY_TREE_FILE)
+    # The handler MUST attach a document-level keydown listener.
+    assert (
+        'document.addEventListener("keydown"' in text
+    ), (
+        "TaxonomyTree.tsx must add a document-level keydown "
+        "listener that handles the j / k row navigation "
+        "shortcut (mirrors the kebab Escape-close pattern)."
+    )
+    # The handler MUST inspect `ev.key` against BOTH the "j"
+    # and "k" literals. The implementation may use either
+    # `===` (positive dispatch) or `!==` (early-return guard)
+    # — both forms are equivalent. A regex tolerates both.
+    for key in ("j", "k"):
+        assert re.search(
+            rf"ev\.key\s*(?:===|!==)\s*[\"']{key}[\"']",
+            text,
+        ), (
+            f"TaxonomyTree.tsx j/k handler must inspect "
+            f"`ev.key` against the \"{key}\" literal "
+            f"(\"j\" moves down, \"k\" moves up) so the "
+            f"navigation fires on the right keystroke."
+        )
+    # The handler MUST consult the active element's editability
+    # so typing `j` / `k` inside another input never has the
+    # keystroke stolen.
+    assert "isContentEditable" in text, (
+        "TaxonomyTree.tsx j/k handler must check "
+        "`isContentEditable` so the shortcut never steals a "
+        "keystroke from an editable element (mirrors the "
+        "AppShellGlobalSearch Cmd+K editable-field guard)."
+    )
+    # The handler MUST skip when the kebab is open.
+    assert "kebabOpenId !== null" in text, (
+        "TaxonomyTree.tsx j/k handler must skip when the "
+        "kebab menu is open — the kebab owns keyboard "
+        "navigation while it is mounted."
+    )
+    # The handler MUST call `handleSelect` (the canonical
+    # selection primitive) so the pulse animation +
+    # scrollIntoView effect fire verbatim. The implementation
+    # may inline `rows[nextIdx]` in the call or split it into
+    # a `nextId` variable for the undefined-guard pattern;
+    # both forms are equivalent. A regex tolerates both.
+    assert re.search(
+        r"handleSelect\(\s*(?:rows\[nextIdx\]|nextId)\s*\)",
+        text,
+    ), (
+        "TaxonomyTree.tsx j/k handler must call `handleSelect` "
+        "with the next visible row id so the existing pulse "
+        "animation + scrollIntoView effect fire verbatim (no "
+        "duplicated selection plumbing)."
+    )
+    # The handler MUST use the kernel helper — no inline
+    # recursive walk in the component.
+    assert "flattenVisibleRows(state)" in text, (
+        "TaxonomyTree.tsx j/k handler must call "
+        "`flattenVisibleRows(state)` from the kernel helper. "
+        "An inline recursive walker would duplicate the "
+        "tree-shape traversal and drift from the source of "
+        "truth in `tree-state.ts`."
+    )
+    # preventDefault stops the browser's quick-find /
+    # find-as-you-type bar from intercepting.
+    assert "ev.preventDefault" in text, (
+        "TaxonomyTree.tsx j/k handler must call "
+        "`ev.preventDefault()` to stop the browser's "
+        "quick-find / find-as-you-type bar from "
+        "intercepting."
+    )
+
+
 def test_tree_row_file_exists() -> None:
     assert TAXONOMY_TREE_ROW_FILE.is_file(), (
         f"missing {TAXONOMY_TREE_ROW_FILE} — ODD-VTREE-002 ships this row component."

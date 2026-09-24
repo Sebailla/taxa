@@ -244,6 +244,7 @@ import {
   childIds,
   clearExpansion,
   expandedTierCount,
+  flattenVisibleRows,
   groupChildrenByRank,
   isExpanded,
   loadStatus,
@@ -1533,6 +1534,65 @@ export default function TaxonomyTree(
     // centring it across the viewport.
     el.scrollIntoView({ block: "nearest", behavior: "auto" });
   }, [selected, pulseNonce]);
+
+  // ODD-JKNAV-001 — vim-style j/k row navigation. Pressing
+  // `j` moves selection one row down in render order;
+  // pressing `k` moves one row up. The walker uses the pure
+  // `flattenVisibleRows` kernel helper so the order matches
+  // what the user sees on screen (collapsed subtrees are
+  // skipped — their root row counts, their children do not).
+  // The handler is intentionally narrow:
+  //   - skip when the active element is editable (so typing
+  //     `j` / `k` inside another input / textarea /
+  //     contenteditable never has the keystroke stolen),
+  //   - skip when the kebab menu is open (the kebab owns
+  //     keyboard navigation while it's open),
+  //   - skip when no row is selected yet — the first j / k
+  //     press lands on the first / last row of the visible
+  //     tree (matches the GitHub PR list / Linear issue
+  //     list pattern),
+  //   - preventDefault so a future vim-mode browser
+  //     extension does not also fire on the key.
+  // The selection itself goes through `handleSelect` so the
+  // pulse animation + scrollIntoView effect already wired for
+  // the search-result-click path fire verbatim — no duplicated
+  // selection plumbing.
+  useEffect(() => {
+    const onKeyDown = (ev: KeyboardEvent): void => {
+      if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+      if (ev.key !== "j" && ev.key !== "k") return;
+      const target = ev.target;
+      if (target instanceof HTMLElement) {
+        const tag = target.tagName;
+        const editable =
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          target.isContentEditable;
+        if (editable) return;
+      }
+      if (kebabOpenId !== null) return;
+      const rows = flattenVisibleRows(state);
+      if (rows.length === 0) return;
+      ev.preventDefault();
+      const currentIdx = selected === null ? -1 : rows.indexOf(selected);
+      const nextIdx =
+        ev.key === "j"
+          ? currentIdx < 0
+            ? 0
+            : Math.min(currentIdx + 1, rows.length - 1)
+          : currentIdx < 0
+            ? rows.length - 1
+            : Math.max(currentIdx - 1, 0);
+      const nextId = rows[nextIdx];
+      if (nextId === undefined) return;
+      handleSelect(nextId);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return (): void => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [state, selected, kebabOpenId, handleSelect]);
 
   // ODD-NTP-005 — expand the source-safe ancestor chain of `id`
   // so the breadcrumb activation reveals the row the user
