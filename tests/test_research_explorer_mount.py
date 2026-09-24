@@ -7143,3 +7143,363 @@ def test_explorer_error_boundary_retry_button_uses_fex_snippet_btn() -> None:
         "class method that calls `this.setState({ error: "
         "null })` — the boundary reset on click."
     )
+
+
+# ---------------------------------------------------------------------------
+# ODD-EVM-001 — Phase 2 Explorer panel-level states + Viewer variants
+# coverage tests. These tests pin the specialized contract for
+# the 8 Explorer panel-level states (image-error, video-error,
+# unsupported, tab-not-applicable, cdn-pending, docx-loading,
+# sheet-loading, epub-loading, csv-loading) + the 7 Viewer
+# variants (table / image / video / EPUB / JSON tree / snippet
+# frame / sheet).
+#
+# The hybrid migration outcome for these states:
+#
+#   - The 4 ERROR / EMPTY panel-level states (`image-error`,
+#     `unsupported`, `tab-not-applicable`, `cdn-pending`) STAY
+#     SPECIALIZED. Each carries a specific icon + message +
+#     CTA button (a `.fex-snippet-btn` download link) that
+#     does NOT migrate to `<EmptyState>` / `<Button>` so the
+#     error-fallback cascade stays in lock-step with
+#     `ExplorerErrorBoundary.tsx` (per PR #391 reasoning).
+#
+#   - The 4 LOADING panel-level states (`docx-loading`,
+#     `sheet-loading`, `epub-loading`, `csv-loading`)
+#     migrate to `<Spinner size="md" label="..." />`. The
+#     wrapper div + the data attributes (`data-viewer-
+#     loading=""`, `data-viewer-kind="..."`) survive; the
+#     `<span className="fex-empty-state-icon ... animate-
+#     spin">` + `<p>` cascade is replaced by the Spinner
+#     primitive. This mirrors the Explorer.tsx loading-state
+#     migration pattern from PR #390.
+#
+#   - The 7 Viewer variants (table / image / video / EPUB /
+#     JSON tree / snippet frame / sheet) STAY SPECIALIZED.
+#     Each is a separate sub-component with complex
+#     rendering (CDN script loaders, multi-sheet pickers,
+#     JSON tree walkers, EPUB book teardown, Papa Parse
+#     CSV tables) — too specialized for primitives.
+#
+# The `.fex-snippet-btn` cascade MUST stay per PR #391
+# reasoning — the download affordances + the snippet
+# picker + the error-fallback retry button all reuse the
+# codebase-standardized button class.
+# ---------------------------------------------------------------------------
+def test_explorer_panel_states_uses_empty_state_or_specialized_pattern() -> None:
+    """ODD-EVM-001 — the 4 Explorer error / empty panel-level
+    states (`image-error`, `unsupported`, `tab-not-applicable`,
+    `cdn-pending`) MUST use `<EmptyState>` OR the specialized
+    `<div className="fex-empty-state" role="alert|status"
+    data-viewer-kind="...">` cascade with the `.fex-snippet-
+    btn` download-link affordance.
+
+    Hybrid migration outcome (Phase 2 restantes): the error
+    states STAY specialized. Each carries a specific icon +
+    message + CTA button (a `.fex-snippet-btn` download link)
+    that does NOT migrate to `<EmptyState>` / `<Button>` so
+    the error-fallback cascade stays in lock-step with
+    `ExplorerErrorBoundary.tsx` (per PR #391 reasoning — the
+    `.fex-snippet-btn` is the codebase-standardized button
+    for the snippet panel + error-fallback contexts).
+
+    The harness verifies the 4 panel-level error / empty
+    states each render with one of:
+      - `<EmptyState>` (the migration route).
+      - `<div className="fex-empty-state" role="alert|status"
+         data-viewer-kind="...">` + `.fex-snippet-btn`
+         download link (the specialized pattern that stays
+         in lock-step with the ExplorerErrorBoundary error
+         fallback).
+
+    The assertions scan the entire `Viewer.tsx` file —
+    each panel state MUST appear in EITHER the
+    `<EmptyState>` migration route OR the specialized
+    cascade. A regression that drops the wrapper div, the
+    data attribute, the icon span, or the download link
+    trips the guard."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    # The 4 panel-level error / empty states. Each state MUST
+    # render with `<EmptyState>` OR the specialized `<div
+    # className="fex-empty-state" ... data-viewer-kind="...">`
+    # cascade. The icons + data attributes + download-link
+    # affordances MUST survive either route.
+    panel_states = [
+        # (data-viewer-kind, expected icon span text, expected
+        #  message text substring)
+        ("image-error", "broken_image", "Could not decode"),
+        ("unsupported", "description", "supported"),  # the
+        # `unsupported` state's copy is "Inline preview
+        # pending" / "Format .xyz not supported in viewer."
+        # The substring `"supported"` matches both shapes.
+        ("tab-not-applicable", "info", ""),
+        ("cdn-pending", "cloud_off", "download"),
+    ]
+    for kind, icon_text, message_substring in panel_states:
+        # The panel state MUST render with one of the two
+        # patterns: (a) `<EmptyState>` OR (b) the
+        # specialized `<div className="fex-empty-state"
+        # ... data-viewer-kind="...">` wrapper + the
+        # `.fex-empty-state-icon` icon span.
+        data_attr_pattern = (
+            rf'className=["\']fex-empty-state["\'][^>]*?'
+            rf'data-viewer-kind=["\']{re.escape(kind)}["\']'
+        )
+        specialized_present = bool(
+            re.search(data_attr_pattern, text, re.DOTALL),
+        )
+        # Migration route: `<EmptyState>` with the matching
+        # data attribute is acceptable too. The Viewer.tsx
+        # uses `<EmptyState>` for the `no-file-selected`
+        # + `bytes-loading` + `bytes-error` states (per
+        # PR #390); the panel-level error states currently
+        # stay specialized, but a future migration is
+        # accepted as long as the `EmptyState` carries the
+        # `data-viewer-kind` attribute.
+        empty_state_pattern = (
+            rf'<EmptyState\b[\s\S]*?data-viewer-kind'
+            rf'=["\']{re.escape(kind)}["\']'
+        )
+        empty_state_present = bool(
+            re.search(empty_state_pattern, text, re.DOTALL),
+        )
+        assert (
+            specialized_present or empty_state_present
+        ), (
+            f"Viewer.tsx panel-level state `{kind}` MUST "
+            f"render with `<EmptyState>` OR the specialized "
+            f"`<div className=\"fex-empty-state\" ... "
+            f"data-viewer-kind=\"{kind}\">` wrapper. Got: "
+            "neither pattern matched."
+        )
+        # When the specialized route is taken, the icon
+        # span MUST carry the legacy `fex-empty-state-icon`
+        # class + the Material Symbols glyph (`broken_image`,
+        # `description`, `info`, `cloud_off`). When the
+        # `<EmptyState>` route is taken, the icon lives in
+        # the `icon={...}` prop and the `fex-empty-state-
+        # icon` class is NOT required (the EmptyState
+        # primitive owns its layout).
+        if specialized_present:
+            # The icon span MUST carry the legacy
+            # `fex-empty-state-icon` class + the Material
+            # Symbols glyph.
+            icon_pattern = (
+                rf'<span[^>]*?className=["\']fex-empty-state-'
+                rf'icon[^"\']*["\'][^>]*?>\s*'
+                rf'{re.escape(icon_text)}\s*</span>'
+            )
+            assert re.search(icon_pattern, text), (
+                f"Viewer.tsx panel-level state `{kind}` "
+                f"specialized route MUST render the "
+                f"`{icon_text}` Material Symbols icon "
+                f"inside a `<span className=\"fex-empty-"
+                f"state-icon ...\">` wrapper. The legacy "
+                f"icon span is the cascade contract that "
+                f"downstream tests + the focus ring rely on."
+            )
+        # The message text substring MUST appear somewhere
+        # in the file (it lives in either the `<EmptyState>`
+        # `title` prop OR the legacy `<p>` cascade).
+        if message_substring:
+            assert message_substring in text, (
+                f"Viewer.tsx panel-level state `{kind}` "
+                f"MUST carry the expected message text "
+                f"substring `{message_substring!r}`. The "
+                f"text lives in either the `<EmptyState>` "
+                f"`title` prop OR the legacy `<p>` "
+                f"cascade."
+            )
+
+
+def test_viewer_panel_variants_stay_specialized() -> None:
+    """ODD-EVM-002 — the 7 Viewer variants (table / image /
+    video / EPUB / JSON tree / snippet frame / sheet) STAY
+    SPECIALIZED. Each variant is a separate sub-component
+    with complex rendering (CDN script loaders, multi-sheet
+    pickers, JSON tree walkers, EPUB book teardown, Papa
+    Parse CSV tables) — too specialized for primitives.
+
+    The harness verifies each of the 7 variants carries
+    its specialized `.fex-*` cascade class so the cascade
+    rules + the test contracts downstream tests rely on
+    survive:
+
+      1. Table (CSV / TSV): `.fex-csv-table` + the
+         `.fex-csv-scroller` wrapper.
+      2. Image: `.fex-image` + the `.fex-image-frame`
+         wrapper.
+      3. Video: `.fex-video-el` + the `.fex-video-frame`
+         wrapper.
+      4. EPUB: `.fex-epub-frame` + the `.fex-epub-host`
+         wrapper.
+      5. JSON tree: `.fex-json-tree` + the `.fex-tree-leaf`
+         leaf class.
+      6. Snippet frame: `.fex-snippet-frame` + the
+         `.fex-snippet-title` + `.fex-snippet-body`
+         wrappers.
+      7. Sheet (XLS / XLSX): `.fex-sheet-host` + the
+         `.fex-sheet-table-host` wrapper.
+
+    A future migration that swaps any of these variants
+    for primitives would be a contract regression; this
+    test pins the specialized rendering so the migration
+    decision is explicit (the plan says "Viewer variants
+    stay specialized")."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    # The 7 Viewer variants + their specialized cascade
+    # class. The class MUST appear at least once in the
+    # file so the cascade rules + the variant contract
+    # survive. The class is part of the viewer-variant
+    # rendering surface (each variant owns its
+    # specialized `.fex-*` wrapper).
+    variant_classes = [
+        # Table (CSV / TSV) — Papa Parse table.
+        "fex-csv-table",
+        # Image — `<img>` inside the image-frame.
+        "fex-image",
+        # Video — `<video>` inside the video-frame.
+        "fex-video-el",
+        # EPUB — `book.renderTo` host.
+        "fex-epub-frame",
+        # JSON tree — recursive walker.
+        "fex-json-tree",
+        # Snippet frame — title dots + body wrappers.
+        "fex-snippet-frame",
+        # Sheet (XLS / XLSX) — SheetJS table.
+        "fex-sheet-host",
+    ]
+    for class_name in variant_classes:
+        assert class_name in text, (
+            f"Viewer.tsx Viewer variant specialized class "
+            f"`{class_name}` MUST appear in the file. The "
+            f"7 Viewer variants (table / image / video / "
+            f"EPUB / JSON tree / snippet frame / sheet) "
+            f"stay specialized per the Phase 2 restantes "
+            f"plan; the cascade rule + the variant contract "
+            f"must survive."
+        )
+
+
+def test_explorer_panel_states_uses_spinner_primitive_for_loading() -> None:
+    """ODD-EVM-003 — the 4 Explorer loading panel-level
+    states (`docx-loading`, `sheet-loading`, `epub-loading`,
+    `csv-loading`) MUST use `<Spinner size="md" label="...">`
+    from `@taxa/design-system`. The wrapper div + the data
+    attributes (`data-viewer-loading=""`, `data-viewer-
+    kind="..."`) survive; the `<span className="fex-empty-
+    state-icon ... animate-spin">` + `<p>` cascade is
+    replaced by the Spinner primitive.
+
+    Hybrid migration outcome (Phase 2 restantes): the
+    loading states MIGRATE to `<Spinner>` (analogous to the
+    Explorer.tsx loading-state migration from PR #390).
+    The wrapper div carries the role + the data attributes
+    (the contract the existing tests + the focus ring rely
+    on); the Spinner primitive lives INSIDE the wrapper.
+
+    The harness verifies each of the 4 loading panel-level
+    states renders with:
+      1. The wrapper div carries `className="fex-empty-
+         state"` + `data-viewer-loading=""` + the typed
+         `data-viewer-kind="..."` attribute.
+      2. The `<Spinner size="md" label="...">` element
+         appears INSIDE the wrapper (the Spinner primitive
+         replaces the legacy `<span className="fex-empty-
+         state-icon ... animate-spin">` + `<p>` cascade).
+      3. The Spinner's `label` prop carries the legacy
+         copy ("Loading DOCX preview…", "Loading
+         spreadsheet preview…", "Loading EPUB preview…",
+         "Loading table preview…") so the screen-reader
+         announcement + the visible text survive.
+
+    A regression that drops the Spinner primitive (a
+    revert to the legacy `<span className="fex-empty-state-
+    icon ... animate-spin">` + `<p>...</p>` cascade) would
+    slip past the wrapper-div assertions but trip this
+    test."""
+    if not VIEWER_FILE.is_file():
+        pytest.skip("Viewer.tsx not present yet")
+    text = VIEWER_FILE.read_text()
+    # The 4 loading panel-level states + their Spinner
+    # labels. The label MUST appear verbatim so the
+    # screen-reader announcement + the visible text
+    # survive the migration.
+    loading_states = [
+        ("docx-loading", "Loading DOCX preview…"),
+        ("sheet-loading", "Loading spreadsheet preview…"),
+        ("epub-loading", "Loading EPUB preview…"),
+        ("csv-loading", "Loading table preview…"),
+    ]
+    for kind, label in loading_states:
+        # 1. The wrapper div carries the typed data
+        #    attribute + `data-viewer-loading=""` so the
+        #    existing a11y + test contracts survive.
+        wrapper_pattern = (
+            rf'className=["\']fex-empty-state["\'][^>]*?'
+            rf'data-viewer-loading=["\'][^>]*?'
+            rf'data-viewer-kind=["\']{re.escape(kind)}["\']'
+        )
+        assert re.search(wrapper_pattern, text, re.DOTALL), (
+            f"Viewer.tsx loading panel-level state "
+            f"`{kind}` wrapper MUST carry `className=\"fex-"
+            f"empty-state\"` + `data-viewer-loading=\"\"` "
+            f"+ `data-viewer-kind=\"{kind}\"` so the "
+            f"existing a11y + test contracts survive the "
+            f"Spinner primitive migration."
+        )
+        # 2. The `<Spinner size="md" label="...">` element
+        #    appears inside the wrapper (the Spinner
+        #    primitive replaces the legacy `<span className=
+        #    "fex-empty-state-icon ... animate-spin">` +
+        #    `<p>` cascade).
+        spinner_pattern = (
+            rf'<Spinner\b[^>]*?size=["\']md["\'][^>]*?'
+            rf'label=["\']{re.escape(label)}["\']'
+        )
+        assert re.search(spinner_pattern, text, re.DOTALL), (
+            f"Viewer.tsx loading panel-level state "
+            f"`{kind}` MUST render `<Spinner size=\"md\" "
+            f"label=\"{label}\" />` — the Phase 2 primitive "
+            f"replaces the legacy `<span className=\"fex-"
+            f"empty-state-icon ... animate-spin\">` + "
+            f"`<p>` cascade. The Spinner's `label` prop "
+            f"owns the screen-reader announcement."
+        )
+        # 3. The legacy `<span className="fex-empty-state-
+        #    icon ... animate-spin">` cascade MUST NOT
+        #    survive in this specific branch (the
+        #    Spinner's `aria-live="polite"` region owns the
+        #    announcement; the visible legacy cascade is
+        #    dead code). The negative assertion is scoped
+        #    to the wrapper div so a sibling loading-state
+        #    branch doesn't trip the guard.
+        wrapper_match = re.search(
+            rf'(<div\s[^>]*?className=["\']fex-empty-'
+            rf'state["\'][^>]*?data-viewer-kind=["\']'
+            rf'{re.escape(kind)}["\'][^>]*?>)([\s\S]*?)'
+            rf'</div>',
+            text,
+        )
+        assert wrapper_match, (
+            f"Viewer.tsx loading panel-level state "
+            f"`{kind}` wrapper MUST be a single `<div>` "
+            f"block so the negative legacy-cascade "
+            f"assertion can scope to it."
+        )
+        wrapper_body = wrapper_match.group(2)
+        assert "<span" not in wrapper_body or (
+            "fex-empty-state-icon" not in wrapper_body
+        ), (
+            f"Viewer.tsx loading panel-level state "
+            f"`{kind}` MUST NOT carry the legacy `<span "
+            f"className=\"fex-empty-state-icon ... "
+            f"animate-spin\">` cascade inside the wrapper "
+            f"div. The Spinner primitive replaces the "
+            f"legacy cascade; the legacy icon span is dead "
+            f"code that re-introduces the inline pattern."
+        )

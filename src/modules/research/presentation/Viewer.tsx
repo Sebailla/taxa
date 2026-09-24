@@ -906,6 +906,16 @@ function DocxRender(props: DocxRenderProps): ReactNode {
   // `<Script>` dedups by URL across mounts, so a second
   // DOCX open within the same page session does NOT
   // re-fetch the bundle.
+  //
+  // ODD-EVM-003 — Phase 2 restantes hybrid migration: the
+  // loading skeleton uses `<Spinner size="md" label="…" />`
+  // from `@taxa/design-system` instead of the legacy inline
+  // `<span className="fex-empty-state-icon ... animate-spin">`
+  // + `<p>` cascade. The wrapper div + the role + the data
+  // attributes (`data-viewer-loading=""`, `data-viewer-kind=
+  // "docx-loading"`) survive so the existing a11y + test
+  // contracts stay in lock-step with the Explorer.tsx
+  // loading-state migration pattern from PR #390.
   return (
     <>
       <div
@@ -914,10 +924,7 @@ function DocxRender(props: DocxRenderProps): ReactNode {
         data-viewer-loading=""
         data-viewer-kind="docx-loading"
       >
-        <span className="fex-empty-state-icon material-symbols-outlined animate-spin">
-          progress_activity
-        </span>
-        <p>Loading DOCX preview…</p>
+        <Spinner size="md" label="Loading DOCX preview…" />
       </div>
       <Script
         src={dispatch.scriptUrl}
@@ -1361,6 +1368,15 @@ function SheetRender(props: SheetRenderProps): ReactNode {
   // `<Script>` dedups by URL across mounts, so a second
   // XLS / XLSX open within the same page session does
   // NOT re-fetch the bundle.
+  //
+  // ODD-EVM-003 — Phase 2 restantes hybrid migration: the
+  // loading skeleton uses `<Spinner size="md" label="…" />`
+  // from `@taxa/design-system` instead of the legacy inline
+  // `<span className="fex-empty-state-icon ... animate-spin">`
+  // + `<p>` cascade. The wrapper div + the role + the data
+  // attributes survive so the existing a11y + test contracts
+  // stay in lock-step with the Explorer.tsx loading-state
+  // migration pattern from PR #390.
   return (
     <>
       <div
@@ -1369,10 +1385,7 @@ function SheetRender(props: SheetRenderProps): ReactNode {
         data-viewer-loading=""
         data-viewer-kind="sheet-loading"
       >
-        <span className="fex-empty-state-icon material-symbols-outlined animate-spin">
-          progress_activity
-        </span>
-        <p>Loading spreadsheet preview…</p>
+        <Spinner size="md" label="Loading spreadsheet preview…" />
       </div>
       <Script
         src={dispatch.scriptUrl}
@@ -1850,6 +1863,15 @@ function EpubRender(props: EpubRenderProps): ReactNode {
   // `<Script>` dedups by URL across mounts, so a second
   // EPUB open within the same page session does NOT
   // re-fetch the bundle.
+  //
+  // ODD-EVM-003 — Phase 2 restantes hybrid migration: the
+  // loading skeleton uses `<Spinner size="md" label="…" />`
+  // from `@taxa/design-system` instead of the legacy inline
+  // `<span className="fex-empty-state-icon ... animate-spin">`
+  // + `<p>` cascade. The wrapper div + the role + the data
+  // attributes survive so the existing a11y + test contracts
+  // stay in lock-step with the Explorer.tsx loading-state
+  // migration pattern from PR #390.
   return (
     <>
       <div
@@ -1858,10 +1880,7 @@ function EpubRender(props: EpubRenderProps): ReactNode {
         data-viewer-loading=""
         data-viewer-kind="epub-loading"
       >
-        <span className="fex-empty-state-icon material-symbols-outlined animate-spin">
-          progress_activity
-        </span>
-        <p>Loading EPUB preview…</p>
+        <Spinner size="md" label="Loading EPUB preview…" />
       </div>
       <Script
         src={dispatch.scriptUrl}
@@ -2303,6 +2322,15 @@ function TableRender(props: TableRenderProps): ReactNode {
   // `<Script>` dedups by URL across mounts, so a second
   // CSV / TSV open within the same page session does NOT
   // re-fetch the bundle.
+  //
+  // ODD-EVM-003 — Phase 2 restantes hybrid migration: the
+  // loading skeleton uses `<Spinner size="md" label="…" />`
+  // from `@taxa/design-system` instead of the legacy inline
+  // `<span className="fex-empty-state-icon ... animate-spin">`
+  // + `<p>` cascade. The wrapper div + the role + the data
+  // attributes survive so the existing a11y + test contracts
+  // stay in lock-step with the Explorer.tsx loading-state
+  // migration pattern from PR #390.
   return (
     <>
       <div
@@ -2311,10 +2339,7 @@ function TableRender(props: TableRenderProps): ReactNode {
         data-viewer-loading=""
         data-viewer-kind="csv-loading"
       >
-        <span className="fex-empty-state-icon material-symbols-outlined animate-spin">
-          progress_activity
-        </span>
-        <p>Loading table preview…</p>
+        <Spinner size="md" label="Loading table preview…" />
       </div>
       <Script
         src={dispatch.scriptUrl}
