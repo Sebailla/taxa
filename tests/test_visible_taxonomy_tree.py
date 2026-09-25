@@ -7544,6 +7544,76 @@ def test_layout_renders_version_banner_with_spans() -> None:
     )
 
 
+def test_tree_row_right_click_opens_taxon_in_new_tab() -> None:
+    r"""ODD-RCTX-001 — the disclosure button on every TreeRow must
+    carry an `onContextMenu` handler that opens the taxon's URL
+    in a new tab. The URL `?taxon=ID` query param (added by
+    ODD-URLSTATE-001) carries the row's selection so the new
+    tab opens to the exact same selection state. The handler:
+
+      - calls `ev.preventDefault()` so the browser's native
+        context menu is suppressed (the right-click feels like
+        a deliberate "open in new tab" affordance instead of a
+        menu the user did not ask for),
+      - validates the id via `Number.isFinite` (defensive — the
+        id is typed as `number` from the React state but a
+        malformed value must never produce an open redirect
+        through `window.open`),
+      - opens `window.open(?, '_blank', 'noopener,noreferrer')`
+        with a `?taxon=...` URL so the new tab inherits the
+        row's selection state. The `noopener,noreferrer`
+        features block the opener from accessing
+        `window.opener` (defence against tabnabbing).
+    """
+    text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    # The disclosure button must carry an `onContextMenu={...}` handler.
+    assert re.search(
+        r"onContextMenu\s*=\s*\{",
+        text,
+    ), (
+        "TreeRow.tsx disclosure button must carry an "
+        "`onContextMenu={...}` handler that opens the row's "
+        "URL in a new tab."
+    )
+    # The full handler body (between onContextMenu={ and its closing })
+    # is checked via substring assertions against the source
+    # text. A lazy regex capture would stop at the first nested
+    # `}` (the `if` block's closing brace), missing the
+    # `window.open` call — substring checks against the full
+    # text are simpler + correct.
+    assert "ev.preventDefault" in text, (
+        "TreeRow.tsx onContextMenu handler must call "
+        "`ev.preventDefault()` to suppress the browser's "
+        "native context menu."
+    )
+    assert "Number.isFinite" in text, (
+        "TreeRow.tsx onContextMenu handler must validate the "
+        "id via `Number.isFinite` so a malformed id never "
+        "produces an open redirect through `window.open`."
+    )
+    assert "window.open" in text, (
+        "TreeRow.tsx onContextMenu handler must call "
+        "`window.open(...)` to open the URL in a new tab."
+    )
+    assert '"_blank"' in text or "'_blank'" in text, (
+        "TreeRow.tsx onContextMenu handler must open in a new "
+        "tab via the `_blank` target."
+    )
+    assert (
+        "noopener,noreferrer" in text
+    ), (
+        "TreeRow.tsx onContextMenu handler must pass "
+        "`noopener,noreferrer` as the window-features so the "
+        "opener cannot access `window.opener` (tabnabbing "
+        "defence)."
+    )
+    assert "?taxon=" in text, (
+        "TreeRow.tsx onContextMenu handler must open a URL "
+        "with the `?taxon=` query param so the new tab "
+        "inherits the row's selection state."
+    )
+
+
 def test_taxonomy_tree_handle_select_writes_taxon_to_url() -> None:
     """ODD-URLSTATE-001 — the click-driven `handleSelect` must
     write the new selection to the URL via `router.replace` (NOT

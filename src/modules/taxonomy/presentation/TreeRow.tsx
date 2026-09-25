@@ -349,6 +349,24 @@ export default function TreeRow({
         aria-pressed={isSelected ? "true" : undefined}
         data-taxon-disclosure={knownLeaf ? "leaf" : "expandable"}
         onClick={knownLeaf ? () => onSelect(taxon.id) : () => onToggle(taxon.id)}
+        // ODD-RCTX-001 — right-click opens the taxon's URL in a
+        // new tab. The URL `?taxon=ID` query param (added by
+        // ODD-URLSTATE-001) carries the row's selection so the
+        // new tab opens to the exact same selection state. The
+        // handler suppresses the browser's context menu so the
+        // right-click feels like a deliberate "open in new tab"
+        // affordance instead of a native menu the user did not
+        // ask for. The id is defensively validated with
+        // `Number.isFinite` so a malformed row id never produces
+        // an open redirect through `window.open`.
+        onContextMenu={(ev) => {
+          ev.preventDefault();
+          if (!Number.isFinite(taxon.id) || !Number.isInteger(taxon.id) || taxon.id <= 0) {
+            return;
+          }
+          const url = `/?taxon=${taxon.id}`;
+          window.open(url, "_blank", "noopener,noreferrer");
+        }}
         disabled={knownLeaf}
       >
         {/* ODD-PHASE2 — rank badge via the design-system <Badge>
