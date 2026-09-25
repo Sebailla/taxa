@@ -1425,9 +1425,9 @@ def _read_source_selector_text() -> tuple[Path, str]:
         if candidate.is_file():
             return candidate, candidate.read_text(encoding="utf-8")
     pytest.fail(
-        f"AppShellSourceSelector.tsx / AppShellHeader.tsx missing — "
-        f"ODD-HSS-001 must ship the source-selector in one of the "
-        f"two files."
+        "AppShellSourceSelector.tsx / AppShellHeader.tsx missing — "
+        "ODD-HSS-001 must ship the source-selector in one of the "
+        "two files."
     )
 
 
@@ -1861,6 +1861,65 @@ def test_help_route_renders():
         f"least three of the five brief-mandated Help sections "
         f"(data-source legend / shortcut map / realm legend / "
         f"API docs / attribution). Found {found}/5 markers."
+    )
+
+
+def test_help_realm_legend_renders_mini_rows_with_realm_cascade():
+    """ODD-REALM-PREVIEW-001: the /help realm-color legend
+    teaches by *showing*, not by abstracting. Each legend
+    entry renders a compact mini-row that carries the SAME
+    `data-realm` attribute + `.scientific-name` span a real
+    tree row uses, so the existing realm-color cascade in
+    `globals.css` paints the actual tint. The old square
+    swatch pattern (`bg-[color:var(--realm-*)]`) must be
+    gone — a future CSS change to `--realm-animalia` /
+    `--realm-plantae` / `--realm-fungi` flips the tree row
+    tint AND the legend's mini-row tint in lock-step.
+    """
+    text = _read_text(HELP_PAGE_FILE)
+    # The compact mini-row class must exist in the source so
+    # the help page row matches the canonical tree-row shape.
+    assert "help-realm-preview-row" in text, (
+        f"{HELP_PAGE_FILE.relative_to(REPO_ROOT)} must render "
+        f"the compact `.help-realm-preview-row` mini-row that "
+        f"reuses the `.tree-row` + `data-realm` + "
+        f"`.scientific-name` cascade from the real tree."
+    )
+    # All three realms the help legend teaches must carry
+    # their `data-realm` attribute — these are the values that
+    # drive the realm-color cascade in globals.css.
+    for realm in ("animalia", "plantae", "fungi"):
+        assert f'data-realm="{realm}"' in text, (
+            f"{HELP_PAGE_FILE.relative_to(REPO_ROOT)} realm "
+            f"legend must render a mini-row with "
+            f"`data-realm=\"{realm}\"` so the realm-color "
+            f"cascade paints the actual tint."
+        )
+    # The legacy square-swatch pattern is GONE — the legend
+    # used to render `<span className=\"... bg-[color:var(--realm-*)]"
+    # />` blocks whose backgrounds could drift from the real
+    # cascade. The mini-row approach eliminates that drift.
+    assert "bg-[color:var(--realm-" not in text, (
+        f"{HELP_PAGE_FILE.relative_to(REPO_ROOT)} realm legend "
+        f"must NOT carry the legacy `bg-[color:var(--realm-*)]` "
+        f"square-swatch pattern. The mini-row approach uses the "
+        f"same `data-realm` cascade as real tree rows so a "
+        f"future CSS change to `--realm-*` flips both surfaces "
+        f"in lock-step."
+    )
+    # The mini-rows MUST carry a `.scientific-name` span so
+    # the existing realm-color cascade in
+    # `globals.css:2432-2453` (`[data-realm="X"] .scientific-name
+    # { color: var(--realm-X); }`) actually paints the tint.
+    # Without `.scientific-name` the cascade has nothing to
+    # target and the realm color goes nowhere.
+    assert text.count("scientific-name") >= 3, (
+        f"{HELP_PAGE_FILE.relative_to(REPO_ROOT)} realm legend "
+        f"must render a `.scientific-name` span inside each of "
+        f"its three mini-rows. The realm-color cascade in "
+        f"`globals.css` targets `.tree-row[data-realm=\"X\"] "
+        f".scientific-name` — without the span the cascade has "
+        f"nothing to paint."
     )
 
 
