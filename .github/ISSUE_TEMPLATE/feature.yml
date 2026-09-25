@@ -1,0 +1,51 @@
+name: Feature request
+description: Propose a focused new feature for the application.
+title: "feat: "
+labels:
+  - type:feature
+body:
+  - type: textarea
+    id: user-problem
+    attributes:
+      label: User problem
+      description: Describe the user-facing problem or need this feature solves.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-behavior
+    attributes:
+      label: Proposed behavior
+      description: Describe the behavior the feature should provide.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope / non-goals
+      description: Identify what is in scope and what is out of scope.
+      placeholder: |
+        - In scope:
+        - Out of scope:
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: List the observable outcomes that close the feature.
+      placeholder: |
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation-plan
+    attributes:
+      label: Validation plan
+      description: Name the commands or checks that will verify the feature.
+      placeholder: "pnpm lint && pnpm test && pnpm build"
+    validations:
+      required: true
