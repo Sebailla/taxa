@@ -56,6 +56,15 @@ const KEBAB_OPEN_ID_STORAGE_KEY = "taxa.tree.kebabOpenId";
 // `domain/keys.ts` stays in place for the `ALL_STORAGE_KEYS`
 // tuple contract + the public barrel re-export).
 const INTERNAL_FLAG_STORAGE_KEY = "taxa-internal-ok";
+// ODD-BSTATE-EXPLORER-PERSIST — explorer-state storage key.
+// Declared inline so the reset aggregate's sibling store
+// chains stay independent of `domain/keys.ts` at runtime (the
+// canonical declaration in `domain/keys.ts` stays in place for
+// the `ALL_STORAGE_KEYS` tuple contract + the public barrel
+// re-export). The inline declaration is kept in sync with the
+// canonical literal by the source-level guard
+// `test_explorer_state_store_declares_inline_storage_key`.
+const EXPLORER_STATE_STORAGE_KEY = "taxa.fex.explorerState";
 
 // ---------------------------------------------------------------------------
 // Per-key subscribers — captured at module-load time. Each per-key
@@ -99,6 +108,18 @@ import {
   subscribeInternalFlag as _subscribeInternalFlag,
   writeInternalFlag as _writeInternalFlag,
 } from "./storeInternalFlag";
+// ODD-BSTATE-EXPLORER-PERSIST — the explorer-state chain is
+// imported here so the aggregate reset can fan the cross-key
+// reset out across the new chain's cache + subscribers. The
+// import lives below the five sibling stores so the per-file
+// rationale (Turbopack retention per chain) stays in place.
+// The main route's bundle still carries only the typed-source
+// chain because the explorer-state hook is mounted on
+// `/explorer`, not on `/`.
+import {
+  subscribeExplorerState as _subscribeExplorerState,
+  clearExplorerState as _clearExplorerState,
+} from "./storeExplorerState";
 
 /** Reset every key to its typed default. Removes every matching
  *  `localStorage` entry (best-effort, swallowed on failure) and
@@ -108,8 +129,8 @@ import {
  *  state transition.
  *
  *  The aggregate fire-and-remove path uses each per-key store's
- *  own `write*` (updates the in-memory cache + fires its
- *  subscribers + persists the default) so the per-key store
+ *  own write/clear operation (updates the in-memory cache + fires
+ *  subscribers + persists or removes the default) so the store
  *  stays the single source of truth for every cache mutation.
  *  The explicit `localStorage.removeItem` sites below are the
  *  persistence-remove belt: every key is removed from
@@ -130,14 +151,23 @@ export function reset(): void {
   // store's write path removes the key when the value is
   // `false` — see `infrastructure/storeInternalFlag.ts`).
   _writeInternalFlag(false);
+  // ODD-BSTATE-EXPLORER-PERSIST — clear the explorer-state
+  // record so the Browser-tab Explorer mount starts from an
+  // empty working set on the next page load. The store updates
+  // its cache to `DEFAULT_EXPLORER_STATE`, notifies subscribers
+  // with that default, and removes the persisted localStorage
+  // entry. The explicit aggregate removal below is a best-effort
+  // second guard for the six-key reset contract.
+  _clearExplorerState();
 
-  // 2) Persistence remove — five explicit `localStorage.removeItem`
+  // 2) Persistence remove — six explicit `localStorage.removeItem`
   //    sites, one per typed key + one for the internal-flag
-  //    witness key. Inlined (instead of a `safeRemoveItem` loop)
-  //    so the storage-ownership grep test counts the explicit
+  //    witness key + one for the explorer-state record.
+  //    Inlined (instead of a `safeRemoveItem` loop) so the
+  //    storage-ownership grep test counts the explicit
   //    `localStorage.removeItem` occurrences (the per-key split
-  //    lifts the count to five: four typed keys + the internal
-  //    flag).
+  //    lifts the count to six: four typed keys + the internal
+  //    flag + the explorer-state record).
   try {
     if (typeof window !== "undefined" && window.localStorage) {
       window.localStorage.removeItem(THEME_STORAGE_KEY);
@@ -147,6 +177,14 @@ export function reset(): void {
       // ODD-ASN-001 — clear the internal-flag witness key on
       // reset so the gate's next read returns `false`.
       window.localStorage.removeItem(INTERNAL_FLAG_STORAGE_KEY);
+      // ODD-BSTATE-EXPLORER-PERSIST — clear the explorer-state
+      // record so the next page load starts from an empty
+      // working set. `clearExplorerState` already removes the
+      // key above; the explicit `removeItem` here is the
+      // aggregate belt so the storage-ownership grep test
+      // counts the explicit `localStorage.removeItem`
+      // occurrences.
+      window.localStorage.removeItem(EXPLORER_STATE_STORAGE_KEY);
     }
   } catch {
     // Quota exceeded / private mode — the in-memory cache still
@@ -167,4 +205,8 @@ export {
   // aggregate-only test symmetry; NOT re-exported through the
   // public barrel.
   _subscribeInternalFlag as subscribeInternalFlag,
+  // ODD-BSTATE-EXPLORER-PERSIST — explorer-state subscribe shim.
+  // Exposed for aggregate-only test symmetry; NOT re-exported
+  // through the public barrel.
+  _subscribeExplorerState as subscribeExplorerState,
 };
