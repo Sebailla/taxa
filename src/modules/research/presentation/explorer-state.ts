@@ -573,6 +573,149 @@ export function enumerateFiles(
   return out;
 }
 
+// ---- EXPLORER-ORIENT — orientation counts + folder collector ----
+
+/** Pure typed view-model for the EXPLORER-ORIENT entry
+ *  orientation. The React mount renders
+ *  `"<folders> folders, <files> files"` from the
+ *  `{ folders, files }` shape so the user sees the size
+ *  of the loaded tree before expanding anything. Both
+ *  fields are `number` (not `bigint`) because the wire
+ *  tree is bounded by FastAPI's `_walk_tree` depth cap
+ *  (the count stays well under 2^53 on any realistic
+ *  dataset).
+ *
+ *  `folders` counts every `ExplorerFolderNode` reached
+ *  by the walker (including a synthetic root that is
+ *  itself a folder). `files` counts every
+ *  `ExplorerFileNode`. A null root (the server returned
+ *  `{ exists: false, root: null }`) reports `{ folders:
+ *  0, files: 0 }` so the React mount never fabricates
+ *  counts for the empty-state branch.
+ *
+ *  Both fields are readonly so a consumer cannot mutate
+ *  the count after the fact — the React layer reads the
+ *  count from a `useMemo` so the shape stays stable
+ *  across renders when the tree identity doesn't change.
+ *  The factory returns a fresh object on every call
+ *  (no shared references) so a future presentation-
+ *  only consumer can mutate locally without bleeding
+ *  into a sibling. */
+export interface ExplorerTreeCounts {
+  readonly folders: number;
+  readonly files: number;
+}
+
+/** Pure factory: produce a fresh `{ folders: 0, files: 0 }`
+ *  count shape. Mirrors the `createEmptySearchAnnotation`
+ *  pattern (a stable typed handle for the trivial cases)
+ *  so the React layer can short-circuit with a fresh
+ *  object instead of an inline literal. The returned
+ *  object is a fresh per-call allocation (no shared
+ *  references). */
+export function createEmptyExplorerTreeCounts(): ExplorerTreeCounts {
+  return { folders: 0, files: 0 };
+}
+
+/** Pure recursive walker — count every folder + file
+ *  under the supplied root node. Returns a fresh
+ *  `{ folders, files }` object on every call so a
+ *  future presentation-only consumer can mutate locally
+ *  without bleeding into a sibling.
+ *
+ *  Walker uses an explicit stack (mirrors `annotateMatches`
+ *  pass 1 verbatim) so a deep tree (>1000 folders) never
+ *  blows the JS call stack. The walker counts the root
+ *  itself when it is a folder (so a tree with N
+ *  top-level folders reports `folders = N`, not
+ *  `folders = N - 1`).
+ *
+ *  Edge cases pinned by the focused runtime harness:
+ *   - `null` root → `{ folders: 0, files: 0 }`.
+ *   - empty folder (no children) → `{ folders: 1, files: 0 }`.
+ *   - file-only root → `{ folders: 0, files: 1 }`.
+ *
+ *  Pure function: same input always yields the same output. */
+export function countFoldersAndFiles(
+  rootNode: ExplorerTreeNode | null,
+): ExplorerTreeCounts {
+  if (rootNode === null) return createEmptyExplorerTreeCounts();
+  let folders = 0;
+  let files = 0;
+  const stack: ExplorerTreeNode[] = [rootNode];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node === undefined) continue;
+    if (node.type === "folder") {
+      folders += 1;
+      if (Array.isArray(node.children)) {
+        for (const c of node.children) stack.push(c);
+      }
+    } else {
+      files += 1;
+    }
+  }
+  return { folders, files };
+}
+
+/** Pure recursive walker — collect every folder path in
+ *  the supplied root node (depth-first pre-order). Returns
+ *  a fresh `string[]` on every call so a future
+ *  presentation-only consumer can mutate locally without
+ *  bleeding into a sibling.
+ *
+ *  The walker OMITS the synthetic root path when it is
+ *  empty (the wire tree root carries `path: ""` in the
+ *  React mount — the explorer-state kernel uses a
+ *  synthetic-root wrapper so the recursion stays
+ *  consistent). The empty-path guard prevents a phantom
+ *  `expanded.add("")` call from the bulk expand-all
+ *  control, which would silently match `expanded.has("")`
+ *  on every row check and never produce a visible
+ *  expansion.
+ *
+ *  Walker uses an explicit stack (mirrors
+ *  `countFoldersAndFiles` verbatim) so a deep tree
+ *  (>1000 folders) never blows the JS call stack.
+ *
+ *  Edge cases pinned by the focused runtime harness:
+ *   - `null` root → `[]`.
+ *   - empty folder (no children) → `[]` (synthetic
+ *     root path omitted).
+ *   - file-only root → `[]` (no folders exist).
+ *   - nested folder chain → every nested folder path
+ *     in depth-first pre-order (e.g. `["Animalia",
+ *     "Animalia/Mammalia", "Plantae"]`).
+ *
+ *  Pure function: same input always yields the same output. */
+export function collectFolderPaths(
+  rootNode: ExplorerTreeNode | null,
+): readonly string[] {
+  if (rootNode === null) return [];
+  const out: string[] = [];
+  const stack: ExplorerTreeNode[] = [rootNode];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node === undefined) continue;
+    if (node.type === "folder") {
+      const path = node.path || "";
+      // Skip the synthetic root (path === "") so the
+      // bulk expand-all never tries to expand a phantom
+      // ancestor. Non-empty folder paths are appended in
+      // depth-first pre-order (the stack pops in reverse
+      // so we push children in order).
+      if (path !== "") out.push(path);
+      if (Array.isArray(node.children)) {
+        for (let i = node.children.length - 1; i >= 0; i -= 1) {
+          const child = node.children[i];
+          if (child !== undefined) stack.push(child);
+        }
+      }
+    }
+  }
+  return out;
+}
+
 // ---- Public surface re-exported through the kernel ----
 
 /** Re-export the W1 domain types + factory so the React mount
