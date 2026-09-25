@@ -72,6 +72,17 @@ One additional draft archived after the wave-2 ship. The plan described a bounde
 |---|---|---|
 | `render-puro-file-tree-search.md` | PR #407 | `ebd4bfa` |
 
+### Wave 4 — final state (no new archives)
+
+No additional drafts to archive. `odd/tasks/` is at its minimum — only the two test-coupled files (`complete-frontend-migration.md` + `w6-3-record-and-w6-4-chain.md`) remain, both pinned by `tests/test_search_engine_consumer_manifest.py`'s W65-MANIFEST-008 audit (it reads both files by their `odd/tasks/` path; co-updating the test is out of scope for housekeeping passes).
+
+Wave 4 closed the ODD housekeeping cycle with a documentation pass instead of a file-move pass:
+- A top-level `odd/README.md` documents the directory structure + the
+  `tasks/` + `archive/<quarter>/` rule + the 2 test-coupled
+  exceptions + how to start a new plan / archive a finished one.
+
+The 2026-Q3 archive ends here at 39 files (16 wave-1 + 22 wave-2 + 1 wave-3 = 39 archived drafts + this README).
+
 ## What stays in `odd/tasks/`
 
 After wave 2, two drafts remain because they are **actively referenced by
