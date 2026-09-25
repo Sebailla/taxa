@@ -87,11 +87,19 @@ APP_HOOK_THEME_FILE = APP_DIR / "useTheme.ts"
 APP_HOOK_TREE_SOURCE_FILE = APP_DIR / "useTreeSource.ts"
 APP_HOOK_LAST_TAXON_ID_FILE = APP_DIR / "useLastTaxonId.ts"
 APP_HOOK_KEBAB_OPEN_ID_FILE = APP_DIR / "useKebabOpenId.ts"
+# ODD-BSTATE-EXPLORER-PERSIST — per-key React hook for the
+# explorer-state store. Mirrors the per-key hook pattern
+# (`useTheme` / `useTreeSource` / etc.). The hook imports ONLY
+# from the matching `infrastructure/storeExplorerState.ts` so
+# Turbopack retention isolates the chain from the four typed
+# chains + the internal-flag chain.
+APP_HOOK_EXPLORER_STATE_FILE = APP_DIR / "useExplorerState.ts"
 APP_HOOK_FILES: tuple[Path, ...] = (
     APP_HOOK_THEME_FILE,
     APP_HOOK_TREE_SOURCE_FILE,
     APP_HOOK_LAST_TAXON_ID_FILE,
     APP_HOOK_KEBAB_OPEN_ID_FILE,
+    APP_HOOK_EXPLORER_STATE_FILE,
 )
 # The legacy monolithic files — pinned here so a future regression
 # that re-introduces the all-keys-in-one-file layout trips the test.
@@ -264,6 +272,7 @@ def test_browser_state_barrel_exists() -> None:
         APP_HOOK_TREE_SOURCE_FILE,
         APP_HOOK_LAST_TAXON_ID_FILE,
         APP_HOOK_KEBAB_OPEN_ID_FILE,
+        APP_HOOK_EXPLORER_STATE_FILE,
     ),
 )
 def test_canonical_file_present(path: Path) -> None:
@@ -803,6 +812,7 @@ def test_barrel_exports_typed_surface() -> None:
         "DEFAULT_THEME", "DEFAULT_TREE_SOURCE",
         "DEFAULT_LAST_TAXON_ID", "DEFAULT_KEBAB_OPEN_ID",
         "DEFAULT_EXPLORER_STATE",
+        "useExplorerState",
         "readTheme", "writeTheme", "subscribeTheme",
         "readTreeSource", "writeTreeSource", "subscribeTreeSource",
         "readLastTaxonId", "writeLastTaxonId", "subscribeLastTaxonId",
@@ -838,11 +848,13 @@ def _tsc_inputs() -> list[Path]:
         INFRA_STORE_TREE_SOURCE_FILE,
         INFRA_STORE_LAST_TAXON_ID_FILE,
         INFRA_STORE_KEBAB_OPEN_ID_FILE,
+        INFRA_STORE_EXPLORER_STATE_FILE,
         INFRA_STORE_RESET_FILE,
         APP_HOOK_THEME_FILE,
         APP_HOOK_TREE_SOURCE_FILE,
         APP_HOOK_LAST_TAXON_ID_FILE,
         APP_HOOK_KEBAB_OPEN_ID_FILE,
+        APP_HOOK_EXPLORER_STATE_FILE,
     )
     return [p for p in candidates if p.is_file()]
 
@@ -931,15 +943,18 @@ const fail = (label) => {
 };
 
 // ODD-BSTATE-TAX-001-A: the harness now requires each per-key
-// store module separately and the `reset.js` aggregate. The
-// five argv slots are exactly: storeTheme, storeTreeSource,
-// storeLastTaxonId, storeKebabOpenId, reset. tsc preserves
+// store module separately and the `reset.js` aggregate.
+//
+// ODD-BSTATE-EXPLORER-PERSIST: the per-key family grows by
+// one entry (`storeExplorerState`). The six argv slots are
+// exactly: storeTheme, storeTreeSource, storeLastTaxonId,
+// storeKebabOpenId, storeExplorerState, reset. tsc preserves
 // the layer folder structure (--rootDir + per-source
 // relative paths), so the compiled files land under
-// `out_dir/infrastructure/{storeTheme,storeTreeSource,…}.js`
-// and `out_dir/infrastructure/reset.js`.
-const [themeMod, treeMod, lastMod, kebabMod, resetMod] =
-  [process.argv[2], process.argv[3], process.argv[4], process.argv[5], process.argv[6]].map(
+// `out_dir/infrastructure/{storeTheme,storeTreeSource,…,
+// storeExplorerState}.js` and `out_dir/infrastructure/reset.js`.
+const [themeMod, treeMod, lastMod, kebabMod, explorerMod, resetMod] =
+  [process.argv[2], process.argv[3], process.argv[4], process.argv[5], process.argv[6], process.argv[7]].map(
     (p) => require(path.resolve(p)),
   );
 
@@ -958,6 +973,10 @@ const {
   readKebabOpenId, writeKebabOpenId, subscribeKebabOpenId,
   __resetForTests: __resetKebab,
 } = kebabMod;
+const {
+  readExplorerState, writeExplorerState, subscribeExplorerState,
+  __resetForTests: __resetExplorer,
+} = explorerMod;
 const { reset } = resetMod;
 
 function __resetForTests() {
@@ -965,6 +984,7 @@ function __resetForTests() {
   __resetTree();
   __resetLast();
   __resetKebab();
+  __resetExplorer();
 }
 
 // ODD-BSTATE-TAX-001-A: the per-key store modules no longer
@@ -977,6 +997,7 @@ const defaults = require(path.resolve(storeDir, "../domain/defaults.js"));
 const {
   DEFAULT_THEME, DEFAULT_TREE_SOURCE,
   DEFAULT_LAST_TAXON_ID, DEFAULT_KEBAB_OPEN_ID,
+  DEFAULT_EXPLORER_STATE,
 } = defaults;
 
 // 1. Defaults before any storage / hydration.
@@ -998,6 +1019,12 @@ withWindow(
     "taxa.tree.source": "worms",
     "taxa.tree.lastTaxonId": "42",
     "taxa.tree.kebabOpenId": "7",
+    "taxa.fex.explorerState": JSON.stringify({
+      version: 1,
+      query: "mammalia",
+      selectedPath: null,
+      expandedPaths: ["Animalia"],
+    }),
   }),
   () => {
     __resetForTests();
@@ -1005,6 +1032,11 @@ withWindow(
     if (readTreeSource() !== "worms") fail("tree_source_hydrate_worms");
     if (readLastTaxonId() !== 42) fail("last_taxon_id_hydrate_42");
     if (readKebabOpenId() !== 7) fail("kebab_open_id_hydrate_7");
+    // ODD-BSTATE-EXPLORER-PERSIST — explorer-state hydration.
+    const explorerHydrated = readExplorerState();
+    if (!explorerHydrated) fail("explorer_state_hydrate_present");
+    if (explorerHydrated.query !== "mammalia") fail("explorer_state_hydrate_query");
+    if (explorerHydrated.expandedPaths.length !== 1) fail("explorer_state_hydrate_expanded");
   },
 );
 
@@ -1028,28 +1060,39 @@ withWindow(
     "taxa.tree.source": "freshwater",
     "taxa.tree.lastTaxonId": "100",
     "taxa.tree.kebabOpenId": "9",
+    "taxa.fex.explorerState": JSON.stringify({
+      version: 1,
+      query: "mammalia",
+      selectedPath: null,
+      expandedPaths: ["Animalia"],
+    }),
   }),
   () => {
     __resetForTests();
     // Hydrate the cache.
     readTheme(); readTreeSource(); readLastTaxonId(); readKebabOpenId();
+    readExplorerState();
     let themeFired = null;
     let treeFired = null;
     let lastFired = null;
     let kebabFired = null;
+    let explorerFired = null;
     subscribeTheme((v) => { themeFired = v; });
     subscribeTreeSource((v) => { treeFired = v; });
     subscribeLastTaxonId((v) => { lastFired = v; });
     subscribeKebabOpenId((v) => { kebabFired = v; });
+    subscribeExplorerState((v) => { explorerFired = v; });
     reset();
     if (readTheme() !== DEFAULT_THEME) fail("reset_theme_default");
     if (readTreeSource() !== DEFAULT_TREE_SOURCE) fail("reset_tree_source_default");
     if (readLastTaxonId() !== DEFAULT_LAST_TAXON_ID) fail("reset_last_taxon_id_default");
     if (readKebabOpenId() !== DEFAULT_KEBAB_OPEN_ID) fail("reset_kebab_open_id_default");
+    if (readExplorerState() !== DEFAULT_EXPLORER_STATE) fail("reset_explorer_state_default");
     if (themeFired !== DEFAULT_THEME) fail("reset_theme_listener");
     if (treeFired !== DEFAULT_TREE_SOURCE) fail("reset_tree_source_listener");
     if (lastFired !== DEFAULT_LAST_TAXON_ID) fail("reset_last_taxon_listener");
     if (kebabFired !== DEFAULT_KEBAB_OPEN_ID) fail("reset_kebab_listener");
+    if (explorerFired !== DEFAULT_EXPLORER_STATE) fail("reset_explorer_state_listener");
   },
 );
 
@@ -1131,6 +1174,7 @@ def test_compiled_browser_state_passes_runtime_contract(
         ("storeTreeSource", out_dir / "infrastructure" / "storeTreeSource.js"),
         ("storeLastTaxonId", out_dir / "infrastructure" / "storeLastTaxonId.js"),
         ("storeKebabOpenId", out_dir / "infrastructure" / "storeKebabOpenId.js"),
+        ("storeExplorerState", out_dir / "infrastructure" / "storeExplorerState.js"),
         ("reset", out_dir / "infrastructure" / "reset.js"),
     )
     # Compile every per-key file. The previous monolithic compile

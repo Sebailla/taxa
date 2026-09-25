@@ -87,6 +87,9 @@
  *                                          for the last-taxon-id key.
  *   - `application/useKebabOpenId.ts`   → hydration-safe React hook
  *                                          for the kebab-open-id key.
+ *   - `application/useExplorerState.ts` → hydration-safe React hook
+ *                                          for the explorer-state key
+ *                                          (ODD-BSTATE-EXPLORER-PERSIST).
  *
  * Each hook imports from its matching store only. Turbopack
  * retention relies on the per-key separation: the main route
@@ -207,6 +210,14 @@ export { useTheme } from "./application/useTheme";
 export { useTreeSource } from "./application/useTreeSource";
 export { useLastTaxonId } from "./application/useLastTaxonId";
 export { useKebabOpenId } from "./application/useKebabOpenId";
+
+// ODD-BSTATE-EXPLORER-PERSIST — explorer-state hook re-export.
+// Mirrors the per-file rationale of the four sibling hook
+// re-exports above. The Browser-tab Explorer mount wires the
+// hook through the public barrel so the React adapter stays
+// free of `localStorage.*` references and the typed chain
+// stays hydration-safe.
+export { useExplorerState } from "./application/useExplorerState";
 
 // ODD-BSTATE-PW-001 — one-line wiring edit (collateral to the new
 // `presentation/HydrationProbe` component). Exposes the isolated

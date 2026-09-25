@@ -22,9 +22,9 @@ References:
 from __future__ import annotations
 
 import re
-from pathlib import Path
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -48,11 +48,13 @@ APP_HOOK_THEME_FILE = APP_DIR / "useTheme.ts"
 APP_HOOK_TREE_SOURCE_FILE = APP_DIR / "useTreeSource.ts"
 APP_HOOK_LAST_TAXON_ID_FILE = APP_DIR / "useLastTaxonId.ts"
 APP_HOOK_KEBAB_OPEN_ID_FILE = APP_DIR / "useKebabOpenId.ts"
+APP_HOOK_EXPLORER_STATE_FILE = APP_DIR / "useExplorerState.ts"
 APP_HOOK_FILES: tuple[Path, ...] = (
     APP_HOOK_THEME_FILE,
     APP_HOOK_TREE_SOURCE_FILE,
     APP_HOOK_LAST_TAXON_ID_FILE,
     APP_HOOK_KEBAB_OPEN_ID_FILE,
+    APP_HOOK_EXPLORER_STATE_FILE,
 )
 INFRA_STORE_THEME_FILE = INFRA_DIR / "storeTheme.ts"
 INFRA_STORE_TREE_SOURCE_FILE = INFRA_DIR / "storeTreeSource.ts"
@@ -230,6 +232,7 @@ EXPECTED_PER_KEY_HOOKS: tuple[tuple[Path, str], ...] = (
     (APP_HOOK_TREE_SOURCE_FILE, "useTreeSource"),
     (APP_HOOK_LAST_TAXON_ID_FILE, "useLastTaxonId"),
     (APP_HOOK_KEBAB_OPEN_ID_FILE, "useKebabOpenId"),
+    (APP_HOOK_EXPLORER_STATE_FILE, "useExplorerState"),
 )
 
 
@@ -241,6 +244,7 @@ EXPECTED_PER_KEY_HOOKS: tuple[tuple[Path, str], ...] = (
         "tree_source",
         "last_taxon_id",
         "kebab_open_id",
+        "explorer_state",
     ],
 )
 def test_per_key_hook_signature_returns_typed_value(
