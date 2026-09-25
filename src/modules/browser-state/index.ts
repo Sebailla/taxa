@@ -8,13 +8,22 @@
  *
  * ODD-BSTATE-TAX-001-A — per-key module split:
  *   - `domain/keys.ts`                  → typed `StorageKey` union +
- *                                          the four `localStorage`
+ *                                          the canonical localStorage
  *                                          literals + the `Listener` /
  *                                          `Unsubscribe` types.
  *   - `domain/defaults.ts`              → typed defaults per key
  *                                          (theme: `"light"`,
  *                                          tree-source: `"col"`,
- *                                          last-taxon-id / kebab-open-id: `null`).
+ *                                          last-taxon-id / kebab-open-id: `null`,
+ *                                          explorer-state: empty record).
+ *   - `domain/explorer-state.ts`        → typed `PersistedExplorerState`
+ *                                          shape + the version literal +
+ *                                          the `createEmptyPersistedExplorerState`
+ *                                          factory (ODD-BSTATE-EXPLORER-PERSIST
+ *                                          — the EXPLORER-PERSIST
+ *                                          architecture correction
+ *                                          extends the per-key family
+ *                                          by one entry).
  *   - `infrastructure/storeTheme.ts`     → typed `readTheme` /
  *                                          `writeTheme` /
  *                                          `subscribeTheme` for the
@@ -82,6 +91,7 @@ export {
   LAST_TAXON_ID_STORAGE_KEY,
   KEBAB_OPEN_ID_STORAGE_KEY,
   INTERNAL_FLAG_STORAGE_KEY,
+  EXPLORER_STATE_STORAGE_KEY,
   ALL_STORAGE_KEYS,
 } from "./domain/keys";
 export type {
@@ -97,7 +107,21 @@ export {
   DEFAULT_TREE_SOURCE,
   DEFAULT_LAST_TAXON_ID,
   DEFAULT_KEBAB_OPEN_ID,
+  DEFAULT_EXPLORER_STATE,
 } from "./domain/defaults";
+
+// ODD-BSTATE-EXPLORER-PERSIST — re-export the typed
+// `PersistedExplorerState` shape + the canonical empty-record
+// factory so cross-module consumers reach the typed
+// explorer-state surface through the public barrel. The
+// shape lives in `domain/explorer-state.ts`; the version
+// literal + the factory stay reachable through the public
+// typed hand-off.
+export {
+  EXPLORER_STATE_STORAGE_VERSION,
+  createEmptyPersistedExplorerState,
+} from "./domain/explorer-state";
+export type { PersistedExplorerState } from "./domain/explorer-state";
 
 // ODD-BSTATE-TAX-001-A — per-key store re-exports. Each per-key
 // store is re-exported from its own line so Turbopack can link

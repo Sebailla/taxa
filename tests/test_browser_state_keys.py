@@ -86,19 +86,18 @@ APP_HOOK_FILES: tuple[Path, ...] = (
 APP_HOOK_FILE = APP_DIR / "useBrowserStateKey.ts"
 INFRA_STORE_FILE = INFRA_DIR / "store.ts"
 
-# The four canonical storage keys (per the
-# browser-state-hydration spec table). Pin the localStorage literal
-# names verbatim so a future refactor cannot silently rename them
-# (the legacy `web/state.js` consumers would break without a
-# coordinated migration).
+# The four canonical storage keys (per the browser-state-hydration
+# spec table) plus the Explorer working-state key. Pin every
+# localStorage literal so a future refactor cannot silently rename it.
 EXPECTED_STORAGE_KEYS: tuple[str, ...] = (
     "taxa.settings.theme",
     "taxa.tree.source",
     "taxa.tree.lastTaxonId",
     "taxa.tree.kebabOpenId",
+    "taxa.fex.explorerState",
 )
 
-# Four canonical logical names exposed through the public barrel.
+# Five canonical logical names exposed through the public barrel.
 # The hook + read/write signatures use the LOGICAL name; the
 # infrastructure layer resolves the logical name → localStorage key
 # through the constant declared in `domain/keys.ts`.
@@ -107,6 +106,7 @@ EXPECTED_LOGICAL_NAMES: tuple[str, ...] = (
     "tree-source",
     "last-taxon-id",
     "kebab-open-id",
+    "explorer-state",
 )
 
 # Capabilities other than browser-state. Storage ownership MUST
@@ -709,7 +709,15 @@ def test_other_module_does_not_touch_localstorage(other_module: str) -> None:
 # ---------------------------------------------------------------------------
 def test_keys_file_declares_four_storage_key_literals() -> None:
     """`domain/keys.ts` declares the four localStorage key literals
-    exactly once each (so a typo would surface here)."""
+    exactly once each (so a typo would surface here).
+
+    ODD-BSTATE-EXPLORER-PERSIST — the canonical key set now
+    includes the explorer-state key (`taxa.fex.explorerState`)
+    after the EXPLORER-PERSIST architecture correction. The
+    test iterates over `EXPECTED_STORAGE_KEYS` so adding a
+    fifth literal here immediately verifies the new key
+    declaration lands in `domain/keys.ts`.
+    """
     if not DOMAIN_KEYS_FILE.exists():
         pytest.skip("keys.ts not present yet")
     text = DOMAIN_KEYS_FILE.read_text(encoding="utf-8")
@@ -747,6 +755,7 @@ def test_defaults_file_exposes_four_typed_defaults() -> None:
         f"{null_count}. The two keys (last-taxon-id + kebab-open-id) "
         f"both have null as their spec-table default."
     )
+    assert "DEFAULT_EXPLORER_STATE" in text
 
 
 def test_barrel_exports_typed_surface() -> None:
