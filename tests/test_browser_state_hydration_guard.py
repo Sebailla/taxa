@@ -22,9 +22,9 @@ References:
 from __future__ import annotations
 
 import re
-from pathlib import Path
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -48,11 +48,13 @@ APP_HOOK_THEME_FILE = APP_DIR / "useTheme.ts"
 APP_HOOK_TREE_SOURCE_FILE = APP_DIR / "useTreeSource.ts"
 APP_HOOK_LAST_TAXON_ID_FILE = APP_DIR / "useLastTaxonId.ts"
 APP_HOOK_KEBAB_OPEN_ID_FILE = APP_DIR / "useKebabOpenId.ts"
+APP_HOOK_EXPLORER_STATE_FILE = APP_DIR / "useExplorerState.ts"
 APP_HOOK_FILES: tuple[Path, ...] = (
     APP_HOOK_THEME_FILE,
     APP_HOOK_TREE_SOURCE_FILE,
     APP_HOOK_LAST_TAXON_ID_FILE,
     APP_HOOK_KEBAB_OPEN_ID_FILE,
+    APP_HOOK_EXPLORER_STATE_FILE,
 )
 INFRA_STORE_THEME_FILE = INFRA_DIR / "storeTheme.ts"
 INFRA_STORE_TREE_SOURCE_FILE = INFRA_DIR / "storeTreeSource.ts"
@@ -230,6 +232,7 @@ EXPECTED_PER_KEY_HOOKS: tuple[tuple[Path, str], ...] = (
     (APP_HOOK_TREE_SOURCE_FILE, "useTreeSource"),
     (APP_HOOK_LAST_TAXON_ID_FILE, "useLastTaxonId"),
     (APP_HOOK_KEBAB_OPEN_ID_FILE, "useKebabOpenId"),
+    (APP_HOOK_EXPLORER_STATE_FILE, "useExplorerState"),
 )
 
 
@@ -241,6 +244,7 @@ EXPECTED_PER_KEY_HOOKS: tuple[tuple[Path, str], ...] = (
         "tree_source",
         "last_taxon_id",
         "kebab_open_id",
+        "explorer_state",
     ],
 )
 def test_per_key_hook_signature_returns_typed_value(
@@ -302,12 +306,32 @@ def test_per_key_hook_signature_returns_typed_value(
 # ---------------------------------------------------------------------------
 def test_barrel_re_exports_per_key_hooks() -> None:
     """The public barrel re-exports every per-key hook so cross-
-    module consumers can import through the public surface only."""
+    module consumers can import through the public surface only.
+
+    ODD-BSTATE-EXPLORER-PERSIST (slice 10) extends the per-key
+    family by one entry (`useExplorerState`). The hook is the
+    React adapter for the typed explorer-state store
+    (`taxa.fex.explorerState`); the Browser-tab Explorer mount
+    wires it through the public barrel so the React layer stays
+    free of `localStorage.*` references and the typed chain
+    stays hydration-safe. The barrel extension landed in PR
+    #428 / commit `f4a5c0a`; the slice 10 source change
+    consumes it via `import { useExplorerState } from
+    "@taxa/browser-state"`.
+
+    The assertion list mirrors the per-file rationale of the
+    four sibling hooks — each per-key hook lives in its own
+    file so Turbopack can drop the unrelated hooks from any
+    consumer's chunk. The strict chunk-boundary contract
+    (`tests/test_app_shell_render.py::
+    test_out_index_html_chunks_permit_only_tree_source_key`)
+    pins the contract end-to-end."""
     if not BARREL.exists():
         pytest.skip("barrel not present yet")
     text = BARREL.read_text(encoding="utf-8")
     for name in (
         "useTheme", "useTreeSource", "useLastTaxonId", "useKebabOpenId",
+        "useExplorerState",
     ):
         assert name in text, (
             f"barrel must re-export `{name}` (the typed hook)."

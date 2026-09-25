@@ -227,6 +227,9 @@ export {
   withExpanded,
   annotateMatches,
   createEmptySearchAnnotation,
+  countFoldersAndFiles,
+  collectFolderPaths,
+  createEmptyExplorerTreeCounts,
 } from "./presentation/explorer-state";
 export type {
   ExplorerLoadStatus,
@@ -272,3 +275,50 @@ export {
   writeSavedTreeWidth,
   clearSavedTreeWidth,
 } from "./presentation/Splitter";
+
+// EXPLORER-PERSIST — re-export the Browser-tab Explorer
+// working-set persistence PURE surface (the storage key
+// constant + the bound caps + the version literal + the
+// typed `PersistedExplorerState` shape + the pure
+// `serializeExplorerState` / `parseExplorerState` /
+// `validateAgainstTree` / `collectAllTreePaths` /
+// `createEmptyPersistedExplorerState` helpers) so
+// cross-module consumers (integration tests, future
+// consumers) reach the EXPLORER-PERSIST typed hand-off
+// through `@taxa/research`. The user explicitly chose
+// browser-local persistence despite the existing
+// sensitivity caveat (taxon names + paths may be
+// sensitive) — the data stays on this browser and no
+// server transmission is added.
+//
+// Slice 8 (pure-helper slice) keeps the Research module
+// free of `localStorage.*` references — every storage
+// primitive (`readPersistedExplorerState` /
+// `writePersistedExplorerState` /
+// `clearPersistedExplorerState`) lives behind the
+// canonical per-key `@taxa/browser-state` store
+// (`infrastructure/storeExplorerState.ts`). The slice 9
+// contract widens this barrel to re-export those helpers
+// under the legacy `Persisted` names; for now the slice 8
+// surface stays framework-free + I/O-free + browser-free
+// at the research-side seam.
+//
+// spec.md rule 5 keeps cross-module imports anchored at
+// the public barrel. The pure helpers + constants + the
+// typed `PersistedExplorerState` shape reach the
+// `@taxa/research` surface through one re-export from
+// `./presentation/explorer-storage`.
+export {
+  EXPLORER_STATE_STORAGE_KEY,
+  EXPLORER_STATE_STORAGE_VERSION,
+  MAX_EXPLORER_STATE_BYTES,
+  MAX_EXPANDED_PATHS,
+  MAX_QUERY_LENGTH,
+  MAX_SELECTED_PATH_LENGTH,
+  serializeExplorerState,
+  parseExplorerState,
+  validateAgainstTree,
+  collectAllTreePaths,
+  createEmptyPersistedExplorerState,
+} from "./presentation/explorer-storage";
+export type { PersistedExplorerState } from "./presentation/explorer-storage";

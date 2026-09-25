@@ -44,6 +44,8 @@ BARREL = BS_ROOT / "index.ts"
 
 DOMAIN_KEYS_FILE = DOMAIN_DIR / "keys.ts"
 DOMAIN_DEFAULTS_FILE = DOMAIN_DIR / "defaults.ts"
+# Canonical Explorer-state cap definitions for boundary pins.
+DOMAIN_EXPLORER_STATE_FILE = DOMAIN_DIR / "explorer-state.ts"
 # ODD-BSTATE-TAX-001-A — split per storage key. The monolithic
 # `useBrowserStateKey.ts` + `store.ts` are retired; each storage key
 # owns its own hook + store file. The tests follow the split: every
@@ -62,6 +64,18 @@ INFRA_STORE_KEBAB_OPEN_ID_FILE = INFRA_DIR / "storeKebabOpenId.ts"
 # `test_browser_state_infrastructure_owns_local_storage_calls`
 # includes this file alongside the four sibling stores.
 INFRA_STORE_INTERNAL_FLAG_FILE = INFRA_DIR / "storeInternalFlag.ts"
+# ODD-BSTATE-EXPLORER-PERSIST — explorer-state store. The Browser-
+# tab Explorer working-set persistence (EXPLORER-PERSIST of
+# `odd/tasks/explorer-orientation-state.md`) now lives behind the
+# canonical per-key browser-state chain (`taxa.fex.explorerState`).
+# The previous design owned the raw localStorage key inside
+# `src/modules/research/presentation/explorer-storage.ts`; the
+# architecture correction moves the I/O behind a typed per-key
+# store (`infrastructure/storeExplorerState.ts`) so the Research
+# module never touches `localStorage.*` directly. Research-side
+# pure helpers (parse / serialize / validate / collect) stay
+# local because the typed shape is part of the Explorer domain.
+INFRA_STORE_EXPLORER_STATE_FILE = INFRA_DIR / "storeExplorerState.ts"
 INFRA_STORE_RESET_FILE = INFRA_DIR / "reset.ts"
 INFRA_STORE_FILES: tuple[Path, ...] = (
     INFRA_STORE_THEME_FILE,
@@ -69,16 +83,25 @@ INFRA_STORE_FILES: tuple[Path, ...] = (
     INFRA_STORE_LAST_TAXON_ID_FILE,
     INFRA_STORE_KEBAB_OPEN_ID_FILE,
     INFRA_STORE_INTERNAL_FLAG_FILE,
+    INFRA_STORE_EXPLORER_STATE_FILE,
 )
 APP_HOOK_THEME_FILE = APP_DIR / "useTheme.ts"
 APP_HOOK_TREE_SOURCE_FILE = APP_DIR / "useTreeSource.ts"
 APP_HOOK_LAST_TAXON_ID_FILE = APP_DIR / "useLastTaxonId.ts"
 APP_HOOK_KEBAB_OPEN_ID_FILE = APP_DIR / "useKebabOpenId.ts"
+# ODD-BSTATE-EXPLORER-PERSIST — per-key React hook for the
+# explorer-state store. Mirrors the per-key hook pattern
+# (`useTheme` / `useTreeSource` / etc.). The hook imports ONLY
+# from the matching `infrastructure/storeExplorerState.ts` so
+# Turbopack retention isolates the chain from the four typed
+# chains + the internal-flag chain.
+APP_HOOK_EXPLORER_STATE_FILE = APP_DIR / "useExplorerState.ts"
 APP_HOOK_FILES: tuple[Path, ...] = (
     APP_HOOK_THEME_FILE,
     APP_HOOK_TREE_SOURCE_FILE,
     APP_HOOK_LAST_TAXON_ID_FILE,
     APP_HOOK_KEBAB_OPEN_ID_FILE,
+    APP_HOOK_EXPLORER_STATE_FILE,
 )
 # The legacy monolithic files — pinned here so a future regression
 # that re-introduces the all-keys-in-one-file layout trips the test.
@@ -86,19 +109,18 @@ APP_HOOK_FILES: tuple[Path, ...] = (
 APP_HOOK_FILE = APP_DIR / "useBrowserStateKey.ts"
 INFRA_STORE_FILE = INFRA_DIR / "store.ts"
 
-# The four canonical storage keys (per the
-# browser-state-hydration spec table). Pin the localStorage literal
-# names verbatim so a future refactor cannot silently rename them
-# (the legacy `web/state.js` consumers would break without a
-# coordinated migration).
+# The four canonical storage keys (per the browser-state-hydration
+# spec table) plus the Explorer working-state key. Pin every
+# localStorage literal so a future refactor cannot silently rename it.
 EXPECTED_STORAGE_KEYS: tuple[str, ...] = (
     "taxa.settings.theme",
     "taxa.tree.source",
     "taxa.tree.lastTaxonId",
     "taxa.tree.kebabOpenId",
+    "taxa.fex.explorerState",
 )
 
-# Four canonical logical names exposed through the public barrel.
+# Five canonical logical names exposed through the public barrel.
 # The hook + read/write signatures use the LOGICAL name; the
 # infrastructure layer resolves the logical name → localStorage key
 # through the constant declared in `domain/keys.ts`.
@@ -107,6 +129,7 @@ EXPECTED_LOGICAL_NAMES: tuple[str, ...] = (
     "tree-source",
     "last-taxon-id",
     "kebab-open-id",
+    "explorer-state",
 )
 
 # Capabilities other than browser-state. Storage ownership MUST
@@ -187,13 +210,16 @@ def _strip_ts_comments(text: str) -> str:
 # exports + 4 removeItem calls inside `reset()`.
 EXPECTED_READ_FUNCTIONS: tuple[str, ...] = (
     "readTheme", "readTreeSource", "readLastTaxonId", "readKebabOpenId",
+    "readExplorerState",
 )
 EXPECTED_WRITE_FUNCTIONS: tuple[str, ...] = (
     "writeTheme", "writeTreeSource", "writeLastTaxonId", "writeKebabOpenId",
+    "writeExplorerState",
 )
 EXPECTED_SUBSCRIBE_FUNCTIONS: tuple[str, ...] = (
     "subscribeTheme", "subscribeTreeSource",
     "subscribeLastTaxonId", "subscribeKebabOpenId",
+    "subscribeExplorerState",
 )
 
 
@@ -242,11 +268,13 @@ def test_browser_state_barrel_exists() -> None:
         INFRA_STORE_LAST_TAXON_ID_FILE,
         INFRA_STORE_KEBAB_OPEN_ID_FILE,
         INFRA_STORE_INTERNAL_FLAG_FILE,
+        INFRA_STORE_EXPLORER_STATE_FILE,
         INFRA_STORE_RESET_FILE,
         APP_HOOK_THEME_FILE,
         APP_HOOK_TREE_SOURCE_FILE,
         APP_HOOK_LAST_TAXON_ID_FILE,
         APP_HOOK_KEBAB_OPEN_ID_FILE,
+        APP_HOOK_EXPLORER_STATE_FILE,
     ),
 )
 def test_canonical_file_present(path: Path) -> None:
@@ -709,7 +737,15 @@ def test_other_module_does_not_touch_localstorage(other_module: str) -> None:
 # ---------------------------------------------------------------------------
 def test_keys_file_declares_four_storage_key_literals() -> None:
     """`domain/keys.ts` declares the four localStorage key literals
-    exactly once each (so a typo would surface here)."""
+    exactly once each (so a typo would surface here).
+
+    ODD-BSTATE-EXPLORER-PERSIST — the canonical key set now
+    includes the explorer-state key (`taxa.fex.explorerState`)
+    after the EXPLORER-PERSIST architecture correction. The
+    test iterates over `EXPECTED_STORAGE_KEYS` so adding a
+    fifth literal here immediately verifies the new key
+    declaration lands in `domain/keys.ts`.
+    """
     if not DOMAIN_KEYS_FILE.exists():
         pytest.skip("keys.ts not present yet")
     text = DOMAIN_KEYS_FILE.read_text(encoding="utf-8")
@@ -747,6 +783,7 @@ def test_defaults_file_exposes_four_typed_defaults() -> None:
         f"{null_count}. The two keys (last-taxon-id + kebab-open-id) "
         f"both have null as their spec-table default."
     )
+    assert "DEFAULT_EXPLORER_STATE" in text
 
 
 def test_barrel_exports_typed_surface() -> None:
@@ -776,10 +813,13 @@ def test_barrel_exports_typed_surface() -> None:
     expected_identifiers = [
         "DEFAULT_THEME", "DEFAULT_TREE_SOURCE",
         "DEFAULT_LAST_TAXON_ID", "DEFAULT_KEBAB_OPEN_ID",
+        "DEFAULT_EXPLORER_STATE",
+        "useExplorerState",
         "readTheme", "writeTheme", "subscribeTheme",
         "readTreeSource", "writeTreeSource", "subscribeTreeSource",
         "readLastTaxonId", "writeLastTaxonId", "subscribeLastTaxonId",
         "readKebabOpenId", "writeKebabOpenId", "subscribeKebabOpenId",
+        "readExplorerState", "writeExplorerState", "subscribeExplorerState",
         "reset",
     ]
     missing = [name for name in expected_identifiers if name not in text]
@@ -810,11 +850,13 @@ def _tsc_inputs() -> list[Path]:
         INFRA_STORE_TREE_SOURCE_FILE,
         INFRA_STORE_LAST_TAXON_ID_FILE,
         INFRA_STORE_KEBAB_OPEN_ID_FILE,
+        INFRA_STORE_EXPLORER_STATE_FILE,
         INFRA_STORE_RESET_FILE,
         APP_HOOK_THEME_FILE,
         APP_HOOK_TREE_SOURCE_FILE,
         APP_HOOK_LAST_TAXON_ID_FILE,
         APP_HOOK_KEBAB_OPEN_ID_FILE,
+        APP_HOOK_EXPLORER_STATE_FILE,
     )
     return [p for p in candidates if p.is_file()]
 
@@ -903,15 +945,18 @@ const fail = (label) => {
 };
 
 // ODD-BSTATE-TAX-001-A: the harness now requires each per-key
-// store module separately and the `reset.js` aggregate. The
-// five argv slots are exactly: storeTheme, storeTreeSource,
-// storeLastTaxonId, storeKebabOpenId, reset. tsc preserves
+// store module separately and the `reset.js` aggregate.
+//
+// ODD-BSTATE-EXPLORER-PERSIST: the per-key family grows by
+// one entry (`storeExplorerState`). The six argv slots are
+// exactly: storeTheme, storeTreeSource, storeLastTaxonId,
+// storeKebabOpenId, storeExplorerState, reset. tsc preserves
 // the layer folder structure (--rootDir + per-source
 // relative paths), so the compiled files land under
-// `out_dir/infrastructure/{storeTheme,storeTreeSource,…}.js`
-// and `out_dir/infrastructure/reset.js`.
-const [themeMod, treeMod, lastMod, kebabMod, resetMod] =
-  [process.argv[2], process.argv[3], process.argv[4], process.argv[5], process.argv[6]].map(
+// `out_dir/infrastructure/{storeTheme,storeTreeSource,…,
+// storeExplorerState}.js` and `out_dir/infrastructure/reset.js`.
+const [themeMod, treeMod, lastMod, kebabMod, explorerMod, resetMod] =
+  [process.argv[2], process.argv[3], process.argv[4], process.argv[5], process.argv[6], process.argv[7]].map(
     (p) => require(path.resolve(p)),
   );
 
@@ -930,6 +975,10 @@ const {
   readKebabOpenId, writeKebabOpenId, subscribeKebabOpenId,
   __resetForTests: __resetKebab,
 } = kebabMod;
+const {
+  readExplorerState, writeExplorerState, subscribeExplorerState,
+  __resetForTests: __resetExplorer,
+} = explorerMod;
 const { reset } = resetMod;
 
 function __resetForTests() {
@@ -937,6 +986,7 @@ function __resetForTests() {
   __resetTree();
   __resetLast();
   __resetKebab();
+  __resetExplorer();
 }
 
 // ODD-BSTATE-TAX-001-A: the per-key store modules no longer
@@ -949,7 +999,26 @@ const defaults = require(path.resolve(storeDir, "../domain/defaults.js"));
 const {
   DEFAULT_THEME, DEFAULT_TREE_SOURCE,
   DEFAULT_LAST_TAXON_ID, DEFAULT_KEBAB_OPEN_ID,
+  DEFAULT_EXPLORER_STATE,
 } = defaults;
+// ODD-BSTATE-EXPLORER-PERSIST-BOUNDS — cap constants + helper.
+const explorerStateDomain = require(
+  path.resolve(storeDir, "../domain/explorer-state.js"),
+);
+const {
+  MAX_EXPLORER_STATE_BYTES,
+  MAX_EXPANDED_PATHS,
+  MAX_QUERY_LENGTH,
+  MAX_SELECTED_PATH_LENGTH,
+} = explorerStateDomain;
+function assertEmptyDefault(record, label) {
+  if (!record || typeof record !== "object") fail(label + "_object");
+  if (record.version !== 1) fail(label + "_version");
+  if (record.query !== "") fail(label + "_query");
+  if (record.selectedPath !== null) fail(label + "_selectedPath");
+  if (!Array.isArray(record.expandedPaths)) fail(label + "_expandedPaths_type");
+  if (record.expandedPaths.length !== 0) fail(label + "_expandedPaths_length");
+}
 
 // 1. Defaults before any storage / hydration.
 __resetForTests();
@@ -970,6 +1039,12 @@ withWindow(
     "taxa.tree.source": "worms",
     "taxa.tree.lastTaxonId": "42",
     "taxa.tree.kebabOpenId": "7",
+    "taxa.fex.explorerState": JSON.stringify({
+      version: 1,
+      query: "mammalia",
+      selectedPath: null,
+      expandedPaths: ["Animalia"],
+    }),
   }),
   () => {
     __resetForTests();
@@ -977,6 +1052,11 @@ withWindow(
     if (readTreeSource() !== "worms") fail("tree_source_hydrate_worms");
     if (readLastTaxonId() !== 42) fail("last_taxon_id_hydrate_42");
     if (readKebabOpenId() !== 7) fail("kebab_open_id_hydrate_7");
+    // ODD-BSTATE-EXPLORER-PERSIST — explorer-state hydration.
+    const explorerHydrated = readExplorerState();
+    if (!explorerHydrated) fail("explorer_state_hydrate_present");
+    if (explorerHydrated.query !== "mammalia") fail("explorer_state_hydrate_query");
+    if (explorerHydrated.expandedPaths.length !== 1) fail("explorer_state_hydrate_expanded");
   },
 );
 
@@ -1000,28 +1080,39 @@ withWindow(
     "taxa.tree.source": "freshwater",
     "taxa.tree.lastTaxonId": "100",
     "taxa.tree.kebabOpenId": "9",
+    "taxa.fex.explorerState": JSON.stringify({
+      version: 1,
+      query: "mammalia",
+      selectedPath: null,
+      expandedPaths: ["Animalia"],
+    }),
   }),
   () => {
     __resetForTests();
     // Hydrate the cache.
     readTheme(); readTreeSource(); readLastTaxonId(); readKebabOpenId();
+    readExplorerState();
     let themeFired = null;
     let treeFired = null;
     let lastFired = null;
     let kebabFired = null;
+    let explorerFired = null;
     subscribeTheme((v) => { themeFired = v; });
     subscribeTreeSource((v) => { treeFired = v; });
     subscribeLastTaxonId((v) => { lastFired = v; });
     subscribeKebabOpenId((v) => { kebabFired = v; });
+    subscribeExplorerState((v) => { explorerFired = v; });
     reset();
     if (readTheme() !== DEFAULT_THEME) fail("reset_theme_default");
     if (readTreeSource() !== DEFAULT_TREE_SOURCE) fail("reset_tree_source_default");
     if (readLastTaxonId() !== DEFAULT_LAST_TAXON_ID) fail("reset_last_taxon_id_default");
     if (readKebabOpenId() !== DEFAULT_KEBAB_OPEN_ID) fail("reset_kebab_open_id_default");
+    if (readExplorerState() !== DEFAULT_EXPLORER_STATE) fail("reset_explorer_state_default");
     if (themeFired !== DEFAULT_THEME) fail("reset_theme_listener");
     if (treeFired !== DEFAULT_TREE_SOURCE) fail("reset_tree_source_listener");
     if (lastFired !== DEFAULT_LAST_TAXON_ID) fail("reset_last_taxon_listener");
     if (kebabFired !== DEFAULT_KEBAB_OPEN_ID) fail("reset_kebab_listener");
+    if (explorerFired !== DEFAULT_EXPLORER_STATE) fail("reset_explorer_state_listener");
   },
 );
 
@@ -1076,6 +1167,152 @@ withWindow(
   },
 );
 
+// ---------------------------------------------------------------------------
+// ODD-BSTATE-EXPLORER-PERSIST-BOUNDS — sections 8-10 cover the
+// persistence-boundary contract (over-bound rejection, at-boundary
+// acceptance, write rejection).
+// ---------------------------------------------------------------------------
+
+// 8. Over-bound rejection — each cap individually + the byte-size
+// overflow discriminating case (valid JSON that the parser
+// would surface without the byte-size guard).
+function boundRecord(over) {
+  return {
+    version: 1,
+    query: over === "query" ? "x".repeat(MAX_QUERY_LENGTH + 1) : "",
+    selectedPath: over === "selectedPath"
+      ? "x".repeat(MAX_SELECTED_PATH_LENGTH + 1) : null,
+    expandedPaths: over === "expandedPaths"
+      ? Array.from({ length: MAX_EXPANDED_PATHS + 1 }, (_, i) => "p" + i)
+      : (over === "expandedPathEntry"
+        ? ["x".repeat(MAX_SELECTED_PATH_LENGTH + 1)] : []),
+  };
+}
+function byteSizedRecord(targetLength) {
+  const record = {
+    version: 1, query: "", selectedPath: null,
+    expandedPaths: Array(21).fill("x".repeat(MAX_SELECTED_PATH_LENGTH)).concat(""),
+  };
+  const padding = targetLength - JSON.stringify(record).length;
+  if (padding < 0 || padding > MAX_SELECTED_PATH_LENGTH) fail("byte_size_fixture_padding");
+  record.expandedPaths[21] = "x".repeat(padding);
+  if (JSON.stringify(record).length !== targetLength) fail("byte_size_fixture_length");
+  return record;
+}
+for (const over of ["query", "selectedPath", "expandedPaths", "expandedPathEntry"]) {
+  withWindow(
+    makeStorage({ "taxa.fex.explorerState": JSON.stringify(boundRecord(over)) }),
+    () => { __resetForTests();
+      assertEmptyDefault(readExplorerState(), "overbound_" + over); },
+  );
+}
+withWindow(
+  makeStorage({
+    "taxa.fex.explorerState": JSON.stringify(
+      byteSizedRecord(Math.floor(MAX_EXPLORER_STATE_BYTES / 3) + 1),
+    ),
+  }),
+  () => { __resetForTests();
+    assertEmptyDefault(readExplorerState(), "overbound_byte_size"); },
+);
+
+// 9. At-boundary acceptance — regression guard against `>=` vs `>`.
+// Each cap exercised individually (packing every cap into one
+// record would exceed the byte-size cap).
+function checkAtBoundary(cap, check) {
+  withWindow(
+    makeStorage({ "taxa.fex.explorerState": JSON.stringify(check.record) }),
+    () => { __resetForTests();
+      if (!check.assert(readExplorerState())) fail("atboundary_" + cap); },
+  );
+}
+checkAtBoundary("query", {
+  record: { version: 1, query: "x".repeat(MAX_QUERY_LENGTH),
+            selectedPath: null, expandedPaths: [] },
+  assert: (h) => h.query.length === MAX_QUERY_LENGTH,
+});
+checkAtBoundary("selectedPath", {
+  record: { version: 1, query: "",
+            selectedPath: "x".repeat(MAX_SELECTED_PATH_LENGTH),
+            expandedPaths: [] },
+  assert: (h) => h.selectedPath !== null && h.selectedPath.length === MAX_SELECTED_PATH_LENGTH,
+});
+checkAtBoundary("expandedPathsCount", {
+  record: { version: 1, query: "", selectedPath: null,
+            expandedPaths: Array.from({ length: MAX_EXPANDED_PATHS }, (_, i) => "p" + i) },
+  assert: (h) => h.expandedPaths.length === MAX_EXPANDED_PATHS,
+});
+checkAtBoundary("expandedPathEntry", {
+  record: { version: 1, query: "", selectedPath: null,
+            expandedPaths: ["x".repeat(MAX_SELECTED_PATH_LENGTH)] },
+  assert: (h) => h.expandedPaths[0].length === MAX_SELECTED_PATH_LENGTH,
+});
+checkAtBoundary("byteSize", {
+  record: byteSizedRecord(Math.floor(MAX_EXPLORER_STATE_BYTES / 3)),
+  assert: (h) => h.expandedPaths.length > 0,
+});
+
+// 10. Write boundary — over-bound write silently dropped (no throw,
+// no setItem, no cache update, no listener fire); at-boundary write
+// accepted (setItem called, cache updates, listener fires). Every
+// cap exercised in both directions.
+function checkWrite(label, record, expectReject, assertPost) {
+  let setItemCalled = false, listenerFired = null;
+  const tracking = { getItem: () => null, setItem: () => { setItemCalled = true; }, removeItem: () => {} };
+  withWindow(tracking, () => {
+    __resetForTests();
+    if (expectReject) writeExplorerState(DEFAULT_EXPLORER_STATE);
+    setItemCalled = false;
+    const unsub = subscribeExplorerState((next) => { listenerFired = next; });
+    let threw = false;
+    try { writeExplorerState(record); } catch (_e) { threw = true; }
+    const dir = expectReject ? "rejects" : "accepts";
+    const p = "write_" + dir + "_" + label;
+    if (threw) fail(p + "_does_not_throw");
+    if (expectReject) {
+      if (setItemCalled) fail(p + "_no_setItem");
+      assertEmptyDefault(readExplorerState(), p);
+      if (listenerFired !== null) fail(p + "_no_listener_fire");
+    } else {
+      if (!setItemCalled) fail(p + "_setItem_called");
+      if (!assertPost(readExplorerState())) fail(p + "_cache_updated");
+      if (listenerFired === null) fail(p + "_listener_fired");
+    }
+    unsub();
+  });
+}
+// Reject over-bound — each field/count cap plus a byte-size record
+// one character beyond the largest representable estimate.
+for (const cap of ["query", "selectedPath", "expandedPaths", "expandedPathEntry"]) {
+  checkWrite(cap, boundRecord(cap), true, null);
+}
+checkWrite("byteSize",
+  byteSizedRecord(Math.floor(MAX_EXPLORER_STATE_BYTES / 3) + 1),
+  true, null);
+// Accept at-boundary — every cap (regression guard for `>=` vs `>`).
+checkWrite("query",
+  { version: 1, query: "x".repeat(MAX_QUERY_LENGTH),
+    selectedPath: null, expandedPaths: [] },
+  false, (h) => h.query.length === MAX_QUERY_LENGTH);
+checkWrite("selectedPath",
+  { version: 1, query: "",
+    selectedPath: "x".repeat(MAX_SELECTED_PATH_LENGTH),
+    expandedPaths: [] },
+  false, (h) => h.selectedPath !== null && h.selectedPath.length === MAX_SELECTED_PATH_LENGTH);
+checkWrite("expandedPathsCount",
+  { version: 1, query: "", selectedPath: null,
+    expandedPaths: Array.from({ length: MAX_EXPANDED_PATHS }, (_, i) => "p" + i) },
+  false, (h) => h.expandedPaths.length === MAX_EXPANDED_PATHS);
+checkWrite("expandedPathEntry",
+  { version: 1, query: "", selectedPath: null,
+    expandedPaths: ["x".repeat(MAX_SELECTED_PATH_LENGTH)] },
+  false, (h) => h.expandedPaths[0].length === MAX_SELECTED_PATH_LENGTH);
+// floor(MAX_EXPLORER_STATE_BYTES / 3) chars × 3 = 65535,
+// the exact largest representable estimate below the 65536 cap.
+checkWrite("byteSize",
+  byteSizedRecord(Math.floor(MAX_EXPLORER_STATE_BYTES / 3)),
+  false, (h) => h.expandedPaths.length > 0);
+
 process.stdout.write("PASS\n");
 """
 
@@ -1103,6 +1340,7 @@ def test_compiled_browser_state_passes_runtime_contract(
         ("storeTreeSource", out_dir / "infrastructure" / "storeTreeSource.js"),
         ("storeLastTaxonId", out_dir / "infrastructure" / "storeLastTaxonId.js"),
         ("storeKebabOpenId", out_dir / "infrastructure" / "storeKebabOpenId.js"),
+        ("storeExplorerState", out_dir / "infrastructure" / "storeExplorerState.js"),
         ("reset", out_dir / "infrastructure" / "reset.js"),
     )
     # Compile every per-key file. The previous monolithic compile
@@ -1154,3 +1392,161 @@ def test_compiled_browser_state_passes_runtime_contract(
     assert "PASS" in node.stdout, (
         f"runtime harness did not emit PASS; stdout={node.stdout!r}"
     )
+
+
+def _store_function_body(name: str) -> str:
+    """Return the body of `function <name> { ... }` from
+    ``storeExplorerState.ts`` via brace counting so source-level
+    assertions do NOT depend on a fixed-width slice the writer's
+    JSDoc + validation block could push past."""
+    if not INFRA_STORE_EXPLORER_STATE_FILE.exists():
+        pytest.skip("storeExplorerState.ts not present yet")
+    text = _strip_ts_comments(
+        INFRA_STORE_EXPLORER_STATE_FILE.read_text(encoding="utf-8")
+    )
+    idx = text.find(f"function {name}")
+    assert idx > 0, (
+        f"storeExplorerState.ts must declare `{name}`."
+    )
+    open_brace = text.find("{", idx)
+    assert open_brace > 0
+    depth = 1
+    pos = open_brace + 1
+    while depth and pos < len(text):
+        if text[pos] == "{":
+            depth += 1
+        elif text[pos] == "}":
+            depth -= 1
+        pos += 1
+    return text[open_brace:pos]
+
+
+EXPLORER_STORE_STORAGE_HELPERS: tuple[str, ...] = (
+    "readExplorerState",
+    "writeExplorerState",
+    "clearExplorerState",
+)
+
+
+@pytest.mark.parametrize("helper", EXPLORER_STORE_STORAGE_HELPERS)
+def test_explorer_state_store_helper_routes_through_safe_storage(helper: str) -> None:
+    """ODD-BSTATE-EXPLORER-PERSIST — the per-key explorer-state
+    store (`infrastructure/storeExplorerState.ts`) MUST route
+    every storage-touching helper (read / write / clear)
+    through the `safeStorage` helpers (`safeGetItem` /
+    `safeSetItem` / `safeRemoveItem`) so quota / SecurityError /
+    disabled-storage / SSR failures never propagate out of the
+    typed store. The `safeStorage` helpers wrap every
+    `localStorage.*` primitive in a `try { ... } catch { ... }`
+    so the storage-ownership contract (one storage primitive per
+    type, every primitive wrapped) stays enforced end-to-end.
+
+    The subscribe helper (`subscribeExplorerState`) is
+    intentionally excluded from this assertion: it owns pure
+    listener management (no `localStorage.*` site), so routing
+    through `safeStorage` would be dead weight. The focused
+    runtime harness in
+    `test_compiled_browser_state_passes_runtime_contract`
+    exercises the subscribe path end-to-end.
+    """
+    if not INFRA_STORE_EXPLORER_STATE_FILE.exists():
+        pytest.skip(
+            "storeExplorerState.ts not present yet (RED phase)"
+        )
+    text = _strip_ts_comments(
+        INFRA_STORE_EXPLORER_STATE_FILE.read_text(encoding="utf-8")
+    )
+    idx = text.find(f"function {helper}")
+    assert idx > 0, (
+        f"storeExplorerState.ts must declare `{helper}` as a "
+        f"named function (the typed explorer-state surface)."
+    )
+    # Forward scan from the helper declaration — captures both
+    # direct (`safeSetItem` / `safeRemoveItem`) and transitive
+    # (`readExplorerState` → `ensureHydrated` → `safeGetItem`)
+    # routes without a fixed-width window that comments /
+    # validation block growth can push out of range.
+    rest = text[idx:]
+    safe_call = re.search(
+        r"safe(GetItem|SetItem|RemoveItem)\s*\(", rest,
+    )
+    assert safe_call, (
+        f"storeExplorerState.ts::{helper} must route its "
+        f"`localStorage.*` call through the corresponding "
+        f"`safeGetItem` / `safeSetItem` / `safeRemoveItem` "
+        f"helper so quota / SecurityError / disabled-storage "
+        f"failures are swallowed. A direct "
+        f"`localStorage.{{getItem,setItem,removeItem}}(...)` "
+        f"call inside the helper would silently break the "
+        f"Explorer route's render cycle on private-browsing "
+        f"hosts."
+    )
+
+
+def test_explorer_state_store_declares_inline_storage_key() -> None:
+    """ODD-BSTATE-TAX-001-A — strict chunk-boundary contract.
+    The explorer-state chain MUST NOT pull `domain/keys.ts`
+    at runtime (that file declares the four sibling key
+    literals). A shared chunk carrying the four sibling keys
+    PLUS the explorer-state key would fail the
+    `test_out_index_html_chunks_permit_only_tree_source_key`
+    strict witness on the explorer route's chunk.
+
+    The canonical declaration in `domain/keys.ts` stays in
+    place for the spec-table preservation test + the public
+    barrel re-export. The two declarations are kept in sync
+    by the ODD-BSTATE-TAX-001-B strict chunk-boundary
+    witness itself.
+    """
+    if not INFRA_STORE_EXPLORER_STATE_FILE.exists():
+        pytest.skip(
+            "storeExplorerState.ts not present yet (RED phase)"
+        )
+    text = INFRA_STORE_EXPLORER_STATE_FILE.read_text(encoding="utf-8")
+    assert 'EXPLORER_STATE_STORAGE_KEY = "taxa.fex.explorerState"' in text, (
+        "storeExplorerState.ts MUST declare the storage key "
+        "inline (`const EXPLORER_STATE_STORAGE_KEY = "
+        "\"taxa.fex.explorerState\"`) so Turbopack retention "
+        "isolates the explorer-state chain from `domain/keys.ts`."
+    )
+
+
+# ODD-BSTATE-EXPLORER-PERSIST-BOUNDS — persistence-boundary
+# regression suite. Runtime contract lives in `_RUNTIME_HARNESS`
+# sections 8-10; source-level pins use the brace-counting
+# helper `_store_function_body` so the writer's JSDoc +
+# validation block does NOT push `safeSetItem` past a slice.
+EXPLORER_STATE_BOUND_CONSTANTS: tuple[tuple[str, str], ...] = (
+    ("MAX_EXPLORER_STATE_BYTES", "65536"),
+    ("MAX_EXPANDED_PATHS", "1000"),
+    ("MAX_QUERY_LENGTH", "256"),
+    ("MAX_SELECTED_PATH_LENGTH", "1024"),
+)
+
+
+def test_explorer_state_bounds_domain_caps_have_reference_values() -> None:
+    """Cap constants MUST be exported with reference values pinned
+    byte-for-byte against the Research-side helper."""
+    if not DOMAIN_EXPLORER_STATE_FILE.exists():
+        pytest.skip("domain/explorer-state.ts not present yet")
+    text = DOMAIN_EXPLORER_STATE_FILE.read_text(encoding="utf-8")
+    for name, value in EXPLORER_STATE_BOUND_CONSTANTS:
+        assert re.search(
+            rf"\bexport\s+const\s+{name}\s*=\s*{value}\b", text,
+        ), (
+            f"domain/explorer-state.ts must declare "
+            f"`export const {name} = {value}`; a drift would let an "
+            f"oversized record through the persistence boundary."
+        )
+
+
+# ODD-BSTATE-EXPLORER-PERSIST-BOUNDS — parser / writer source-level
+# caps coverage is delegated to the runtime harness
+# (`test_compiled_browser_state_passes_runtime_contract`, sections
+# 8-10): the runtime proves every cap rejects over-bound records
+# AND the writer silently drops every over-bound write. The
+# source-level `query.length > MAX_QUERY_LENGTH` etc. pins are
+# REDUNDANT with the runtime contract and were intentionally
+# removed to keep the candidate within the 400-line budget.
+# Sibling source-level guards (caps reference values + storage
+# helper routing) stay in place.

@@ -8,13 +8,22 @@
  *
  * ODD-BSTATE-TAX-001-A — per-key module split:
  *   - `domain/keys.ts`                  → typed `StorageKey` union +
- *                                          the four `localStorage`
+ *                                          the canonical localStorage
  *                                          literals + the `Listener` /
  *                                          `Unsubscribe` types.
  *   - `domain/defaults.ts`              → typed defaults per key
  *                                          (theme: `"light"`,
  *                                          tree-source: `"col"`,
- *                                          last-taxon-id / kebab-open-id: `null`).
+ *                                          last-taxon-id / kebab-open-id: `null`,
+ *                                          explorer-state: empty record).
+ *   - `domain/explorer-state.ts`        → typed `PersistedExplorerState`
+ *                                          shape + the version literal +
+ *                                          the `createEmptyPersistedExplorerState`
+ *                                          factory (ODD-BSTATE-EXPLORER-PERSIST
+ *                                          — the EXPLORER-PERSIST
+ *                                          architecture correction
+ *                                          extends the per-key family
+ *                                          by one entry).
  *   - `infrastructure/storeTheme.ts`     → typed `readTheme` /
  *                                          `writeTheme` /
  *                                          `subscribeTheme` for the
@@ -42,6 +51,21 @@
  *                                          witness flag; the Playwright
  *                                          harness sets it via
  *                                          `context.add_init_script`).
+ *   - `infrastructure/storeExplorerState.ts` → typed `readExplorerState` /
+ *                                          `writeExplorerState` /
+ *                                          `subscribeExplorerState` /
+ *                                          `clearExplorerState` for the
+ *                                          `taxa.fex.explorerState` key
+ *                                          (ODD-BSTATE-EXPLORER-PERSIST
+ *                                          — the EXPLORER-PERSIST
+ *                                          architecture correction
+ *                                          routes the Browser-tab
+ *                                          Explorer working-set
+ *                                          persistence through the
+ *                                          canonical per-key chain so
+ *                                          the Research module is free
+ *                                          of `localStorage.*`
+ *                                          references).
  *   - `infrastructure/reset.ts`         → aggregate `reset()` that
  *                                          clears every key to its
  *                                          typed default AND removes
@@ -63,6 +87,9 @@
  *                                          for the last-taxon-id key.
  *   - `application/useKebabOpenId.ts`   → hydration-safe React hook
  *                                          for the kebab-open-id key.
+ *   - `application/useExplorerState.ts` → hydration-safe React hook
+ *                                          for the explorer-state key
+ *                                          (ODD-BSTATE-EXPLORER-PERSIST).
  *
  * Each hook imports from its matching store only. Turbopack
  * retention relies on the per-key separation: the main route
@@ -82,6 +109,7 @@ export {
   LAST_TAXON_ID_STORAGE_KEY,
   KEBAB_OPEN_ID_STORAGE_KEY,
   INTERNAL_FLAG_STORAGE_KEY,
+  EXPLORER_STATE_STORAGE_KEY,
   ALL_STORAGE_KEYS,
 } from "./domain/keys";
 export type {
@@ -97,7 +125,21 @@ export {
   DEFAULT_TREE_SOURCE,
   DEFAULT_LAST_TAXON_ID,
   DEFAULT_KEBAB_OPEN_ID,
+  DEFAULT_EXPLORER_STATE,
 } from "./domain/defaults";
+
+// ODD-BSTATE-EXPLORER-PERSIST — re-export the typed
+// `PersistedExplorerState` shape + the canonical empty-record
+// factory so cross-module consumers reach the typed
+// explorer-state surface through the public barrel. The
+// shape lives in `domain/explorer-state.ts`; the version
+// literal + the factory stay reachable through the public
+// typed hand-off.
+export {
+  EXPLORER_STATE_STORAGE_VERSION,
+  createEmptyPersistedExplorerState,
+} from "./domain/explorer-state";
+export type { PersistedExplorerState } from "./domain/explorer-state";
 
 // ODD-BSTATE-TAX-001-A — per-key store re-exports. Each per-key
 // store is re-exported from its own line so Turbopack can link
@@ -143,6 +185,21 @@ export {
   subscribeInternalFlag,
 } from "./infrastructure/storeInternalFlag";
 
+// ODD-BSTATE-EXPLORER-PERSIST — explorer-state store re-export.
+// Mirrors the per-file rationale of the five sibling store
+// re-exports above: each per-key store lives in its own file so
+// Turbopack can retain only the imported chain. The
+// Browser-tab Explorer mount wires the typed chain through the
+// public barrel so the storage module stays free of
+// `localStorage.*` references (the ODD-BSTATE-TAX-001
+// storage-ownership contract).
+export {
+  readExplorerState,
+  writeExplorerState,
+  subscribeExplorerState,
+  clearExplorerState,
+} from "./infrastructure/storeExplorerState";
+
 export { reset } from "./infrastructure/reset";
 
 // ODD-BSTATE-TAX-001-A — per-key hook re-exports. Same per-file
@@ -153,6 +210,14 @@ export { useTheme } from "./application/useTheme";
 export { useTreeSource } from "./application/useTreeSource";
 export { useLastTaxonId } from "./application/useLastTaxonId";
 export { useKebabOpenId } from "./application/useKebabOpenId";
+
+// ODD-BSTATE-EXPLORER-PERSIST — explorer-state hook re-export.
+// Mirrors the per-file rationale of the four sibling hook
+// re-exports above. The Browser-tab Explorer mount wires the
+// hook through the public barrel so the React adapter stays
+// free of `localStorage.*` references and the typed chain
+// stays hydration-safe.
+export { useExplorerState } from "./application/useExplorerState";
 
 // ODD-BSTATE-PW-001 — one-line wiring edit (collateral to the new
 // `presentation/HydrationProbe` component). Exposes the isolated

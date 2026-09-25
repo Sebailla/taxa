@@ -170,7 +170,7 @@ def test_freshwater_toggle_renders_and_switches(api_server):
             )
 
             # Click Freshwater and confirm the synthetic root appears.
-            page.locator('[data-tree-source="freshwater"]').click()
+            page.locator('#tree-source-toggle .tree-source-btn[data-tree-source="freshwater"]').click()
             expect(
                 page.get_by_text("Freshwater Fishes", exact=True)
             ).to_be_visible(timeout=5_000)
@@ -207,9 +207,9 @@ def test_freshwater_view_isolates_to_root(api_server):
             page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
             # Wait for boot to render the initial CoL roots so we know
             # the toggle has settled before clicking.
-            page.locator('[data-tree-source="freshwater"]').wait_for(
+            page.locator('#tree-source-toggle .tree-source-btn[data-tree-source="freshwater"]').wait_for(
                 state="visible", timeout=5_000)
-            page.locator('[data-tree-source="freshwater"]').click()
+            page.locator('#tree-source-toggle .tree-source-btn[data-tree-source="freshwater"]').click()
             # Freshwater root must be present.
             expect(
                 page.get_by_text("Freshwater Fishes", exact=True)
@@ -254,7 +254,7 @@ def test_freshwater_view_expands_to_families(api_server):
         try:
             page = browser.new_page()
             page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
-            page.locator('[data-tree-source="freshwater"]').click()
+            page.locator('#tree-source-toggle .tree-source-btn[data-tree-source="freshwater"]').click()
             freshwater_row = page.locator(
                 f'[data-taxon-id="{fresh_id}"][data-action="toggle-expand"]'
             )
@@ -304,7 +304,7 @@ def test_search_tab_renders_with_14_links(api_server):
         try:
             page = browser.new_page()
             page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
-            page.locator('[data-tree-source="freshwater"]').click()
+            page.locator('#tree-source-toggle .tree-source-btn[data-tree-source="freshwater"]').click()
             # The freshwater root is rank=collection (not a species), so
             # clicking the row toggles expansion rather than selecting.
             # To open the detail panel for a non-species row, drive its
@@ -381,7 +381,7 @@ def test_search_engines_rendered_as_button_grid(api_server):
         try:
             page = browser.new_page()
             page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
-            page.locator('[data-tree-source="freshwater"]').click()
+            page.locator('#tree-source-toggle .tree-source-btn[data-tree-source="freshwater"]').click()
             # P1 #2 + ODD-TDDISC-001: open the per-row kebab first, then
             # drive the "View details" item from the dropdown (the
             # lupa lives inside the kebab menu now, not inline on the
@@ -461,7 +461,7 @@ def test_detail_header_and_tabs_are_sticky(api_server):
         try:
             page = browser.new_page()
             page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
-            page.locator('[data-tree-source="freshwater"]').click()
+            page.locator('#tree-source-toggle .tree-source-btn[data-tree-source="freshwater"]').click()
             # P1 #2 + ODD-TDDISC-001: per-row lupa is inside the kebab
             # menu now — open the kebab, click the "View details"
             # item (RENAMED from "Search online" in ODD-TDDISC-001
@@ -535,7 +535,7 @@ def test_breadcrumb_walks_freshwater_chain(api_server):
         try:
             page = browser.new_page()
             page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
-            page.locator('[data-tree-source="freshwater"]').click()
+            page.locator('#tree-source-toggle .tree-source-btn[data-tree-source="freshwater"]').click()
             root_row = page.locator(
                 f'[data-taxon-id="{fresh_id}"][data-action="toggle-expand"]'
             )
@@ -615,7 +615,7 @@ def test_kebab_menu_toggles_on_repeated_trigger_click(api_server):
         try:
             page = browser.new_page()
             page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
-            page.locator('[data-tree-source="freshwater"]').click()
+            page.locator('#tree-source-toggle .tree-source-btn[data-tree-source="freshwater"]').click()
             # Hover the freshwater root row so its hover-gated
             # kebab-trigger becomes clickable (CSS opacity-0 -> 1).
             row = page.locator(f'[data-taxon-id="{fresh_id}"]').first
@@ -697,7 +697,7 @@ def test_kebab_menu_reopens_after_each_close_method(
         try:
             page = browser.new_page()
             page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
-            page.locator('[data-tree-source="freshwater"]').click()
+            page.locator('#tree-source-toggle .tree-source-btn[data-tree-source="freshwater"]').click()
             row = page.locator(f'[data-taxon-id="{fresh_id}"]').first
             expect(row).to_be_visible(timeout=5_000)
             row.hover()
@@ -824,7 +824,7 @@ def test_view_details_reopens_detail_panel_after_close(api_server):
         try:
             page = browser.new_page()
             page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
-            page.locator('[data-tree-source="freshwater"]').click()
+            page.locator('#tree-source-toggle .tree-source-btn[data-tree-source="freshwater"]').click()
 
             row = page.locator(f'[data-taxon-id="{fresh_id}"]').first
             expect(row).to_be_visible(timeout=5_000)
@@ -938,7 +938,7 @@ def test_folder_tab_renders_for_unmaterialized_taxon(api_server):
         try:
             page = browser.new_page()
             page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
-            page.locator('[data-tree-source="freshwater"]').click()
+            page.locator('#tree-source-toggle .tree-source-btn[data-tree-source="freshwater"]').click()
 
             row = page.locator(f'[data-taxon-id="{fresh_id}"]').first
             expect(row).to_be_visible(timeout=5_000)
@@ -1045,7 +1045,7 @@ def test_folder_tab_shows_open_and_copy_after_materialize(api_server):
             )
             page = context.new_page()
             page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
-            page.locator('[data-tree-source="freshwater"]').click()
+            page.locator('#tree-source-toggle .tree-source-btn[data-tree-source="freshwater"]').click()
 
             row = page.locator(f'[data-taxon-id="{fresh_id}"]').first
             expect(row).to_be_visible(timeout=5_000)
@@ -1149,7 +1149,7 @@ def test_open_in_finder_button_calls_endpoint(api_server):
             context = browser.new_context(permissions=["clipboard-write"])
             page = context.new_page()
             page.goto(base + "/", wait_until="domcontentloaded", timeout=10_000)
-            page.locator('[data-tree-source="freshwater"]').click()
+            page.locator('#tree-source-toggle .tree-source-btn[data-tree-source="freshwater"]').click()
 
             row = page.locator(f'[data-taxon-id="{fresh_id}"]').first
             expect(row).to_be_visible(timeout=5_000)

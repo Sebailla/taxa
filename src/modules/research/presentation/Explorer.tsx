@@ -100,8 +100,13 @@ import {
   fetchFiles,
   createInitialViewerState,
   toggleExpansion,
+  withExpanded,
   castFileFormat,
   annotateMatches,
+  countFoldersAndFiles,
+  collectFolderPaths,
+  validateAgainstTree,
+  collectAllTreePaths,
   type ExplorerLoadStatus,
   type ViewerState,
   type ExplorerFileNode,
@@ -109,6 +114,12 @@ import {
   type ViewerTab,
   type SearchAnnotation,
 } from "@taxa/research";
+import {
+  useExplorerState,
+  writeExplorerState,
+  createEmptyPersistedExplorerState,
+  type PersistedExplorerState,
+} from "@taxa/browser-state";
 import { EmptyState, Spinner } from "@taxa/design-system";
 
 /** Props for the Explorer client island. The parent Server
@@ -167,14 +178,56 @@ export default function Explorer(props: ExplorerProps): ReactNode {
   const [loadStatus, setLoadStatus] = useState<ExplorerLoadStatus>(
     { kind: "idle" },
   );
+  // ---- EXPLORER-PERSIST (slice 10) — persistence wiring ----
+  // The hydration-safe React hook for the typed explorer-
+  // state store (`taxa.fex.explorerState`). The hook is
+  // reached through the canonical `@taxa/browser-state`
+  // public barrel (NOT a deep import into
+  // `application/useExplorerState`); the public barrel is
+  // the only legal consumer surface (spec.md rule 5 + the
+  // no-restricted-imports ESLint guard).
+  //
+  // The hook returns a `[PersistedExplorerState | null,
+  // setter]` tuple where `null` is the server + hydration
+  // snapshot — React's hydration guard never trips on a
+  // stored value because BOTH the server and the first
+  // client render return `null`. The post-hydration render
+  // surfaces the persisted working set or the canonical
+  // empty record. The mount never reads `localStorage`
+  // directly during render.
+  const [persistedExplorerState] = useExplorerState();
+  // Memoised `PersistedExplorerState` derivation — the
+  // raw hook value can be `null` (server + hydration
+  // snapshot); the snapshot derives a stable typed record
+  // so the validation effect + the write effect + the
+  // initialisers can route through a single value. The
+  // memo is keyed on `[persistedExplorerState]` so the
+  // snapshot recomputes only when the hook's value
+  // changes — a stable identity across renders when the
+  // stored record stays the same.
+  const persistedSnapshot = useMemo<PersistedExplorerState>(
+    () => persistedExplorerState ?? createEmptyPersistedExplorerState(),
+    [persistedExplorerState],
+  );
   // The expanded-folders set (mirrors the legacy `expanded`
-  // Set). Initial state is empty — folders start collapsed in
-  // the W6.1 mount (the legacy default-everything-expanded
-  // shape is deferred to a future UX slice per the W6.1
-  // contract). The `useState` initialiser is a fresh Set per
-  // mount, never a shared reference.
+  // Set). Initial state is empty — folders start collapsed
+  // in the W6.1 mount (the legacy default-everything-
+  // expanded shape is deferred to a future UX slice per
+  // the W6.1 contract). The `useState` initialiser is a
+  // fresh Set per mount, never a shared reference.
+  //
+  // EXPLORER-PERSIST (slice 10) — on subsequent visits
+  // (when a persisted record exists under
+  // `taxa.fex.explorerState`), the lazy initialiser reads
+  // `persistedSnapshot.expandedPaths` so the typed
+  // expanded set lands on the very first React render
+  // after hydration without a render-time `localStorage`
+  // read. On the first visit (no persisted record) the
+  // snapshot's `expandedPaths` is `[]`, so the tree still
+  // starts collapsed — the EXPLORER-ORIENT no-default-
+  // eager-expansion constraint is preserved verbatim.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(
-    () => new Set(),
+    () => new Set(persistedSnapshot.expandedPaths),
   );
   // The selected path drives the file-row highlighting +
   // the right-pane viewer mount. `null` = no file selected.
@@ -182,7 +235,18 @@ export default function Explorer(props: ExplorerProps): ReactNode {
   // AND on double-click (`openFile`); double-click is a
   // superset of single-click (mirrors the legacy
   // `selectFile` → `openFile` ordering).
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  //
+  // EXPLORER-PERSIST (slice 10) — the lazy initialiser
+  // restores the persisted `selectedPath` on the first
+  // render after hydration. A stale `selectedPath` (a
+  // path that no longer exists in the freshly loaded
+  // tree) is reset to `null` by the validation effect
+  // (see below) — the lazy initialiser captures the
+  // persisted value verbatim so the validation effect
+  // can act on it.
+  const [selectedPath, setSelectedPath] = useState<string | null>(
+    () => persistedSnapshot.selectedPath,
+  );
   // The viewer state owns the active tab + the open file
   // shape. The mount keeps the typed view-model here so the
   // Viewer's bytes-fetch lifecycle + the typed dispatch
@@ -200,7 +264,19 @@ export default function Explorer(props: ExplorerProps): ReactNode {
   // call after they stop typing. Mirrors the legacy
   // `web/file_explorer.js::wireSearch()` `setTimeout(..., 200)`
   // shape verbatim.
-  const [searchQuery, setSearchQuery] = useState<string>("");
+  //
+  // EXPLORER-PERSIST (slice 10) — the lazy initialiser
+  // restores the persisted `query` on the first render
+  // after hydration so the search box surfaces the
+  // user's previous query verbatim. The 200 ms debounce
+  // timer fires on the first user keystroke after
+  // hydration (the debounced value starts at the
+  // persisted query so the tree annotation paints
+  // immediately on mount without waiting for a
+  // keystroke).
+  const [searchQuery, setSearchQuery] = useState<string>(
+    () => persistedSnapshot.query,
+  );
   const [debouncedQuery, setDebouncedQuery] = useState<string>("");
   // The search mode — `"filter"` (default) hides non-matches
   // and auto-expands ancestors; `"highlight"` paints
@@ -339,12 +415,127 @@ export default function Explorer(props: ExplorerProps): ReactNode {
     };
   }, [loadTree]);
 
+  // ---- EXPLORER-PERSIST (slice 10) — validation effect ----
+  // Validates the persisted snapshot against the freshly
+  // loaded tree once the tree reaches the `loaded` branch.
+  // The pure `validateAgainstTree` helper:
+  //   - Discards stale expanded paths (folders that no
+  //     longer exist in the freshly loaded tree).
+  //   - Collapses duplicate expanded paths to a single
+  //     entry in stable first-seen order (a session that
+  //     re-expanded a folder across multiple post-mount
+  //     clicks, or a future PR that hand-merges two
+  //     persisted records, sees a deterministic expanded
+  //     set that mirrors the user's original expansion
+  //     intent).
+  //   - Resets a stale `selectedPath` to `null` (a path
+  //     that no longer exists in the freshly loaded
+  //     tree).
+  //
+  // The validation runs ONLY after the tree reaches the
+  // `loaded` branch — pre-tree-load validation would
+  // silently drop every persisted path because the
+  // freshly loaded tree is `null`. The effect depends on
+  // `[loadStatus, persistedSnapshot]` so it re-fires when
+  // the tree re-fetches after a FolderTab dispatch
+  // (W6.5-BRIDGE-006) OR when the persisted snapshot
+  // updates after hydration.
+  //
+  // The effect updates the typed `expanded` /
+  // `selectedPath` / `searchQuery` state from the
+  // validated snapshot. If the validation mutated any
+  // field (a stale path was discarded, a duplicate was
+  // collapsed, etc.), the effect writes the validated
+  // record back through `writeExplorerState` so the
+  // persisted record stays in lock-step with the
+  // validated working set. `setPersistedExplorerState`
+  // stays untouched (the hook's setter is reserved for
+  // future consumer slices that need to write through
+  // the React state pipeline; the slice 10 wiring writes
+  // through `writeExplorerState` so the typed store
+  // updates synchronously without a React re-render).
+  useEffect(() => {
+    if (loadStatus.kind !== "loaded") return;
+    const validated = validateAgainstTree(persistedSnapshot, loadStatus.tree);
+    setExpanded(new Set(validated.expandedPaths));
+    setSelectedPath(validated.selectedPath);
+    setSearchQuery(validated.query);
+    if (validated !== persistedSnapshot) {
+      writeExplorerState(validated);
+    }
+  }, [loadStatus, persistedSnapshot]);
+
+  // ---- EXPLORER-PERSIST (slice 10) — write-on-change ----
+  // Persists the user's working set on every change. The
+  // effect fires when the typed `searchQuery` /
+  // `selectedPath` / `expanded` state changes so the
+  // persisted record mirrors the user's interactive
+  // state immediately (no debounce — a 200 ms debounce
+  // would silently lose data on a quick route unmount).
+  //
+  // The effect routes through the canonical
+  // `writeExplorerState` from `@taxa/browser-state` (NOT
+  // a render-time storage write). The store validates the
+  // input against every canonical cap and silently
+  // discards an out-of-bound record — the mount never
+  // throws on a rejected write.
+  //
+  // The `setPersistedExplorerState` setter is unused at
+  // the slice 10 mount level — the hook's setter is
+  // reserved for future consumer slices that need to
+  // write through the React state pipeline. The slice
+  // 10 wiring writes through `writeExplorerState` so the
+  // typed store updates synchronously without a React
+  // re-render (the `useSyncExternalStore` subscriber
+  // chain re-renders the mount on the next tick).
+  useEffect(() => {
+    writeExplorerState({
+      ...createEmptyPersistedExplorerState(),
+      query: searchQuery,
+      selectedPath,
+      expandedPaths: Array.from(expanded),
+    });
+  }, [searchQuery, selectedPath, expanded]);
+
+  // ---- EXPLORER-PERSIST (slice 10) — memoised valid-paths ----
+  // The pure `collectAllTreePaths` helper derives the
+  // freshly loaded tree's path set (every folder + file
+  // path, dedup'd). The Set is memoised on `loadStatus`
+  // so the helper runs once per tree fetch and stays
+  // stable across renders when the tree identity
+  // doesn't change. The Set feeds two consumers:
+  //   1. The toggle expand handler's defensive guard
+  //      (a stale persisted expansion is silently dropped
+  //      before the set transition).
+  //   2. The validation effect (sanity check that the
+  //      `validateAgainstTree` output's expanded paths
+  //      are all members of the freshly loaded tree's
+  //      path set — `validateAgainstTree` already
+  //      enforces this, the explicit reference makes
+  //      the contract discoverable at the React layer).
+  const validPaths = useMemo<ReadonlySet<string>>(
+    () => loadStatus.kind === "loaded"
+      ? collectAllTreePaths(loadStatus.tree)
+      : new Set<string>(),
+    [loadStatus],
+  );
+
   /** Memoised folder toggle. The set transition goes through
    *  the pure `toggleExpansion` helper from the typed state
    *  kernel so React's render cycle stays deterministic. */
   const handleToggleExpand = useCallback((folderPath: string): void => {
+    // Defensive guard — silently drop a toggle that
+    // targets a folder not in the freshly loaded tree.
+    // A stale persisted expansion (a folder that no
+    // longer exists) cannot be re-expanded by a user
+    // click; the membership check ensures the set
+    // transition only operates on valid paths. The
+    // guard is a no-op for the typical case (the
+    // chevron targets a folder that exists in the
+    // loaded tree).
+    if (!validPaths.has(folderPath)) return;
     setExpanded((prev) => toggleExpansion(prev, folderPath));
-  }, []);
+  }, [validPaths]);
 
   /** Memoised file select. Mirrors the legacy
    *  `web/file_explorer.js::selectFile` shape: single-click
@@ -528,6 +719,125 @@ export default function Explorer(props: ExplorerProps): ReactNode {
     setSearchHideEmpty((prev) => !prev);
   }, []);
 
+  // ---- EXPLORER-ORIENT — entry orientation memo ----
+  // Memoised tree counts + collected folder paths. The
+  // memo is keyed on `(loadStatus.kind, loadStatus.tree)`
+  // so a fresh tree fetch reflects new folders + files on
+  // the next render without recomputing on every render.
+  // When the load status is NOT `loaded` (idle / loading
+  // / empty / error) the memo returns `{ folders: 0, files:
+  // 0 }` + an empty folder-paths array so the orientation
+  // UI never fabricates counts for an empty / errored
+  // branch. The orientation UI disables the bulk controls
+  // when the loaded root is null (defensive guard for the
+  // degenerate `{ exists: true, root: null }` payload).
+  const orientation = useMemo(() => {
+    if (loadStatus.kind !== "loaded") {
+      return { counts: { folders: 0, files: 0 }, folderPaths: [] };
+    }
+    const root = loadStatus.tree.root;
+    if (root === null) {
+      return { counts: { folders: 0, files: 0 }, folderPaths: [] };
+    }
+    return {
+      counts: countFoldersAndFiles(root),
+      folderPaths: collectFolderPaths(root),
+    };
+  }, [loadStatus]);
+
+  // ---- EXPLORER-ORIENT — bulk orientation handlers ----
+  // Memoised expand-all — adds every collected folder path
+  // to the expanded set. Uses the pure `withExpanded` helper
+  // so the typed transition stays deterministic (the same
+  // input yields the same new Set). The bulk action operates
+  // on folder paths by construction; a future tree fetch
+  // reflects new folders on the next click.
+  const handleExpandAll = useCallback((): void => {
+    setExpanded((prev) => withExpanded(prev, orientation.folderPaths));
+  }, [orientation.folderPaths]);
+
+  // Memoised collapse-all — replaces the expanded set with
+  // a fresh empty Set. Mirrors the user's bulk orientation
+  // intent (the tree collapses to its first-visit default).
+  // The fresh Set per call preserves React's render cycle
+  // determinism (the `useState` updater receives a new
+  // Set reference, never a shared mutation).
+  const handleCollapseAll = useCallback((): void => {
+    setExpanded(() => new Set());
+  }, []);
+
+  // ---- EXPLORER-ORIENT — orientation render block ----
+  // Renders the discoverable entry-orientation affordance:
+  //   - `data-tree-counts` — the canonical "<N> folders,
+  //     <N> files" text derived from the loaded tree
+  //     (only visible when the loaded tree has a non-null
+  //     root; never fabricated for empty / loading /
+  //     errored branches).
+  //   - Expand-all + collapse-all buttons — bulk
+  //     orientation controls that operate on folder
+  //     paths. The buttons are disabled when the loaded
+  //     tree has a null root (defensive guard against a
+  //     degenerate `{ exists: true, root: null }`
+  //     payload) so a click can never fire a no-op
+  //     expansion.
+  //
+  // The block lives next to the existing
+  // `.fex-tree-header` markup so the orientation controls
+  // sit visually adjacent to the "Research" title +
+  // remain discoverable without forcing the user to
+  // scroll. The block is always rendered (so the layout
+  // doesn't shift when the tree loads) — the counts
+  // block stays empty for the idle / loading / empty /
+  // errored branches so no fabricated counts ever
+  // surface.
+  const renderOrientationControls = (): ReactNode => {
+    const rootIsLoaded =
+      loadStatus.kind === "loaded" && loadStatus.tree.root !== null;
+    const countsText = rootIsLoaded
+      ? `${orientation.counts.folders} folders, ${orientation.counts.files} files`
+      : "";
+    const orientationDisabled = !rootIsLoaded;
+    return (
+      <div className="fex-tree-orientation" data-tree-orientation="">
+        <span
+          className="fex-tree-counts"
+          data-tree-counts=""
+          aria-live="polite"
+        >
+          {countsText}
+        </span>
+        <button
+          type="button"
+          className="fex-tree-expand-all-btn fex-snippet-btn"
+          title="Expand all folders"
+          aria-label="Expand all folders"
+          data-tree-expand-all=""
+          disabled={orientationDisabled}
+          onClick={handleExpandAll}
+        >
+          <span className="material-symbols-outlined" aria-hidden="true">
+            unfold_more
+          </span>
+          Expand all
+        </button>
+        <button
+          type="button"
+          className="fex-tree-collapse-all-btn fex-snippet-btn"
+          title="Collapse all folders"
+          aria-label="Collapse all folders"
+          data-tree-collapse-all=""
+          disabled={orientationDisabled}
+          onClick={handleCollapseAll}
+        >
+          <span className="material-symbols-outlined" aria-hidden="true">
+            unfold_less
+          </span>
+          Collapse all
+        </button>
+      </div>
+    );
+  };
+
   // Render the search block underneath the tree-header
   // toolbar (the legacy `web/file_explorer.js::renderSearchBlock()`
   // shape). The block is always visible — the user can
@@ -631,17 +941,20 @@ export default function Explorer(props: ExplorerProps): ReactNode {
         return renderErrorPane(loadStatus.message, loadTree);
       case "loaded":
         return (
-          <FileTree
-            tree={loadStatus.tree}
-            expanded={expanded}
-            selectedPath={selectedPath}
-            onToggleExpand={handleToggleExpand}
-            onSelectFile={handleSelectFile}
-            onOpenFile={handleOpenFile}
-            searchAnnotation={searchAnnotation}
-            searchMode={searchMode}
-            searchHideEmpty={searchHideEmpty}
-          />
+          <>
+            {renderOrientationControls()}
+            <FileTree
+              tree={loadStatus.tree}
+              expanded={expanded}
+              selectedPath={selectedPath}
+              onToggleExpand={handleToggleExpand}
+              onSelectFile={handleSelectFile}
+              onOpenFile={handleOpenFile}
+              searchAnnotation={searchAnnotation}
+              searchMode={searchMode}
+              searchHideEmpty={searchHideEmpty}
+            />
+          </>
         );
     }
   };

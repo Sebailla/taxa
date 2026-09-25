@@ -47,6 +47,19 @@ export const KEBAB_OPEN_ID_STORAGE_KEY = "taxa.tree.kebabOpenId" as const;
  *  pins the main route's storage surface verbatim). */
 export const INTERNAL_FLAG_STORAGE_KEY = "taxa-internal-ok" as const;
 
+/** localStorage key for the Browser-tab Explorer working-set
+ *  persistence (ODD-BSTATE-EXPLORER-PERSIST). The previous
+ *  W6.4 design owned the raw `taxa.fex.explorerState` key
+ *  inside `src/modules/research/presentation/explorer-storage.ts`;
+ *  the EXPLORER-PERSIST architecture correction routes every
+ *  localStorage I/O through the canonical per-key browser-state
+ *  chain so the Research module is free of `localStorage.*`
+ *  references. The user explicitly chose browser-local
+ *  persistence despite the existing sensitivity caveat (taxon
+ *  names + paths may be sensitive); the data stays on this
+ *  browser; no server transmission is added. */
+export const EXPLORER_STATE_STORAGE_KEY = "taxa.fex.explorerState" as const;
+
 /** Canonical ordered list of every storage key the typed store
  *  owns. The `reset()` affordance iterates this list; the
  *  `subscribe` dispatch table uses it to validate the key at
@@ -58,6 +71,7 @@ export const ALL_STORAGE_KEYS = [
   LAST_TAXON_ID_STORAGE_KEY,
   KEBAB_OPEN_ID_STORAGE_KEY,
   INTERNAL_FLAG_STORAGE_KEY,
+  EXPLORER_STATE_STORAGE_KEY,
 ] as const;
 
 /** Union of every storage key literal. */
