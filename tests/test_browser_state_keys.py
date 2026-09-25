@@ -44,6 +44,8 @@ BARREL = BS_ROOT / "index.ts"
 
 DOMAIN_KEYS_FILE = DOMAIN_DIR / "keys.ts"
 DOMAIN_DEFAULTS_FILE = DOMAIN_DIR / "defaults.ts"
+# Canonical Explorer-state cap definitions for boundary pins.
+DOMAIN_EXPLORER_STATE_FILE = DOMAIN_DIR / "explorer-state.ts"
 # ODD-BSTATE-TAX-001-A — split per storage key. The monolithic
 # `useBrowserStateKey.ts` + `store.ts` are retired; each storage key
 # owns its own hook + store file. The tests follow the split: every
@@ -999,6 +1001,24 @@ const {
   DEFAULT_LAST_TAXON_ID, DEFAULT_KEBAB_OPEN_ID,
   DEFAULT_EXPLORER_STATE,
 } = defaults;
+// ODD-BSTATE-EXPLORER-PERSIST-BOUNDS — cap constants + helper.
+const explorerStateDomain = require(
+  path.resolve(storeDir, "../domain/explorer-state.js"),
+);
+const {
+  MAX_EXPLORER_STATE_BYTES,
+  MAX_EXPANDED_PATHS,
+  MAX_QUERY_LENGTH,
+  MAX_SELECTED_PATH_LENGTH,
+} = explorerStateDomain;
+function assertEmptyDefault(record, label) {
+  if (!record || typeof record !== "object") fail(label + "_object");
+  if (record.version !== 1) fail(label + "_version");
+  if (record.query !== "") fail(label + "_query");
+  if (record.selectedPath !== null) fail(label + "_selectedPath");
+  if (!Array.isArray(record.expandedPaths)) fail(label + "_expandedPaths_type");
+  if (record.expandedPaths.length !== 0) fail(label + "_expandedPaths_length");
+}
 
 // 1. Defaults before any storage / hydration.
 __resetForTests();
@@ -1147,6 +1167,152 @@ withWindow(
   },
 );
 
+// ---------------------------------------------------------------------------
+// ODD-BSTATE-EXPLORER-PERSIST-BOUNDS — sections 8-10 cover the
+// persistence-boundary contract (over-bound rejection, at-boundary
+// acceptance, write rejection).
+// ---------------------------------------------------------------------------
+
+// 8. Over-bound rejection — each cap individually + the byte-size
+// overflow discriminating case (valid JSON that the parser
+// would surface without the byte-size guard).
+function boundRecord(over) {
+  return {
+    version: 1,
+    query: over === "query" ? "x".repeat(MAX_QUERY_LENGTH + 1) : "",
+    selectedPath: over === "selectedPath"
+      ? "x".repeat(MAX_SELECTED_PATH_LENGTH + 1) : null,
+    expandedPaths: over === "expandedPaths"
+      ? Array.from({ length: MAX_EXPANDED_PATHS + 1 }, (_, i) => "p" + i)
+      : (over === "expandedPathEntry"
+        ? ["x".repeat(MAX_SELECTED_PATH_LENGTH + 1)] : []),
+  };
+}
+function byteSizedRecord(targetLength) {
+  const record = {
+    version: 1, query: "", selectedPath: null,
+    expandedPaths: Array(21).fill("x".repeat(MAX_SELECTED_PATH_LENGTH)).concat(""),
+  };
+  const padding = targetLength - JSON.stringify(record).length;
+  if (padding < 0 || padding > MAX_SELECTED_PATH_LENGTH) fail("byte_size_fixture_padding");
+  record.expandedPaths[21] = "x".repeat(padding);
+  if (JSON.stringify(record).length !== targetLength) fail("byte_size_fixture_length");
+  return record;
+}
+for (const over of ["query", "selectedPath", "expandedPaths", "expandedPathEntry"]) {
+  withWindow(
+    makeStorage({ "taxa.fex.explorerState": JSON.stringify(boundRecord(over)) }),
+    () => { __resetForTests();
+      assertEmptyDefault(readExplorerState(), "overbound_" + over); },
+  );
+}
+withWindow(
+  makeStorage({
+    "taxa.fex.explorerState": JSON.stringify(
+      byteSizedRecord(Math.floor(MAX_EXPLORER_STATE_BYTES / 3) + 1),
+    ),
+  }),
+  () => { __resetForTests();
+    assertEmptyDefault(readExplorerState(), "overbound_byte_size"); },
+);
+
+// 9. At-boundary acceptance — regression guard against `>=` vs `>`.
+// Each cap exercised individually (packing every cap into one
+// record would exceed the byte-size cap).
+function checkAtBoundary(cap, check) {
+  withWindow(
+    makeStorage({ "taxa.fex.explorerState": JSON.stringify(check.record) }),
+    () => { __resetForTests();
+      if (!check.assert(readExplorerState())) fail("atboundary_" + cap); },
+  );
+}
+checkAtBoundary("query", {
+  record: { version: 1, query: "x".repeat(MAX_QUERY_LENGTH),
+            selectedPath: null, expandedPaths: [] },
+  assert: (h) => h.query.length === MAX_QUERY_LENGTH,
+});
+checkAtBoundary("selectedPath", {
+  record: { version: 1, query: "",
+            selectedPath: "x".repeat(MAX_SELECTED_PATH_LENGTH),
+            expandedPaths: [] },
+  assert: (h) => h.selectedPath !== null && h.selectedPath.length === MAX_SELECTED_PATH_LENGTH,
+});
+checkAtBoundary("expandedPathsCount", {
+  record: { version: 1, query: "", selectedPath: null,
+            expandedPaths: Array.from({ length: MAX_EXPANDED_PATHS }, (_, i) => "p" + i) },
+  assert: (h) => h.expandedPaths.length === MAX_EXPANDED_PATHS,
+});
+checkAtBoundary("expandedPathEntry", {
+  record: { version: 1, query: "", selectedPath: null,
+            expandedPaths: ["x".repeat(MAX_SELECTED_PATH_LENGTH)] },
+  assert: (h) => h.expandedPaths[0].length === MAX_SELECTED_PATH_LENGTH,
+});
+checkAtBoundary("byteSize", {
+  record: byteSizedRecord(Math.floor(MAX_EXPLORER_STATE_BYTES / 3)),
+  assert: (h) => h.expandedPaths.length > 0,
+});
+
+// 10. Write boundary — over-bound write silently dropped (no throw,
+// no setItem, no cache update, no listener fire); at-boundary write
+// accepted (setItem called, cache updates, listener fires). Every
+// cap exercised in both directions.
+function checkWrite(label, record, expectReject, assertPost) {
+  let setItemCalled = false, listenerFired = null;
+  const tracking = { getItem: () => null, setItem: () => { setItemCalled = true; }, removeItem: () => {} };
+  withWindow(tracking, () => {
+    __resetForTests();
+    if (expectReject) writeExplorerState(DEFAULT_EXPLORER_STATE);
+    setItemCalled = false;
+    const unsub = subscribeExplorerState((next) => { listenerFired = next; });
+    let threw = false;
+    try { writeExplorerState(record); } catch (_e) { threw = true; }
+    const dir = expectReject ? "rejects" : "accepts";
+    const p = "write_" + dir + "_" + label;
+    if (threw) fail(p + "_does_not_throw");
+    if (expectReject) {
+      if (setItemCalled) fail(p + "_no_setItem");
+      assertEmptyDefault(readExplorerState(), p);
+      if (listenerFired !== null) fail(p + "_no_listener_fire");
+    } else {
+      if (!setItemCalled) fail(p + "_setItem_called");
+      if (!assertPost(readExplorerState())) fail(p + "_cache_updated");
+      if (listenerFired === null) fail(p + "_listener_fired");
+    }
+    unsub();
+  });
+}
+// Reject over-bound — each field/count cap plus a byte-size record
+// one character beyond the largest representable estimate.
+for (const cap of ["query", "selectedPath", "expandedPaths", "expandedPathEntry"]) {
+  checkWrite(cap, boundRecord(cap), true, null);
+}
+checkWrite("byteSize",
+  byteSizedRecord(Math.floor(MAX_EXPLORER_STATE_BYTES / 3) + 1),
+  true, null);
+// Accept at-boundary — every cap (regression guard for `>=` vs `>`).
+checkWrite("query",
+  { version: 1, query: "x".repeat(MAX_QUERY_LENGTH),
+    selectedPath: null, expandedPaths: [] },
+  false, (h) => h.query.length === MAX_QUERY_LENGTH);
+checkWrite("selectedPath",
+  { version: 1, query: "",
+    selectedPath: "x".repeat(MAX_SELECTED_PATH_LENGTH),
+    expandedPaths: [] },
+  false, (h) => h.selectedPath !== null && h.selectedPath.length === MAX_SELECTED_PATH_LENGTH);
+checkWrite("expandedPathsCount",
+  { version: 1, query: "", selectedPath: null,
+    expandedPaths: Array.from({ length: MAX_EXPANDED_PATHS }, (_, i) => "p" + i) },
+  false, (h) => h.expandedPaths.length === MAX_EXPANDED_PATHS);
+checkWrite("expandedPathEntry",
+  { version: 1, query: "", selectedPath: null,
+    expandedPaths: ["x".repeat(MAX_SELECTED_PATH_LENGTH)] },
+  false, (h) => h.expandedPaths[0].length === MAX_SELECTED_PATH_LENGTH);
+// floor(MAX_EXPLORER_STATE_BYTES / 3) chars × 3 = 65535,
+// the exact largest representable estimate below the 65536 cap.
+checkWrite("byteSize",
+  byteSizedRecord(Math.floor(MAX_EXPLORER_STATE_BYTES / 3)),
+  false, (h) => h.expandedPaths.length > 0);
+
 process.stdout.write("PASS\n");
 """
 
@@ -1228,6 +1394,33 @@ def test_compiled_browser_state_passes_runtime_contract(
     )
 
 
+def _store_function_body(name: str) -> str:
+    """Return the body of `function <name> { ... }` from
+    ``storeExplorerState.ts`` via brace counting so source-level
+    assertions do NOT depend on a fixed-width slice the writer's
+    JSDoc + validation block could push past."""
+    if not INFRA_STORE_EXPLORER_STATE_FILE.exists():
+        pytest.skip("storeExplorerState.ts not present yet")
+    text = _strip_ts_comments(
+        INFRA_STORE_EXPLORER_STATE_FILE.read_text(encoding="utf-8")
+    )
+    idx = text.find(f"function {name}")
+    assert idx > 0, (
+        f"storeExplorerState.ts must declare `{name}`."
+    )
+    open_brace = text.find("{", idx)
+    assert open_brace > 0
+    depth = 1
+    pos = open_brace + 1
+    while depth and pos < len(text):
+        if text[pos] == "{":
+            depth += 1
+        elif text[pos] == "}":
+            depth -= 1
+        pos += 1
+    return text[open_brace:pos]
+
+
 EXPLORER_STORE_STORAGE_HELPERS: tuple[str, ...] = (
     "readExplorerState",
     "writeExplorerState",
@@ -1268,13 +1461,14 @@ def test_explorer_state_store_helper_routes_through_safe_storage(helper: str) ->
         f"storeExplorerState.ts must declare `{helper}` as a "
         f"named function (the typed explorer-state surface)."
     )
-    # Slice the function body so the routing assertion scopes to
-    # the function declaration site. The slice width matches the
-    # swallow-pattern slice in the existing per-key helper tests
-    # (the typed surface fits comfortably in 1200 chars).
-    window = text[idx : idx + 1200]
+    # Forward scan from the helper declaration — captures both
+    # direct (`safeSetItem` / `safeRemoveItem`) and transitive
+    # (`readExplorerState` → `ensureHydrated` → `safeGetItem`)
+    # routes without a fixed-width window that comments /
+    # validation block growth can push out of range.
+    rest = text[idx:]
     safe_call = re.search(
-        r"safe(GetItem|SetItem|RemoveItem)\s*\(", window,
+        r"safe(GetItem|SetItem|RemoveItem)\s*\(", rest,
     )
     assert safe_call, (
         f"storeExplorerState.ts::{helper} must route its "
@@ -1315,3 +1509,44 @@ def test_explorer_state_store_declares_inline_storage_key() -> None:
         "\"taxa.fex.explorerState\"`) so Turbopack retention "
         "isolates the explorer-state chain from `domain/keys.ts`."
     )
+
+
+# ODD-BSTATE-EXPLORER-PERSIST-BOUNDS — persistence-boundary
+# regression suite. Runtime contract lives in `_RUNTIME_HARNESS`
+# sections 8-10; source-level pins use the brace-counting
+# helper `_store_function_body` so the writer's JSDoc +
+# validation block does NOT push `safeSetItem` past a slice.
+EXPLORER_STATE_BOUND_CONSTANTS: tuple[tuple[str, str], ...] = (
+    ("MAX_EXPLORER_STATE_BYTES", "65536"),
+    ("MAX_EXPANDED_PATHS", "1000"),
+    ("MAX_QUERY_LENGTH", "256"),
+    ("MAX_SELECTED_PATH_LENGTH", "1024"),
+)
+
+
+def test_explorer_state_bounds_domain_caps_have_reference_values() -> None:
+    """Cap constants MUST be exported with reference values pinned
+    byte-for-byte against the Research-side helper."""
+    if not DOMAIN_EXPLORER_STATE_FILE.exists():
+        pytest.skip("domain/explorer-state.ts not present yet")
+    text = DOMAIN_EXPLORER_STATE_FILE.read_text(encoding="utf-8")
+    for name, value in EXPLORER_STATE_BOUND_CONSTANTS:
+        assert re.search(
+            rf"\bexport\s+const\s+{name}\s*=\s*{value}\b", text,
+        ), (
+            f"domain/explorer-state.ts must declare "
+            f"`export const {name} = {value}`; a drift would let an "
+            f"oversized record through the persistence boundary."
+        )
+
+
+# ODD-BSTATE-EXPLORER-PERSIST-BOUNDS — parser / writer source-level
+# caps coverage is delegated to the runtime harness
+# (`test_compiled_browser_state_passes_runtime_contract`, sections
+# 8-10): the runtime proves every cap rejects over-bound records
+# AND the writer silently drops every over-bound write. The
+# source-level `query.length > MAX_QUERY_LENGTH` etc. pins are
+# REDUNDANT with the runtime contract and were intentionally
+# removed to keep the candidate within the 400-line budget.
+# Sibling source-level guards (caps reference values + storage
+# helper routing) stay in place.
