@@ -33,6 +33,7 @@ APP_SHELL_GLOBAL_SEARCH_FILE = (
     / "AppShellGlobalSearch.tsx"
 )
 TAXONOMY_TREE_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "TaxonomyTree.tsx"
+HOME_CLIENT_FILE = REPO_ROOT / "src" / "app" / "_components" / "HomeClient.tsx"
 TAXONOMY_TREE_ROW_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "TreeRow.tsx"
 TAXONOMY_TREE_STATE_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "tree-state.ts"
 TAXONOMY_DETAIL_PANEL_FILE = REPO_ROOT / "src" / "modules" / "taxonomy" / "presentation" / "DetailPanel.tsx"
@@ -7543,24 +7544,112 @@ def test_layout_renders_version_banner_with_spans() -> None:
     )
 
 
-def test_taxonomy_tree_renders_app_js_script_tag() -> None:
-    """ODD-MIGRATE-007-DOM-006 — marker #6: the React mount must
-    render a `<script src="/app.js">` script tag from
+def test_taxonomy_tree_handle_select_writes_taxon_to_url() -> None:
+    """ODD-URLSTATE-001 — the click-driven `handleSelect` must
+    write the new selection to the URL via `router.replace` (NOT
+    `push`) so a fast-typing user does not fill the browser
+    history with one entry per click. The query param is `taxon`
+    and the value is the taxon's id. The handler MUST NOT push
+    when `selected === id` (re-selecting the same row churns the
+    URL for nothing). `useRouter` from `next/navigation` is the
+    App Router hook that performs the in-app replace.
+    """
+    text = _read_text(TAXONOMY_TREE_FILE)
+    assert re.search(
+        r'import\s*\{[^}]*\buseRouter\b[^}]*\}\s*from\s*["\']next/navigation["\']',
+        text,
+    ), (
+        "TaxonomyTree.tsx must `import { useRouter } from \"next/navigation\"` "
+        "so the click-driven selection writes the URL via "
+        "`router.replace(\"/?taxon=ID\")`."
+    )
+    assert re.search(
+        r'import\s*\{[^}]*\buseSearchParams\b[^}]*\}\s*from\s*["\']next/navigation["\']',
+        text,
+    ), (
+        "TaxonomyTree.tsx must `import { useSearchParams } from \"next/navigation\"` "
+        "so the URL → state sync effect reads the `taxon` query param."
+    )
+    handler_block = re.search(
+        r"const handleSelect\s*=\s*useCallback\(\s*[\s\S]*?\n\s*\},",
+        text,
+    )
+    assert handler_block, (
+        "TaxonomyTree.tsx must keep a `handleSelect = useCallback(...)` "
+        "block so the click-driven selection primitive stays single-source."
+    )
+    handler_body = handler_block.group(0)
+    assert "router.replace" in handler_body, (
+        "TaxonomyTree.tsx `handleSelect` must call `router.replace(...)` "
+        "to write the new selection to the URL."
+    )
+    assert "?taxon=" in handler_body, (
+        "TaxonomyTree.tsx `handleSelect` must call `router.replace(...)` "
+        "with a `?taxon=` query param so the URL encodes the selected taxon id."
+    )
+    assert "selected !== id" in handler_body, (
+        "TaxonomyTree.tsx `handleSelect` must guard on "
+        "`selected !== id` so re-selecting the same row does not churn the URL."
+    )
+
+
+def test_home_client_wraps_taxonomy_tree_in_suspense() -> None:
+    """ODD-URLSTATE-001 — TaxonomyTree reads `?taxon=ID` via
+    `useSearchParams()` so it must live under a Suspense boundary
+    at static-export prerender time. Without the Suspense
+    wrapper, Next.js opts the page out of static rendering and
+    the build fails with a prerender error.
+    """
+    text = _read_text(HOME_CLIENT_FILE)
+    assert re.search(
+        r'import\s*\{[^}]*\bSuspense\b[^}]*\}\s*from\s*["\']react["\']',
+        text,
+    ), (
+        "HomeClient.tsx must `import { Suspense } from \"react\"` "
+        "so TaxonomyTree can live under a Suspense boundary at "
+        "static-export prerender time."
+    )
+    assert re.search(
+        r"<Suspense\b[^>]*>[\s\S]*?<TaxonomyTree\b[\s\S]*?</Suspense>",
+        text,
+        re.DOTALL,
+    ), (
+        "HomeClient.tsx must wrap `<TaxonomyTree ... />` in a "
+        "`<Suspense ...>` boundary so Next.js can prerender the "
+        "page at static-export time without the prerender opting "
+        "out for `useSearchParams`."
+    )
+
+
+def test_home_client_renders_app_js_script_tag() -> None:
+    """ODD-MIGRATE-007-DOM-006 — marker #6: the `/` route mount
+    must render a `<script src="/app.js">` script tag from
     `next/script` (with `strategy="afterInteractive"` so the
     bundle marker is present in the DOM but does not block
     hydration). The legacy `web/index.html` declares the script
     tag verbatim; the file does NOT exist on the static export
     (404 on fetch), but the marker alone satisfies the contract
-    — no fallback handling is required."""
-    text = _read_text(TAXONOMY_TREE_FILE)
+    — no fallback handling is required.
+
+    ODD-URLSTATE-001 — the script was hoisted from TaxonomyTree
+    into HomeClient so it ships in the static-export prerender
+    even when TaxonomyTree itself is wrapped in a Suspense
+    boundary (a `<Script>` nested inside the tree would never
+    reach the prerendered HTML because the tree's render output
+    is replaced by the fallback at prerender time). HomeClient
+    is outside the Suspense boundary so the Script element
+    is preserved verbatim."""
+    text = _read_text(HOME_CLIENT_FILE)
     # The mount must import `Script` from `next/script`.
     assert re.search(
         r'import\s+Script\s+from\s+["\']next/script["\']',
         text,
     ), (
-        "TaxonomyTree.tsx must `import Script from \"next/script\"` "
+        "HomeClient.tsx must `import Script from \"next/script\"` "
         "so the #app.js marker ships via Next 16's <Script> loader "
-        "(ODD-MIGRATE-007-DOM-006 marker #6)."
+        "(ODD-MIGRATE-007-DOM-006 marker #6). Hoisted out of "
+        "TaxonomyTree so the marker ships even when the tree is "
+        "wrapped in a Suspense boundary for static-export prerender."
     )
     # The mount must render a `<Script src="/app.js" ...>` element.
     assert re.search(
@@ -7568,7 +7657,7 @@ def test_taxonomy_tree_renders_app_js_script_tag() -> None:
         text,
         re.DOTALL,
     ), (
-        "TaxonomyTree.tsx must render `<Script src=\"/app.js\" ...>` "
+        "HomeClient.tsx must render `<Script src=\"/app.js\" ...>` "
         "so the legacy bundle marker is present in the DOM "
         "(ODD-MIGRATE-007-DOM-006 marker #6)."
     )
@@ -7580,7 +7669,7 @@ def test_taxonomy_tree_renders_app_js_script_tag() -> None:
         text,
         re.DOTALL,
     ), (
-        "TaxonomyTree.tsx must render `<Script strategy=\"afterInteractive\" ...>` "
+        "HomeClient.tsx must render `<Script strategy=\"afterInteractive\" ...>` "
         "so the bundle marker loads after hydration without blocking initial paint "
         "(ODD-MIGRATE-007-DOM-006 marker #6)."
     )
