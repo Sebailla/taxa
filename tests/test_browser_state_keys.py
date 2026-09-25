@@ -122,6 +122,7 @@ OTHER_CAPABILITIES: tuple[str, ...] = (
 # Layer names per spec.md rule 3.
 LAYERS: tuple[str, ...] = (
     "presentation",
+    "taxa.fex.explorerState",
     "application",
     "domain",
     "infrastructure",
@@ -709,7 +710,15 @@ def test_other_module_does_not_touch_localstorage(other_module: str) -> None:
 # ---------------------------------------------------------------------------
 def test_keys_file_declares_four_storage_key_literals() -> None:
     """`domain/keys.ts` declares the four localStorage key literals
-    exactly once each (so a typo would surface here)."""
+    exactly once each (so a typo would surface here).
+
+    ODD-BSTATE-EXPLORER-PERSIST — the canonical key set now
+    includes the explorer-state key (`taxa.fex.explorerState`)
+    after the EXPLORER-PERSIST architecture correction. The
+    test iterates over `EXPECTED_STORAGE_KEYS` so adding a
+    fifth literal here immediately verifies the new key
+    declaration lands in `domain/keys.ts`.
+    """
     if not DOMAIN_KEYS_FILE.exists():
         pytest.skip("keys.ts not present yet")
     text = DOMAIN_KEYS_FILE.read_text(encoding="utf-8")
@@ -885,6 +894,12 @@ const makeStorage = (initial) => {
 function withWindow(storage, fn) {
   const prevWindow = globalThis.window;
   const prevLS = globalThis.localStorage;
+
+    ODD-BSTATE-EXPLORER-PERSIST — the explorer-state default
+    lands as `DEFAULT_EXPLORER_STATE` (typed
+    `PersistedExplorerState`). The constant points at a fresh
+    empty record so the SSR + first-render hydration snapshot
+    matches the typed default without a stored-value race.
   globalThis.window = { localStorage: storage };
   globalThis.localStorage = storage;
   try {
@@ -906,6 +921,14 @@ const fail = (label) => {
 // store module separately and the `reset.js` aggregate. The
 // five argv slots are exactly: storeTheme, storeTreeSource,
 // storeLastTaxonId, storeKebabOpenId, reset. tsc preserves
+    # ODD-BSTATE-EXPLORER-PERSIST — the explorer-state default
+    # MUST be present after the architecture correction.
+    assert re.search(r"DEFAULT_EXPLORER_STATE\b", text), (
+        "defaults.ts must declare `DEFAULT_EXPLORER_STATE` "
+        "(the typed PersistedExplorerState default the "
+        "EXPLORER-PERSIST chain falls back to on SSR + first "
+        "client render)."
+    )
 // the layer folder structure (--rootDir + per-source
 // relative paths), so the compiled files land under
 // `out_dir/infrastructure/{storeTheme,storeTreeSource,…}.js`
