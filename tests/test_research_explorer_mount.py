@@ -9721,3 +9721,465 @@ def test_w6_4_parse_raw_byte_guard_precedes_json_parse() -> None:
         f"(`infrastructure/storeExplorerState.ts`) keeps "
         f"the guard strictly before the parser call."
     )
+
+
+# ---------------------------------------------------------------------------
+# Slice 10 — Explorer persistence wiring (EXPLORER-PERSIST
+# hydration contract). Source-level pins that the
+# `useExplorerState` hook integration MUST satisfy.
+#
+# The slice 10 contract wires the published canonical
+# `useExplorerState` hook (`@taxa/browser-state`) into
+# `Explorer.tsx` so the Browser-tab Explorer working set
+# (search query / selected path / expanded folders)
+# persists across reloads WITHOUT a render-time
+# `localStorage` read. The pin suite guards the
+# hydration-safe surface end-to-end:
+#
+#   - The hook import lives on the `@taxa/browser-state`
+#     barrel (NOT a deep import into
+#     `application/useExplorerState`).
+#   - The legacy `readPersistedExplorerState` helper is
+#     removed (a direct call would re-introduce a
+#     render-time storage read and break the hydration
+#     guard).
+#   - The `useState` initialisers for `expanded` /
+#     `selectedPath` / `searchQuery` reference the
+#     persisted snapshot so the typed fields land on the
+#     very first React render after hydration without a
+#     render-time read.
+#   - `validateAgainstTree` is paired with
+#     `collectAllTreePaths` for the freshly loaded tree
+#     branch so stale expanded / selected paths are
+#     discarded and duplicate expanded paths collapse to
+#     a single entry in stable first-seen order.
+#   - A `useEffect([searchQuery, selectedPath, expanded],
+#     ...)` block writes the state to storage on change
+#     so every user action persists immediately.
+#
+# Every assertion is source-level (a regex / substring
+# scan over `Explorer.tsx`) so the contract stays pinned
+# without spinning up a React renderer. The dedicated
+# React-rendering contract lives in the Playwright
+# follow-up slice.
+# ---------------------------------------------------------------------------
+
+
+def test_w6_5_explorer_imports_use_explorer_state_from_browser_state() -> None:
+    """Slice 10 — `Explorer.tsx` MUST import
+    `useExplorerState` from `@taxa/browser-state` (the
+    canonical hydration-safe hook published by PR #428 /
+    commit `f4a5c0a`). The hook returns a typed
+    `[PersistedExplorerState | null, setter]` tuple
+    where `null` is the server + hydration snapshot and
+    the stored value surfaces on the post-hydration
+    render. A direct deep import into
+    `@taxa/browser-state/application/useExplorerState`
+    is FORBIDDEN — the public barrel is the only legal
+    consumer surface (spec.md rule 5 + the
+    no-restricted-imports ESLint guard). The mount
+    reaches the hook through the barrel so the React
+    layer stays free of cross-module deep imports.
+
+    Comments are stripped before scanning so a doc-
+    block referencing `useExplorerState` as
+    documentation does not trip the guard.
+    """
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = _strip_ts_comments(EXPLORER_FILE.read_text())
+    # The hook import must come from the public
+    # `@taxa/browser-state` barrel — NOT a deep import
+    # into `application/useExplorerState`.
+    import_match = re.search(
+        r'import\s*\{([^}]*)\}\s*from\s*'
+        r'["\']@taxa/browser-state["\']',
+        text,
+    )
+    assert import_match, (
+        "Explorer.tsx must import from `@taxa/browser-state` "
+        "(the canonical per-key browser-state store). Slice 10 "
+        "wires the published `useExplorerState` hook from PR #428 "
+        "/ commit f4a5c0a through the public barrel. A direct "
+        "deep import into `application/useExplorerState` is "
+        "FORBIDDEN by the no-restricted-imports ESLint guard."
+    )
+    import_body = import_match.group(1)
+    assert "useExplorerState" in import_body, (
+        "Explorer.tsx's `@taxa/browser-state` import must "
+        "include `useExplorerState` — the hydration-safe React "
+        "adapter for the typed explorer-state store. The hook "
+        "returns `[PersistedExplorerState | null, setter]`; "
+        "server + hydration renders both return `null` so the "
+        "hydration guard never trips on a stored value, and the "
+        "post-hydration render surfaces the persisted working "
+        "set."
+    )
+    # Deep imports into the application layer are forbidden.
+    assert (
+        "from \"@taxa/browser-state/application" not in text
+        and "from '@taxa/browser-state/application" not in text
+    ), (
+        "Explorer.tsx must NOT deep-import into "
+        "`@taxa/browser-state/application/useExplorerState` — "
+        "the hook must be reached through the public barrel "
+        "`@taxa/browser-state` only. A deep import bypasses the "
+        "no-restricted-imports ESLint guard and re-bundles the "
+        "chunk-boundary contract."
+    )
+
+
+def test_w6_5_explorer_does_not_read_persisted_state_during_render() -> None:
+    """Slice 10 — `Explorer.tsx` MUST NOT call
+    `readPersistedExplorerState(` directly. The legacy
+    helper is replaced by the canonical `useExplorerState`
+    hook (which reads storage AFTER hydration through
+    `useSyncExternalStore`, NEVER during render). A
+    direct call to `readPersistedExplorerState` would
+    re-introduce a render-time storage read and break
+    the hydration guard. The legacy `readPersistedExplorerState`
+    import MUST be removed entirely — the helper is
+    unused at the mount level after the slice 10 wiring.
+
+    The test is intentionally permissive: it accepts the
+    current "vacuous GREEN" state (no import / no call)
+    AND the post-implementation state (no import / no
+    call because the hook replaces the helper). A future
+    PR that re-imports or re-calls the legacy helper is
+    caught before review.
+    """
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = _strip_ts_comments(EXPLORER_FILE.read_text())
+    # No direct call to readPersistedExplorerState( — the
+    # helper must not be invoked anywhere in the file.
+    direct_call = re.search(
+        r"readPersistedExplorerState\s*\(",
+        text,
+    )
+    assert not direct_call, (
+        "Explorer.tsx must NOT call `readPersistedExplorerState(` "
+        "directly. Slice 10 wires `useExplorerState` from "
+        "`@taxa/browser-state` — the hook's `useSyncExternalStore` "
+        "reads storage AFTER hydration, never during render. A "
+        "direct call to `readPersistedExplorerState` creates a "
+        "render-time storage read that breaks the hydration "
+        "guard and silently causes server/client markup "
+        "mismatch on the first paint."
+    )
+    # The legacy import must be removed — even an unused
+    # import surfaces the helper as a tempting call
+    # target for a future PR.
+    legacy_import = re.search(
+        r'import\s*\{[^}]*\breadPersistedExplorerState\b[^}]*\}'
+        r'\s*from\s*["\']@taxa/research["\']',
+        text,
+    )
+    assert not legacy_import, (
+        "Explorer.tsx must NOT import `readPersistedExplorerState` "
+        "from `@taxa/research` — the slice 10 contract replaces "
+        "the legacy helper with the canonical `useExplorerState` "
+        "hook from `@taxa/browser-state`. A leftover import would "
+        "be a regression vector for a future PR that re-introduces "
+        "the legacy render-time read."
+    )
+
+
+def test_w6_5_explorer_seeds_state_from_persisted_snapshot() -> None:
+    """Slice 10 — the `useState` initialisers for
+    `expanded` / `selectedPath` / `searchQuery` MUST
+    reference the persisted snapshot so the typed
+    fields land on the very first React render after
+    hydration without a render-time read. The
+    initialiser pattern is `useState(() => …)` — a
+    lazy initialiser that captures the persisted value
+    once without re-running on every render.
+
+    The test accepts EITHER naming convention:
+      - `persistedSnapshot.X` (the memoised
+        `PersistedExplorerState` derived from the hook).
+      - `persistedExplorerState?.X` (the raw hook value,
+        with the null branch short-circuited by the
+        `?? default` fallback).
+
+    Both shapes preserve the EXPLORER-ORIENT no-default-
+    eager-expansion constraint: on first visit the
+    snapshot's `expandedPaths` is `[]`, so the tree
+    stays collapsed. On a subsequent visit the
+    snapshot's `expandedPaths` carries the persisted
+    set so the working set survives a route unmount /
+    reload.
+
+    Comments are stripped before scanning so the
+    doc-block can reference `persistedSnapshot` /
+    `persistedExplorerState` as documentation without
+    tripping the guard.
+    """
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = _strip_ts_comments(EXPLORER_FILE.read_text())
+    # The Explorer must derive BOTH the snapshot AND the
+    # hook value so the initialisers + the validation
+    # effect + the write effect can route through them.
+    assert "persistedSnapshot" in text, (
+        "Explorer.tsx must derive a `persistedSnapshot` from "
+        "the `useExplorerState` hook via `useMemo` so the "
+        "`useState` initialisers for `expanded` / "
+        "`selectedPath` / `searchQuery` can read the typed "
+        "`expandedPaths` / `selectedPath` / `query` fields. "
+        "The lazy initialiser pattern (`() => …`) lands the "
+        "persisted value on the very first React render after "
+        "hydration without a render-time storage read."
+    )
+    assert "useExplorerState" in text, (
+        "Explorer.tsx must reference `useExplorerState` so the "
+        "memoised `persistedSnapshot` derives from the hook's "
+        "typed `[PersistedExplorerState | null, setter]` tuple."
+    )
+    # The `expanded` useState MUST lazy-initialise from the
+    # persisted `expandedPaths`. The lenient pattern accepts
+    # EITHER the memoised snapshot OR the raw hook value
+    # (with the null branch short-circuited by a `?? default`
+    # fallback).
+    expanded_init_match = re.search(
+        r"useState<ReadonlySet<string>>\(\s*"
+        r"\(\)\s*=>\s*"
+        r"(?:new\s+Set\(\s*)?(?:persistedSnapshot|persistedExplorerState)"
+        r"(?:\?\.|\.)expandedPaths",
+        text,
+    )
+    assert expanded_init_match, (
+        "Explorer.tsx must initialise the `expanded` state via "
+        "`useState(() => …)` referencing the persisted "
+        "`expandedPaths`. The lazy initialiser accepts either "
+        "naming — `persistedSnapshot.expandedPaths` (memoised) "
+        "or `persistedExplorerState?.expandedPaths` (raw hook "
+        "value). The W6.4 `expandedPaths` regex test accepts "
+        "the memoised-shape variant; the slice 10 wiring uses "
+        "the memoised snapshot so the validation effect + the "
+        "write effect share the same value."
+    )
+    # The `selectedPath` useState MUST lazy-initialise from
+    # the persisted `selectedPath` field.
+    selected_init_match = re.search(
+        r"useState<string\s*\|\s*null>\(\s*"
+        r"\(\)\s*=>\s*"
+        r"(?:persistedSnapshot|persistedExplorerState)"
+        r"(?:\?\.|\.)selectedPath",
+        text,
+    )
+    assert selected_init_match, (
+        "Explorer.tsx must initialise the `selectedPath` state "
+        "via `useState(() => …)` referencing the persisted "
+        "`selectedPath`. The lazy initialiser accepts either "
+        "naming — `persistedSnapshot.selectedPath` (memoised) "
+        "or `persistedExplorerState?.selectedPath` (raw hook "
+        "value)."
+    )
+    # The `searchQuery` useState MUST lazy-initialise from the
+    # persisted `query` field.
+    query_init_match = re.search(
+        r"useState<string>\(\s*"
+        r"\(\)\s*=>\s*"
+        r"(?:persistedSnapshot|persistedExplorerState)"
+        r"(?:\?\.|\.)query",
+        text,
+    )
+    assert query_init_match, (
+        "Explorer.tsx must initialise the `searchQuery` state "
+        "via `useState(() => …)` referencing the persisted "
+        "`query`. The lazy initialiser accepts either naming — "
+        "`persistedSnapshot.query` (memoised) or "
+        "`persistedExplorerState?.query` (raw hook value)."
+    )
+
+
+def test_w6_5_explorer_calls_validate_against_tree_after_tree_load() -> None:
+    """Slice 10 — `Explorer.tsx` MUST call
+    `validateAgainstTree(` paired with
+    `collectAllTreePaths(` inside a `useEffect` that
+    fires after the tree loads. The pure helper
+    validates the persisted snapshot against the
+    freshly loaded tree: stale expanded paths are
+    discarded, duplicate expanded paths collapse to a
+    single entry in stable first-seen order, and a
+    stale `selectedPath` is reset to `null`. The
+    validation runs ONLY after the tree reaches the
+    `loaded` branch — pre-tree-load validation would
+    silently drop every persisted path because the
+    freshly loaded tree is `null`.
+
+    The test scans the comment-stripped source for
+    the two pure-helper call sites and asserts they
+    live inside a `useEffect` block that depends on
+    `loadStatus` (so the effect re-fires when the tree
+    re-fetches after a FolderTab dispatch).
+    """
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = _strip_ts_comments(EXPLORER_FILE.read_text())
+    # The two pure helpers must be imported — both live
+    # in `@taxa/research` (the pure-helper surface stays
+    # in the research-side kernel; the I/O surface lives
+    # in `@taxa/browser-state`).
+    assert "validateAgainstTree" in text, (
+        "Explorer.tsx must reference `validateAgainstTree` — "
+        "the pure helper that validates the persisted snapshot "
+        "against the freshly loaded tree. The helper discards "
+        "stale expanded paths, collapses duplicate expanded "
+        "paths to a single entry in stable first-seen order, "
+        "and resets a stale `selectedPath` to `null`."
+    )
+    assert "collectAllTreePaths" in text, (
+        "Explorer.tsx must reference `collectAllTreePaths` — "
+        "the pure tree walker that derives the freshly loaded "
+        "tree's path set for `validateAgainstTree` to filter "
+        "against. The helper returns a typed "
+        "`ReadonlySet<string>` so the validation step operates "
+        "on stable path membership."
+    )
+    # The `validateAgainstTree(` call site MUST live
+    # inside a `useEffect` block. The lenient heuristic
+    # scans the 1500-char window before each call site
+    # for a nearby `useEffect(` opener.
+    validate_call_idx = text.find("validateAgainstTree(")
+    assert validate_call_idx > 0, (
+        "Explorer.tsx must call `validateAgainstTree(` (the "
+        "pure validator). The validation step is the source "
+        "of truth for the persisted working set's survival "
+        "across reloads."
+    )
+    effect_open_idx = text.rfind("useEffect(", 0, validate_call_idx)
+    assert effect_open_idx > 0, (
+        "Explorer.tsx's `validateAgainstTree(` call MUST live "
+        "inside a `useEffect` block (no nearby `useEffect(` "
+        "opener appears before the call site). A bare call "
+        "outside a useEffect would run on every render and "
+        "silently mutate the persisted snapshot through the "
+        "validation's write-on-store flag."
+    )
+    assert (validate_call_idx - effect_open_idx) < 1500, (
+        "Explorer.tsx's `validateAgainstTree(` call MUST live "
+        "inside the `useEffect` block that depends on "
+        "`loadStatus` (the validation step runs after the "
+        "tree loads). The lenient 1500-char window catches the "
+        "typical `useEffect(() => { … })` shape plus the "
+        "tree-load guard plus the validation call site."
+    )
+    # The dependency array MUST include `loadStatus` so
+    # the validation re-fires when the tree re-fetches
+    # after a FolderTab dispatch.
+    window = text[
+        effect_open_idx : min(len(text), validate_call_idx + 200)
+    ]
+    assert "loadStatus" in window, (
+        "Explorer.tsx's validation `useEffect` MUST depend on "
+        "`loadStatus` so the validation re-fires when the "
+        "freshly loaded tree changes (a FolderTab dispatch "
+        "re-fetches the tree, and the persisted snapshot "
+        "must be re-validated against the new tree)."
+    )
+
+
+def test_w6_5_explorer_writes_state_to_storage_on_change() -> None:
+    """Slice 10 — `Explorer.tsx` MUST have a
+    `useEffect([searchQuery, selectedPath, expanded], …)`
+    block that writes the state to storage on change.
+    The write goes through the canonical
+    `@taxa/browser-state` writer — NOT a render-time
+    storage write. The effect fires on every state
+    change so the user's working set persists
+    immediately (a 200 ms debounce would lose data on a
+    quick route unmount; the slice 10 contract writes
+    on every change to avoid the loss).
+
+    The record shape MUST carry the typed
+    `PersistedExplorerState` fields — `query` /
+    `selectedPath` / `expandedPaths`. A write with no
+    field references would silently persist an empty /
+    broken record.
+
+    The test locates the write-on-change effect by
+    matching the dependency-array literal `[searchQuery,
+    selectedPath, expanded]` first (the slice 10
+    contract pins this exact triple) and then verifying
+    that a `writeExplorerState(` call site lives inside
+    the matching effect body. The lenient pattern
+    accepts either naming for the writer — the
+    canonical `writeExplorerState(` (browser-state) or
+    the legacy `writePersistedExplorerState(` alias —
+    so the test stays stable across the slice 10 wiring
+    transition.
+    """
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = _strip_ts_comments(EXPLORER_FILE.read_text())
+    # Locate the write-on-change effect by its
+    # dependency-array literal — the slice 10 contract
+    # pins `[searchQuery, selectedPath, expanded]` so
+    # every user action persists immediately. The
+    # pattern tolerates whitespace inside the array.
+    deps_match = re.search(
+        r"\}\s*,\s*\[\s*searchQuery\s*,\s*selectedPath\s*,\s*expanded\s*\]\s*\)",
+        text,
+    )
+    assert deps_match, (
+        "Explorer.tsx MUST have a `useEffect([searchQuery, "
+        "selectedPath, expanded], …)` block whose dependency "
+        "array carries the three state setters. The slice 10 "
+        "contract writes the working set on every user-driven "
+        "change so a quick route unmount / reload doesn't lose "
+        "data through a debounce."
+    )
+    effect_close_idx = deps_match.start()
+    # Walk BACKWARD from the dep-array close to find the
+    # nearest `useEffect(` opener. This anchors the
+    # effect body so the write call assertion stays
+    # scoped to the write-on-change effect (not the
+    # validation effect, which also writes but depends
+    # on `[loadStatus, persistedSnapshot]`).
+    effect_open_idx = text.rfind(
+        "useEffect(", 0, effect_close_idx,
+    )
+    assert effect_open_idx > 0, (
+        "Explorer.tsx's write-on-change effect MUST live "
+        "inside a `useEffect` block (no nearby `useEffect(` "
+        "opener appears before the dep-array close)."
+    )
+    # The effect body spans from `useEffect(` to the
+    # dep-array close — slice the window for the write-
+    # call assertion. The lenient 1500-char upper bound
+    # catches a deep-tree layout where the write call
+    # is far from the dep array.
+    effect_window = text[
+        effect_open_idx : min(len(text), effect_close_idx + 1500)
+    ]
+    write_call_match = re.search(
+        r"write(?:Explorer|PersistedExplorer)State\s*\(",
+        effect_window,
+    )
+    assert write_call_match, (
+        "Explorer.tsx's write-on-change `useEffect` MUST "
+        "call `writeExplorerState(` (canonical browser-state "
+        "writer) OR the legacy `writePersistedExplorerState(` "
+        "alias to persist the user's working set. The slice "
+        "10 wiring uses the canonical `writeExplorerState` "
+        "from `@taxa/browser-state`; the legacy alias is "
+        "intentionally unused at the mount level."
+    )
+    # The record shape MUST carry at least one typed
+    # `PersistedExplorerState` field reference
+    # (`query` / `selectedPath` / `expandedPaths`).
+    record_shape = re.search(
+        r"write(?:Explorer|PersistedExplorer)State\s*\(\s*\{"
+        r"[^}]*(?:query|selectedPath|expandedPaths)",
+        text,
+    )
+    assert record_shape, (
+        "Explorer.tsx's writer call MUST pass a record shape "
+        "carrying at least one typed `PersistedExplorerState` "
+        "field reference (`query` / `selectedPath` / "
+        "`expandedPaths`). A write with no field references "
+        "would silently persist an empty / broken record and "
+        "lose the user's working set."
+    )
