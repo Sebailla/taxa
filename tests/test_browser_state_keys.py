@@ -62,6 +62,18 @@ INFRA_STORE_KEBAB_OPEN_ID_FILE = INFRA_DIR / "storeKebabOpenId.ts"
 # `test_browser_state_infrastructure_owns_local_storage_calls`
 # includes this file alongside the four sibling stores.
 INFRA_STORE_INTERNAL_FLAG_FILE = INFRA_DIR / "storeInternalFlag.ts"
+# ODD-BSTATE-EXPLORER-PERSIST — explorer-state store. The Browser-
+# tab Explorer working-set persistence (EXPLORER-PERSIST of
+# `odd/tasks/explorer-orientation-state.md`) now lives behind the
+# canonical per-key browser-state chain (`taxa.fex.explorerState`).
+# The previous design owned the raw localStorage key inside
+# `src/modules/research/presentation/explorer-storage.ts`; the
+# architecture correction moves the I/O behind a typed per-key
+# store (`infrastructure/storeExplorerState.ts`) so the Research
+# module never touches `localStorage.*` directly. Research-side
+# pure helpers (parse / serialize / validate / collect) stay
+# local because the typed shape is part of the Explorer domain.
+INFRA_STORE_EXPLORER_STATE_FILE = INFRA_DIR / "storeExplorerState.ts"
 INFRA_STORE_RESET_FILE = INFRA_DIR / "reset.ts"
 INFRA_STORE_FILES: tuple[Path, ...] = (
     INFRA_STORE_THEME_FILE,
@@ -69,6 +81,7 @@ INFRA_STORE_FILES: tuple[Path, ...] = (
     INFRA_STORE_LAST_TAXON_ID_FILE,
     INFRA_STORE_KEBAB_OPEN_ID_FILE,
     INFRA_STORE_INTERNAL_FLAG_FILE,
+    INFRA_STORE_EXPLORER_STATE_FILE,
 )
 APP_HOOK_THEME_FILE = APP_DIR / "useTheme.ts"
 APP_HOOK_TREE_SOURCE_FILE = APP_DIR / "useTreeSource.ts"
@@ -107,6 +120,7 @@ EXPECTED_LOGICAL_NAMES: tuple[str, ...] = (
     "tree-source",
     "last-taxon-id",
     "kebab-open-id",
+    "explorer-state",
 )
 
 # Capabilities other than browser-state. Storage ownership MUST
@@ -188,13 +202,16 @@ def _strip_ts_comments(text: str) -> str:
 # exports + 4 removeItem calls inside `reset()`.
 EXPECTED_READ_FUNCTIONS: tuple[str, ...] = (
     "readTheme", "readTreeSource", "readLastTaxonId", "readKebabOpenId",
+    "readExplorerState",
 )
 EXPECTED_WRITE_FUNCTIONS: tuple[str, ...] = (
     "writeTheme", "writeTreeSource", "writeLastTaxonId", "writeKebabOpenId",
+    "writeExplorerState",
 )
 EXPECTED_SUBSCRIBE_FUNCTIONS: tuple[str, ...] = (
     "subscribeTheme", "subscribeTreeSource",
     "subscribeLastTaxonId", "subscribeKebabOpenId",
+    "subscribeExplorerState",
 )
 
 
@@ -243,6 +260,7 @@ def test_browser_state_barrel_exists() -> None:
         INFRA_STORE_LAST_TAXON_ID_FILE,
         INFRA_STORE_KEBAB_OPEN_ID_FILE,
         INFRA_STORE_INTERNAL_FLAG_FILE,
+        INFRA_STORE_EXPLORER_STATE_FILE,
         INFRA_STORE_RESET_FILE,
         APP_HOOK_THEME_FILE,
         APP_HOOK_TREE_SOURCE_FILE,
@@ -756,6 +774,7 @@ def test_defaults_file_exposes_four_typed_defaults() -> None:
         f"{null_count}. The two keys (last-taxon-id + kebab-open-id) "
         f"both have null as their spec-table default."
     )
+    assert "DEFAULT_EXPLORER_STATE" in text
 
 
 def test_barrel_exports_typed_surface() -> None:
@@ -785,10 +804,12 @@ def test_barrel_exports_typed_surface() -> None:
     expected_identifiers = [
         "DEFAULT_THEME", "DEFAULT_TREE_SOURCE",
         "DEFAULT_LAST_TAXON_ID", "DEFAULT_KEBAB_OPEN_ID",
+        "DEFAULT_EXPLORER_STATE",
         "readTheme", "writeTheme", "subscribeTheme",
         "readTreeSource", "writeTreeSource", "subscribeTreeSource",
         "readLastTaxonId", "writeLastTaxonId", "subscribeLastTaxonId",
         "readKebabOpenId", "writeKebabOpenId", "subscribeKebabOpenId",
+        "readExplorerState", "writeExplorerState", "subscribeExplorerState",
         "reset",
     ]
     missing = [name for name in expected_identifiers if name not in text]
@@ -1176,4 +1197,93 @@ def test_compiled_browser_state_passes_runtime_contract(
     )
     assert "PASS" in node.stdout, (
         f"runtime harness did not emit PASS; stdout={node.stdout!r}"
+    )
+
+
+EXPLORER_STORE_STORAGE_HELPERS: tuple[str, ...] = (
+    "readExplorerState",
+    "writeExplorerState",
+    "clearExplorerState",
+)
+
+
+@pytest.mark.parametrize("helper", EXPLORER_STORE_STORAGE_HELPERS)
+def test_explorer_state_store_helper_routes_through_safe_storage(helper: str) -> None:
+    """ODD-BSTATE-EXPLORER-PERSIST — the per-key explorer-state
+    store (`infrastructure/storeExplorerState.ts`) MUST route
+    every storage-touching helper (read / write / clear)
+    through the `safeStorage` helpers (`safeGetItem` /
+    `safeSetItem` / `safeRemoveItem`) so quota / SecurityError /
+    disabled-storage / SSR failures never propagate out of the
+    typed store. The `safeStorage` helpers wrap every
+    `localStorage.*` primitive in a `try { ... } catch { ... }`
+    so the storage-ownership contract (one storage primitive per
+    type, every primitive wrapped) stays enforced end-to-end.
+
+    The subscribe helper (`subscribeExplorerState`) is
+    intentionally excluded from this assertion: it owns pure
+    listener management (no `localStorage.*` site), so routing
+    through `safeStorage` would be dead weight. The focused
+    runtime harness in
+    `test_compiled_browser_state_passes_runtime_contract`
+    exercises the subscribe path end-to-end.
+    """
+    if not INFRA_STORE_EXPLORER_STATE_FILE.exists():
+        pytest.skip(
+            "storeExplorerState.ts not present yet (RED phase)"
+        )
+    text = _strip_ts_comments(
+        INFRA_STORE_EXPLORER_STATE_FILE.read_text(encoding="utf-8")
+    )
+    idx = text.find(f"function {helper}")
+    assert idx > 0, (
+        f"storeExplorerState.ts must declare `{helper}` as a "
+        f"named function (the typed explorer-state surface)."
+    )
+    # Slice the function body so the routing assertion scopes to
+    # the function declaration site. The slice width matches the
+    # swallow-pattern slice in the existing per-key helper tests
+    # (the typed surface fits comfortably in 1200 chars).
+    window = text[idx : idx + 1200]
+    safe_call = re.search(
+        r"safe(GetItem|SetItem|RemoveItem)\s*\(", window,
+    )
+    assert safe_call, (
+        f"storeExplorerState.ts::{helper} must route its "
+        f"`localStorage.*` call through the corresponding "
+        f"`safeGetItem` / `safeSetItem` / `safeRemoveItem` "
+        f"helper so quota / SecurityError / disabled-storage "
+        f"failures are swallowed. A direct "
+        f"`localStorage.{{getItem,setItem,removeItem}}(...)` "
+        f"call inside the helper would silently break the "
+        f"Explorer route's render cycle on private-browsing "
+        f"hosts."
+    )
+
+
+def test_explorer_state_store_declares_inline_storage_key() -> None:
+    """ODD-BSTATE-TAX-001-A — strict chunk-boundary contract.
+    The explorer-state chain MUST NOT pull `domain/keys.ts`
+    at runtime (that file declares the four sibling key
+    literals). A shared chunk carrying the four sibling keys
+    PLUS the explorer-state key would fail the
+    `test_out_index_html_chunks_permit_only_tree_source_key`
+    strict witness on the explorer route's chunk.
+
+    The canonical declaration in `domain/keys.ts` stays in
+    place for the spec-table preservation test + the public
+    barrel re-export. The two declarations are kept in sync
+    by the ODD-BSTATE-TAX-001-B strict chunk-boundary
+    witness itself.
+    """
+    if not INFRA_STORE_EXPLORER_STATE_FILE.exists():
+        pytest.skip(
+            "storeExplorerState.ts not present yet (RED phase)"
+        )
+    text = INFRA_STORE_EXPLORER_STATE_FILE.read_text(encoding="utf-8")
+    assert 'EXPLORER_STATE_STORAGE_KEY = "taxa.fex.explorerState"' in text, (
+        "storeExplorerState.ts MUST declare the storage key "
+        "inline (`const EXPLORER_STATE_STORAGE_KEY = "
+        "\"taxa.fex.explorerState\"`) so Turbopack retention "
+        "isolates the explorer-state chain from `domain/keys.ts`."
     )

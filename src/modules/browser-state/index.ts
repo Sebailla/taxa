@@ -51,6 +51,21 @@
  *                                          witness flag; the Playwright
  *                                          harness sets it via
  *                                          `context.add_init_script`).
+ *   - `infrastructure/storeExplorerState.ts` → typed `readExplorerState` /
+ *                                          `writeExplorerState` /
+ *                                          `subscribeExplorerState` /
+ *                                          `clearExplorerState` for the
+ *                                          `taxa.fex.explorerState` key
+ *                                          (ODD-BSTATE-EXPLORER-PERSIST
+ *                                          — the EXPLORER-PERSIST
+ *                                          architecture correction
+ *                                          routes the Browser-tab
+ *                                          Explorer working-set
+ *                                          persistence through the
+ *                                          canonical per-key chain so
+ *                                          the Research module is free
+ *                                          of `localStorage.*`
+ *                                          references).
  *   - `infrastructure/reset.ts`         → aggregate `reset()` that
  *                                          clears every key to its
  *                                          typed default AND removes
@@ -166,6 +181,21 @@ export {
   writeInternalFlag,
   subscribeInternalFlag,
 } from "./infrastructure/storeInternalFlag";
+
+// ODD-BSTATE-EXPLORER-PERSIST — explorer-state store re-export.
+// Mirrors the per-file rationale of the five sibling store
+// re-exports above: each per-key store lives in its own file so
+// Turbopack can retain only the imported chain. The
+// Browser-tab Explorer mount wires the typed chain through the
+// public barrel so the storage module stays free of
+// `localStorage.*` references (the ODD-BSTATE-TAX-001
+// storage-ownership contract).
+export {
+  readExplorerState,
+  writeExplorerState,
+  subscribeExplorerState,
+  clearExplorerState,
+} from "./infrastructure/storeExplorerState";
 
 export { reset } from "./infrastructure/reset";
 
