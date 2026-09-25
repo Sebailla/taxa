@@ -227,6 +227,9 @@ export {
   withExpanded,
   annotateMatches,
   createEmptySearchAnnotation,
+  countFoldersAndFiles,
+  collectFolderPaths,
+  createEmptyExplorerTreeCounts,
 } from "./presentation/explorer-state";
 export type {
   ExplorerLoadStatus,

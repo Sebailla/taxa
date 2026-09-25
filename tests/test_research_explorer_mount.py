@@ -7675,3 +7675,408 @@ def test_explorer_state_kernel_explorer_orient_helpers_are_framework_free() -> N
                 f"spec.md rule 4 keeps the kernel framework-"
                 f"free + I/O-free."
             )
+def test_explorer_orient_explorer_renders_tree_counts_block() -> None:
+    """EXPLORER-ORIENT — the Explorer MUST render a
+    `data-tree-counts` block carrying the canonical
+    `<N> folders, <N> files` orientation text when the
+    loaded tree has a non-null root. The counts derive
+    from `countFoldersAndFiles(loadStatus.tree.root)`
+    so a fresh tree fetch is reflected on the next
+    render without fabricating counts for the empty /
+    loading / errored branches.
+    """
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = _strip_ts_comments(EXPLORER_FILE.read_text())
+    # 1. The mount must declare `data-tree-counts=""` on
+    #    the rendered counts block (the data attribute is
+    #    the test harness + future tooling's hook so the
+    #    contract stays discoverable without parsing the
+    #    rendered DOM).
+    assert 'data-tree-counts=""' in text, (
+        "Explorer.tsx must render a counts block with "
+        "`data-tree-counts=\"\"` so the EXPLORER-ORIENT "
+        "orientation affordance is discoverable by the "
+        "test harness + tooling. The counts derive from "
+        "`countFoldersAndFiles(loadStatus.tree.root)` so "
+        "a fresh tree fetch is reflected on the next "
+        "render without fabricating counts for empty / "
+        "loading / errored branches."
+    )
+    # 2. The mount must call the kernel helper
+    #    `countFoldersAndFiles` so the counts derive from
+    #    the loaded tree. A future PR that hard-codes
+    #    fake counts trips this assertion.
+    assert "countFoldersAndFiles" in text, (
+        "Explorer.tsx must call `countFoldersAndFiles` "
+        "from the kernel so the orientation counts "
+        "derive from the loaded tree (no fabricated "
+        "counts)."
+    )
+
+
+def test_explorer_orient_counts_only_render_in_loaded_branch() -> None:
+    """EXPLORER-ORIENT — the orientation block (counts +
+    expand-all + collapse-all) MUST be invoked from
+    INSIDE the `case "loaded":` arm of the
+    `renderTreePane` switch so the orientation affordance
+    never appears in the idle / loading / empty / errored
+    branches. The negative guard catches a future PR that
+    hoists the render call above the load-status switch
+    (which would fabricate counts + show dead controls
+    for the empty / errored branches).
+
+    The check is order-based: `case "loaded":` MUST
+    appear BEFORE `renderOrientationControls()` (the
+    call site) in the source. The function definition
+    may live above the switch — only the call matters
+    for the no-fabrication contract.
+    """
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = _strip_ts_comments(EXPLORER_FILE.read_text())
+    loaded_idx = text.find('case "loaded":')
+    call_idx = text.find('renderOrientationControls()')
+    assert loaded_idx > 0, (
+        "Explorer.tsx must contain a `case \"loaded\":` "
+        "arm inside `renderTreePane`'s switch — the "
+        "EXPLORER-ORIENT counts block lives inside this "
+        "arm so it only renders for a successfully "
+        "loaded tree."
+    )
+    assert call_idx > 0, (
+        "Explorer.tsx must invoke `renderOrientationControls()` "
+        "so the EXPLORER-ORIENT orientation block is "
+        "reachable from `renderTreePane`."
+    )
+    assert loaded_idx < call_idx, (
+        "Explorer.tsx must invoke `renderOrientationControls()` "
+        "AFTER the `case \"loaded\":` arm label so the "
+        "EXPLORER-ORIENT orientation block only renders in "
+        "the loaded branch. The counts + buttons must NOT "
+        "appear in the idle / loading / empty / errored "
+        "branches; hoisting the render call above the "
+        "switch fabricates counts for the empty / errored "
+        "branches and is a regression."
+    )
+
+
+def test_explorer_orient_explorer_renders_expand_all_button() -> None:
+    """EXPLORER-ORIENT — the Explorer MUST render a
+    discoverable expand-all button with the canonical
+    accessible literals. The button uses
+    `aria-label="Expand all folders"` + a `title`
+    attribute carrying the same affordance so a
+    keyboard / screen-reader user can drive the bulk
+    orientation action without depending on the
+    visible glyph.
+
+    The button must also carry `data-tree-expand-all=""`
+    so the contract is discoverable by the test harness
+    + tooling.
+    """
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = _strip_ts_comments(EXPLORER_FILE.read_text())
+    assert 'aria-label="Expand all folders"' in text, (
+        "Explorer.tsx must render an expand-all button "
+        "with `aria-label=\"Expand all folders\"` so a "
+        "keyboard / screen-reader user can drive the "
+        "bulk orientation action without depending on "
+        "the visible glyph. The button is the "
+        "EXPLORER-ORIENT discoverable affordance."
+    )
+    assert (
+        'title="Expand all folders"' in text
+    ), (
+        "Explorer.tsx must render an expand-all button "
+        "with `title=\"Expand all folders\"` so a "
+        "mouse user sees the same affordance text as the "
+        "screen-reader announcement."
+    )
+    assert 'data-tree-expand-all=""' in text, (
+        "Explorer.tsx must render `data-tree-expand-all="
+        "\"` on the expand-all button so the EXPLORER-"
+        "ORIENT contract is discoverable by the test "
+        "harness + tooling."
+    )
+
+
+def test_explorer_orient_explorer_renders_collapse_all_button() -> None:
+    """EXPLORER-ORIENT — the Explorer MUST render a
+    discoverable collapse-all button with the canonical
+    accessible literals. The button uses
+    `aria-label="Collapse all folders"` + a `title`
+    attribute carrying the same affordance.
+
+    The button must also carry `data-tree-collapse-all=""`
+    so the contract is discoverable by the test harness
+    + tooling.
+    """
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = _strip_ts_comments(EXPLORER_FILE.read_text())
+    assert 'aria-label="Collapse all folders"' in text, (
+        "Explorer.tsx must render a collapse-all button "
+        "with `aria-label=\"Collapse all folders\"` so a "
+        "keyboard / screen-reader user can drive the "
+        "bulk orientation action."
+    )
+    assert (
+        'title="Collapse all folders"' in text
+    ), (
+        "Explorer.tsx must render a collapse-all button "
+        "with `title=\"Collapse all folders\"` so a "
+        "mouse user sees the same affordance text as the "
+        "screen-reader announcement."
+    )
+    assert 'data-tree-collapse-all=""' in text, (
+        "Explorer.tsx must render `data-tree-collapse-"
+        "all=\"\"` on the collapse-all button so the "
+        "EXPLORER-ORIENT contract is discoverable by "
+        "the test harness + tooling."
+    )
+
+
+def test_explorer_orient_expand_all_uses_collect_folder_paths() -> None:
+    """EXPLORER-ORIENT — the expand-all button's click
+    handler MUST route through `collectFolderPaths` so
+    the bulk action operates on folder paths by
+    construction. A future PR that hard-codes a stale
+    folder list (or hand-rolled walker) trips this
+    assertion.
+    """
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = _strip_ts_comments(EXPLORER_FILE.read_text())
+    assert "collectFolderPaths" in text, (
+        "Explorer.tsx must call `collectFolderPaths` "
+        "from the kernel so the expand-all click handler "
+        "operates on the folder paths derived from the "
+        "loaded tree. Hard-coding a stale folder list "
+        "would silently miss new folders added between "
+        "fetches; the helper makes the bulk action "
+        "deterministic by construction."
+    )
+
+
+def test_explorer_orient_tree_remains_collapsed_by_default() -> None:
+    """EXPLORER-ORIENT — the `useState` initialiser for
+    the expanded-set state MUST remain collapsed on
+    first visit (when there is no persisted EXPLORER-
+    PERSIST state). The user explicitly chose to keep
+    the tree collapsed by default (no eager expansion,
+    even after the tree loads — the bulk orientation
+    controls let the user open the tree on demand).
+
+    EXPLORER-PERSIST extends this contract: on a
+    subsequent visit (when a persisted record exists
+    under `taxa.fex.explorerState`), the initialiser
+    restores the persisted `expandedPaths` so the user's
+    working set survives a route unmount / reload. On
+    the first visit (no persisted record), the
+    initialiser falls back to an empty Set so the tree
+    starts collapsed — the EXPLORER-ORIENT no-eager-
+    expansion constraint is preserved verbatim.
+
+    A future PR that flips the initialiser to a hard-
+    coded `withExpanded(new Set(), collectFolderPaths(
+    root))` would silently expand the entire tree on
+    EVERY mount (including the first visit), which
+    violates the no-default-eager-expansion constraint.
+    The test pins the two acceptable shapes:
+      1. `() => new Set()` — legacy first-visit shape.
+      2. `() => new Set(persistedSnapshot.expandedPaths)`
+         — EXPLORER-PERSIST restoration shape (the
+         snapshot's `expandedPaths` is `[]` on first
+         visit so the result is still collapsed by
+         default).
+    """
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = _strip_ts_comments(EXPLORER_FILE.read_text())
+    # The `useState` initialiser for `expanded` MUST be
+    # one of the two acceptable shapes. Both shapes
+    # preserve the EXPLORER-ORIENT no-eager-expansion
+    # contract: on first visit, the resulting Set is
+    # empty (the persisted snapshot is `[]` when no
+    # record exists).
+    legacy_match = re.search(
+        r"useState<ReadonlySet<string>>\(\s*"
+        r"\(\)\s*=>\s*new Set\(\)\s*,?\s*\)",
+        text,
+    )
+    persist_match = re.search(
+        r"useState<ReadonlySet<string>>\(\s*"
+        r"\(\)\s*=>\s*new Set\(\s*"
+        r"persistedSnapshot\.expandedPaths\s*"
+        r"\)\s*,?\s*\)",
+        text,
+    )
+    assert legacy_match or persist_match, (
+        "Explorer.tsx must keep the `useState` "
+        "initialiser for the expanded-set state as "
+        "EITHER `() => new Set()` (legacy first-visit "
+        "shape) OR `() => new Set("
+        "persistedSnapshot.expandedPaths)` (EXPLORER-"
+        "PERSIST restoration shape — the snapshot is "
+        "`[]` on first visit so the tree still starts "
+        "collapsed). A hard-coded "
+        "`withExpanded(new Set(), collectFolderPaths("
+        "root))` would silently expand the entire tree "
+        "on every mount and violate the no-default-"
+        "eager-expansion constraint from the EXPLORER-"
+        "ORIENT brief."
+    )
+
+
+def test_explorer_orient_disabled_state_for_empty_loaded_tree() -> None:
+    """EXPLORER-ORIENT — the bulk orientation controls
+    MUST be disabled when the loaded tree has a null
+    root (so the buttons never fabricate folder paths
+    for an empty / `exists: false` payload). The check
+    pins the `disabled` attribute pattern (the React
+    `disabled={...}` boolean attribute on each button)
+    so a future PR that drops the disabled prop falls
+    back to a click that fires `setExpanded(new Set())`
+    harmlessly — but a click that fires
+    `setExpanded(withExpanded(...))` with no path
+    list would silently expand nothing AND keep the
+    visible-but-dead affordance.
+    """
+    if not EXPLORER_FILE.is_file():
+        pytest.skip("Explorer.tsx not present yet")
+    text = _strip_ts_comments(EXPLORER_FILE.read_text())
+    # Each bulk orientation button MUST carry a
+    # `disabled={...}` prop. The pattern is a typed
+    # check — the prop name MUST be present on the
+    # rendered expand-all + collapse-all buttons so a
+    # future PR that drops the prop trips the assertion.
+    for literal in (
+        "data-tree-expand-all=\"\"",
+        "data-tree-collapse-all=\"\"",
+    ):
+        idx = text.find(literal)
+        assert idx > 0, (
+            f"Explorer.tsx must render the {literal!r} "
+            f"button so the bulk orientation contract is "
+            f"discoverable."
+        )
+        # Slice the surrounding JSX (forward through the
+        # closing `>` of the button element) and verify
+        # `disabled=` appears before that `>`.
+        window = text[idx : idx + 600]
+        assert "disabled=" in window, (
+            f"Explorer.tsx render window after "
+            f"{literal!r} must carry a `disabled=` prop "
+            f"on the bulk orientation button. The bulk "
+            f"controls MUST be disabled when the loaded "
+            f"tree has a null root so the buttons never "
+            f"fabricate folder paths for an empty "
+            f"`exists: false` payload."
+        )
+
+
+def test_barrel_reexports_explorer_orient_helpers() -> None:
+    """EXPLORER-ORIENT — the public barrel MUST re-export
+    the new pure helpers (`countFoldersAndFiles` +
+    `collectFolderPaths`) so cross-module consumers +
+    the focused test harness reach the typed hand-off
+    through `@taxa/research`. spec.md rule 5 keeps
+    cross-module imports anchored at the public barrel.
+    """
+    if not BARREL_FILE.is_file():
+        pytest.skip("barrel not present yet")
+    text = BARREL_FILE.read_text()
+    for helper in (
+        "countFoldersAndFiles",
+        "collectFolderPaths",
+    ):
+        assert helper in text, (
+            f"barrel must re-export the EXPLORER-ORIENT "
+            f"helper `{helper}` so cross-module consumers "
+            f"reach the typed hand-off through "
+            f"`@taxa/research`."
+        )
+
+
+def test_explorer_orient_counts_style_block_in_globals_css() -> None:
+    """EXPLORER-ORIENT — the cascade MUST declare the
+    new orientation controls (counts block + expand-all
+    + collapse-all buttons) so the visual contract is
+    discoverable. The check pins the `.fex-tree-counts`
+    + `.fex-tree-expand-all-btn` + `.fex-tree-collapse-
+    all-btn` selectors so the alphabetic ordering
+    contract in `tests/test_research_styles.py` keeps
+    passing.
+
+    The selectors carry the `fex-tree-*` prefix so the
+    chain-topology guard in the research-styles test
+    suite (which whitelists the alphabetic base) keeps
+    whitelisting the orientation surface under the
+    existing `.fex-tree-header` family.
+
+    Comments are stripped before scanning so JSDoc can
+    reference forbidden-token words without tripping
+    the guard.
+    """
+    css = _strip_ts_comments(
+        (REPO_ROOT / "src" / "app" / "globals.css").read_text()
+    )
+    for selector in (
+        ".fex-tree-counts",
+        ".fex-tree-expand-all-btn",
+        ".fex-tree-collapse-all-btn",
+    ):
+        assert selector in css, (
+            f"globals.css must declare the `{selector}` "
+            f"selector so the EXPLORER-ORIENT orientation "
+            f"controls have a discoverable visual contract. "
+            f"The selector carries the `fex-tree-*` prefix "
+            f"so the chain-topology guard in the research-"
+            f"styles test suite keeps whitelisting the "
+            f"orientation surface under the existing "
+            f".fex-tree-header family."
+        )
+
+
+def test_explorer_orient_alphabetic_css_ordering() -> None:
+    """EXPLORER-ORIENT — the new orientation selectors
+    MUST keep their alphabetic ordering so the chain-
+    topology guard in `tests/test_research_styles.py`
+    keeps passing. Alphabetic contract:
+
+      `.fex-tree-collapse-all-btn` (cl)
+        before
+      `.fex-tree-counts` (co)
+        before
+      `.fex-tree-expand-all-btn` (ex)
+
+    (c-l < c-o < e at the third character position.)
+    The check pins every pairwise ordering so a future
+    PR that reorders the selectors (e.g. swaps the
+    expand-all + collapse-all cascade so the visible
+    collapse comes first) is caught.
+    """
+    css = _strip_ts_comments(
+        (REPO_ROOT / "src" / "app" / "globals.css").read_text()
+    )
+    idx_collapse = css.find(".fex-tree-collapse-all-btn")
+    idx_counts = css.find(".fex-tree-counts")
+    idx_expand = css.find(".fex-tree-expand-all-btn")
+    assert (
+        idx_collapse > 0 and idx_counts > 0 and idx_expand > 0
+    ), (
+        "globals.css must declare all three EXPLORER-"
+        "ORIENT orientation selectors so the alphabetic "
+        "ordering check is meaningful."
+    )
+    assert idx_collapse < idx_counts < idx_expand, (
+        "globals.css must keep the EXPLORER-ORIENT "
+        "orientation selectors in alphabetic order: "
+        "`.fex-tree-collapse-all-btn` before "
+        "`.fex-tree-counts` before "
+        "`.fex-tree-expand-all-btn` so the chain-"
+        "topology guard in `tests/test_research_styles.py` "
+        "keeps passing."
+    )

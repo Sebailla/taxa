@@ -132,8 +132,32 @@ FEX_EXPLORER_BASES: tuple[str, ...] = (
     ".fex-snippet-frame", ".fex-snippet-title",
     ".fex-splitter",
     ".fex-tab-strip",
+    # EXPLORER-ORIENT — entry orientation block (counts text +
+    # expand-all / collapse-all buttons). Alphabetic order inside
+    # the family: collapse-all-btn (c-l) < counts (c-o) <
+    # expand-all-btn (e-x) < header (h) < header-search (h-s)
+    # < orientation (o) < leaf (l) (re-checked below) < pane (p)
+    # < truncated (t). The chain-topology guard below whitelists
+    # the base heads so the React mount's `.fex-tree-orientation`
+    # wrapper + `.fex-tree-counts` text + `.fex-tree-collapse-all-btn`
+    # / `.fex-tree-expand-all-btn` controls stay allowed at the
+    # top level. Descendants + period modifiers are reachable via
+    # the base rule.
+    ".fex-tree-collapse-all-btn",
+    ".fex-tree-counts",
+    ".fex-tree-expand-all-btn",
     ".fex-tree-header", ".fex-tree-header-search",
-    ".fex-tree-leaf", ".fex-tree-pane",
+    ".fex-tree-leaf",
+    # EXPLORER-ORIENT — wrapper that lays out the counts text +
+    # the expand-all / collapse-all buttons above the recursive
+    # tree. Sorts AFTER `.fex-tree-header-search` (h-s < o) and
+    # BEFORE `.fex-tree-leaf` is wrong (l < o) — the alphabetic
+    # chain inside `.fex-tree-*` is `header` < `header-search`
+    # < `leaf` < `orientation` < `pane` < `truncated`. The
+    # `.fex-tree-leaf` block lives ABOVE the wrapper so the
+    # alphabet contract stays green.
+    ".fex-tree-orientation",
+    ".fex-tree-pane",
     ".fex-tree-truncated",
     ".fex-video-el", ".fex-video-frame",
     ".fex-viewer-pane",

@@ -100,8 +100,11 @@ import {
   fetchFiles,
   createInitialViewerState,
   toggleExpansion,
+  withExpanded,
   castFileFormat,
   annotateMatches,
+  countFoldersAndFiles,
+  collectFolderPaths,
   type ExplorerLoadStatus,
   type ViewerState,
   type ExplorerFileNode,
@@ -528,6 +531,125 @@ export default function Explorer(props: ExplorerProps): ReactNode {
     setSearchHideEmpty((prev) => !prev);
   }, []);
 
+  // ---- EXPLORER-ORIENT — entry orientation memo ----
+  // Memoised tree counts + collected folder paths. The
+  // memo is keyed on `(loadStatus.kind, loadStatus.tree)`
+  // so a fresh tree fetch reflects new folders + files on
+  // the next render without recomputing on every render.
+  // When the load status is NOT `loaded` (idle / loading
+  // / empty / error) the memo returns `{ folders: 0, files:
+  // 0 }` + an empty folder-paths array so the orientation
+  // UI never fabricates counts for an empty / errored
+  // branch. The orientation UI disables the bulk controls
+  // when the loaded root is null (defensive guard for the
+  // degenerate `{ exists: true, root: null }` payload).
+  const orientation = useMemo(() => {
+    if (loadStatus.kind !== "loaded") {
+      return { counts: { folders: 0, files: 0 }, folderPaths: [] };
+    }
+    const root = loadStatus.tree.root;
+    if (root === null) {
+      return { counts: { folders: 0, files: 0 }, folderPaths: [] };
+    }
+    return {
+      counts: countFoldersAndFiles(root),
+      folderPaths: collectFolderPaths(root),
+    };
+  }, [loadStatus]);
+
+  // ---- EXPLORER-ORIENT — bulk orientation handlers ----
+  // Memoised expand-all — adds every collected folder path
+  // to the expanded set. Uses the pure `withExpanded` helper
+  // so the typed transition stays deterministic (the same
+  // input yields the same new Set). The bulk action operates
+  // on folder paths by construction; a future tree fetch
+  // reflects new folders on the next click.
+  const handleExpandAll = useCallback((): void => {
+    setExpanded((prev) => withExpanded(prev, orientation.folderPaths));
+  }, [orientation.folderPaths]);
+
+  // Memoised collapse-all — replaces the expanded set with
+  // a fresh empty Set. Mirrors the user's bulk orientation
+  // intent (the tree collapses to its first-visit default).
+  // The fresh Set per call preserves React's render cycle
+  // determinism (the `useState` updater receives a new
+  // Set reference, never a shared mutation).
+  const handleCollapseAll = useCallback((): void => {
+    setExpanded(() => new Set());
+  }, []);
+
+  // ---- EXPLORER-ORIENT — orientation render block ----
+  // Renders the discoverable entry-orientation affordance:
+  //   - `data-tree-counts` — the canonical "<N> folders,
+  //     <N> files" text derived from the loaded tree
+  //     (only visible when the loaded tree has a non-null
+  //     root; never fabricated for empty / loading /
+  //     errored branches).
+  //   - Expand-all + collapse-all buttons — bulk
+  //     orientation controls that operate on folder
+  //     paths. The buttons are disabled when the loaded
+  //     tree has a null root (defensive guard against a
+  //     degenerate `{ exists: true, root: null }`
+  //     payload) so a click can never fire a no-op
+  //     expansion.
+  //
+  // The block lives next to the existing
+  // `.fex-tree-header` markup so the orientation controls
+  // sit visually adjacent to the "Research" title +
+  // remain discoverable without forcing the user to
+  // scroll. The block is always rendered (so the layout
+  // doesn't shift when the tree loads) — the counts
+  // block stays empty for the idle / loading / empty /
+  // errored branches so no fabricated counts ever
+  // surface.
+  const renderOrientationControls = (): ReactNode => {
+    const rootIsLoaded =
+      loadStatus.kind === "loaded" && loadStatus.tree.root !== null;
+    const countsText = rootIsLoaded
+      ? `${orientation.counts.folders} folders, ${orientation.counts.files} files`
+      : "";
+    const orientationDisabled = !rootIsLoaded;
+    return (
+      <div className="fex-tree-orientation" data-tree-orientation="">
+        <span
+          className="fex-tree-counts"
+          data-tree-counts=""
+          aria-live="polite"
+        >
+          {countsText}
+        </span>
+        <button
+          type="button"
+          className="fex-tree-expand-all-btn fex-snippet-btn"
+          title="Expand all folders"
+          aria-label="Expand all folders"
+          data-tree-expand-all=""
+          disabled={orientationDisabled}
+          onClick={handleExpandAll}
+        >
+          <span className="material-symbols-outlined" aria-hidden="true">
+            unfold_more
+          </span>
+          Expand all
+        </button>
+        <button
+          type="button"
+          className="fex-tree-collapse-all-btn fex-snippet-btn"
+          title="Collapse all folders"
+          aria-label="Collapse all folders"
+          data-tree-collapse-all=""
+          disabled={orientationDisabled}
+          onClick={handleCollapseAll}
+        >
+          <span className="material-symbols-outlined" aria-hidden="true">
+            unfold_less
+          </span>
+          Collapse all
+        </button>
+      </div>
+    );
+  };
+
   // Render the search block underneath the tree-header
   // toolbar (the legacy `web/file_explorer.js::renderSearchBlock()`
   // shape). The block is always visible — the user can
@@ -631,17 +753,20 @@ export default function Explorer(props: ExplorerProps): ReactNode {
         return renderErrorPane(loadStatus.message, loadTree);
       case "loaded":
         return (
-          <FileTree
-            tree={loadStatus.tree}
-            expanded={expanded}
-            selectedPath={selectedPath}
-            onToggleExpand={handleToggleExpand}
-            onSelectFile={handleSelectFile}
-            onOpenFile={handleOpenFile}
-            searchAnnotation={searchAnnotation}
-            searchMode={searchMode}
-            searchHideEmpty={searchHideEmpty}
-          />
+          <>
+            {renderOrientationControls()}
+            <FileTree
+              tree={loadStatus.tree}
+              expanded={expanded}
+              selectedPath={selectedPath}
+              onToggleExpand={handleToggleExpand}
+              onSelectFile={handleSelectFile}
+              onOpenFile={handleOpenFile}
+              searchAnnotation={searchAnnotation}
+              searchMode={searchMode}
+              searchHideEmpty={searchHideEmpty}
+            />
+          </>
         );
     }
   };

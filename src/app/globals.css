@@ -1396,6 +1396,66 @@
      `.fex-tree-header-search` (extension with `-s`).
      Mirrors the legacy `web/index.html::.fex-tree-header`
      rule. */
+
+  /* EXPLORER-ORIENT — entry orientation block. Renders
+     the canonical `<N> folders, <N> files` counts text
+     + discoverable expand-all / collapse-all controls
+     immediately above the recursive tree (inside the
+     `case "loaded":` branch of `renderTreePane`). The
+     three selectors keep alphabetic ordering:
+     `.fex-tree-collapse-all-btn` <
+     `.fex-tree-counts` <
+     `.fex-tree-expand-all-btn` (the third character
+     sorts `c-l < c-o < e-x`). The wrapper
+     `.fex-tree-orientation` sits AFTER
+     `.fex-tree-leaf.type-string` (l < o) and BEFORE
+     `.fex-tree-pane` (o < p) so the alphabetic contract
+     inside the `.fex-tree-*` family stays consistent
+     (collapse-all-btn < counts < expand-all-btn <
+     header < header-search < leaf < orientation < pane
+     < truncated). The counts text uses JetBrains Mono
+     so the digit columns line up with the existing
+     `.fex-meta` typography across the tree surface. */
+  .fex-tree-collapse-all-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: "Raleway", sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .fex-tree-collapse-all-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .fex-tree-collapse-all-btn .material-symbols-outlined {
+    font-size: 14px;
+  }
+  .fex-tree-counts {
+    flex: 1;
+    min-width: 0;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    color: var(--on-surface-variant);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .fex-tree-expand-all-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: "Raleway", sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .fex-tree-expand-all-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .fex-tree-expand-all-btn .material-symbols-outlined {
+    font-size: 14px;
+  }
   .fex-tree-header {
     display: flex;
     align-items: center;
@@ -1461,6 +1521,21 @@
   .fex-tree-leaf.type-string {
     color: var(--realm-plantae);
     background: color-mix(in srgb, var(--realm-plantae) 10%, transparent);
+  }
+  /* EXPLORER-ORIENT — wrapper that lays out the counts
+     text + the expand-all / collapse-all controls above
+     the recursive tree. Lives AFTER
+     `.fex-tree-leaf.type-string` (l < o) and BEFORE
+     `.fex-tree-pane` (o < p) so the alphabetic contract
+     inside the `.fex-tree-*` family stays green
+     (collapse-all-btn < counts < expand-all-btn < header
+     < header-search < leaf < orientation < pane <
+     truncated). */
+  .fex-tree-orientation {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 4px 8px;
   }
   /* Tree pane — left column. Mirrors the legacy
      `.fex-tree-pane` rule (14rem min, 30% default,
