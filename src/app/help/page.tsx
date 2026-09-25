@@ -161,32 +161,63 @@ export default function HelpPage(): React.ReactElement {
           >
             Realm color legend
           </h2>
-          {/* ODD-REALM-001 — JSX tokens aligned with the canonical
-              `--realm-*` declarations in `globals.css:43-50`
-              (bacteria / archaea / viruses / animalia / fungi /
-              plantae / chromista / other). The previous round
-              referenced `--realm-animal` / `--realm-plant` /
-              `--realm-freshwater` — none of which exist in the
-              CSS, so the swatches rendered in the page's text
-              color. The third swatch now shows Fungi (a real
-              hue) instead of Freshwater (Freshwater is a
-              `non-null freshwater_id flag` layered on top of
-              whichever realm the row belongs to, not a fourth
-              hue of its own). */}
-          <ul className="mt-2 flex flex-col gap-1 text-body-sm text-on-surface-variant">
+          {/* ODD-REALM-PREVIEW-001 — each legend entry renders a
+              compact mini-row that carries the SAME `data-realm`
+              attribute + `.scientific-name` span a real tree
+              row uses, so the existing realm-color cascade in
+              `globals.css:2432-2453` paints the actual tint.
+              The legend teaches by *showing*, not by
+              abstracting: a future CSS change to
+              `--realm-animalia` flips the tree row tint AND
+              the legend's mini-row tint in lock-step, so the
+              help page can never drift from the real cascade.
+
+              Examples picked from the canonical Linnaean
+              genera so the italic convention renders naturally
+              (genus-and-below ranks are italicized per ICZN).
+              The compact padding + `w-fit` width come from
+              `.help-realm-preview-row` (see globals.css). */}
+          <ul className="mt-2 flex flex-col gap-3 text-body-sm text-on-surface-variant">
             <li>
-              <span className="mr-2 inline-block h-3 w-3 rounded-sm bg-[color:var(--realm-animalia)]" />
+              <div
+                className="tree-row help-realm-preview-row mb-1 flex items-center gap-2"
+                data-realm="animalia"
+                data-help-realm-preview="animalia"
+              >
+                <span className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant">
+                  GENUS
+                </span>
+                <span className="scientific-name italic">Homo</span>
+              </div>
               <strong className="text-on-surface">Animalia.</strong>{" "}
               The row belongs to the WoRMS / CoL animal
               kingdom branch.
             </li>
             <li>
-              <span className="mr-2 inline-block h-3 w-3 rounded-sm bg-[color:var(--realm-plantae)]" />
+              <div
+                className="tree-row help-realm-preview-row mb-1 flex items-center gap-2"
+                data-realm="plantae"
+                data-help-realm-preview="plantae"
+              >
+                <span className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant">
+                  GENUS
+                </span>
+                <span className="scientific-name italic">Rosa</span>
+              </div>
               <strong className="text-on-surface">Plantae.</strong>{" "}
               The row belongs to the CoL plant branch.
             </li>
             <li>
-              <span className="mr-2 inline-block h-3 w-3 rounded-sm bg-[color:var(--realm-fungi)]" />
+              <div
+                className="tree-row help-realm-preview-row mb-1 flex items-center gap-2"
+                data-realm="fungi"
+                data-help-realm-preview="fungi"
+              >
+                <span className="text-[11px] uppercase tracking-[0.1em] text-on-surface-variant">
+                  GENUS
+                </span>
+                <span className="scientific-name italic">Agaricus</span>
+              </div>
               <strong className="text-on-surface">Fungi.</strong>{" "}
               The row carries the fungi realm tint from the
               CoL backbone. Freshwater rows inherit their

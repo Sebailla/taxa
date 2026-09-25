@@ -1695,6 +1695,22 @@
     gap: 6px;
   }
 
+  /* ODD-REALM-PREVIEW-001 — compact mini-row used by the
+     /help page's realm-color legend. Each legend entry shows
+     a tiny tree-row that carries the same `data-realm`
+     attribute + `.scientific-name` span a real tree row
+     uses, so the existing realm-color cascade paints the
+     actual tint (the legend teaches by *showing*, not by
+     abstracting). The compact padding + `w-fit` width keep
+     the legend entry narrow — the user can compare the
+     three hues side-by-side without a full row height. */
+  .help-realm-preview-row {
+    padding: 4px 10px;
+    width: fit-content;
+    max-width: 100%;
+    border-radius: 0.5rem;
+  }
+
   /* ODD-PHASE3 audit — removed in feat/phase3-globals-cleanup
      atop develop@146c71b, zero non-comment references in src/
      after the Phase 2 migrations (the Browser-tab navigation
