@@ -7564,3 +7564,114 @@ def test_explorer_panel_states_uses_spinner_primitive_for_loading() -> None:
             f"legacy cascade; the legacy icon span is dead "
             f"code that re-introduces the inline pattern."
         )
+# EXPLORER-ORIENT — entry-orientation controls + counts.
+# Adds accurate folder/file counts + discoverable
+# expand-all / collapse-all controls while keeping the
+# tree collapsed by default. Counts are derived from the
+# already-loaded tree (no fabricated counts for null /
+# empty / loading states); bulk actions operate on
+# folder paths; controls carry accessible names.
+#
+# Contract shape (the React cutover's UX contract for
+# the Browser-tab Explorer entry experience):
+#   1. Pure kernel helpers `countFoldersAndFiles(root)` +
+#      `collectFolderPaths(root)` are framework-free
+#      named exports so the React mount + future
+#      consumers reach the typed hand-off through the
+#      public barrel.
+#   2. `countFoldersAndFiles(null)` returns `{ folders:
+#      0, files: 0 }`; `countFoldersAndFiles` walks the
+#      recursive tree once (passes each folder + file
+#      node exactly once) and returns a fresh object.
+#   3. `collectFolderPaths(root)` returns every folder
+#      path (depth-first pre-order) including the
+#      synthetic root when the root is a folder; null
+#      root returns an empty array.
+#   4. The Explorer.tsx mount renders a `data-tree-counts`
+#      block in the loaded branch (only when the loaded
+#      tree has a non-null root) so a researcher sees the
+#      canonical "<N> folders, <M> files" orientation
+#      affordance without fabricating counts for the
+#      empty / loading / errored branches.
+#   5. The mount renders an expand-all button +
+#      collapse-all button with accessible `aria-label`
+#      + `title` literals so a keyboard / screen-reader
+#      user can drive the bulk orientation actions.
+#   6. The buttons call `setExpanded` with the collected
+#      folder paths (expand-all) or with `new Set()`
+#      (collapse-all) — bulk actions operate on folder
+#      paths by construction.
+#   7. The tree remains collapsed by default: the
+#      `useState` initialiser for `expanded` is still
+#      `() => new Set()` (no eager expansion, even after
+#      the load completes — the user explicitly chose to
+#      keep the tree collapsed on first visit and
+#      re-confirmed the no-default-eager-expansion
+#      constraint in the EXPLORER-ORIENT brief).
+#
+# The tests stay AST-level (no React renderer harness) so
+# the focused pytest command stays hermetic — every
+# assertion is a regex / substring check against the
+# committed source. The kernel helpers are exercised
+# end-to-end through the W6.1 runtime harness below.
+# ---------------------------------------------------------------------------
+
+
+# (Removed the unused `_extract_loaded_branch` helper
+# during the EXPLORER-ORIENT REFACTOR step — the
+# order-based check in
+# `test_explorer_orient_counts_only_render_in_loaded_branch`
+# is simpler + stays correct without a brace-counter
+# helper.)
+
+
+def test_explorer_state_kernel_exports_explorer_orient_helpers() -> None:
+    """EXPLORER-ORIENT — the kernel MUST export the pure
+    `countFoldersAndFiles` + `collectFolderPaths` helpers
+    as named functions so the React mount + future
+    consumers reach the typed hand-off through the public
+    barrel. The helpers are the EXPLORER-ORIENT pure
+    surface: framework-free, dependency-free, and
+    importable through `@taxa/research` without pulling
+    in React / DOM / localStorage.
+    """
+    if not EXPLORER_STATE_FILE.is_file():
+        pytest.skip("explorer-state.ts not present yet")
+    text = EXPLORER_STATE_FILE.read_text()
+    for name in (
+        "countFoldersAndFiles",
+        "collectFolderPaths",
+    ):
+        pattern = rf"export\s+(?:async\s+)?function\s+{name}\b"
+        assert re.search(pattern, text), (
+            f"explorer-state.ts must export `{name}` as a "
+            f"named function (the EXPLORER-ORIENT pure "
+            f"helper). The helper is framework-free + "
+            f"importable through the public barrel."
+        )
+
+
+def test_explorer_state_kernel_explorer_orient_helpers_are_framework_free() -> None:
+    """EXPLORER-ORIENT — the new pure helpers MUST stay
+    free of framework / I/O / browser-state tokens. The
+    helpers live next to `enumerateFiles` in the kernel
+    surface; spec.md rule 4 forbids pulling in React /
+    DOM / localStorage / fetch. Comments are stripped
+    so JSDoc can reference forbidden-token words.
+    """
+    if not EXPLORER_STATE_FILE.is_file():
+        pytest.skip("explorer-state.ts not present yet")
+    text = _strip_ts_comments(EXPLORER_STATE_FILE.read_text())
+    # The helper bodies are short — the negative assertions
+    # scan the whole file (the helpers are pure + small; if
+    # a future PR introduces a forbidden token anywhere in
+    # the kernel, the file-wide scan catches it regardless
+    # of where it lives). The kernel's existing
+    # `_KERNEL_FORBIDDEN` tuple is the authoritative list.
+    for token in _KERNEL_FORBIDDEN:
+            assert token not in text, (
+                f"explorer-state.ts must stay free of {token!r} "
+                f"even after the EXPLORER-ORIENT additions; "
+                f"spec.md rule 4 keeps the kernel framework-"
+                f"free + I/O-free."
+            )
