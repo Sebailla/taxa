@@ -90,6 +90,64 @@ export function createEmptyPersistedExplorerState(): PersistedExplorerState {
 }
 
 // ---------------------------------------------------------------------------
+// ODD-BSTATE-EXPLORER-PERSIST-BOUNDS — canonical cap constants.
+//
+// The persistence-boundary regression suite pins these four
+// values byte-for-byte against the pure Research-side helper
+// (`src/modules/research/presentation/explorer-storage.ts`).
+// The helper is the read-only reference; the per-key store
+// (`infrastructure/storeExplorerState.ts`) is the real
+// read/write boundary that enforces the caps. The values
+// are kept in sync so a stale / malformed / oversized record
+// hydrates to the canonical empty default and an out-of-bound
+// write is rejected at the boundary without calling
+// `localStorage.setItem`.
+// ---------------------------------------------------------------------------
+
+/** Hard byte cap on the serialized record. A pathological
+ *  user (a deeply nested tree path that exceeds the cap)
+ *  is rejected at the boundary instead of silently bloating
+ *  `localStorage`. The cap is a sane `localStorage` value
+ *  (≤ 1 MiB) so the persisted record stays well under
+ *  every browser's practical per-origin quota. 64 KiB
+ *  leaves headroom for future PRs without overflowing the
+ *  quota. The parser fires the check BEFORE `JSON.parse`
+ *  with the conservative `raw.length * 3` wire-byte
+ *  estimate (a UTF-16 code unit is exactly 2 bytes; the
+ *  multiplier 3 covers the worst case of multibyte UTF-8
+ *  expansion). */
+export const MAX_EXPLORER_STATE_BYTES = 65536;
+
+/** Hard cap on the number of expanded folder paths in
+ *  the persisted record. A pathological user (a session
+ *  that expanded every folder in a 10k-folder tree) is
+ *  rejected at the boundary instead of silently bloating
+ *  `localStorage`. The cap is well above a realistic
+ *  user's working set (typical session < 100 expanded
+ *  folders). */
+export const MAX_EXPANDED_PATHS = 1000;
+
+/** Hard cap on the search-query string length. The legacy
+ *  search input accepts arbitrary strings; the cap is a
+ *  defensive bound on the persisted record so a
+ *  pathological user (a 1 MiB paste) is rejected at the
+ *  boundary instead of silently bloating `localStorage`.
+ *  256 chars is well above a realistic search query. */
+export const MAX_QUERY_LENGTH = 256;
+
+/** Hard cap on the selected-path string length AND on
+ *  every individual expanded-path entry. Tree paths are
+ *  bounded by FastAPI's `_walk_tree` depth cap; the cap is
+ *  a defensive bound on the persisted record so a
+ *  pathological payload is rejected at the boundary
+ *  instead of silently bloating `localStorage`. 1024 chars
+ *  is well above a realistic tree path. The same constant
+ *  guards both the `selectedPath` field and each entry in
+ *  `expandedPaths` so a single 1025-char path cannot
+ *  sneak through the count check on the array. */
+export const MAX_SELECTED_PATH_LENGTH = 1024;
+
+// ---------------------------------------------------------------------------
 // Re-export the generic Listener / Unsubscribe aliases so the
 // infrastructure store + the application hook can read the typed
 // `Listener<PersistedExplorerState>` shape without a deep import

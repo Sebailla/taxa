@@ -51,6 +51,10 @@
 
 import {
   EXPLORER_STATE_STORAGE_VERSION,
+  MAX_EXPLORER_STATE_BYTES,
+  MAX_EXPANDED_PATHS,
+  MAX_QUERY_LENGTH,
+  MAX_SELECTED_PATH_LENGTH,
   createEmptyPersistedExplorerState,
 } from "../domain/explorer-state";
 import type { PersistedExplorerState } from "../domain/explorer-state";
@@ -137,6 +141,17 @@ function parseExplorerStateEnvelope(
   raw: string | null,
 ): PersistedExplorerState | null {
   if (raw === null || raw === "") return null;
+  // ODD-BSTATE-EXPLORER-PERSIST-BOUNDS — reject oversized raw
+  // records BEFORE `JSON.parse` so a multi-MB paste never
+  // reaches the parser and a quota-blow-up / stale-bloated
+  // storage hydrates to the canonical empty default. The
+  // wire-byte estimate mirrors the Research-side helper's
+  // serializer: `raw.length * 3` (UTF-16 code unit × 3 covers
+  // the worst case of multibyte UTF-8 expansion). The check
+  // mirrors the canonical `MAX_EXPLORER_STATE_BYTES` cap
+  // pinned in `domain/explorer-state.ts` so the persistence
+  // boundary stays closed end-to-end.
+  if (raw.length * 3 > MAX_EXPLORER_STATE_BYTES) return null;
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -151,6 +166,7 @@ function parseExplorerStateEnvelope(
     return null;
   }
   const obj = parsed as Record<string, unknown>;
+  // version — must be a number ≤ EXPLORER_STATE_STORAGE_VERSION.
   const version = obj.version;
   if (
     typeof version !== "number" ||
@@ -159,17 +175,41 @@ function parseExplorerStateEnvelope(
   ) {
     return null;
   }
+  // query — must be a string within MAX_QUERY_LENGTH. The cap
+  // mirrors the canonical Research-side helper value (256) so a
+  // pathological user (a 1 MiB paste) is rejected at the
+  // boundary instead of silently bloating `localStorage`.
   const query = obj.query;
   if (typeof query !== "string") return null;
+  if (query.length > MAX_QUERY_LENGTH) return null;
+  // selectedPath — must be a string or null within
+  // MAX_SELECTED_PATH_LENGTH. The cap mirrors the canonical
+  // Research-side helper value (1024) so a phantom tree path
+  // is rejected at the boundary instead of silently selecting
+  // a missing node.
   const selectedPath = obj.selectedPath;
   if (selectedPath !== null && typeof selectedPath !== "string") {
     return null;
   }
+  if (
+    typeof selectedPath === "string" &&
+    selectedPath.length > MAX_SELECTED_PATH_LENGTH
+  ) {
+    return null;
+  }
+  // expandedPaths — must be an array of strings within
+  // MAX_EXPANDED_PATHS; each path within MAX_SELECTED_PATH_LENGTH.
+  // The per-entry length check fires inside the loop so a
+  // single 1025-char path cannot sneak through the array-count
+  // guard.
   const expandedPaths = obj.expandedPaths;
   if (!Array.isArray(expandedPaths)) return null;
+  if (expandedPaths.length > MAX_EXPANDED_PATHS) return null;
   for (const entry of expandedPaths) {
     if (typeof entry !== "string") return null;
+    if (entry.length > MAX_SELECTED_PATH_LENGTH) return null;
   }
+  // All checks passed — project the typed shape.
   return {
     version,
     query,
@@ -251,16 +291,64 @@ export function readExplorerState(): PersistedExplorerState {
  *  is best-effort, swallowed on failure, so a private mode /
  *  quota exceeded environment never throws out of the typed
  *  store. The store accepts the typed `PersistedExplorerState`
- *  shape so the chain is typed end-to-end. */
+ *  shape so the chain is typed end-to-end.
+ *
+ *  ODD-BSTATE-EXPLORER-PERSIST-BOUNDS — out-of-bound records
+ *  are rejected silently: no cache update, no listener fire,
+ *  no `safeSetItem` call. The persistence-boundary gap stays
+ *  closed so a defensive caller (or a future presentation-
+ *  only consumer) cannot smuggle an oversized record through
+ *  the typed store. The store's established best-effort
+ *  contract still holds — `writeExplorerState` never throws
+ *  on a rejected record, mirroring the `safeSetItem` swallow
+ *  pattern for storage failures. */
 export function writeExplorerState(
   next: PersistedExplorerState,
 ): void {
   ensureHydrated();
+  // ODD-BSTATE-EXPLORER-PERSIST-BOUNDS — validate the input
+  // record against every canonical cap BEFORE calling
+  // `safeSetItem`. A rejected record is silently dropped: no
+  // cache update, no listener fire, no `safeSetItem` call. The
+  // checks mirror the parser's bounds so the read/write
+  // boundary stays symmetric. The store's best-effort contract
+  // is preserved (no throw); the persistence-boundary guarantee
+  // is preserved (no `localStorage.setItem` for a rejected
+  // record). The version check fires first so a future-shape
+  // record cannot sneak through a downstream cap check.
+  if (next.version !== EXPLORER_STATE_STORAGE_VERSION) return;
+  if (typeof next.query !== "string") return;
+  if (next.query.length > MAX_QUERY_LENGTH) return;
+  if (
+    next.selectedPath !== null &&
+    typeof next.selectedPath !== "string"
+  ) {
+    return;
+  }
+  if (
+    typeof next.selectedPath === "string" &&
+    next.selectedPath.length > MAX_SELECTED_PATH_LENGTH
+  ) {
+    return;
+  }
+  if (!Array.isArray(next.expandedPaths)) return;
+  if (next.expandedPaths.length > MAX_EXPANDED_PATHS) return;
+  for (const entry of next.expandedPaths) {
+    if (typeof entry !== "string") return;
+    if (entry.length > MAX_SELECTED_PATH_LENGTH) return;
+  }
+  // Byte-size cap — mirrors the parser's
+  // `raw.length * 3 > MAX_EXPLORER_STATE_BYTES` check. A record
+  // whose JSON wire size exceeds the cap is rejected so a
+  // defensive serializer cannot smuggle a multi-MB payload
+  // through `JSON.stringify`.
+  const serialized = JSON.stringify(next);
+  if (serialized.length * 3 > MAX_EXPLORER_STATE_BYTES) return;
   cache = next;
   try {
     safeSetItem(
       EXPLORER_STATE_STORAGE_KEY,
-      JSON.stringify(next),
+      serialized,
     );
   } catch {
     /* swallow — see safeSetItem */
