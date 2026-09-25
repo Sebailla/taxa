@@ -150,13 +150,38 @@ export type FileFormat =
  *      ignores the flag (the contract keeps it on the state so a
  *      pre-toggle before switching to filter survives).
  *
- *  Session-scoped only — intentionally NOT in `localStorage`. The
- *  research folders may contain sensitive taxon names, and the tree
- *  itself is re-fetched on reload, so a stale query against a
- *  missing tree would produce a confusing empty result. The
- *  `localStorage` taxonomy lives in `@taxa/browser-state`; the
- *  Research module deliberately has no browser-state keys (W1
- *  contract — "Do not add … browser-state keys").
+ *  EXPLORER-PERSIST — the working-set fields (`query`,
+ *  `selectedPath`, `expandedPaths`) now persist to a single
+ *  raw localStorage key (`taxa.fex.explorerState`) per the
+ *  user's explicit decision documented in
+ *  `odd/tasks/explorer-orientation-state.md::EXPLORER-PERSIST`.
+ *  The user was informed that research folders may contain
+ *  sensitive taxon names + paths and explicitly chose
+ *  browser-local persistence despite the existing sensitivity
+ *  caveat (the legacy constraint that the W1 contract pinned
+ *  as `Session-scoped only — intentionally NOT in localStorage`
+ *  was inverted by the EXPLORER-PERSIST decision). The
+ *  persistence helpers live in
+ *  `src/modules/research/presentation/explorer-storage.ts`:
+ *   - Single raw localStorage key (no `@taxa/browser-state`
+ *     scope creep — mirrors the W6.3 Splitter's
+ *     `taxa.fex.treeWidth` decision).
+ *   - Versioned + bounded record (every field carries a hard
+ *     cap; malformed / oversized / future-version records are
+ *     discarded on read).
+ *   - Validation against the freshly loaded tree (`expanded`
+ *     paths that no longer exist are filtered out; a stale
+ *     `selectedPath` is reset to `null`).
+ *   - Every storage error is swallowed (private browsing /
+ *     quota / SecurityError / disabled storage / SSR) so the
+ *     Explorer's render cycle never breaks.
+ *
+ *  Privacy caveat — the data stays on this browser; no server
+ *  transmission is added. The user explicitly accepted the
+ *  sensitivity caveat when they chose browser-local
+ *  persistence; a future slice can wire a "Clear working set"
+ *  affordance that calls `clearPersistedExplorerState()` to
+ *  wipe the record on demand.
  */
 export interface SearchState {
   readonly query: string;
