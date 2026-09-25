@@ -99,19 +99,18 @@ APP_HOOK_FILES: tuple[Path, ...] = (
 APP_HOOK_FILE = APP_DIR / "useBrowserStateKey.ts"
 INFRA_STORE_FILE = INFRA_DIR / "store.ts"
 
-# The four canonical storage keys (per the
-# browser-state-hydration spec table). Pin the localStorage literal
-# names verbatim so a future refactor cannot silently rename them
-# (the legacy `web/state.js` consumers would break without a
-# coordinated migration).
+# The four canonical storage keys (per the browser-state-hydration
+# spec table) plus the Explorer working-state key. Pin every
+# localStorage literal so a future refactor cannot silently rename it.
 EXPECTED_STORAGE_KEYS: tuple[str, ...] = (
     "taxa.settings.theme",
     "taxa.tree.source",
     "taxa.tree.lastTaxonId",
     "taxa.tree.kebabOpenId",
+    "taxa.fex.explorerState",
 )
 
-# Four canonical logical names exposed through the public barrel.
+# Five canonical logical names exposed through the public barrel.
 # The hook + read/write signatures use the LOGICAL name; the
 # infrastructure layer resolves the logical name → localStorage key
 # through the constant declared in `domain/keys.ts`.
@@ -136,7 +135,6 @@ OTHER_CAPABILITIES: tuple[str, ...] = (
 # Layer names per spec.md rule 3.
 LAYERS: tuple[str, ...] = (
     "presentation",
-    "taxa.fex.explorerState",
     "application",
     "domain",
     "infrastructure",
@@ -915,12 +913,6 @@ const makeStorage = (initial) => {
 function withWindow(storage, fn) {
   const prevWindow = globalThis.window;
   const prevLS = globalThis.localStorage;
-
-    ODD-BSTATE-EXPLORER-PERSIST — the explorer-state default
-    lands as `DEFAULT_EXPLORER_STATE` (typed
-    `PersistedExplorerState`). The constant points at a fresh
-    empty record so the SSR + first-render hydration snapshot
-    matches the typed default without a stored-value race.
   globalThis.window = { localStorage: storage };
   globalThis.localStorage = storage;
   try {
@@ -942,14 +934,6 @@ const fail = (label) => {
 // store module separately and the `reset.js` aggregate. The
 // five argv slots are exactly: storeTheme, storeTreeSource,
 // storeLastTaxonId, storeKebabOpenId, reset. tsc preserves
-    # ODD-BSTATE-EXPLORER-PERSIST — the explorer-state default
-    # MUST be present after the architecture correction.
-    assert re.search(r"DEFAULT_EXPLORER_STATE\b", text), (
-        "defaults.ts must declare `DEFAULT_EXPLORER_STATE` "
-        "(the typed PersistedExplorerState default the "
-        "EXPLORER-PERSIST chain falls back to on SSR + first "
-        "client render)."
-    )
 // the layer folder structure (--rootDir + per-source
 // relative paths), so the compiled files land under
 // `out_dir/infrastructure/{storeTheme,storeTreeSource,…}.js`
