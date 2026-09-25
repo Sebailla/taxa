@@ -42,7 +42,7 @@ import type { Listener, Unsubscribe } from "./keys";
  *  validates it; a future PR that bumps the version gets
  *  a clean discard path (`parseExplorerState` returns
  *  `null` for unknown versions instead of silently
- *  coercing a future shape). Pinned to `1 for the
+ *  coercing a future shape). Pinned to `1` for the
  *  initial release; bump + add a guard on subsequent
  *  releases.
  *
@@ -50,8 +50,23 @@ import type { Listener, Unsubscribe } from "./keys";
  *  so the canonical version literal stays reachable through
  *  the typed hand-off surface. The browser-state chain is the
  *  single source of truth for the EXPLORER-PERSIST contract;
- *  the research-side module re-exports it from this file so
- *  the public barrels stay in sync without a future drift. */
+ *  the research-side helper module (`src/modules/research/
+ *  presentation/explorer-storage.ts`) declares a LOCAL
+ *  MIRROR of this constant + the four bound caps + the
+ *  storage key literal so the pure parse / serialize /
+ *  validate helpers compile in isolation (the focused
+ *  runtime harness does not depend on the
+ *  `@taxa/browser-state` path-alias resolution). The mirror
+ *  is kept in lock-step with this canonical declaration by
+ *  the source-level parity test
+ *  (`tests/test_research_explorer_mount.py::
+ *  test_w6_4_storage_version_matches_canonical_browser_state_literal`),
+ *  not by a re-export — the pure-helper mirror is
+ *  intentionally a SOURCE-LEVEL copy so a future PR that
+ *  converts the mirror to a deep import can replace the
+ *  test with a typing assertion. The test-time parity
+ *  guard catches every drift at review time so the focused
+ *  runtime harness stays focused on the runtime contract. */
 export const EXPLORER_STATE_STORAGE_VERSION = 1;
 
 /** The pure typed shape of the persisted record. Mirrors

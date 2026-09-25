@@ -145,6 +145,9 @@ ERROR_BOUNDARY_FILE = (
     RESEARCH_DIR / "presentation" / "ExplorerErrorBoundary.tsx"
 )
 SPLITTER_FILE = RESEARCH_DIR / "presentation" / "Splitter.tsx"
+EXPLORER_STORAGE_FILE = (
+    RESEARCH_DIR / "presentation" / "explorer-storage.ts"
+)
 BARREL_FILE = RESEARCH_DIR / "index.ts"
 DOMAIN_FILE = RESEARCH_DIR / "domain" / "explorer.ts"
 RENDERERS_FILE = RESEARCH_DIR / "application" / "renderers.ts"
@@ -375,6 +378,103 @@ _SPLITTER_FORBIDDEN: tuple[str, ...] = (
 )
 
 
+# EXPLORER-PERSIST — Browser-tab Explorer state-persistence
+# forbidden tokens. After the ODD-BSTATE-EXPLORER-PERSIST
+# architecture correction, the `explorer-storage.ts` module
+# is a PURE (framework-free, I/O-free, browser-free) helper
+# module: it owns the parse / serialize / validate lifecycle
+# for the typed `PersistedExplorerState` shape + the bound
+# caps + the version literal + the storage key constant.
+# Every `localStorage.*` call moved to the canonical per-key
+# `@taxa/browser-state` store (`infrastructure/storeExplorerState.ts`)
+# — the Research module is free of `localStorage.*`
+# references, and `tests/test_browser_state_keys.py::test_other_module_does_not_touch_localstorage[research]`
+# now passes without a research-side carveout.
+#
+# The forbidden-tokens list intentionally differs from the
+# kernel + Splitter lists because the storage module is no
+# longer a browser-bound I/O surface. The list is now closer
+# to `_KERNEL_FORBIDDEN` (framework-free + I/O-free +
+# browser-free), but it adds:
+#
+#   - `localStorage`, `document.`, `window.`,
+#     `globalThis.localStorage`, `sessionStorage` are
+#     FORBIDDEN (the module is intentionally browser-free;
+#     every storage primitive is owned by the
+#     `@taxa/browser-state` chain).
+#   - `fetch(` is FORBIDDEN (the module is a pure I/O
+#     surface; the React mount's `fetchFiles` owns the
+#     network lifecycle).
+#   - Framework imports are FORBIDDEN (the module is
+#     framework-free; pure helpers are exported so the
+#     focused test harness exercises them under Node).
+#   - `@taxa/browser-state` re-exports are ALLOWED: the
+#     storage module re-exports the canonical typed
+#     `PersistedExplorerState` shape + the version literal +
+#     the empty-record factory from
+#     `@taxa/browser-state` so the `@taxa/research` barrel
+#     surfaces the typed surface verbatim. The cross-module
+#     seam is the public barrel, not a deep import. The
+#     `@taxa/taxonomy` / `@taxa/design-system` /
+#     `@taxa/app-shell` imports stay FORBIDDEN (no
+#     cross-module scope creep beyond the browser-state
+#     typed hand-off).
+#   - Deep imports into other Research layers (domain,
+#     application, infrastructure, other presentation
+#     files) are FORBIDDEN (spec.md rule 5 keeps
+#     cross-module imports anchored at the public barrel).
+#   - Legacy + isolation tokens (`web/`, `src/app/page`,
+#     `settings.reset`, `materialize`) are FORBIDDEN.
+#   - CommonJS / process tokens (`require(`, `process.`)
+#     are FORBIDDEN — the module is ESM-only.
+_STORAGE_FORBIDDEN: tuple[str, ...] = (
+    # framework — storage module is framework-free
+    # (pure helpers + I/O-free typed surface).
+    "from 'react'", 'from "react"',
+    "from 'next'",   'from "next"',
+    "from 'nextjs'", 'from "nextjs"',
+    "from 'fastapi'", 'from "fastapi"',
+    "from 'starlette'", 'from "starlette"',
+    "from 'solid-js'", 'from "solid-js"',
+    # I/O — the storage module is intentionally I/O-free.
+    # The browser-state chain owns every `localStorage.*`
+    # primitive; the React mount's `fetchFiles` owns the
+    # network lifecycle.
+    "fetch(",
+    # Browser / process state — the storage module is
+    # intentionally browser-free. Every storage primitive
+    # belongs to `@taxa/browser-state`.
+    "localStorage",
+    "sessionStorage",
+    "document.",
+    "window.",
+    "globalThis.localStorage",
+    # Cross-module imports — `@taxa/browser-state` re-exports
+    # are ALLOWED (the canonical typed surface); the other
+    # cross-module imports stay FORBIDDEN (no scope creep
+    # beyond the browser-state typed hand-off).
+    "@taxa/taxonomy",
+    "@taxa/design-system",
+    "@taxa/app-shell",
+    "@taxa/research/domain",
+    "@taxa/research/application",
+    "@taxa/research/infrastructure",
+    "@taxa/research/presentation/",
+    # Legacy + isolation.
+    "src/app/page",
+    "../web", "../../web", "web/",
+    # Process / CommonJS guards — storage module is ESM-only.
+    "process.",
+    "require(",
+    # FastAPI / Starlette / settings reset / materialization /
+    # CDN viewers — out of scope for EXPLORER-PERSIST.
+    "fastapi", "starlette",
+    "settings.reset",
+    "materialize",
+    "epubjs", "mammoth", "XLSX", "papaparse", "Papa",
+)
+
+
 # ---------------------------------------------------------------------------
 # File presence + extension contracts.
 # ---------------------------------------------------------------------------
@@ -388,6 +488,7 @@ _SPLITTER_FORBIDDEN: tuple[str, ...] = (
         (VIEWER_FILE, "Viewer.tsx", ".tsx"),
         (ERROR_BOUNDARY_FILE, "ExplorerErrorBoundary.tsx", ".tsx"),
         (SPLITTER_FILE, "Splitter.tsx", ".tsx"),
+        (EXPLORER_STORAGE_FILE, "explorer-storage.ts", ".ts"),
     ],
 )
 def test_w6_1_file_present(path: Path, label: str, suffix: str) -> None:
@@ -8079,4 +8180,1544 @@ def test_explorer_orient_alphabetic_css_ordering() -> None:
         "`.fex-tree-expand-all-btn` so the chain-"
         "topology guard in `tests/test_research_styles.py` "
         "keeps passing."
+    )
+
+
+# ===========================================================================
+# EXPLORER-PERSIST — Browser-tab Explorer state persistence (slice 8).
+#
+# Persists the user's working set (search query, selected
+# path, expanded folder paths) in one bounded, validated
+# localStorage record so the working set survives route
+# unmount/remount and reload. The user explicitly chose
+# browser localStorage persistence after being informed of
+# the existing privacy caveat (taxon names + paths may be
+# sensitive). The contract pins:
+#
+#   1. One raw localStorage key (the user-authorized
+#      decision, mirroring the W6.3 Splitter's
+#      `taxa.fex.treeWidth` key — no `@taxa/browser-state`
+#      scope creep).
+#   2. A versioned, bounded record (the persisted payload
+#      carries an explicit version literal so a future PR
+#      that reshapes the shape can bump the version + add
+#      a parse guard, instead of silently corrupting an
+#      in-flight user's record).
+#   3. Validation against the freshly loaded tree
+#      (`validateAgainstTree` discards stale expanded /
+#      selected paths that no longer exist).
+#   4. Pure parsing / serialization helpers + bound
+#      caps + version literal + storage key constant
+#      exported as named symbols so the focused test
+#      harness exercises them under Node without React or
+#      the DOM event system.
+#   5. The existing privacy caveat in the W1
+#      `SearchState` JSDoc is updated to reflect the
+#      user-approved browser-local persistence decision
+#      (the test pins the new wording so the comment
+#      contract stays in lock-step with the implementation).
+#
+# Slice 8 (pure-helper slice) pins the framework-free +
+# I/O-free + browser-free helper surface only. The storage
+# helpers (`readPersistedExplorerState` /
+# `writePersistedExplorerState` /
+# `clearPersistedExplorerState`) live behind the canonical
+# per-key `@taxa/browser-state` store
+# (`infrastructure/storeExplorerState.ts`) so the Research
+# module stays free of `localStorage.*` references. Slice 9
+# wires the browser-state aliases through the public barrel
+# under the legacy `Persisted` names — the slice 8 barrel
+# test only asserts the pure-helper exports.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("token", _STORAGE_FORBIDDEN)
+def test_w6_4_storage_source_purity(token: str) -> None:
+    """EXPLORER-PERSIST — the new `explorer-storage.ts`
+    stays free of forbidden tokens (no fetch, no cross-
+    layer imports, no CDN-script surface, no legacy
+    mutation, no cross-module scope creep, no settings
+    reset, no materialization, no framework imports).
+    Comments are stripped before scanning so JSDoc can
+    reference forbidden-token words without tripping the
+    guard."""
+    if not EXPLORER_STORAGE_FILE.is_file():
+        pytest.skip("explorer-storage.ts not present yet")
+    text = _strip_ts_comments(EXPLORER_STORAGE_FILE.read_text())
+    assert token not in text, (
+        f"explorer-storage.ts must stay free of {token!r}; "
+        f"the EXPLORER-PERSIST isolation contract forbids "
+        f"it. The storage module is intentionally "
+        f"framework-free, I/O-free, browser-free — every "
+        f"storage primitive belongs to the canonical per-key "
+        f"`@taxa/browser-state` store "
+        f"(`infrastructure/storeExplorerState.ts`). The "
+        f"research-side helpers validate the typed shape "
+        f"against the freshly loaded tree without ever "
+        f"reaching for a storage primitive, the network, the "
+        f"CDN script surface, the legacy `web/` directory, "
+        f"the `src/app/page.tsx` route, the FastAPI server, "
+        f"the materialization pipeline, the settings reset, "
+        f"or any cross-module chunk outside `@taxa/research`."
+    )
+
+
+def test_w6_4_storage_storage_key_is_pinned_literal() -> None:
+    """EXPLORER-PERSIST — the `EXPLORER_STATE_STORAGE_KEY`
+    constant MUST equal the literal
+    `"taxa.fex.explorerState"` (a single raw localStorage
+    key per the user-authorized decision — mirrors the
+    W6.3 Splitter's `taxa.fex.treeWidth` key; no
+    `@taxa/browser-state` scope creep). The runtime
+    harness exercises the literal value end-to-end; this
+    source-level guard catches a future PR that renames
+    the constant without renaming the localStorage key
+    (which would silently lose persistence across
+    reloads)."""
+    if not EXPLORER_STORAGE_FILE.is_file():
+        pytest.skip("explorer-storage.ts not present yet")
+    text = EXPLORER_STORAGE_FILE.read_text()
+    m = re.search(
+        r'export\s+const\s+EXPLORER_STATE_STORAGE_KEY\s*=\s*"([^"]+)"',
+        text,
+    )
+    assert m, (
+        "explorer-storage.ts must declare `export const "
+        "EXPLORER_STATE_STORAGE_KEY = \"...\"` as a named "
+        "constant (the EXPLORER-PERSIST localStorage-key "
+        "surface)."
+    )
+    assert m.group(1) == "taxa.fex.explorerState", (
+        f"EXPLORER_STATE_STORAGE_KEY must equal the literal "
+        f"`\"taxa.fex.explorerState\"` (the single raw "
+        f"localStorage key per the user-authorized decision); "
+        f"got {m.group(1)!r}. Renaming the key would silently "
+        f"lose persistence across reloads."
+    )
+
+
+def test_w6_4_storage_exports_named_pure_helpers_and_constants() -> None:
+    """EXPLORER-PERSIST — the storage module MUST export the
+    pure helpers + bound constants + versioned shape as
+    named exports so the focused test harness exercises
+    them under Node without React or the DOM event
+    system.
+
+    Slice 8 asserts ONLY the pure-helper / constant /
+    typed-shape exports. The storage helpers
+    (`readPersistedExplorerState` /
+    `writePersistedExplorerState` /
+    `clearPersistedExplorerState`) are NOT declared in
+    this file — they live behind the canonical per-key
+    `@taxa/browser-state` store. Slice 9 wires the
+    `Persisted*` aliases through the public barrel under
+    the legacy names; the slice 8 contract intentionally
+    stops at the pure-helper surface so the Research
+    module stays free of `localStorage.*` references.
+    """
+    if not EXPLORER_STORAGE_FILE.is_file():
+        pytest.skip("explorer-storage.ts not present yet")
+    text = EXPLORER_STORAGE_FILE.read_text()
+    for symbol in (
+        # storage key + version + bound caps
+        "EXPLORER_STATE_STORAGE_KEY",
+        "EXPLORER_STATE_STORAGE_VERSION",
+        "MAX_EXPLORER_STATE_BYTES",
+        "MAX_EXPANDED_PATHS",
+        "MAX_QUERY_LENGTH",
+        "MAX_SELECTED_PATH_LENGTH",
+        # pure helpers (framework-free)
+        "serializeExplorerState",
+        "parseExplorerState",
+        "validateAgainstTree",
+        "createEmptyPersistedExplorerState",
+        # collection helper used by the React mount.
+        "collectAllTreePaths",
+        # typed shape — re-exported through the kernel so
+        # the React mount reaches the typed surface via
+        # the `@taxa/research` barrel without a reverse
+        # deep import.
+        "PersistedExplorerState",
+    ):
+        # Match EITHER the direct export form
+        # (`export const/function/interface/type SYMBOL`) OR
+        # the re-export form
+        # (`export [type] { SYMBOL ... }`). The `[^,}]*` class
+        # prevents the regex from greedily consuming characters
+        # past the symbol boundary so a single re-export line
+        # matches the symbol exactly.
+        assert re.search(
+            rf"(?:export\s+(?:const|function|interface|type)\s+{symbol}\b|"
+            rf"export\s+(?:type\s+)?\{{[^,}}]*\b{symbol}\b[^,}}]*\}})",
+            text,
+        ), (
+            f"explorer-storage.ts must export `{symbol}` as "
+            f"a named constant, function, type, or interface "
+            f"(the EXPLORER-PERSIST pure-handler / "
+            f"constant surface in slice 8)."
+        )
+
+
+def test_w6_4_storage_does_not_use_localstorage_directly() -> None:
+    """EXPLORER-PERSIST — the Research storage module MUST
+    NOT touch `localStorage` directly. Slice 8 keeps the
+    I/O surface in the canonical per-key
+    `@taxa/browser-state` store; the Research-side helpers
+    stay framework-free, I/O-free, browser-free so the
+    focused test harness exercises them under Node.
+
+    This test pins the negative contract end-to-end:
+    `explorer-storage.ts` is `localStorage`-free, so the
+    `tests/test_browser_state_keys.py::test_other_module_does_not_touch_localstorage[research]`
+    architecture guard can pass without a research-side
+    carveout.
+    """
+    if not EXPLORER_STORAGE_FILE.is_file():
+        pytest.skip("explorer-storage.ts not present yet")
+    stripped = _strip_ts_comments(EXPLORER_STORAGE_FILE.read_text())
+    forbidden = (
+        "localStorage.",
+        "sessionStorage.",
+        "window.localStorage",
+        "globalThis.localStorage",
+    )
+    for token in forbidden:
+        assert token not in stripped, (
+            f"explorer-storage.ts must NOT touch {token!r} "
+            f"— slice 8 keeps the storage module "
+            f"framework-free, I/O-free, browser-free. The "
+            f"canonical per-key `@taxa/browser-state` store "
+            f"(`infrastructure/storeExplorerState.ts`) owns "
+            f"every storage primitive. The research-side "
+            f"helpers validate the typed shape against the "
+            f"freshly loaded tree without ever reaching for "
+            f"a storage primitive."
+        )
+
+
+def test_w6_4_storage_bounds_serialized_size() -> None:
+    """EXPLORER-PERSIST — the serializer MUST respect a
+    hard byte cap (`MAX_EXPLORER_STATE_BYTES`) so a
+    pathological user (a deeply nested tree path that
+    exceeds the cap) is rejected instead of silently
+    bloating the localStorage quota. The runtime harness
+    exercises the cap end-to-end; this source-level guard
+    pins the literal + the constant name so a future PR
+    that renames the constant is caught."""
+    if not EXPLORER_STORAGE_FILE.is_file():
+        pytest.skip("explorer-storage.ts not present yet")
+    text = EXPLORER_STORAGE_FILE.read_text()
+    m = re.search(
+        r'export\s+const\s+MAX_EXPLORER_STATE_BYTES\s*=\s*(\d+)',
+        text,
+    )
+    assert m, (
+        "explorer-storage.ts must declare `export const "
+        "MAX_EXPLORER_STATE_BYTES = <n>` as a named "
+        "constant (the EXPLORER-PERSIST size cap)."
+    )
+    cap = int(m.group(1))
+    # Cap must be a sane localStorage value (≤ 1 MiB). The
+    # rationale: localStorage budgets are typically 5–10 MiB
+    # per origin; 64 KiB is well under every browser's
+    # practical quota for a single key + leaves headroom
+    # for future PRs without overflowing the quota.
+    assert 1024 <= cap <= 1_048_576, (
+        f"MAX_EXPLORER_STATE_BYTES must be a sane localStorage "
+        f"cap (1 KiB ≤ cap ≤ 1 MiB); got {cap}. The cap is the "
+        f"EXPLORER-PERSIST record's hard byte budget."
+    )
+
+
+def test_w6_4_storage_versioned_record_shape() -> None:
+    """EXPLORER-PERSIST — the persisted record carries an
+    explicit `version` literal (the
+    `EXPLORER_STATE_STORAGE_VERSION` constant) so a future
+    PR that reshapes the shape can bump the version + add
+    a parse guard instead of silently corrupting an in-
+    flight user's record. The serializer writes the
+    version; the parser reads + validates it; mismatched
+    versions are discarded (`parseExplorerState` returns
+    `null` for unknown / future versions).
+
+    Slice 8 accepts EITHER the inline `export const`
+    declaration (the slice 8 shape — the local declaration
+    keeps the pure helpers compileable in isolation
+    without a cross-module `@taxa/browser-state` import
+    that would couple the focused runtime harness to the
+    browser-state module resolution) OR a re-export
+    `export { EXPLORER_STATE_STORAGE_VERSION } from ...`
+    (an alternative slice 8 shape). Either way, the literal
+    value must be ≥ 1 (verified through the companion
+    runtime contract)."""
+    if not EXPLORER_STORAGE_FILE.is_file():
+        pytest.skip("explorer-storage.ts not present yet")
+    text = _strip_ts_comments(EXPLORER_STORAGE_FILE.read_text())
+    # Accept either the inline declaration OR the re-export.
+    inline_m = re.search(
+        r'export\s+const\s+EXPLORER_STATE_STORAGE_VERSION\s*=\s*(\d+)',
+        text,
+    )
+    reexport_m = re.search(
+        r'export\s*\{\s*EXPLORER_STATE_STORAGE_VERSION\s*\}',
+        text,
+    )
+    assert inline_m or reexport_m, (
+        "explorer-storage.ts must declare "
+        "`EXPLORER_STATE_STORAGE_VERSION` either as an "
+        "inline `export const ... = <n>` declaration OR as "
+        "a re-export `export { EXPLORER_STATE_STORAGE_VERSION } "
+        "from \"@taxa/browser-state\"`. The version is the "
+        "EXPLORER-PERSIST forward-compatibility seam; a "
+        "missing declaration would silently break the "
+        "parser's version guard."
+    )
+    if inline_m:
+        version = int(inline_m.group(1))
+        assert version >= 1, (
+            f"EXPLORER_STATE_STORAGE_VERSION must be ≥ 1 (the "
+            f"initial release); got {version}."
+        )
+
+
+def test_w6_4_barrel_reexports_explorer_storage() -> None:
+    """EXPLORER-PERSIST — the public barrel MUST re-export
+    the storage module's pure helpers + bound constants
+    + typed shape so cross-module consumers (integration
+    tests, future consumers) reach the EXPLORER-PERSIST
+    pure surface through the public `@taxa/research`
+    surface. spec.md rule 5 keeps cross-module imports
+    anchored at the public barrel.
+
+    Slice 8 asserts ONLY the pure-helper / constant /
+    typed-shape exports. The browser-state `Persisted*`
+    aliases (`readPersistedExplorerState` /
+    `writePersistedExplorerState` /
+    `clearPersistedExplorerState`) are deferred to slice 9
+    — slice 8 keeps the Research module free of
+    `localStorage.*` references; slice 9 wires the
+    aliases through the public barrel under the legacy
+    names so the Explorer mount (`@taxa/research`
+    consumer) does not need to know about the browser-
+    state rename.
+    """
+    if not BARREL_FILE.is_file():
+        pytest.skip("barrel not present yet")
+    text = _strip_ts_comments(BARREL_FILE.read_text())
+    for symbol in (
+        # storage key + version + bound caps
+        "EXPLORER_STATE_STORAGE_KEY",
+        "EXPLORER_STATE_STORAGE_VERSION",
+        "MAX_EXPLORER_STATE_BYTES",
+        "MAX_EXPANDED_PATHS",
+        "MAX_QUERY_LENGTH",
+        "MAX_SELECTED_PATH_LENGTH",
+        # pure helpers (framework-free)
+        "serializeExplorerState",
+        "parseExplorerState",
+        "validateAgainstTree",
+        "createEmptyPersistedExplorerState",
+    ):
+        assert symbol in text, (
+            f"barrel must re-export the EXPLORER-PERSIST "
+            f"pure helper or constant `{symbol}` so "
+            f"cross-module consumers reach the typed "
+            f"hand-off through `@taxa/research`. Slice 8 "
+            f"pins only the pure-helper surface; the "
+            f"browser-state `Persisted*` aliases land in "
+            f"slice 9."
+        )
+    # Slice 8 — the browser-state `Persisted*` aliases are
+    # intentionally NOT asserted in this test. The slice 9
+    # contract widens the barrel to include those aliases;
+    # the slice 8 contract stays framework-free + I/O-free
+    # + browser-free at the research-side seam.
+    for symbol in (
+        "readPersistedExplorerState",
+        "writePersistedExplorerState",
+        "clearPersistedExplorerState",
+    ):
+        assert symbol not in text, (
+            f"barrel must NOT re-export the browser-state "
+            f"`Persisted*` alias `{symbol}` in slice 8 — "
+            f"the slice 9 contract widens the barrel to "
+            f"include those aliases under the legacy names. "
+            f"Slice 8 keeps the Research module free of "
+            f"`localStorage.*` references; the canonical "
+            f"per-key browser-state store owns the I/O "
+            f"surface."
+        )
+
+
+def test_w6_4_domain_privacy_contract_reflects_user_approved_persistence() -> None:
+    """EXPLORER-PERSIST — the existing privacy caveat in
+    `src/modules/research/domain/explorer.ts::SearchState`
+    (the `Session-scoped only — intentionally NOT in
+    localStorage` block) MUST be updated to reflect the
+    user-approved browser-local persistence decision.
+    The new wording documents:
+      1. Browser-local persistence is explicitly
+         user-approved despite the existing sensitivity
+         caveat (taxon names + paths may be sensitive).
+      2. The storage key + the validation + the size
+         bound + the error-swallow contract so a future
+         reader of the domain layer knows the typed
+         surface now persists.
+      3. The data stays on this browser; no server
+         transmission is added.
+
+    The check is a substring scan that pins the new
+    wording so a future PR cannot silently revert the
+    comment to the pre-EXPLORER-PERSIST shape."""
+    if not DOMAIN_FILE.is_file():
+        pytest.skip("domain/explorer.ts not present yet")
+    text = DOMAIN_FILE.read_text()
+    # The new wording MUST mention "browser-local" (or
+    # "browser local") AND the EXPLORER-PERSIST work-unit
+    # identifier so a future reader can correlate the
+    # comment to the feature document.
+    assert "browser-local" in text or "browser local" in text, (
+        "domain/explorer.ts must update the SearchState "
+        "privacy caveat to mention the user-approved "
+        "browser-local persistence decision. The "
+        "EXPLORER-PERSIST contract pins the new wording."
+    )
+    assert "EXPLORER-PERSIST" in text, (
+        "domain/explorer.ts must mention EXPLORER-PERSIST "
+        "in the SearchState privacy caveat so a future "
+        "reader can correlate the comment to the feature "
+        "document. The work-unit identifier is the "
+        "traceability anchor for the user-approved "
+        "decision."
+    )
+    # The old "Session-scoped only" wording is
+    # intentionally removed (the contract is now "session
+    # OR browser-local", depending on the user's
+    # explicit choice). The check verifies the old
+    # literal is gone so a silent revert is caught.
+    assert (
+        "intentionally NOT in `localStorage`" not in text
+    ), (
+        "domain/explorer.ts must remove the "
+        "`intentionally NOT in localStorage` literal "
+        "(the EXPLORER-PERSIST decision inverts the "
+        "previous constraint — the user explicitly chose "
+        "browser localStorage persistence despite the "
+        "sensitivity warning)."
+    )
+
+
+# ---------------------------------------------------------------------------
+# EXPLORER-PERSIST — compile + runtime contract for the
+# storage module. The module is framework-free, I/O-free,
+# browser-free (no `localStorage` references — slice 8
+# keeps the I/O surface behind the canonical per-key
+# `@taxa/browser-state` store), so the focused compile
+# uses `--lib ES2022,DOM` (matching the kernel + Splitter
+# compile contract). The runtime harness exercises every
+# pure parse / serialize / validate helper + the bound
+# caps + the version literal + the storage key constant
+# under Node's ES2022+DOM environment (no React runtime).
+# ---------------------------------------------------------------------------
+def _run_tsc_isolated_storage(
+    out_dir: Path,
+    sources: list[Path],
+    extra: list[str] | None = None,
+) -> subprocess.CompletedProcess:
+    """Compile the EXPLORER-PERSIST storage module
+    alongside the W6.1 framework-free kernel + the W1
+    domain + the W4a–W4b4 renderers. Flags mirror the W6.3
+    Splitter compile contract (`--lib ES2022,DOM`, no
+    `--jsx` because the storage module is `.ts`, not
+    `.tsx`).
+
+    Slice 8 — the storage module declares its typed
+    surface (`PersistedExplorerState` +
+    `EXPLORER_STATE_STORAGE_VERSION` +
+    `createEmptyPersistedExplorerState`) LOCALLY instead
+    of importing from `@taxa/browser-state`, so the
+    isolated compile does not need the path-alias
+    resolution. The browser-state chain owns the
+    canonical typed surface; the local mirror stays in
+    sync via the source-level guards.
+    """
+    return subprocess.run(
+        [
+            "npx", "--yes", "-p", "typescript@5.7", "tsc",
+            "--strict",
+            "--target", "ES2022",
+            "--module", "commonjs",
+            "--lib", "ES2022,DOM",
+            "--skipLibCheck",
+            "--esModuleInterop",
+            "--rootDir", "src/modules/research",
+            "--outDir", str(out_dir),
+            *[str(p) for p in sources],
+            *(extra or []),
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+@pytest.fixture()
+def compiled_w6_4_storage(
+    tmp_path: Path, require_toolchain: None,
+) -> Path:
+    """Compile the EXPLORER-PERSIST storage module
+    alongside the W6.1 framework-free kernel + the W1
+    domain + the W4a–W4b4 renderers. Returns the
+    compiled storage path; the runtime harness loads it
+    and exercises every pure helper under Node's
+    ES2022+DOM environment (no React runtime).
+
+    Slice 8 — the storage helpers (`readPersistedExplorerState`
+    / `writePersistedExplorerState` /
+    `clearPersistedExplorerState`) live behind the canonical
+    per-key browser-state chain
+    (`infrastructure/storeExplorerState.ts`) and are exercised
+    by the companion runtime contract in
+    `tests/test_browser_state_keys.py::test_compiled_browser_state_passes_runtime_contract`.
+    This fixture focuses on the research-side pure helpers
+    + the versioned contract.
+    """
+    for p in (
+        DOMAIN_FILE, RENDERERS_FILE, EXPLORER_STATE_FILE,
+        EXPLORER_STORAGE_FILE,
+    ):
+        if not p.is_file():
+            pytest.skip(f"missing required source: {p}")
+    out_dir = tmp_path / "build"
+    out_dir.mkdir()
+    result = _run_tsc_isolated_storage(
+        out_dir,
+        [
+            DOMAIN_FILE, RENDERERS_FILE,
+            EXPLORER_STATE_FILE, EXPLORER_STORAGE_FILE,
+        ],
+    )
+    assert result.returncode == 0, (
+        f"explorer-storage.ts failed to compile in isolated "
+        f"strict mode.\nstdout: {result.stdout}\n"
+        f"stderr: {result.stderr}"
+    )
+    compiled_storage = (
+        out_dir / "presentation" / "explorer-storage.js"
+    )
+    assert compiled_storage.is_file(), (
+        f"tsc did not emit `presentation/explorer-storage.js` "
+        f"at {compiled_storage}.\nstdout: {result.stdout}\n"
+        f"stderr: {result.stderr}"
+    )
+    return compiled_storage
+
+
+# EXPLORER-PERSIST runtime harness — exercises the
+# research-side storage module's pure helpers + bound
+# caps + version literal + storage key constant under
+# Node's ES2022+DOM environment. The harness exercises the
+# pure parse / serialize / validate helpers + the bound
+# caps so the contract stays pinned byte-for-byte.
+#
+# Slice 8 — the storage helpers (read / write / clear) no
+# longer live in this file. The companion runtime contract
+# in `tests/test_browser_state_keys.py` exercises the typed
+# storage chain under the canonical per-key browser-state
+# guard. This harness focuses on the pure Research-side
+# helpers + the versioned contract.
+_STORAGE_RUNTIME_HARNESS = r"""
+// CJS does not support top-level await (only ESM does), so
+// the harness wraps the assertions in a sync body — every
+// EXPLORER-PERSIST helper is pure (no async, no I/O).
+const path = require("path");
+const assert = require("assert");
+const storage = require(path.resolve(process.argv[2]));
+
+// 1. Constants — every EXPLORER-PERSIST bound + version
+//    constant is pinned so a future PR that changes the
+//    cap silently breaks the focused harness before it
+//    reaches review.
+{
+  assert.strictEqual(
+    storage.EXPLORER_STATE_STORAGE_KEY, "taxa.fex.explorerState",
+    "EXPLORER_STATE_STORAGE_KEY must equal the literal \"taxa.fex.explorerState\"",
+  );
+  assert.ok(
+    storage.EXPLORER_STATE_STORAGE_VERSION >= 1,
+    "EXPLORER_STATE_STORAGE_VERSION must be a positive integer",
+  );
+  assert.ok(
+    storage.MAX_EXPLORER_STATE_BYTES >= 1024
+      && storage.MAX_EXPLORER_STATE_BYTES <= 1_048_576,
+    "MAX_EXPLORER_STATE_BYTES must be a sane localStorage cap (1 KiB ≤ cap ≤ 1 MiB)",
+  );
+  assert.ok(
+    storage.MAX_EXPANDED_PATHS >= 1
+      && storage.MAX_EXPANDED_PATHS <= 10_000,
+    "MAX_EXPANDED_PATHS must be a sane cap (1 ≤ cap ≤ 10,000)",
+  );
+  assert.ok(
+    storage.MAX_QUERY_LENGTH >= 1
+      && storage.MAX_QUERY_LENGTH <= 65_536,
+    "MAX_QUERY_LENGTH must be a sane cap (1 ≤ cap ≤ 65,536)",
+  );
+  assert.ok(
+    storage.MAX_SELECTED_PATH_LENGTH >= 1
+      && storage.MAX_SELECTED_PATH_LENGTH <= 65_536,
+    "MAX_SELECTED_PATH_LENGTH must be a sane cap (1 ≤ cap ≤ 65,536)",
+  );
+}
+
+// 2. createEmptyPersistedExplorerState — pure factory.
+//    Returns a fresh `{ version, query, selectedPath,
+//    expandedPaths }` shape on every call (no shared
+//    references so a future consumer can mutate locally
+//    without bleeding into a sibling).
+{
+  const a = storage.createEmptyPersistedExplorerState();
+  const b = storage.createEmptyPersistedExplorerState();
+  assert.strictEqual(a.version, storage.EXPLORER_STATE_STORAGE_VERSION);
+  assert.strictEqual(a.query, "");
+  assert.strictEqual(a.selectedPath, null);
+  assert.ok(Array.isArray(a.expandedPaths));
+  assert.strictEqual(a.expandedPaths.length, 0);
+  assert.notStrictEqual(
+    a.expandedPaths, b.expandedPaths,
+    "expandedPaths is a fresh array per call",
+  );
+}
+
+// 3. serializeExplorerState / parseExplorerState round-
+//    trip. The serializer emits a JSON string with the
+//    bound-checked shape; the parser reconstructs the
+//    typed shape. Round-trip preserves every field.
+{
+  const original = storage.createEmptyPersistedExplorerState();
+  original.query = "mammalia";
+  original.selectedPath = "Animalia/Mammalia.pdf";
+  original.expandedPaths = ["Animalia", "Animalia/Mammalia"];
+  const serialized = storage.serializeExplorerState(original);
+  assert.strictEqual(
+    typeof serialized, "string",
+    "serializeExplorerState must return a string",
+  );
+  const parsed = storage.parseExplorerState(serialized);
+  assert.ok(parsed, "parseExplorerState must round-trip a valid record");
+  assert.strictEqual(parsed.query, "mammalia");
+  assert.strictEqual(parsed.selectedPath, "Animalia/Mammalia.pdf");
+  assert.deepStrictEqual(
+    parsed.expandedPaths,
+    ["Animalia", "Animalia/Mammalia"],
+  );
+  assert.strictEqual(
+    parsed.version, storage.EXPLORER_STATE_STORAGE_VERSION,
+  );
+}
+
+// 4. parseExplorerState — malformed / null / empty
+//    inputs return `null` (the React layer treats `null`
+//    as "no persisted state, start fresh"). The check
+//    pins every malformed-shape branch so a future PR
+//    that throws on malformed input is caught.
+{
+  assert.strictEqual(storage.parseExplorerState(null), null);
+  assert.strictEqual(storage.parseExplorerState(""), null);
+  assert.strictEqual(storage.parseExplorerState("not-json"), null);
+  assert.strictEqual(
+    storage.parseExplorerState("{\"foo\": \"bar\"}"), null,
+    "record missing the required fields must return null",
+  );
+  // Future version → null (the parser must discard a
+  // version it doesn't know so a future PR's
+  // incompatible shape never corrupts an in-flight user).
+  const futureVersion = JSON.stringify({
+    version: storage.EXPLORER_STATE_STORAGE_VERSION + 999,
+    query: "x",
+    selectedPath: null,
+    expandedPaths: [],
+  });
+  assert.strictEqual(
+    storage.parseExplorerState(futureVersion), null,
+    "future version must return null (forward-compat guard)",
+  );
+  // Wrong type for query → null.
+  const wrongQueryType = JSON.stringify({
+    version: storage.EXPLORER_STATE_STORAGE_VERSION,
+    query: 12345,
+    selectedPath: null,
+    expandedPaths: [],
+  });
+  assert.strictEqual(
+    storage.parseExplorerState(wrongQueryType), null,
+    "non-string query must return null",
+  );
+  // Wrong type for selectedPath → null.
+  const wrongSelectedType = JSON.stringify({
+    version: storage.EXPLORER_STATE_STORAGE_VERSION,
+    query: "",
+    selectedPath: 12345,
+    expandedPaths: [],
+  });
+  assert.strictEqual(
+    storage.parseExplorerState(wrongSelectedType), null,
+    "non-string non-null selectedPath must return null",
+  );
+  // Wrong type for expandedPaths → null.
+  const wrongExpandedType = JSON.stringify({
+    version: storage.EXPLORER_STATE_STORAGE_VERSION,
+    query: "",
+    selectedPath: null,
+    expandedPaths: "Animalia",
+  });
+  assert.strictEqual(
+    storage.parseExplorerState(wrongExpandedType), null,
+    "non-array expandedPaths must return null",
+  );
+}
+
+// 5. parseExplorerState — bound checks. A query longer
+//    than MAX_QUERY_LENGTH is discarded (returns null);
+//    a selectedPath longer than MAX_SELECTED_PATH_LENGTH
+//    is discarded; expandedPaths longer than
+//    MAX_EXPANDED_PATHS is discarded; an individual path
+//    longer than MAX_SELECTED_PATH_LENGTH is discarded.
+{
+  const longQuery = "x".repeat(storage.MAX_QUERY_LENGTH + 1);
+  const longQueryRecord = JSON.stringify({
+    version: storage.EXPLORER_STATE_STORAGE_VERSION,
+    query: longQuery,
+    selectedPath: null,
+    expandedPaths: [],
+  });
+  assert.strictEqual(
+    storage.parseExplorerState(longQueryRecord), null,
+    "query exceeding MAX_QUERY_LENGTH must return null",
+  );
+  const longSelected = "x".repeat(
+    storage.MAX_SELECTED_PATH_LENGTH + 1,
+  );
+  const longSelectedRecord = JSON.stringify({
+    version: storage.EXPLORER_STATE_STORAGE_VERSION,
+    query: "",
+    selectedPath: longSelected,
+    expandedPaths: [],
+  });
+  assert.strictEqual(
+    storage.parseExplorerState(longSelectedRecord), null,
+    "selectedPath exceeding MAX_SELECTED_PATH_LENGTH must return null",
+  );
+  const tooManyPaths = Array.from(
+    { length: storage.MAX_EXPANDED_PATHS + 1 },
+    (_, i) => `path-${i}`,
+  );
+  const tooManyRecord = JSON.stringify({
+    version: storage.EXPLORER_STATE_STORAGE_VERSION,
+    query: "",
+    selectedPath: null,
+    expandedPaths: tooManyPaths,
+  });
+  assert.strictEqual(
+    storage.parseExplorerState(tooManyRecord), null,
+    "expandedPaths exceeding MAX_EXPANDED_PATHS must return null",
+  );
+}
+
+// 5b. parseExplorerState — raw-byte cap BEFORE JSON.parse.
+//     PR #429's canonical store enforces the byte cap
+//     via `if (raw.length * 3 > MAX_EXPLORER_STATE_BYTES)
+//     return null;` BEFORE `JSON.parse(raw)` so a
+//     multi-MB paste never reaches the parser (a quota-
+//     blow-up / stale-bloated storage hydrates to the
+//     canonical empty default). The Research-side helper
+//     must mirror the canonical guard verbatim: the
+//     `raw.length * 3` wire-byte estimate is a conservative
+//     upper bound (UTF-16 code unit × 3 covers the worst
+//     case of multibyte UTF-8 expansion), so
+//     `floor(MAX_EXPLORER_STATE_BYTES / 3) * 3 = 65,535`
+//     is the largest representable estimate that does NOT
+//     trip the guard and `+3` chars (= one length unit
+//     beyond, since the multiplier is 3) — i.e.
+//     `raw.length * 3 = 65,538` — is the smallest estimate
+//     that DOES trip the guard.
+//
+//     The harness builds two valid in-shape records at
+//     those exact boundaries (query/path/count kept under
+//     their caps): one at raw.length=21,845 chars (passes),
+//     one at raw.length=21,846 chars (fails). The shape
+//     uses 22 expanded-paths entries — 21 entries of
+//     length MAX_SELECTED_PATH_LENGTH (1024) plus a
+//     boundary-tuned filler entry — so the structural
+//     caps stay well under their limits while the wire
+//     byte estimate lands exactly on the boundary.
+//
+//     The structural caps MUST stay green so a future PR
+//     that broadens the byte cap to avoid this regression
+//     is forced to also re-check the structural caps.
+{
+  // Boundary-passing record: 21,845 chars total. The
+  // structure is `{"version":1,"query":"","selectedPath":null,"expandedPaths":[…]}`
+  // with 22 entries in `expandedPaths` — 21 entries of
+  // length 1024 (=MAX_SELECTED_PATH_LENGTH, the cap)
+  // plus one entry of length 213 (boundary-tuned filler
+  // to land the total at exactly 21,845 chars).
+  const boundaryEntries = [];
+  for (let i = 0; i < 21; i++) {
+    boundaryEntries.push("x".repeat(storage.MAX_SELECTED_PATH_LENGTH));
+  }
+  boundaryEntries.push("y".repeat(213));
+  const boundaryRecord = {
+    version: storage.EXPLORER_STATE_STORAGE_VERSION,
+    query: "",
+    selectedPath: null,
+    expandedPaths: boundaryEntries,
+  };
+  const boundarySerialized = JSON.stringify(boundaryRecord);
+  assert.strictEqual(
+    boundarySerialized.length, 21845,
+    `boundary-record raw length must equal 21,845 chars `
+      + `(the largest representable estimate that does `
+      + `NOT trip the raw byte guard); got ${boundarySerialized.length}`,
+  );
+  assert.strictEqual(
+    boundarySerialized.length * 3, 65535,
+    `boundary-record raw-length × 3 must equal 65,535 `
+      + `(the wire-byte estimate at the cap edge); got `
+      + `${boundarySerialized.length * 3}`,
+  );
+  const boundaryParsed = storage.parseExplorerState(boundarySerialized);
+  assert.ok(
+    boundaryParsed !== null,
+    "parseExplorerState must return a valid record for a "
+      + "valid in-shape record at the exact boundary "
+      + "(raw.length=21,845 chars; raw.length*3=65,535 "
+      + "bytes — the largest representable estimate that "
+      + "does NOT trip the raw byte guard)",
+  );
+  assert.strictEqual(
+    boundaryParsed.query, "",
+    "boundary record query is preserved verbatim",
+  );
+  assert.strictEqual(
+    boundaryParsed.selectedPath, null,
+    "boundary record selectedPath is preserved verbatim",
+  );
+  assert.strictEqual(
+    boundaryParsed.expandedPaths.length, 22,
+    "boundary record expandedPaths length is preserved verbatim",
+  );
+
+  // Over-bound record: 21,846 chars total. Same
+  // structure as the boundary record but with the
+  // filler entry bumped from 213 to 214 chars — a one-
+  // char extension that pushes the wire-byte estimate
+  // to 65,538 bytes (just past MAX_EXPLORER_STATE_BYTES).
+  const overBoundEntries = [];
+  for (let i = 0; i < 21; i++) {
+    overBoundEntries.push("x".repeat(storage.MAX_SELECTED_PATH_LENGTH));
+  }
+  overBoundEntries.push("y".repeat(214));
+  const overBoundRecord = {
+    version: storage.EXPLORER_STATE_STORAGE_VERSION,
+    query: "",
+    selectedPath: null,
+    expandedPaths: overBoundEntries,
+  };
+  const overBoundSerialized = JSON.stringify(overBoundRecord);
+  assert.strictEqual(
+    overBoundSerialized.length, 21846,
+    `over-bound record raw length must equal 21,846 chars `
+      + `(one length unit beyond the boundary — the wire `
+      + `estimate 65,538 bytes MUST trip the raw byte `
+      + `guard); got ${overBoundSerialized.length}`,
+  );
+  assert.strictEqual(
+    overBoundSerialized.length * 3, 65538,
+    `over-bound record raw-length × 3 must equal 65,538 `
+      + `(just past MAX_EXPLORER_STATE_BYTES=65,536); got `
+      + `${overBoundSerialized.length * 3}`,
+  );
+  // Sanity check — the record is otherwise a valid
+  // in-shape record (every field under its cap) so the
+  // ONLY reason it should be rejected is the raw-byte
+  // guard. Without the raw-byte guard, the parser would
+  // happily return the typed shape (the structural
+  // caps alone are not enough to reject this record).
+  assert.strictEqual(
+    overBoundEntries.length, 22,
+    "over-bound record expandedPaths length is 22 (under MAX_EXPANDED_PATHS=1000)",
+  );
+  assert.ok(
+    overBoundEntries.every(
+      (entry) => entry.length <= storage.MAX_SELECTED_PATH_LENGTH,
+    ),
+    "over-bound record every expanded-paths entry is ≤ MAX_SELECTED_PATH_LENGTH",
+  );
+  const overBoundParsed = storage.parseExplorerState(overBoundSerialized);
+  assert.strictEqual(
+    overBoundParsed, null,
+    "parseExplorerState must return null for a valid "
+      + "in-shape record that exceeds the raw-byte cap "
+      + "(raw.length=21,846 chars; raw.length*3=65,538 "
+      + "bytes — just past MAX_EXPLORER_STATE_BYTES=65,536). "
+      + "A multi-MB paste must NOT reach the parser; the "
+      + "record must hydrate to the canonical empty default.",
+  );
+}
+
+// 6. serializeExplorerState — size cap. A record that
+//    exceeds MAX_EXPLORER_STATE_BYTES after serialization
+//    throws (the caller is responsible for catching +
+//    discarding; the React layer treats this as "skip
+//    the write").
+{
+  // Force a too-large query that exceeds the byte cap.
+  // The cap is 64 KiB-ish; an 80 KiB query reliably
+  // exceeds it.
+  const big = storage.createEmptyPersistedExplorerState();
+  big.query = "x".repeat(80 * 1024);
+  let threw = false;
+  try {
+    storage.serializeExplorerState(big);
+  } catch (e) {
+    threw = true;
+  }
+  assert.ok(
+    threw,
+    "serializeExplorerState must throw when the serialized record exceeds MAX_EXPLORER_STATE_BYTES",
+  );
+}
+
+// 7. validateAgainstTree — discards stale paths. A
+//    restored expanded set is filtered against the
+//    freshly loaded tree; paths that exist in the
+//    restored set but NOT in the tree are discarded. A
+//    restored selectedPath that exists in the tree is
+//    kept; one that doesn't is set to null. Pure
+//    function: same input always yields the same output.
+{
+  const treeRoot = {
+    type: "folder",
+    name: "root",
+    path: "",
+    children: [
+      {
+        type: "folder",
+        name: "Animalia",
+        path: "Animalia",
+        children: [
+          { type: "file", name: "Mammalia.pdf",
+            path: "Animalia/Mammalia.pdf",
+            extension: "pdf", size: 1,
+            modified: "2024-01-01T00:00:00" },
+        ],
+      },
+    ],
+  };
+  const tree = {
+    exists: true,
+    root: treeRoot,
+    filesystem_path: "",
+  };
+  const persisted = {
+    version: storage.EXPLORER_STATE_STORAGE_VERSION,
+    query: "mammalia",
+    selectedPath: "Animalia/Mammalia.pdf",
+    expandedPaths: [
+      "Animalia",            // valid — exists in tree.
+      "Plantae",             // stale — doesn't exist.
+      "Animalia/Mammalia",   // stale — doesn't exist.
+    ],
+  };
+  const validated = storage.validateAgainstTree(persisted, tree);
+  assert.ok(validated, "validateAgainstTree must return a validated record");
+  assert.strictEqual(validated.query, "mammalia", "query is preserved");
+  assert.strictEqual(
+    validated.selectedPath, "Animalia/Mammalia.pdf",
+    "valid selectedPath is preserved",
+  );
+  assert.deepStrictEqual(
+    validated.expandedPaths,
+    ["Animalia"],
+    "stale expanded paths are discarded",
+  );
+
+  // Stale selectedPath → null (not silently kept).
+  const staleSelected = {
+    version: storage.EXPLORER_STATE_STORAGE_VERSION,
+    query: "",
+    selectedPath: "Deleted/Folder/file.pdf",
+    expandedPaths: [],
+  };
+  const validatedStale = storage.validateAgainstTree(
+    staleSelected, tree,
+  );
+  assert.ok(validatedStale);
+  assert.strictEqual(
+    validatedStale.selectedPath, null,
+    "stale selectedPath is set to null",
+  );
+
+  // Null tree → empty record (the React layer uses an
+  // empty record to drive the initial state until the
+  // tree finishes loading).
+  const emptyTree = storage.validateAgainstTree(persisted, null);
+  assert.ok(emptyTree);
+  assert.strictEqual(emptyTree.selectedPath, null);
+  assert.strictEqual(emptyTree.expandedPaths.length, 0);
+}
+
+// 7b. validateAgainstTree — stable de-duplication of
+//     expanded paths in first-seen order. The serializer
+//     preserves the expandedPaths array verbatim (no
+//     dedup at the serialization layer); a stale record
+//     can therefore carry the same valid path multiple
+//     times (e.g. a session that expanded the same
+//     folder across multiple post-mount clicks). The
+//     validator MUST collapse duplicates to a single
+//     entry while preserving the FIRST occurrence's
+//     position so the React mount sees a deterministic
+//     expanded set without losing the user's original
+//     expansion intent. The dedup is stable (not
+//     Set-order) so a future PR that adds ordering
+//     semantics (e.g. a `most-recently-expanded` slot)
+//     can rely on the first-seen order surviving.
+{
+  const dedupTreeRoot = {
+    type: "folder",
+    name: "root",
+    path: "",
+    children: [
+      {
+        type: "folder",
+        name: "Animalia",
+        path: "Animalia",
+        children: [
+          {
+            type: "folder",
+            name: "Mammalia",
+            path: "Animalia/Mammalia",
+            children: [],
+          },
+          {
+            type: "folder",
+            name: "Plantae",
+            path: "Plantae",
+            children: [],
+          },
+        ],
+      },
+    ],
+  };
+  const dedupTree = {
+    exists: true,
+    root: dedupTreeRoot,
+    filesystem_path: "",
+  };
+  const dedupPersisted = {
+    version: storage.EXPLORER_STATE_STORAGE_VERSION,
+    query: "",
+    selectedPath: null,
+    expandedPaths: [
+      "Animalia",                 // valid (first-seen).
+      "Animalia/Mammalia",        // valid (first-seen).
+      "Animalia",                 // duplicate of #0 — must be dropped.
+      "Plantae",                  // valid (first-seen).
+      "Animalia/Mammalia",        // duplicate of #1 — must be dropped.
+      "Plantae",                  // duplicate of #3 — must be dropped.
+      "Animalia",                 // duplicate of #0 — must be dropped.
+    ],
+  };
+  const dedupValidated = storage.validateAgainstTree(
+    dedupPersisted, dedupTree,
+  );
+  assert.ok(
+    dedupValidated,
+    "validateAgainstTree must return a validated record",
+  );
+  assert.deepStrictEqual(
+    dedupValidated.expandedPaths,
+    ["Animalia", "Animalia/Mammalia", "Plantae"],
+    "validateAgainstTree must collapse duplicates in "
+      + "stable first-seen order (a record carrying the "
+      + "same valid path multiple times must yield a "
+      + "single entry per unique path; the first-seen "
+      + "order is the contract so the React mount sees a "
+      + "deterministic expanded set)",
+  );
+}
+
+// 8. Slice 8 — the storage helpers were MOVED to the
+//    canonical per-key browser-state store. They are
+//    exercised by the companion runtime contract in
+//    `tests/test_browser_state_keys.py::test_compiled_browser_state_passes_runtime_contract`.
+//    Slice 9 wires the `Persisted*` aliases through the
+//    `@taxa/research` barrel under the legacy names; this
+//    harness stays focused on the research-side pure
+//    helpers + versioned contract.
+
+process.stdout.write("PASS\n");
+"""
+
+
+def test_compiled_w6_4_storage_passes_runtime_contract(
+    compiled_w6_4_storage: Path,
+    tmp_path: Path,
+) -> None:
+    """Under Node (ES2022 + DOM), the compiled
+    EXPLORER-PERSIST storage module satisfies the
+    EXPLORER-PERSIST slice 8 contract end-to-end:
+
+      1. Constants — the storage key, version, + every
+         bound cap are pinned byte-for-byte.
+      2. createEmptyPersistedExplorerState — fresh
+         object per call (no shared references).
+      3. serializeExplorerState / parseExplorerState
+         round-trip preserves every field.
+      4. parseExplorerState discards malformed / null /
+         empty / future-version / wrong-typed / out-of-
+         bounds records (returns `null` for every
+         malformed shape so a corrupt record never
+         crashes the mount).
+      5. serializeExplorerState throws when the
+         serialized record exceeds
+         MAX_EXPLORER_STATE_BYTES.
+      6. validateAgainstTree discards stale paths
+         against the freshly loaded tree; a stale
+         `selectedPath` is set to `null`; a null tree
+         yields an empty record.
+
+    Slice 8 keeps the storage helpers
+    (`readPersistedExplorerState` /
+    `writePersistedExplorerState` /
+    `clearPersistedExplorerState`) behind the canonical
+    per-key browser-state store — they are exercised by
+    the companion runtime contract in
+    `tests/test_browser_state_keys.py`. The slice 9
+    contract widens the `@taxa/research` barrel to
+    expose the `Persisted*` aliases under the legacy
+    names so the Explorer mount (`@taxa/research`
+    consumer) does not need to know about the browser-
+    state rename."""
+    harness = tmp_path / "harness.cjs"
+    harness.write_text(_STORAGE_RUNTIME_HARNESS)
+    result = subprocess.run(
+        ["node", str(harness), str(compiled_w6_4_storage)],
+        cwd=REPO_ROOT,
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, (
+        f"EXPLORER-PERSIST runtime harness failed.\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert result.stdout.strip() == "PASS", (
+        f"unexpected EXPLORER-PERSIST harness output: "
+        f"{result.stdout!r}"
+    )
+
+
+# ===========================================================================
+# EXPLORER-PERSIST — source-level parity between the
+# research-side pure-helper mirror and the canonical
+# browser-state domain surface.
+#
+# The EXPLORER-PERSIST architecture correction
+# (ODD-BSTATE-EXPLORER-PERSIST) moved the Browser-tab
+# Explorer working-set persistence behind the canonical
+# per-key browser-state chain
+# (`infrastructure/storeExplorerState.ts`). The
+# Research-side module
+# (`src/modules/research/presentation/explorer-storage.ts`)
+# declares a LOCAL MIRROR of the storage key literal +
+# version literal + four bound caps so the pure helpers
+# compile in isolation (the focused runtime harness does
+# not depend on the `@taxa/browser-state` path-alias
+# resolution). The mirror MUST stay byte-for-byte in
+# lock-step with the canonical domain surface:
+#
+#   - `EXPLORER_STATE_STORAGE_KEY`  ←
+#     `src/modules/browser-state/domain/keys.ts`
+#   - `EXPLORER_STATE_STORAGE_VERSION` +
+#     `MAX_EXPLORER_STATE_BYTES` +
+#     `MAX_EXPANDED_PATHS` +
+#     `MAX_QUERY_LENGTH` +
+#     `MAX_SELECTED_PATH_LENGTH`  ←
+#     `src/modules/browser-state/domain/explorer-state.ts`
+#
+# A drift between the two surfaces would silently break
+# the persistence boundary: a too-large key literal would
+# lose persistence across reloads; a too-loose cap would
+# let an oversized record through the parse guard; a
+# too-tight cap would silently drop a legitimate record.
+# The source-level parity test catches every drift at
+# review time so the focused runtime harness can stay
+# focused on the runtime contract.
+#
+# The mirror is intentionally a SOURCE-LEVEL mirror (not
+# an `@taxa/browser-state` re-export). The local
+# declaration keeps the pure helpers
+# (framework-free, I/O-free, browser-free) compileable
+# under `--lib ES2022,DOM` in isolation, which a
+# cross-module import would break. The parity test
+# enforces the lock-step so the two surfaces stay
+# equivalent without a runtime coupling.
+#
+# spec.md rule 5 still keeps the cross-module typed
+# hand-off (`PersistedExplorerState` +
+# `createEmptyPersistedExplorerState`) anchored at the
+# public `@taxa/research` barrel — the parity test
+# only pins the six literal values (one key, one version,
+# four caps), not the typed surface.
+# ---------------------------------------------------------------------------
+
+# Canonical browser-state domain file paths — mirrors the
+# `DOMAIN_KEYS_FILE` / `DOMAIN_EXPLORER_STATE_FILE`
+# constants in `tests/test_browser_state_keys.py` so the
+# parity test follows the existing convention. Kept local
+# to this slice (not imported from the sibling test
+# module) so the test stays a one-file unit that runs
+# under the focused pytest node.
+_BS_ROOT = REPO_ROOT / "src" / "modules" / "browser-state"
+_BS_DOMAIN_KEYS_FILE = _BS_ROOT / "domain" / "keys.ts"
+_BS_DOMAIN_EXPLORER_STATE_FILE = (
+    _BS_ROOT / "domain" / "explorer-state.ts"
+)
+
+
+def _read_canonical_storage_key_literal() -> str:
+    """Read the canonical `EXPLORER_STATE_STORAGE_KEY`
+    literal from
+    `src/modules/browser-state/domain/keys.ts`. Returns the
+    string literal value the canonical file exports.
+
+    The regex accepts EITHER the explicit-string form
+    (`"taxa.fex.explorerState"`) OR the `as const`-tagged
+    form (`"taxa.fex.explorerState" as const`). The
+    `as const` form is the canonical form declared in
+    `domain/keys.ts` so the typed surface stays a closed
+    union of literal strings."""
+    text = _BS_DOMAIN_KEYS_FILE.read_text(encoding="utf-8")
+    m = re.search(
+        r'export\s+const\s+EXPLORER_STATE_STORAGE_KEY\s*=\s*"([^"]+)"',
+        text,
+    )
+    assert m, (
+        "browser-state/domain/keys.ts must declare the "
+        "canonical `EXPLORER_STATE_STORAGE_KEY` literal; "
+        "missing declaration breaks the source-level "
+        "parity guard."
+    )
+    return m.group(1)
+
+
+def _read_canonical_numeric_literal(
+    filename: Path, constant_name: str,
+) -> int:
+    """Read a canonical numeric constant
+    (`EXPLORER_STATE_STORAGE_VERSION`,
+    `MAX_EXPLORER_STATE_BYTES`, `MAX_EXPANDED_PATHS`,
+    `MAX_QUERY_LENGTH`, `MAX_SELECTED_PATH_LENGTH`) from
+    the supplied canonical domain file. Returns the
+    integer literal value the canonical file exports.
+
+    The regex accepts the plain `export const NAME = N`
+    form (the canonical declaration in
+    `domain/explorer-state.ts`). A future PR that
+    switches the canonical declaration to a re-export
+    must extend this helper (the test's negative case
+    catches a drift that points to a missing canonical
+    declaration)."""
+    text = filename.read_text(encoding="utf-8")
+    m = re.search(
+        rf"\bexport\s+const\s+{constant_name}\s*=\s*(-?\d+)\b",
+        text,
+    )
+    assert m, (
+        f"{filename.relative_to(REPO_ROOT)} must declare "
+        f"`export const {constant_name} = <n>`; missing "
+        f"canonical declaration breaks the source-level "
+        f"parity guard."
+    )
+    return int(m.group(1))
+
+
+def _read_helper_numeric_literal(constant_name: str) -> int:
+    """Read the same numeric constant from the
+    Research-side pure-helper mirror
+    (`src/modules/research/presentation/explorer-storage.ts`).
+    Returns the integer literal value the helper module
+    exports."""
+    text = EXPLORER_STORAGE_FILE.read_text(encoding="utf-8")
+    m = re.search(
+        rf"\bexport\s+const\s+{constant_name}\s*=\s*(-?\d+)\b",
+        text,
+    )
+    assert m, (
+        "explorer-storage.ts must declare `export const "
+        f"{constant_name} = <n>`; the local mirror must "
+        f"stay in lock-step with the canonical "
+        f"browser-state domain declaration."
+    )
+    return int(m.group(1))
+
+
+def _read_helper_storage_key_literal() -> str:
+    """Read the helper module's
+    `EXPLORER_STATE_STORAGE_KEY` literal. Mirrors
+    `_read_canonical_storage_key_literal` so the parity
+    test reads both sides through the same regex."""
+    text = EXPLORER_STORAGE_FILE.read_text(encoding="utf-8")
+    m = re.search(
+        r'export\s+const\s+EXPLORER_STATE_STORAGE_KEY\s*=\s*"([^"]+)"',
+        text,
+    )
+    assert m, (
+        "explorer-storage.ts must declare "
+        "`export const EXPLORER_STATE_STORAGE_KEY = \"...\"`; "
+        "the local mirror must stay in lock-step with the "
+        "canonical browser-state domain declaration."
+    )
+    return m.group(1)
+
+
+def test_w6_4_storage_key_matches_canonical_browser_state_literal() -> None:
+    """EXPLORER-PERSIST — the helper module's
+    `EXPLORER_STATE_STORAGE_KEY` literal MUST equal the
+    canonical `EXPLORER_STATE_STORAGE_KEY` literal
+    declared in `src/modules/browser-state/domain/keys.ts`.
+
+    The mirror is intentionally a SOURCE-LEVEL mirror (a
+    future PR that converts the mirror to an `@taxa/
+    browser-state` re-export must replace this test with
+    a typing assertion). Until then, a drift between the
+    two surfaces would silently break the persistence
+    boundary: a too-large key literal in the helper would
+    lose persistence across reloads; a too-small key
+    literal would silently corrupt a sibling key's
+    record."""
+    if not EXPLORER_STORAGE_FILE.is_file():
+        pytest.skip("explorer-storage.ts not present yet")
+    if not _BS_DOMAIN_KEYS_FILE.is_file():
+        pytest.skip(
+            "browser-state/domain/keys.ts not present yet "
+            "(the canonical declaration must exist for the "
+            "parity test to run)"
+        )
+    canonical = _read_canonical_storage_key_literal()
+    helper = _read_helper_storage_key_literal()
+    assert helper == canonical, (
+        f"EXPLORER_STATE_STORAGE_KEY drift detected: "
+        f"the Research-side pure-helper mirror "
+        f"(explorer-storage.ts) declares {helper!r} but "
+        f"the canonical browser-state domain file "
+        f"(_BS_DOMAIN_KEYS_FILE) declares {canonical!r}. "
+        f"The two declarations must stay byte-for-byte "
+        f"in lock-step — a drift silently breaks the "
+        f"persistence boundary (a too-large key loses "
+        f"persistence across reloads; a too-small key "
+        f"corrupts a sibling key's record)."
+    )
+
+
+def test_w6_4_storage_version_matches_canonical_browser_state_literal() -> None:
+    """EXPLORER-PERSIST — the helper module's
+    `EXPLORER_STATE_STORAGE_VERSION` literal MUST equal
+    the canonical
+    `EXPLORER_STATE_STORAGE_VERSION` literal declared in
+    `src/modules/browser-state/domain/explorer-state.ts`.
+
+    A version drift would silently break the
+    forward-compatibility guard: the parser reads +
+    validates the version literal; a too-small helper
+    version would silently discard a record the
+    canonical store considers valid (or vice versa)."""
+    if not EXPLORER_STORAGE_FILE.is_file():
+        pytest.skip("explorer-storage.ts not present yet")
+    if not _BS_DOMAIN_EXPLORER_STATE_FILE.is_file():
+        pytest.skip(
+            "browser-state/domain/explorer-state.ts not present "
+            "yet (the canonical declaration must exist for the "
+            "parity test to run)"
+        )
+    canonical = _read_canonical_numeric_literal(
+        _BS_DOMAIN_EXPLORER_STATE_FILE,
+        "EXPLORER_STATE_STORAGE_VERSION",
+    )
+    helper = _read_helper_numeric_literal(
+        "EXPLORER_STATE_STORAGE_VERSION",
+    )
+    assert helper == canonical, (
+        f"EXPLORER_STATE_STORAGE_VERSION drift detected: "
+        f"the Research-side pure-helper mirror "
+        f"(explorer-storage.ts) declares {helper} but "
+        f"the canonical browser-state domain file "
+        f"(_BS_DOMAIN_EXPLORER_STATE_FILE) declares "
+        f"{canonical}. The two declarations must stay "
+        f"in lock-step — a drift silently breaks the "
+        f"parser's forward-compatibility guard."
+    )
+
+
+@pytest.mark.parametrize(
+    "constant_name",
+    (
+        "MAX_EXPLORER_STATE_BYTES",
+        "MAX_EXPANDED_PATHS",
+        "MAX_QUERY_LENGTH",
+        "MAX_SELECTED_PATH_LENGTH",
+    ),
+)
+def test_w6_4_storage_cap_matches_canonical_browser_state_literal(
+    constant_name: str,
+) -> None:
+    """EXPLORER-PERSIST — every bound cap
+    (`MAX_EXPLORER_STATE_BYTES`, `MAX_EXPANDED_PATHS`,
+    `MAX_QUERY_LENGTH`, `MAX_SELECTED_PATH_LENGTH`)
+    declared in the helper module MUST equal the
+    canonical value declared in
+    `src/modules/browser-state/domain/explorer-state.ts`.
+
+    A drift between the two surfaces would silently
+    break the persistence boundary:
+      - A too-loose `MAX_EXPLORER_STATE_BYTES` in the
+        helper would let an oversized record through the
+        size guard at parse time even though the
+        canonical store rejected it at write time.
+      - A too-loose `MAX_EXPANDED_PATHS` / `MAX_QUERY_LENGTH`
+        / `MAX_SELECTED_PATH_LENGTH` would silently let
+        a record through the per-field guard at parse
+        time even though the canonical store rejected
+        it at write time.
+      - The inverse (a too-tight helper cap) would
+        silently drop a legitimate record the canonical
+        store would have accepted.
+
+    The test parametrizes over the four caps so a single
+    drift fails the focused test in isolation (the
+    pytest -k filter can target a single cap by name)."""
+    if not EXPLORER_STORAGE_FILE.is_file():
+        pytest.skip("explorer-storage.ts not present yet")
+    if not _BS_DOMAIN_EXPLORER_STATE_FILE.is_file():
+        pytest.skip(
+            "browser-state/domain/explorer-state.ts not present "
+            "yet (the canonical declaration must exist for the "
+            "parity test to run)"
+        )
+    canonical = _read_canonical_numeric_literal(
+        _BS_DOMAIN_EXPLORER_STATE_FILE, constant_name,
+    )
+    helper = _read_helper_numeric_literal(constant_name)
+    assert helper == canonical, (
+        f"{constant_name} drift detected: the "
+        f"Research-side pure-helper mirror "
+        f"(explorer-storage.ts) declares {helper} but the "
+        f"canonical browser-state domain file "
+        f"(_BS_DOMAIN_EXPLORER_STATE_FILE) declares "
+        f"{canonical}. The two declarations must stay in "
+        f"lock-step — a drift silently breaks the "
+        f"persistence boundary."
+    )
+
+
+# ===========================================================================
+# EXPLORER-PERSIST — source-level ordering pin for the
+# raw-byte guard in `parseExplorerState`.
+#
+# PR #429's canonical browser-state parser
+# (`src/modules/browser-state/infrastructure/storeExplorerState.ts`)
+# enforces the raw-byte cap via
+# `if (raw.length * 3 > MAX_EXPLORER_STATE_BYTES) return null;`
+# BEFORE `JSON.parse(raw)`. The Research-side helper
+# `parseExplorerState` MUST mirror the same ordering:
+# the guard fires first so a multi-MB paste never reaches
+# `JSON.parse` (a quota-blow-up / stale-bloated storage
+# must hydrate to the canonical empty default without
+# the parser spending cycles on a malformed-shape
+# object).
+#
+# The runtime harness proves the guard fires (section 5b
+# — the 21,846-char record must return null). This
+# source-level test pins the ORDERING: a future PR that
+# moves the guard AFTER `JSON.parse(raw)` (or drops the
+# guard entirely) would still satisfy the runtime harness
+# IF the structural caps happened to reject the record,
+# but the raw-byte guard is a defense-in-depth check that
+# fires BEFORE any structural shape exists. A regression
+# that re-orders or drops the guard is caught by this
+# test before review.
+#
+# The test uses `_strip_ts_comments` so JSDoc can quote
+# the guard verbatim without tripping the position scan.
+# The positions are measured as the byte offset in the
+# comment-stripped text; an in-source-order guard
+# precedes the parser call.
+# ---------------------------------------------------------------------------
+_PARSE_GUARD_RE = re.compile(
+    r"raw\.length\s*\*\s*3\s*>\s*MAX_EXPLORER_STATE_BYTES"
+    r"[\s\S]{0,40}?return\s+null",
+)
+_PARSE_CALL_RE = re.compile(
+    r"JSON\.parse\s*\(\s*raw\s*\)",
+)
+
+
+def test_w6_4_parse_raw_byte_guard_precedes_json_parse() -> None:
+    """EXPLORER-PERSIST — the raw-byte cap guard in
+    `parseExplorerState` MUST fire BEFORE the
+    `JSON.parse(raw)` call. The guard is a
+    defense-in-depth check (the structural caps catch
+    shape violations AFTER parse; the raw-byte cap
+    rejects a multi-MB paste BEFORE parse so the parser
+    never spends cycles on it). A future PR that re-
+    orders or drops the guard would let a multi-MB paste
+    reach `JSON.parse`, which is a silent regression
+    (the runtime harness only fails if the structural
+    caps happen to also reject the record).
+
+    The test scans the comment-stripped parser source
+    for both anchors:
+      - The guard expression
+        `raw.length * 3 > MAX_EXPLORER_STATE_BYTES`
+        followed by `return null`.
+      - The parser call `JSON.parse(raw)`.
+
+    The byte offset of the guard MUST be strictly less
+    than the byte offset of the parser call. The
+    positions are measured in the comment-stripped text
+    so JSDoc / line comments cannot move the anchors
+    out of order (comments are replaced with whitespace
+    so line numbers stay accurate for diagnostics)."""
+    if not EXPLORER_STORAGE_FILE.is_file():
+        pytest.skip("explorer-storage.ts not present yet")
+    text = _strip_ts_comments(
+        EXPLORER_STORAGE_FILE.read_text(encoding="utf-8"),
+    )
+    guard_m = _PARSE_GUARD_RE.search(text)
+    assert guard_m, (
+        "parseExplorerState must declare the raw-byte "
+        "cap guard `if (raw.length * 3 > "
+        "MAX_EXPLORER_STATE_BYTES) return null;` BEFORE "
+        "`JSON.parse(raw)`. The guard is the canonical "
+        "parser's first defense-in-depth check (a "
+        "multi-MB paste must NOT reach `JSON.parse`). "
+        "The guard is missing entirely — the parser "
+        "silently accepts an oversized record."
+    )
+    parse_m = _PARSE_CALL_RE.search(text)
+    assert parse_m, (
+        "parseExplorerState must call `JSON.parse(raw)` "
+        "(the guard ordering check is meaningless without "
+        "the parser call to anchor against)."
+    )
+    assert guard_m.start() < parse_m.start(), (
+        f"parseExplorerState's raw-byte guard must fire "
+        f"BEFORE `JSON.parse(raw)`; guard at byte offset "
+        f"{guard_m.start()} but parser call at byte offset "
+        f"{parse_m.start()}. A re-ordered guard lets a "
+        f"multi-MB paste reach the parser, which is the "
+        f"silent regression the guard was added to "
+        f"prevent. The canonical browser-state parser "
+        f"(`infrastructure/storeExplorerState.ts`) keeps "
+        f"the guard strictly before the parser call."
     )
