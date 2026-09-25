@@ -406,6 +406,15 @@ def test_layer_components_research_chrome_block_does_not_leak_taxonomy():
             ".folder-tab",
             ".search-tab",
             ".synonym-tab", ".vernacular-tab", ".distribution-tab",
+            # ODD-REALM-PREVIEW-001 — the /help page realm-color
+            # legend renders a compact mini-row that reuses the
+            # `.tree-row` + `data-realm` + `.scientific-name`
+            # cascade from real tree rows. The class carries a
+            # `.help-*` prefix because the help page is the
+            # only consumer; the cascade still paints the
+            # realm tint because the rule targets the
+            # `.scientific-name` span, not the wrapper.
+            ".help-realm-preview-row",
         }
     )
     for head in _top_level(body):
@@ -754,6 +763,12 @@ def test_phase3_audit_documents_kept_selectors():
         ".tree-source-toggle",
         ".tree-source-toggle-wrapper",
         ".vernacular-tab",
+        # ODD-REALM-PREVIEW-001 — help-page mini-row that carries
+        # the `.tree-row` + `data-realm` cascade so the legend
+        # teaches by showing the actual tree-row tint (the same
+        # `.tree-row[data-realm="X"] .scientific-name` cascade
+        # paints the mini-row).
+        ".help-realm-preview-row",
         # PR 3c-e2 utility surface that survived Phase 3.
         ".animate-spin",
         ".bg-primary",
