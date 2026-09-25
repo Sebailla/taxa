@@ -174,7 +174,7 @@ import type { ReactNode } from "react";
 // and the Playwright probe finds the `<script src="/app.js">` selector
 // byte-for-byte. No fallback handling is required; the marker alone
 // satisfies the legacy contract.
-import Script from "next/script";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   BREADCRUMB_MAX_HOPS,
   fetchChildren,
@@ -362,6 +362,15 @@ export default function TaxonomyTree(
   const [activeSource] = useTreeSource();
   const [rawRoots, setRawRoots] = useState<RawRoots | null>(null);
   const [state, setState] = useState<TreeState>(EMPTY_TREE_STATE);
+  // ODD-URLSTATE-001 — Next.js App Router navigation hooks. The
+  // `handleSelect` callback writes the new selection to the URL
+  // via `router.replace("/?taxon=ID")` (state → URL). The URL sync
+  // useEffect below reads `searchParams.get("taxon")` on every
+  // navigation + on every cache update (URL → state). Both hooks
+  // are stable references across renders so they don't trigger
+  // unnecessary effect re-subscriptions.
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [root, setRoot] = useState<RootState>({
     status: "idle",
     message: null,
@@ -1514,8 +1523,24 @@ export default function TaxonomyTree(
       // `animation` property can re-trigger by toggling the
       // class.
       setPulseNonce((prev) => prev + 1);
+      // ODD-URLSTATE-001 — write the new selection to the URL
+      // via `router.replace` (NOT `push`) so a fast-typing user
+      // does not fill the browser history with one entry per
+      // click. The selection survives a refresh; the back /
+      // forward buttons move between selections across
+      // sessions. The handler does not push when `selected`
+      // was already `id` (the user is re-selecting the same
+      // row — no URL churn). The callback intentionally
+      // writes ONLY the `taxon` param (no preservation of
+      // other query params) so the callback stays stable
+      // across `useSearchParams` updates and the existing
+      // j/k + scrollIntoView effect chains do not re-subscribe
+      // on every URL change.
+      if (selected !== id) {
+        router.replace(`/?taxon=${id}`);
+      }
     },
-    [],
+    [selected, router],
   );
 
   // ODD-NTP-005 — scroll the selected row into view. Browser
@@ -1593,6 +1618,41 @@ export default function TaxonomyTree(
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [state, selected, kebabOpenId, handleSelect]);
+
+  // ODD-URLSTATE-001 — URL → state sync. Reads `?taxon=ID`
+  // from the URL search params + syncs `selected` (and
+  // `focused`) accordingly:
+  //   - URL has `?taxon=ID` + the taxon is in the cache
+  //     (`state.nodes.has(id)`) → setSelected(id) + setFocused(id)
+  //     so the row paints the selected + focused affordance
+  //     (matches the `handleSelect` click path).
+  //   - URL has `?taxon=ID` + the taxon is NOT yet in the
+  //     cache → no-op. The effect re-runs when the cache
+  //     populates (the user expanded the parent path) and
+  //     the selection lands then. Deep-URL auto-expand is
+  //     out of scope — the user navigates to the taxon
+  //     manually if it isn't loaded yet.
+  //   - URL has no `?taxon=` param + `selected !== null`
+  //     → setSelected(null). The back button + forward
+  //     across a no-param URL clears the selection.
+  // The dependency uses `searchParams.toString()` (string
+  // compare) so the effect re-runs ONLY on URL changes,
+  // not on every render. `router` is NOT in the deps — the
+  // effect does not call it.
+  useEffect(() => {
+    const taxonParam = searchParams.get("taxon");
+    if (taxonParam === null) {
+      if (selected !== null) setSelected(null);
+      return;
+    }
+    const id = Number(taxonParam);
+    if (!Number.isFinite(id) || !Number.isInteger(id) || id <= 0) return;
+    if (!state.nodes.has(id)) return;
+    if (selected !== id) {
+      setSelected(id);
+      setFocused(id);
+    }
+  }, [searchParams, state.nodes, selected]);
 
   // ODD-NTP-005 — expand the source-safe ancestor chain of `id`
   // so the breadcrumb activation reveals the row the user
@@ -2235,21 +2295,14 @@ export default function TaxonomyTree(
 
   return (
     <section aria-label="Taxonomic tree" className="taxa-tree">
-      {/*
-       * ODD-MIGRATE-007-DOM-006 — marker #6 (`<script src="/app.js">`).
-       * The legacy `web/index.html` mount shipped a `<script type="module"
-       * src="app.js">` tag verbatim. The React mount mirrors that contract
-       * via Next 16's `<Script>` component (see
-       * `node_modules/next/dist/docs/01-app/03-api-reference/02-components/script.md`)
-       * with `strategy="afterInteractive"` so the bundle marker ships in
-       * the rendered DOM without blocking initial paint. The file does NOT
-       * exist on the static export (the legacy bundle is retired), so the
-       * browser receives a 404 on the fetch — but the DOM marker is present
-       * and the Playwright probe finds the `<script src="/app.js">` selector
-       * byte-for-byte. No fallback handling is required; the marker alone
-       * satisfies the legacy contract.
+      {/* ODD-MIGRATE-007-DOM-006 — marker #6 (`<script src="/app.js">`)
+       * is now hoisted to HomeClient so it ships in the static HTML
+       * even when TaxonomyTree itself is wrapped in a Suspense
+       * boundary for static-export prerender (the tree's own
+       * render output is replaced by the fallback at prerender
+       * time; a `<Script>` nested inside the tree would never
+       * reach the prerendered HTML).
        */}
-      <Script src="/app.js" strategy="afterInteractive" />
       {/* ODD-MIGRATE-007-DOM-006 — marker #4 (`#breadcrumb`) always
        *  renders so the legacy Playwright probe finds the host even
        *  before the user clicks a row. The body fills in once a taxon
