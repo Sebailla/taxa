@@ -369,6 +369,25 @@ def test_out_index_html_has_raleway_preload(built_index_html):
     )
 
 
+LEGACY_MATERIAL_SYMBOLS_HREF = (
+    "https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined"
+    ":opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+)
+
+
+def test_out_index_html_has_material_symbols_stylesheet(built_index_html):
+    """Built ``out/index.html`` must ship the legacy Material Symbols
+    Outlined stylesheet link so icon ligatures render as glyphs."""
+    assert re.search(
+        r'<link\b[^>]*rel="stylesheet"[^>]*href="'
+        + re.escape(LEGACY_MATERIAL_SYMBOLS_HREF)
+        + r'"',
+        built_index_html,
+    ), (
+        f'out/index.html must carry <link rel="stylesheet" href="{LEGACY_MATERIAL_SYMBOLS_HREF}" />'
+    )
+
+
 # ---------------------------------------------------------------------------
 # Build manifest + body / chunk purity (3b.5 triangulation)
 # ---------------------------------------------------------------------------

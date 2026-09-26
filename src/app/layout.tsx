@@ -62,6 +62,11 @@ export default function RootLayout({
  return (
   <html lang="en" className={raleway.variable}>
    <body>
+    {/* Material Symbols Outlined — legacy icon-font stylesheet lifted from web/index.html. */}
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+    />
     {/*
      * G4 candidate probe marker — approved issue #245.
      * The capture producer pins `data-testid="g4-probe-marker"` in
