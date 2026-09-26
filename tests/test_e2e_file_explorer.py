@@ -335,3 +335,138 @@ def test_file_explorer_full_flow(e2e_env):
             expect(iframe).to_be_visible(timeout=10_000)
         finally:
             browser.close()
+
+
+# ---------------------------------------------------------------------------
+# Regression for fix/explorer-react-update-loop (ODD task #1).
+#
+# Issue #421 / task `odd/tasks/explorer-react-update-loop.md`:
+# Chrome Incognito at http://127.0.0.1:8765/explorer renders Next's
+# "This page couldn't load" fallback because the Explorer client throws
+# `Minified React error #185` (Maximum update depth exceeded) during
+# hydration + initial tree load. Source review identified the causal
+# loop: Explorer validation / write-on-change effects churn persisted-
+# store subscribers and replace the expanded-set identity on every pass,
+# re-triggering the same validation pass.
+#
+# This is a behavior-first regression that exercises the production
+# static export (the same HTML + JS chunks Chrome Incognito loads) via
+# the live 8765 server + headless chromium. It is intentionally the
+# smallest possible harness:
+#   * no extra uvicorn spawn (reuses the live 8765 server),
+#   * no fixtures/taxa seeding (uses the real /api/files tree),
+#   * no browser-storage mutation (does not touch cookies/localStorage).
+#
+# Skips if playwright / chromium / the live 8765 server are unavailable.
+# RED baseline (current production bundle): the `pageerror` capture
+# contains `Minified React error #185`, the Explorer shell never mounts,
+# and Next replaces the document body with its `This page couldn't load`
+# fallback — every assertion below fails. After the ODD task #2 fix the
+# same test must pass.
+# ---------------------------------------------------------------------------
+_EXPLORER_LIVE_URL = "http://127.0.0.1:8765/explorer"
+_EXPLORER_FALLBACK_MARKER = "couldn\u2019t load"  # curly apostrophe Next uses
+_EXPLORER_REACT_185_MARKER = "Minified React error #185"
+_EXPLORER_MAX_DEPTH_MARKER = "Maximum update depth"
+# Hydration + /api/files fetch + Explorer validation/write-on-change effects
+# need enough time for React's ~50 nested setState threshold to trip and the
+# error to surface. 6s is well past observed crash latency in production.
+_EXPLORER_SETTLE_MS = 6_000
+
+
+@pytest.mark.skipif(
+    _check_playwright_available() is None,
+    reason="playwright not installed (pip install playwright)",
+)
+def test_explorer_route_does_not_throw_react_error_185():
+    """`/explorer` must load without `Minified React error #185`.
+
+    Loads http://127.0.0.1:8765/explorer (the live static export + API
+    Chrome Incognito hits) in headless chromium, captures every pageerror
+    and console error during hydration + initial tree load, then asserts
+    all three of:
+
+      1. No `pageerror` contains `Minified React error #185` (or the
+         unminified `Maximum update depth` message).
+      2. The Explorer shell `[data-explorer-root]` is still in the DOM
+         (i.e. React did not get torn down by an unhandled error).
+      3. The visible body text does NOT match Next's
+         `This page couldn't load` fallback copy.
+
+    Skips if the live 8765 server is not reachable (the regression is
+    only meaningful against the real bundle + API pair).
+    """
+    from playwright.sync_api import sync_playwright  # type: ignore
+
+    if _port_free(8765):
+        pytest.skip("live 8765 server not reachable; cannot reproduce #185")
+
+    pageerrors: list[str] = []
+    console_errors: list[str] = []
+
+    def _on_pageerror(err: Exception) -> None:
+        pageerrors.append(str(err))
+
+    def _on_console(msg) -> None:
+        # Only capture error-level console messages; React errors are
+        # also surfaced via `pageerror`, but a stray `console.error` from
+        # the bundle (such as the unrelated /help + /settings prefetch
+        # 404s the ODD ledger explicitly scopes out) is not the signal
+        # under test here.
+        if msg.type == "error":
+            console_errors.append(msg.text)
+
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch(headless=True)
+        except Exception as exc:
+            pytest.skip(f"chromium binary not available: {exc!r}")
+        try:
+            context = browser.new_context()
+            page = context.new_page()
+            page.on("pageerror", _on_pageerror)
+            page.on("console", _on_console)
+            page.goto(
+                _EXPLORER_LIVE_URL,
+                wait_until="domcontentloaded",
+                timeout=15_000,
+            )
+            # Give hydration + initial /api/files fetch + the validation
+            # feedback loop time to either settle or trip React #185.
+            page.wait_for_timeout(_EXPLORER_SETTLE_MS)
+
+            body_text = page.evaluate(
+                "() => document.body && document.body.innerText || ''"
+            )
+            has_shell = page.evaluate(
+                "() => !!document.querySelector('[data-explorer-root]')"
+            )
+
+            react_185_errors = [
+                err for err in pageerrors
+                if _EXPLORER_REACT_185_MARKER in err
+                or _EXPLORER_MAX_DEPTH_MARKER in err
+            ]
+            body_has_fallback = _EXPLORER_FALLBACK_MARKER in body_text
+
+            assert not react_185_errors, (
+                "Explorer route threw React #185 (Maximum update depth "
+                "exceeded) during hydration + initial /api/files load. "
+                "Captured pageerrors:\n  - "
+                + "\n  - ".join(react_185_errors)
+                + "\nFull console errors:\n  - "
+                + "\n  - ".join(console_errors)
+            )
+            assert has_shell, (
+                "Explorer shell [data-explorer-root] did not mount on "
+                "/explorer — Next replaced the route with its fallback "
+                "page after React #185. Body text starts with: "
+                + repr(body_text[:200])
+            )
+            assert not body_has_fallback, (
+                "Explorer route rendered Next's 'This page couldn't load' "
+                "fallback instead of the Explorer shell. Body text starts "
+                "with: " + repr(body_text[:200])
+            )
+        finally:
+            browser.close()
