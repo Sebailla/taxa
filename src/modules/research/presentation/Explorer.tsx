@@ -457,10 +457,49 @@ export default function Explorer(props: ExplorerProps): ReactNode {
   useEffect(() => {
     if (loadStatus.kind !== "loaded") return;
     const validated = validateAgainstTree(persistedSnapshot, loadStatus.tree);
-    setExpanded(new Set(validated.expandedPaths));
+    // Value-equality + Set-identity guard. `validateAgainstTree`
+    // always returns a fresh object (never the input reference)
+    // and `new Set(validated.expandedPaths)` always allocates a
+    // fresh Set — both would flip React's reference equality on
+    // every run and re-trigger this very effect via the
+    // write-on-change effect below + the `writeExplorerState`
+    // listener cascade (which synchronously notifies
+    // `useSyncExternalStore` and surfaces a new
+    // `persistedExplorerState` reference on the next tick).
+    // The guard below breaks the loop without changing the
+    // storage contract:
+    //   - The functional `setExpanded` updater returns the
+    //     previous Set reference when the validated ordered
+    //     paths are already present. React bails out of the
+    //     re-render, the write-on-change effect does NOT fire,
+    //     the cascade never starts.
+    //   - `writeExplorerState` fires only when the validated
+    //     record actually changed something (`selectedPath`,
+    //     `query`, OR the expanded-paths array). On a stable
+    //     record the listener cascade stays quiet and the mount
+    //     reaches a stable state.
+    setExpanded((prev) => {
+      if (prev.size !== validated.expandedPaths.length) {
+        return new Set(validated.expandedPaths);
+      }
+      for (const p of validated.expandedPaths) {
+        if (!prev.has(p)) {
+          return new Set(validated.expandedPaths);
+        }
+      }
+      return prev;
+    });
     setSelectedPath(validated.selectedPath);
     setSearchQuery(validated.query);
-    if (validated !== persistedSnapshot) {
+    const recordChanged =
+      validated.selectedPath !== persistedSnapshot.selectedPath ||
+      validated.query !== persistedSnapshot.query ||
+      validated.expandedPaths.length !==
+        persistedSnapshot.expandedPaths.length ||
+      validated.expandedPaths.some(
+        (p, i) => p !== persistedSnapshot.expandedPaths[i],
+      );
+    if (recordChanged) {
       writeExplorerState(validated);
     }
   }, [loadStatus, persistedSnapshot]);
