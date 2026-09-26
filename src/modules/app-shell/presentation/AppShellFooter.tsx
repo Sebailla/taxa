@@ -45,7 +45,7 @@ export default function AppShellFooter(
       data-app-shell-footer=""
       role="contentinfo"
     >
-      <div className="mx-auto grid w-full max-w-5xl grid-cols-3 items-center gap-4 px-6 py-3 text-xs">
+      <div className="mx-auto grid w-full max-w-none grid-cols-3 items-center gap-4 px-6 py-3 text-xs">
         <div
           className="app-shell-footer-col app-shell-footer-col--left flex items-center gap-2"
           data-app-shell-footer-col="left"
