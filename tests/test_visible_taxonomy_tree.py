@@ -9000,3 +9000,14 @@ def test_tree_row_no_inline_source_info_class() -> None:
         "`data-source-info` (the source info tooltip collapses "
         "into the name span's `title` attribute)."
     )
+
+
+# ODD-BREAD-FOCUS: branch expansion must update the breadcrumb focus.
+def test_handle_toggle_expand_sets_focused_without_selecting() -> None:
+    text = _read_text(TAXONOMY_TREE_FILE)
+    start = text.index("const handleToggle = useCallback(")
+    end = text.index("const handleRetryChild", start)
+    body = text[start:end]
+
+    assert "setFocused(id)" in body
+    assert "setSelected(id)" not in body

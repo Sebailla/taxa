@@ -770,6 +770,15 @@ export default function TaxonomyTree(
           return collapseNodeTiers(collapsed, id);
         });
       } else {
+        // ODD-BREAD-FOCUS — expanding a non-leaf branch sets
+        // `focused` so the source-aware breadcrumb (derived from
+        // `focused` via `walkBreadcrumbForSource`) reflects the
+        // expanded path. Mirrors the legacy
+        // `web/nav.js::toggleExpand` contract (`state.focused = id`
+        // before toggle). `selected` stays untouched — branch click
+        // focuses but does not select (matches the legacy
+        // leaf-vs-branch distinction).
+        setFocused(id);
         setState((prev) => toggleExpand(prev, id));
         if (knownChildren.length === 0) {
           void loadChildren(id);
