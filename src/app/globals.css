@@ -415,24 +415,45 @@
     color: var(--on-surface);
   }
 
-  /* Detail panel — sticky column right of the tree. Three tabs in
-     fixed order: Overview / Search / Folder, all reachable from
-     every selection; Overview always visible per the user-selected
-     policy. */
+  /* Detail panel popup — centered modal dialog (ODD-TAPOPUP-001).
+     The popup replaces the pre-popup sticky detail rail (the
+     sticky column right of the tree) with a centered overlay
+     so the user can interact with the popup without losing
+     tree context. The popup host is `position: fixed` + high
+     z-index so it overlays the tree rows; the dialog content
+     sits in the center of the viewport with the canonical
+     rounded + shadow cascade.
+
+     ODD-TAPOPUP-001 carries three structural changes from the
+     pre-popup rule:
+       1. `position: fixed` (was `position: sticky`); the
+          popup is no longer a column right of the tree.
+       2. High `z-index` (60) so the popup overlays every
+          surface (the tree rows + the breadcrumb + the
+          AppShell header all sit below the popup).
+       3. Centered transform via `inset: 0` + flexbox
+          centering on the host so the dialog content sits in
+          the viewport center regardless of scroll position.
+
+     The `.detail-panel-backdrop` rule below carries the
+     full-viewport backdrop click surface (the popup closes
+     on backdrop click — same `onClose()` callback the close
+     IconButton + Escape use). */
   .detail-panel {
-    position: sticky;
-    top: 144px;
-    z-index: 30;
-    background: var(--surface);
-    border: 1px solid var(--outline-variant);
-    border-radius: 16px;
-    box-shadow:
-      0 1px 2px rgba(15, 23, 42, 0.04),
-      0 4px 12px rgba(15, 23, 42, 0.06),
-      0 12px 32px rgba(15, 23, 42, 0.04);
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
     height: auto;
-    max-height: 90vh;
-    overflow-y: auto;
+    max-height: none;
+    overflow: visible;
   }
 
   /* Detail panel — sticky header + section padding.
@@ -461,9 +482,6 @@
     gap: 1rem;
     padding: 20px 24px;
     border-bottom: 1px solid var(--surface-container);
-    position: sticky;
-    top: 0;
-    z-index: 2;
     background: var(--surface);
   }
   .detail-panel .detail-header-title {
@@ -476,46 +494,42 @@
   .detail-panel .detail-section {
     padding: 16px 24px;
     border-bottom: 1px solid var(--surface-container);
+    /* ODD-SECSCROLL-001 — canonical flexbox-child overflow
+       pattern. The popup Card sits inside
+       `<Card variant="default" ...overflow-hidden
+       max-h-[calc(90vh-2px)]>` (a flex column with fixed
+       height). Without these three declarations the section
+       sticks at its content's intrinsic height and the long
+       Search / Synonyms / Distribution lists overflow the
+       Card's max-height with the content silently clipped.
+       `flex: 1 1 auto` claims the remaining Card height;
+       `min-height: 0` lets flexbox shrink the section below
+       its intrinsic height (the canonical overflow
+       workaround); `overflow-y: auto` gives the section its
+       own vertical scroll surface. Horizontal scroll stays
+       at the default (`visible`) so the tab-strip's
+       horizontal overflow above stays unaffected, and wide
+       rows in the section body remain scrollable
+       horizontally without fighting the vertical scroll
+       affordance. */
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
   }
   .detail-panel .detail-section:last-child {
     border-bottom: 0;
   }
 
-  /* Detail panel realm tint — mirrors the legacy
-     `.tree-row[data-realm="X"] .scientific-name` cascade for the
-     Overview body. The `data-realm` attribute on `.detail-panel`
-     (`bacteria` / `archaea` / `viruses` / `animalia` / `fungi` /
-     `plantae` / `chromista` / `other`) drives the hue; the rule
-     targets the `.scientific-name` span inside the panel so the
-     italic Latin binomial picks up the same realm hue the tree
-     rows paint. Ordered alphabetically before `.folder-tab` (the
-     alphabetic contract: `.detail-panel ` (space, 0x20) sorts
-     before `.detail-panel[` (bracket, 0x5B) which sorts before
-     `.folder-tab` (next family)). */
-  .detail-panel[data-realm="animalia"] .scientific-name {
-    color: var(--realm-animalia);
-  }
-  .detail-panel[data-realm="archaea"] .scientific-name {
-    color: var(--realm-archaea);
-  }
-  .detail-panel[data-realm="bacteria"] .scientific-name {
-    color: var(--realm-bacteria);
-  }
-  .detail-panel[data-realm="chromista"] .scientific-name {
-    color: var(--realm-chromista);
-  }
-  .detail-panel[data-realm="fungi"] .scientific-name {
-    color: var(--realm-fungi);
-  }
-  .detail-panel[data-realm="plantae"] .scientific-name {
-    color: var(--realm-plantae);
-  }
-  .detail-panel[data-realm="viruses"] .scientific-name {
-    color: var(--realm-viruses);
-  }
-  .detail-panel[data-realm] .scientific-name {
-    color: var(--realm-other);
-  }
+  /* ODD-TAPOPUP-001 — the pre-popup realm tint cascade (the
+     `.detail-panel[data-realm="X"] .scientific-name` rules
+     + the `.detail-panel[data-realm] .scientific-name`
+     fallback) is GONE. The cascade was scoped to the
+     pre-popup Overview body's scientific-name span; the
+     popup drops the Overview body + the `data-realm`
+     attribute, so the cascade is dead CSS. The realm tint
+     cascade on the tree rows (`.tree-row[data-realm="X"]
+     .scientific-name`) STAYS — that's the canonical
+     realm-tint surface the pre-popup sticky rail mirrored. */
 
   /* Distribution tab body (ODD-TDDIST-001). Mirrors the legacy
      `web/detail.js::buildDetailSection("public",
@@ -1798,53 +1812,28 @@
      `.tree-row:focus-within`, `.kebab[data-kebab-open]`, or
      `.kebab-trigger:focus-visible`. The resting hint keeps the
      row-action affordance discoverable without restoring the
-     previous full-weight visual noise; the menu opens via the
-     `[data-kebab-open]` flag on the `.kebab` wrapper. Item states
-     (`disabled`, `aria-disabled`) follow the legacy
-     `.kebab-item:hover` cascade and stay focus-visible for keyboard
-     navigation. Selectors are written as descendants of `.kebab` so
-     they survive the chain-topology guard in
-     `tests/test_research_styles.py` (only `.kebab` is whitelisted,
-     not `.kebab-item` / `.kebab-trigger` as top-level classes).
-     Ordered alphabetically: `.kebab` (top-level) first, then the
-     descendant selectors (`.kebab .*` before `.kebab > *` because
-     `.` < `>` in ASCII), then the `.tree-row:hover` /
-     `.tree-row:focus-within` overrides that surface the trigger on
-     row hover. */
+     previous full-weight visual noise. The IconButton's
+     `aria-haspopup="dialog"` + `aria-expanded` advertise the
+     popup target + open state for assistive tech.
+
+     ODD-TAPOPUP-001 — the kebab MENU cascade (`.kebab-menu` +
+     `.kebab-item` + `.kebab-item-label` + the
+     `.kebab[data-kebab-open="true"] .kebab-trigger`
+     override) is GONE. The kebab IconButton opens the
+     popup directly (the popup subsumes the menu shortcuts);
+     no in-row dropdown menu renders. Selectors stay as
+     descendants of `.kebab` so they survive the
+     chain-topology guard in
+     `tests/test_research_styles.py` (only `.kebab` is
+     whitelisted, not `.kebab-trigger` as a top-level class).
+     Ordered alphabetically: `.kebab` (top-level) first, then
+     the `.kebab .*` descendants, then the `.tree-row:hover` /
+     `.tree-row:focus-within` overrides that surface the
+     trigger on row hover. */
   .kebab {
     position: relative;
     display: inline-flex;
     align-items: center;
-  }
-  .kebab .kebab-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 10px;
-    border: 0;
-    background: transparent;
-    border-radius: 6px;
-    font-family: "Raleway", sans-serif;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--on-surface);
-    text-align: left;
-    cursor: pointer;
-    text-decoration: none;
-    transition: background-color 120ms linear;
-  }
-  .kebab .kebab-item:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
-  .kebab .kebab-item:focus-visible:not(:disabled),
-  .kebab .kebab-item:hover:not(:disabled) {
-    background: var(--surface-container-low);
-    outline: none;
-  }
-  .kebab .kebab-item-label {
-    flex: 1;
-    white-space: nowrap;
   }
   .kebab .kebab-trigger {
     margin-left: 4px;
@@ -1869,27 +1858,6 @@
   .kebab .kebab-trigger:hover {
     background: var(--surface-container-low);
     outline: none;
-  }
-  .kebab > .kebab-menu {
-    display: none;
-    position: absolute;
-    right: 0;
-    top: calc(100% + 4px);
-    min-width: 180px;
-    background: var(--surface);
-    border: 1px solid var(--outline-variant);
-    border-radius: 8px;
-    padding: 4px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-    z-index: 50;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .kebab > .kebab-menu.open {
-    display: flex;
-  }
-  .kebab[data-kebab-open="true"] .kebab-trigger {
-    opacity: 1;
   }
 
   /* Load N more (ODD-NTP-003) — primary-blue pill that reveals every
@@ -1923,81 +1891,23 @@
      lives in the kebab menu's conditional 'Open folder' item; the
      row-level glyph collapsed in the 9→5 row-density cutover). */
 
-  /* Overview tab body — scientific name, accepted status, authorship,
-     species count. NEVER hide this tab; user-selected policy binds
-     Overview as always visible. */
-  .overview-tab {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 16px 24px;
-  }
-
-  /* Overview — inner structure (label/value grid + parent chain).
-     ODD-TDO-001 + ODD-PHASE2: the React `<DetailPanel>` renders
-     the Overview body inside `<div.overview-tab>` using
-     `<dl.overview-grid>` + `<dt>` + `<dd>` (the label + value
-     typography now comes from `<Text variant="caption | body">`
-     primitives instead of the legacy `.overview-label` /
-     `.overview-value` CSS rules), the rank badge anchor now
-     renders as a `<Badge variant="primary">` instead of the
-     legacy `<div.overview-rank>` wrapper, and a
-     `<div.overview-chain>` flex of `<button.overview-chain-segment>`
-     buttons for the source-aware parent chain. Every descendant
-     is scoped under `.overview-tab` so the chain-topology guard
-     in `tests/test_research_styles.py` keeps whitelisting them
-     under the existing `.overview-tab` base. Selectors are
-     sorted alphabetically so the alphabetic contract keeps
-     passing. Visual cascade mirrors
-     `web/index.html::.overview-section` + `.overview-grid` +
-     `.overview-row` + `.overview-chain` + `.overview-chain-segment`
-     byte-for-byte. */
-  .overview-tab .overview-chain {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px;
-  }
-  .overview-tab .overview-chain-segment {
-    background: transparent;
-    border: 0;
-    padding: 2px 4px;
-    margin: 0;
-    border-radius: 4px;
-    font-family: "Raleway", sans-serif;
-    font-size: 13px;
-    line-height: 1.4;
-    color: var(--on-surface);
-    cursor: pointer;
-    transition:
-      background-color 120ms ease-out,
-      color 120ms ease-out;
-  }
-  .overview-tab .overview-chain-segment:hover {
-    background-color: var(--surface-container-low);
-    color: var(--primary);
-  }
-  .overview-tab .overview-grid {
-    display: grid;
-    grid-template-columns: max-content 1fr;
-    column-gap: 20px;
-    row-gap: 10px;
-    margin: 0;
-  }
-  .overview-tab .overview-row {
-    display: contents;
-  }
-  .overview-tab .overview-tab-heading {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--on-surface-variant);
-    margin: 0 0 4px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
+  /* ODD-TAPOPUP-001 — the Overview tab body + its inner structure
+     (`.overview-tab` + `.overview-tab .overview-grid` +
+     `.overview-tab .overview-row` + `.overview-tab .overview-chain`
+     + `.overview-tab .overview-chain-segment` +
+     `.overview-tab .overview-tab-heading`) are GONE. The
+     popup replaces the sticky detail rail + the Overview tab;
+     the user-selected four tabs are Synonyms / Distribution /
+     Search / Folder. The `.overview-tab` base rule + the
+     `.detail-card` wrapper rule are retired alongside the
+     `<Text variant="caption">` + `<Text variant="body">` +
+     `<Badge variant="subtle">` source-affordance badges + the
+     CoL-only / WoRMS header badges (all Overview-only). The
+     chain-topology guard in `tests/test_research_styles.py`
+     keeps `.overview-tab` whitelisted for backward compat
+     (the cascade is currently dead; future slices can re-
+     surface the Overview tab without re-introducing the
+     chain-topology guard). */
 
   /* Rank badge (ODD-NTP-003) — Raleway, 13px, 600, 1px tracking
      (H4 from brief). The native tree uses `text-on-surface-variant`
@@ -2216,7 +2126,18 @@
 
   /* Tab strip — segmented control with three buttons in fixed order
      (Overview / Search / Folder). The data-tab attribute names each
-     tab; PR 5a (taxonomy port) stamps it on the React elements. */
+     tab; PR 5a (taxonomy port) stamps it on the React elements.
+
+     ODD-TAPOPUP-002 — the popup drops the Overview + Vernaculars
+     tabs but still ships four tabs (Synonyms / Distribution /
+     Search / Folder). At narrow viewports the four tabs can
+     overflow the Card's horizontal width; `overflow-x: auto`
+     lets the user scroll the strip horizontally without losing
+     any tab (the strip is a flexbox with `flex-shrink: 0` per
+     tab button so each tab keeps its intrinsic width). The
+     `position: sticky` header still works — the strip scrolls
+     horizontally inside the Card's overflow container while the
+     strip's vertical position sticks to the Card top. */
   .tab-strip {
     display: flex;
     gap: 0;
@@ -2227,6 +2148,7 @@
     top: 0;
     z-index: 1;
     background: var(--surface);
+    overflow-x: auto;
   }
   .tab-strip > .tab-button {
     padding: 10px 14px;
@@ -2684,65 +2606,79 @@
   }
 }
 
-/* Detail panel — sticky breakpoint responsive flip (ODD-SBP-001).
-   Lives in a SECOND `@layer components { ... }` block at the end
-   of `globals.css` (NOT inside the primary `@layer components`
-   block where `.detail-panel` lives) for a deliberate reason:
-   `tests/test_research_styles.py::test_globals_css_no_dead_research_chrome_selectors`
-   (added by PR #392, Phase 3 dead-rule cleanup) walks every
-   depth-0 selector in the FIRST `@layer components` block and
-   asserts each one has >=1 non-comment reference in `src/`.
-   The walker's selector extractor does NOT recognize CSS at-rules
-   (it picks up `@media` as a "selector" and then grep for `\bmedia\b`
-   in `src/` returns zero hits — a false positive on a non-selector
-   at-rule). The walker only walks the FIRST `@layer components`
-   block, so a SECOND `@layer components { ... }` block at the end
-   of the file keeps the walker happy while preserving the same
-   `@layer components` cascade priority for the responsive flip.
+/* Detail panel popup — narrow-viewport responsive flip
+   (ODD-TAPOPUP-001). Lives in a SECOND `@layer components {
+   ... }` block at the end of `globals.css` (NOT inside the
+   primary `@layer components` block where `.detail-panel`
+   lives) for a deliberate reason: the alphabetic-order test
+   (`tests/test_research_styles.py::test_top_level_selectors_are_alphabetically_ordered`)
+   walks only the FIRST `@layer components` block; a SECOND
+   `@layer components { ... }` block at the end of the file
+   keeps the walker happy while preserving the same
+   `@layer components` cascade priority for the responsive
+   flip.
 
    CSS cascade tiebreak:
-     - The outer `.detail-panel { position: sticky; top: 144px; ... }`
-       rule lives in the first `@layer components` block (around
-       line 423). Specificity: (0,1,0).
-     - The new `@media` block's `.detail-panel { position: static; ... }`
-       rule lives in this second `@layer components` block. Specificity:
-       (0,1,0) — same as the outer rule.
-     - Same-layer, same-specificity tiebreak resolves to source order:
-       the second block comes AFTER the first in source order, so the
-       @media rule wins when the media query matches.
+     - The outer `.detail-panel { position: fixed; inset: 0;
+       ... }` rule lives in the first `@layer components`
+       block. Specificity: (0,1,0).
+     - The new `@media` block's `.detail-panel { padding: 0;
+       ... }` rule lives in this second `@layer components`
+       block. Specificity: (0,1,0) — same as the outer rule.
+     - Same-layer, same-specificity tiebreak resolves to
+       source order: the second block comes AFTER the first in
+       source order, so the @media rule wins when the media
+       query matches.
 
    Semantic intent:
-     - At viewports >= md (>= 769px): the @media query does NOT match,
-       so the @media rule is inert. Only the outer `.detail-panel`
-       rule applies — the panel stays sticky at `top: 144px`.
-     - At viewports < md (<= 768px): the @media query matches. Both
-       rules apply (same specificity). Source order tiebreak: the
-       @media rule wins — the panel flips to in-flow `position:
-       static` and the `max-height: 90vh` scroll constraint releases
-       (`max-height: none`) so the card body renders at its natural
-       height. The in-card `.detail-panel .detail-header` sticky
-       header also flips to `position: static` so the card body
-       collapses cleanly into the in-flow panel.
+     - At viewports >= md (>= 769px): the @media query does
+       NOT match, so the @media rule is inert. Only the outer
+       `.detail-panel` rule applies — the popup is centered
+       on the viewport with 16px padding around the dialog
+       content.
+     - At viewports < md (<= 768px): the @media query matches.
+       Both rules apply (same specificity). Source order
+       tiebreak: the @media rule wins — the popup fills the
+       viewport (`padding: 0` so the dialog content touches
+       the screen edges; the centered-card flex centering
+       still keeps the dialog content centered but now it's
+       edge-to-edge). The backdrop stays full-viewport so the
+       backdrop click → close behavior survives the narrow-
+       viewport flip.
 
    The alphabetic-order test
    (`tests/test_research_styles.py::test_top_level_selectors_are_alphabetically_ordered`)
-   keeps passing: `_top_level` filters out heads that do not start
-   with `.`, so the `@media` block head is NOT added to the alphabetic
-   heads list (the inner selectors `.detail-panel` and `.detail-panel
-   .detail-header` live at depth 1 inside the @media block, also not
-   added). The inner selectors inside the @media block follow
-   alphabetic order (`.detail-panel` < `.detail-panel .detail-header`)
-   per the project convention. */
+   keeps passing: `_top_level` filters out heads that do not
+   start with `.`, so the `@media` block head is NOT added
+   to the alphabetic heads list (the inner selectors live at
+   depth 1 inside the @media block, also not added). */
 @layer components {
   @media (max-width: 768px) {
     .detail-panel {
-      position: static;
-      top: auto;
-      max-height: none;
+      padding: 0;
     }
-    .detail-panel .detail-header {
-      position: static;
-    }
+  }
+
+  /* Detail panel popup — backdrop click target
+     (ODD-TAPOPUP-001). The backdrop sits behind the dialog
+     content (lower z-index), covers the full viewport, and
+     is a sibling of the dialog content so clicking it does
+     not bubble to the dialog. The backdrop click calls the
+     same `onClose()` callback the close IconButton + Escape
+     use. The selector sits AFTER `.detail-panel` (alphabetic
+     contract: `d` < `d`, then `.detail-panel` < `.detail-panel-backdrop`
+     because `.detail-panel` is a prefix of `.detail-panel-backdrop`
+     and shorter prefixes sort first).
+
+     Lives in the same primary `@layer components` block as
+     `.detail-panel` so the alphabetic-order test sees both
+     selectors in the same walk. */
+  .detail-panel-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(15, 23, 42, 0.45);
+    cursor: pointer;
   }
   /* ODD-MHRO-001 — the header row used `flex items-center
      gap-4 px-6 py-3` without `flex-wrap`, so on viewports

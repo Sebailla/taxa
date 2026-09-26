@@ -1190,46 +1190,39 @@ def test_tree_row_renders_source_info_affordance() -> None:
 
 
 def test_tree_row_renders_materialize_indicator() -> None:
-    """ODD-PHASE2: the materialize indicator collapses into the kebab
-    menu as the conditional "Open folder" item. The row-level green
-    folder glyph is gone (one less DOM element per row); the
-    affordance becomes discoverable via the kebab menu (one extra
-    click). The kebab item carries `data-action="open-folder-tab"`
-    + a `folder_open` Material Symbols glyph + the "Open folder"
-    label, mirroring `web/tree.js::renderNodeRow::kebabItems`
-    byte-for-byte. ODD-OPENFOLDER-001 keeps the action enabled and
-    wired through `onKebabAction(id, "open-folder-tab")`. The
-    materialization predicate (`hasMaterializedFolder(taxon)`) is
-    preserved so non-materialized rows do NOT expose the action."""
+    """ODD-TAPOPUP-001: the materialize indicator on the row
+    surface is a `data-materialized` attribute (the popup's
+    Folder tab reads the attribute to know whether the row
+    is materialized). The pre-popup kebab menu's
+    `data-action="open-folder-tab"` item is GONE — the
+    kebab menu is gone; the popup's Folder tab owns the
+    create/open flow. The materialize predicate
+    (`hasMaterializedFolder(taxon)`) stays consumed so the
+    row's `data-materialized` attribute reflects the
+    canonical materialize state."""
     text = _read_text(TAXONOMY_TREE_ROW_FILE)
+    code_only = re.sub(r"/\*[\s\S]*?\*/", "", text)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
     assert "hasMaterializedFolder" in text, (
         "ODD-PHASE2: TreeRow.tsx must consume the hasMaterializedFolder helper."
     )
-    # The kebab menu carries the materialized "Open folder" item. The
-    # afforance is no longer a row-level glyph — it lives in the kebab
-    # menu (conditional on `isMaterialized`).
-    open_folder_match = re.search(
-        r'data-action="open-folder-tab"[\s\S]*?</button>',
-        text,
+    # ODD-TAPOPUP-001: the kebab menu's `data-action="open-folder-tab"`
+    # item is GONE.
+    assert not re.search(
+        r'data-action="open-folder-tab"',
+        code_only,
+    ), (
+        "ODD-TAPOPUP-001: TreeRow.tsx must NOT carry "
+        "`data-action=\"open-folder-tab\"` (the kebab menu item "
+        "is gone; the Folder tab in the popup drives the "
+        "create/open flow)."
     )
-    assert open_folder_match, (
-        "ODD-PHASE2: TreeRow.tsx must render the kebab-item 'Open folder' "
-        "action (with `data-action=\"open-folder-tab\"`)."
-    )
-    open_folder_body = open_folder_match.group(0)
-    assert "folder_open" in open_folder_body or "folder" in open_folder_body, (
-        "ODD-PHASE2: 'Open folder' kebab item must carry the Material "
-        "Symbols `folder_open` glyph (matching the kebab item convention)."
-    )
-    assert "Open folder" in open_folder_body, (
-        "ODD-PHASE2: 'Open folder' kebab item must carry the canonical label."
-    )
-    # The OLD row-level materialize indicator + its data attribute
-    # are GONE (the affordance lives in the kebab now). The class
-    # hook + data attribute must NOT appear in the JSX. The
-    # className-anchored regex avoids false positives from the
-    # file's docstring which mentions `materialize-indicator` /
-    # `data-materialize-indicator` literally as legacy references.
+    # The row-level materialize indicator + its data attribute
+    # are GONE. The class hook + data attribute must NOT
+    # appear in the JSX. The className-anchored regex avoids
+    # false positives from the file's docstring which mentions
+    # `materialize-indicator` / `data-materialize-indicator`
+    # literally as legacy references.
     assert not re.search(
         r'className\s*=\s*["\'][^"\']*\bmaterialize-indicator\b',
         text,
@@ -1294,71 +1287,119 @@ def test_tree_row_renders_species_count_badge() -> None:
 
 
 def test_tree_row_renders_kebab_trigger() -> None:
-    """ODD-NTP-004: every row renders a kebab trigger button with
-    `data-action="toggle-kebab"` + `aria-haspopup="menu"` +
-    `aria-expanded` so the visual weight stays low for full-tree
-    scrolls and the menu state is observable by assistive tech."""
+    """ODD-TAPOPUP-001: every row renders a kebab trigger
+    IconButton that opens the taxon-action popup for that row.
+    The trigger carries:
+      - the canonical `kebab-trigger` class hook so the existing
+        `.kebab .kebab-trigger` CSS rule (passive-hint opacity +
+        hover/focus reveal) keeps working,
+      - `data-action="toggle-kebab"` for the row-level action
+        delegation contract,
+      - `aria-haspopup="dialog"` to advertise the popup target
+        (was `aria-haspopup="menu"` in the pre-popup kebab menu),
+      - `aria-expanded` driven by `selected === taxon.id` so
+        assistive tech sees the popup's open state for that row.
+
+    The kebab MENU (`.kebab-menu` + items) is GONE — clicking the
+    trigger opens the popup directly. The popup owns the four
+    tabbed sections (Synonyms / Distribution / Search / Folder)."""
     text = _read_text(TAXONOMY_TREE_ROW_FILE)
-    assert "kebab-trigger" in text, (
-        "ODD-NTP-004: TreeRow.tsx must render the .kebab-trigger button."
+    # `kebab-trigger` class hook MUST reach the JSX (either on the
+    # IconButton's className or via a wrapper) so the existing CSS
+    # discoverability rule (passive-hint opacity + hover/focus
+    # reveal) is wired.
+    assert re.search(
+        r'className\s*=\s*["\'][^"\']*\bkebab-trigger\b',
+        text,
+    ), (
+        "ODD-TAPOPUP-001: TreeRow.tsx must stamp the `kebab-trigger` "
+        "class hook on the row's IconButton (or its kebab wrapper) "
+        "so the existing `.kebab .kebab-trigger` CSS discoverability "
+        "rule (passive-hint opacity + hover/focus reveal) is wired."
     )
     assert '"toggle-kebab"' in text or "'toggle-kebab'" in text, (
-        "ODD-NTP-004: kebab trigger must stamp data-action=\"toggle-kebab\"."
+        "ODD-TAPOPUP-001: kebab trigger must stamp data-action=\"toggle-kebab\"."
     )
-    assert "aria-haspopup" in text, (
-        "ODD-NTP-004: kebab trigger must declare aria-haspopup=\"menu\"."
+    # The popup replaces the kebab menu — the trigger advertises
+    # the popup target via `aria-haspopup="dialog"`, NOT
+    # `aria-haspopup="menu"`.
+    assert 'aria-haspopup="dialog"' in text, (
+        "ODD-TAPOPUP-001: kebab trigger must declare "
+        "`aria-haspopup=\"dialog\"` (the popup replaces the "
+        "kebab menu)."
     )
     assert "aria-expanded" in text, (
-        "ODD-NTP-004: kebab trigger must declare aria-expanded."
+        "ODD-TAPOPUP-001: kebab trigger must declare aria-expanded."
     )
 
 
-def test_tree_row_renders_kebab_menu_items() -> None:
-    """ODD-PHASE2 + ODD-TDDISC-001 + ODD-OPENFOLDER-001: the kebab menu
-    carries the two conditional per-row actions AFTER the rewrite:
-    'Open folder' (materialized-only) + 'View on WoRMS'
-    (WoRMS-only). ODD-PHASE2 drops the 'View details' item — the row
-    click on the disclosure button already invokes `onSelect(taxon.id)`,
-    so the kebab selection item was a duplicate affordance.
+def test_tree_row_does_not_render_kebab_menu() -> None:
+    """ODD-TAPOPUP-001: the row-level kebab menu is GONE.
+    Clicking the kebab IconButton opens the taxon-action popup
+    directly (no in-row dropdown menu). The popup replaces the
+    kebab menu's `Open folder` + `View on WoRMS` affordances —
+    the four tabbed sections (Synonyms / Distribution / Search
+    / Folder) subsume the menu shortcuts. The View on WoRMS
+    outbound shortcut is dropped (the WoRMS URL is no longer
+    surfaced via the row surface — the user opens it from the
+    WoRMS link the popup might surface in a future slice).
 
-    Both remaining items are conditional on a backing-react-handler /
-    outbound-URL predicate (`hasMaterializedFolder(taxon)` /
-    `wormsUrlFor(taxon)`); neither carries `disabled` +
-    `aria-disabled="true"`. Mirrors the legacy `web/tree.js::
-    renderNodeRow::kebabItems` ordering byte-for-byte (Open folder
-    first, View on WoRMS second)."""
+    Pins:
+      - No `.kebab-menu` element in the JSX (the menu container
+        is gone).
+      - No `.kebab-item` elements (the menu items are gone).
+      - No `data-action="open-folder-tab"` (the kebab item that
+        pinned the Folder tab is gone; the Folder tab still
+        opens via the popup's Folder tab).
+      - No `data-action="view-on-worms"` (the WoRMS shortcut
+        is gone).
+      - No `data-action="open-searches"` (the legacy
+        `View details` kebab item is gone — the disclosure click
+        + the popup replace it)."""
     text = _read_text(TAXONOMY_TREE_ROW_FILE)
-    assert "kebab-menu" in text, (
-        "ODD-PHASE2: TreeRow.tsx must render the .kebab-menu container."
-    )
-    assert '"open-folder-tab"' in text or "'open-folder-tab'" in text, (
-        "ODD-PHASE2: kebab menu must carry the open-folder-tab data-action."
-    )
-    assert "wormsUrlFor" in text, (
-        "ODD-PHASE2: TreeRow.tsx must consume the wormsUrlFor helper."
-    )
-    # The "View on WoRMS" item renders as an <a> with target="_blank".
-    assert 'target="_blank"' in text, (
-        "ODD-PHASE2: 'View on WoRMS' must render as <a target=\"_blank\">."
-    )
-    # ODD-PHASE2: 'View details' kebab item is GONE (it was a duplicate
-    # affordance of the disclosure button's `onSelect(taxon.id)` click).
-    # The kebab must NOT expose a kebab-item with `data-action="open-searches"`
-    # or the literal 'View details' label.
-    kebab_search_match = re.search(
-        r'<button\b[^>]*className\s*=\s*"\s*kebab-item\s*"[^>]*data-action\s*=\s*"\s*open-searches\s*"',
+    # The kebab menu container is GONE. The descendant class
+    # hook `.kebab-menu` MUST NOT appear in the JSX as a
+    # className entry. The className-anchored regex avoids
+    # false positives from docstring references which mention
+    # `kebab-menu` literally as a legacy reference.
+    assert not re.search(
+        r'className\s*=\s*["\'][^"\']*\bkebab-menu\b',
         text,
+    ), (
+        "ODD-TAPOPUP-001: TreeRow.tsx must NOT render the "
+        "`.kebab-menu` container (the popup replaces the kebab "
+        "menu)."
     )
-    assert kebab_search_match is None, (
-        "ODD-PHASE2: kebab menu MUST NOT carry the `data-action=\"open-searches\"` "
-        "item (duplicate affordance of the disclosure row click)."
+    # The kebab item class hook is GONE.
+    assert not re.search(
+        r'className\s*=\s*["\'][^"\']*\bkebab-item\b',
+        text,
+    ), (
+        "ODD-TAPOPUP-001: TreeRow.tsx must NOT render any "
+        "`.kebab-item` element (the menu items are gone)."
     )
-    # Neither remaining kebab item is deferred (both wire through real
-    # handlers / outbound URLs), so `aria-disabled="true"` disappears
-    # entirely. The kebab items MUST NOT carry `aria-disabled`.
-    assert "aria-disabled" not in text, (
-        "ODD-PHASE2: kebab items MUST NOT carry `aria-disabled` (both "
-        "items are enabled; deferred state is no longer used)."
+    # No menu-level data-actions survive.
+    for action in ("open-folder-tab", "view-on-worms", "open-searches"):
+        assert action not in text, (
+            f"ODD-TAPOPUP-001: TreeRow.tsx must NOT carry "
+            f"`data-action=\"{action}\"` (the menu is gone; "
+            f"the popup owns the four tabs)."
+        )
+    # The legacy `wormsUrlFor` helper is no longer needed at the
+    # row level (the WoRMS outbound shortcut is gone). The helper
+    # stays in `row-format.ts` for future consumers.
+    assert "wormsUrlFor" not in text, (
+        "ODD-TAPOPUP-001: TreeRow.tsx must NOT consume "
+        "`wormsUrlFor` (the WoRMS outbound shortcut is gone)."
+    )
+    # The `hasMaterializedFolder` helper is still consumed (the
+    # materialize indicator stays — the Folder tab inside the
+    # popup handles the create flow when the row is materialized).
+    assert "hasMaterializedFolder" in text, (
+        "ODD-TAPOPUP-001: TreeRow.tsx must still consume "
+        "`hasMaterializedFolder` (the materialize indicator on "
+        "the row stays — the Folder tab in the popup drives the "
+        "create flow)."
     )
 
 
@@ -1395,50 +1436,93 @@ def test_tree_row_carries_depth_sensitive_name_class() -> None:
     )
 
 
-def test_taxonomy_tree_manages_kebab_state() -> None:
-    """ODD-NTP-004: TaxonomyTree owns the kebab state (which row's
-    kebab menu is currently open). The state is passed down to
-    TreeRow via `kebabOpenId` so click-outside / Escape dismissal
-    live at the tree level. Mirrors the legacy
-    `web/nav.js::closeAllKebabMenus` predicate (only one kebab
-    open at a time)."""
+def test_taxonomy_tree_kebab_click_routes_through_select_primitive() -> None:
+    """ODD-TAPOPUP-001: clicking the row-level kebab IconButton
+    routes through the canonical `handleSelect(id)` selection
+    primitive — opening the taxon-action popup for that row is
+    the same primitive as selecting the row's disclosure
+    (selection is orthogonal to expansion; the popup is a
+    selected-taxon surface). The kebab IconButton's click
+    handler in TreeRow.tsx calls the `onToggleKebab` prop
+    callback; TaxonomyTree wires that callback to
+    `handleSelect(id)` so the URL state (`?taxon=ID`),
+    breadcrumb focus, row pulse, and scroll-into-view all fire
+    byte-for-byte against the disclosure-click path.
+
+    Pins the contract:
+      - `handleToggleKebab` is the kebab-click callback
+        declared by TaxonomyTree (the kebab trigger prop on
+        TreeRow).
+      - `handleToggleKebab` delegates to `handleSelect(id)`
+        (NOT to a kebab-menu state setter).
+      - The kebab menu state contract (`kebabOpenId` /
+        `handleKebabAction` / `setKebabOpenId`) is GONE —
+        there is no in-row dropdown menu anymore."""
     text = _read_text(TAXONOMY_TREE_FILE)
-    assert "kebabOpenId" in text, (
-        "ODD-NTP-004: TaxonomyTree.tsx must own the kebabOpenId state."
+    # Strip line comments so the contract-pins below ignore
+    # migration-history references in docstrings (the test is
+    # about CODE contract, not about historical references in
+    # comments).
+    code_only = re.sub(r"//[^\n]*", "", text)
+    assert "handleToggleKebab" in code_only, (
+        "ODD-TAPOPUP-001: TaxonomyTree.tsx must declare a "
+        "`handleToggleKebab` callback for the row kebab trigger."
     )
-    assert "handleToggleKebab" in text, (
-        "ODD-NTP-004: TaxonomyTree.tsx must declare a handleToggleKebab handler."
+    # Find the handleToggleKebab body and pin it delegates to
+    # handleSelect(id) — the kebab-click opens the popup via the
+    # canonical selection primitive.
+    handle_idx = text.find("const handleToggleKebab")
+    assert handle_idx != -1, (
+        "TaxonomyTree.tsx must declare `handleToggleKebab` as a "
+        "const handler."
     )
-    assert "handleKebabAction" in text, (
-        "ODD-NTP-004: TaxonomyTree.tsx must declare a handleKebabAction handler."
+    handle_end = text.find("\n  }, [", handle_idx)
+    assert handle_end != -1, "handleToggleKebab must be a useCallback"
+    body = text[handle_idx:handle_end]
+    assert "handleSelect(id)" in body, (
+        "ODD-TAPOPUP-001: handleToggleKebab must delegate to "
+        "`handleSelect(id)` so the kebab-click opens the popup "
+        "via the canonical selection primitive."
     )
-    assert "setKebabOpenId" in text, (
-        "ODD-NTP-004: TaxonomyTree.tsx must update kebabOpenId via setKebabOpenId."
-    )
+    # The kebab menu state contract is GONE — no `kebabOpenId` /
+    # `handleKebabAction` / `setKebabOpenId` references IN CODE.
+    for needle in ("kebabOpenId", "handleKebabAction", "setKebabOpenId"):
+        assert needle not in code_only, (
+            f"ODD-TAPOPUP-001: TaxonomyTree.tsx must NOT carry "
+            f"`{needle}` (the kebab menu state contract is gone; "
+            f"the popup is selected-driven)."
+        )
 
 
-def test_taxonomy_tree_dismisses_kebab_on_source_switch() -> None:
-    """ODD-NTP-004: a source switch clears every open kebab so a
-    menu never lingers over a row that has been re-projected under
-    a different source. Mirrors the legacy `web/nav.js::
-    tree-source toggle` reset (which cleared the kebab as part of
-    the source-bound state reset).
+def test_taxonomy_tree_dismisses_popup_on_source_switch() -> None:
+    """ODD-TAPOPUP-001: a source switch closes the open
+    taxon-action popup so the panel never lingers over a taxon
+    re-projected under a different source. The popup is
+    `selected`-driven, so closing the popup on source switch is
+    `setSelected(null)` in the ODD-HSS-001 source-switch
+    `useEffect` body. The pre-popup kebab-menu dismissal
+    (`setKebabOpenId(null)`) is GONE — the popup is the only
+    transient surface now.
 
-    ODD-HSS-001 — the source-selector mount moved to the AppShell
-    header so the source-bound cleanup cascade moved from the
-    `handleSourceChange` callback into a `useEffect` that fires
-    whenever `activeSource` changes. The regression guard pins
-    the contract against the new effect-based location: the
-    effect body MUST carry a `setKebabOpenId(null)` call so the
-    kebab dismisses on a source switch regardless of which
-    surface wrote through the typed hook."""
+    ODD-HSS-001 — the source-bound cleanup cascade moved from
+    the `handleSourceChange` callback into a `useEffect` that
+    fires whenever `activeSource` changes. The regression guard
+    pins the contract against the new effect-based location."""
     text = _read_text(TAXONOMY_TREE_FILE)
     body = _od_hss_source_switch_effect_body(text)
-    assert "setKebabOpenId(null)" in body, (
-        "ODD-NTP-004: the ODD-HSS-001 source-switch "
-        "`useEffect(() => { ... }, [activeSource])` body must close "
-        "the open kebab via `setKebabOpenId(null)` so a stale menu "
-        "cannot linger over a row re-projected under the new source."
+    code_only = re.sub(r"//[^\n]*", "", text)
+    assert "setSelected(null)" in body, (
+        "ODD-TAPOPUP-001: the ODD-HSS-001 source-switch "
+        "`useEffect(() => { ... }, [activeSource])` body must "
+        "close the open popup via `setSelected(null)` so a "
+        "stale panel cannot linger over a taxon re-projected "
+        "under the new source."
+    )
+    # The pre-popup kebab menu dismissal is GONE.
+    assert "setKebabOpenId" not in code_only, (
+        "ODD-TAPOPUP-001: TaxonomyTree.tsx must NOT carry "
+        "`setKebabOpenId` (the kebab menu is gone; the popup "
+        "closes via `setSelected(null)`)."
     )
 
 
@@ -1459,51 +1543,123 @@ def test_taxonomy_tree_dismisses_kebab_on_collapse_all() -> None:
 
 
 def test_taxonomy_tree_handles_escape_keypress() -> None:
-    """ODD-NTP-004: pressing Escape closes every open kebab.
-    Mirrors the legacy `web/nav.js::keydown` listener (a single
-    document-level handler closes the menu on Escape)."""
+    """ODD-NTP-004 (carry-over) + ODD-TAPOPUP-001: pressing
+    Escape closes every open kebab AND the open taxon-action
+    popup. The pre-popup kebab Escape-close effect is owned by
+    `DetailPanel` (the popup registers its own document-level
+    keydown listener that closes on Escape); the kebab menu is
+    gone so the tree-level kebab effect is gone.
+
+    The Escape listener for the popup lives in DetailPanel.tsx,
+    not TaxonomyTree.tsx — the regression guard pins the
+    contract against the DetailPanel location. The
+    `TaxonomyTree.tsx` file MUST NOT register a document-level
+    keydown listener for `Escape` (the tree no longer owns the
+    popup close handler)."""
+    # DetailPanel owns the Escape close.
+    panel_text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert '"keydown"' in panel_text or "'keydown'" in panel_text, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must register a keydown "
+        "listener for the popup's Escape close behavior."
+    )
+    assert "Escape" in panel_text, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must listen for the "
+        "Escape key so the popup closes via keyboard."
+    )
+    # TaxonomyTree no longer owns the Escape close (the popup's
+    # Escape listener is delegated to DetailPanel). The tree
+    # MAY still register other keydown listeners (the j/k
+    # navigation handler stays), but the Escape-driven close is
+    # gone from the tree level.
+    tree_text = _read_text(TAXONOMY_TREE_FILE)
+    tree_code_only = re.sub(r"//[^\n]*", "", tree_text)
+    # The pre-popup kebab Escape-close useEffect body starts
+    # with `if (kebabOpenId === null) return;` and the
+    # `setKebabOpenId(null)` reset. Both MUST be gone.
+    assert "setKebabOpenId(null)" not in tree_code_only, (
+        "ODD-TAPOPUP-001: TaxonomyTree.tsx must NOT carry the "
+        "kebab Escape-close useEffect (the kebab menu is gone; "
+        "the popup Escape listener lives in DetailPanel)."
+    )
+
+
+def test_taxonomy_tree_collapse_all_preserves_popup() -> None:
+    """ODD-TAPOPUP-001: the collapse-all control PRESERVES
+    `selected` so the popup stays open over the collapsed tree.
+    The legacy `web/nav.js::collapseAll` clears expansion
+    without clearing focused / selected (selection is
+    independent of expansion); the React cutover mirrors that
+    contract so the popup stays open after a collapse-all.
+
+    The pre-popup kebab dismissal (`setKebabOpenId(null)`) is
+    gone (the kebab menu is gone); the kebab menu state
+    contract (`kebabOpenId` / `setKebabOpenId`) is retired."""
     text = _read_text(TAXONOMY_TREE_FILE)
-    assert '"keydown"' in text or "'keydown'" in text, (
-        "ODD-NTP-004: TaxonomyTree.tsx must register a keydown listener."
+    code_only = re.sub(r"//[^\n]*", "", text)
+    handle_idx = text.find("const handleCollapseAll")
+    assert handle_idx != -1, (
+        "TaxonomyTree.tsx must declare handleCollapseAll."
     )
-    assert "Escape" in text, (
-        "ODD-NTP-004: TaxonomyTree.tsx must listen for the Escape key."
+    # Anchor on the `clearExpansion` call site (must be present
+    # in the body) and the absence of `setSelected(null)` so the
+    # popup stays open over the collapsed tree.
+    assert "clearExpansion" in text[handle_idx:handle_idx + 800], (
+        "ODD-TAPOPUP-001: handleCollapseAll must call "
+        "`clearExpansion` so the collapse-all control collapses "
+        "the tree."
+    )
+    assert "setSelected(null)" not in text[handle_idx:handle_idx + 800], (
+        "ODD-TAPOPUP-001: handleCollapseAll MUST NOT call "
+        "`setSelected(null)` (the popup stays open over the "
+        "collapsed tree; selection is independent of "
+        "expansion)."
+    )
+    assert "setKebabOpenId" not in code_only, (
+        "ODD-TAPOPUP-001: TaxonomyTree.tsx must NOT carry "
+        "`setKebabOpenId` (the kebab menu is gone; the popup is "
+        "`selected`-driven)."
     )
 
 
-def test_taxonomy_tree_handles_click_outside() -> None:
-    """ODD-NTP-004: clicking outside the open kebab closes it.
-    Mirrors the legacy `web/nav.js::closeAllKebabMenus` predicate
-    (clicking outside the open `.kebab-menu` closes the menu).
-    The handler is only attached when a kebab is open so the
-    document-level touchpoint is removed as soon as the menu
-    closes."""
-    text = _read_text(TAXONOMY_TREE_FILE)
-    assert '"mousedown"' in text or "'mousedown'" in text, (
-        "ODD-NTP-004: TaxonomyTree.tsx must register a mousedown listener."
-    )
-    assert '".kebab"' in text or "'\\.kebab'" in text or "closest('.kebab')" in text, (
-        "ODD-NTP-004: click-outside handler must skip clicks on .kebab descendants."
-    )
-
-
-def test_out_index_html_has_kebab_styles(static_export) -> None:
-    """ODD-NTP-004: the static export's CSS must define the
-    `.kebab-trigger` / `.kebab-menu` / `.kebab-item` / `.kebab`
-    rules so the native kebab affordance renders identically to
-    the legacy oracle."""
+def test_out_index_html_has_kebab_trigger_styles(static_export) -> None:
+    """ODD-TAPOPUP-001: the static export's CSS must keep the
+    `.kebab-trigger` discoverability rule (passive-hint opacity
+    + hover/focus reveal) so the kebab IconButton stays
+    discoverable on every row. The pre-popup `.kebab-menu` /
+    `.kebab-item` rules are GONE (the menu items collapsed into
+    the popup's four tabs). The `.kebab` base rule stays so
+    the chain-topology guard in `tests/test_research_styles.py`
+    keeps whitelisting the row-level affordance surface."""
     css_chunks = sorted((REPO_ROOT / "out" / "_next" / "static" / "chunks").glob("*.css"))
     css_body = "\n".join(
         c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks
     )
+    # The kebab-trigger discoverability hook MUST survive.
     assert ".kebab-trigger" in css_body, (
-        "ODD-NTP-004: static CSS must define the .kebab-trigger rule."
+        "ODD-TAPOPUP-001: static CSS must keep the `.kebab-trigger` "
+        "discoverability rule (passive-hint opacity + hover/focus "
+        "reveal) so the kebab IconButton stays discoverable."
     )
-    assert ".kebab-menu" in css_body, (
-        "ODD-NTP-004: static CSS must define the .kebab-menu rule."
+    # The hover/focus reveal cascade MUST survive so the
+    # IconButton paints at full opacity on row hover / focus-within.
+    assert ".tree-row:hover .kebab-trigger" in css_body, (
+        "ODD-TAPOPUP-001: static CSS must keep the "
+        "`.tree-row:hover .kebab-trigger` hover-reveal rule."
     )
-    assert ".kebab-item" in css_body, (
-        "ODD-NTP-004: static CSS must define the .kebab-item rule."
+    assert ".tree-row:focus-within .kebab-trigger" in css_body, (
+        "ODD-TAPOPUP-001: static CSS must keep the "
+        "`.tree-row:focus-within .kebab-trigger` focus-reveal rule."
+    )
+    # The menu cascade is GONE (no menu items anymore).
+    assert ".kebab-menu" not in css_body, (
+        "ODD-TAPOPUP-001: static CSS must NOT carry the "
+        "`.kebab-menu` rule (the menu items collapsed into the "
+        "popup's four tabs)."
+    )
+    assert ".kebab-item" not in css_body, (
+        "ODD-TAPOPUP-001: static CSS must NOT carry the "
+        "`.kebab-item` rule (the menu items collapsed into the "
+        "popup's four tabs)."
     )
 
 
@@ -2307,14 +2463,20 @@ def test_taxonomy_tree_owns_focused_selected_navigation_state() -> None:
 
 
 def test_taxonomy_tree_handle_select_sets_focused_and_selected() -> None:
-    """ODD-NTP-005: `handleSelect(id)` is the selection primitive —
-    sets focused + selected to `id`, closes the open kebab, and
-    bumps the pulse nonce. Mirrors the legacy
-    `web/nav.js::selectTaxon(id)` primitive byte-for-byte."""
+    """ODD-NTP-005 + ODD-TAPOPUP-001: `handleSelect(id)` is the
+    selection primitive — sets focused + selected to `id` and
+    bumps the pulse nonce. The pre-popup kebab-close side
+    effect (`setKebabOpenId(null)`) is GONE — the kebab menu
+    is gone; the popup is `selected`-driven. Mirrors the
+    legacy `web/nav.js::selectTaxon(id)` primitive byte-for-
+    byte (selection is orthogonal to expansion; the popup
+    opens for the row)."""
     text = _read_text(TAXONOMY_TREE_FILE)
+    code_only = re.sub(r"/\*[\s\S]*?\*/", "", text)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
     assert re.search(
         r"const\s+handleSelect\s*=\s*useCallback",
-        text,
+        code_only,
     ), (
         "ODD-NTP-005: TaxonomyTree.tsx must declare handleSelect as "
         "a useCallback."
@@ -2328,9 +2490,11 @@ def test_taxonomy_tree_handle_select_sets_focused_and_selected() -> None:
     assert "setSelected(id)" in body, (
         "ODD-NTP-005: handleSelect must call setSelected(id)."
     )
-    assert "setKebabOpenId(null)" in body, (
-        "ODD-NTP-005: handleSelect must close the open kebab "
-        "(mirrors legacy selectTaxon's fresh-tree render)."
+    # The pre-popup kebab-close side effect is GONE.
+    assert "setKebabOpenId" not in code_only, (
+        "ODD-TAPOPUP-001: handleSelect must NOT close the "
+        "open kebab (the kebab menu is gone; the popup is "
+        "`selected`-driven)."
     )
 
 
@@ -2422,146 +2586,52 @@ def test_tree_row_passes_on_select_focused_selected_to_props() -> None:
 
 
 def test_tree_row_open_folder_kebab_is_enabled_for_materialized_rows() -> None:
-    """ODD-OPENFOLDER-001: the kebab 'Open folder' item is ENABLED
-    (rendered ONLY when `hasMaterializedFolder(taxon)` is true) and
-    routes through the existing selection/focus primitive plus the
-    per-taxon Folder active-tab state, mirroring the legacy
-    `web/nav.js::open-folder-tab` handler byte-for-byte. The
-    materialization predicate is preserved so non-materialized rows
-    do NOT expose the action; the menu dismissal contract + the
-    keyboard accessibility story stay intact."""
+    """ODD-TAPOPUP-001 (carry-over): the row-level materialize
+    indicator (`hasMaterializedFolder(taxon)` predicate) is
+    preserved so the Folder tab in the popup knows whether the
+    row is materialized. The kebab menu's `Open folder` item is
+    GONE — the Folder tab in the popup subsumes the affordance
+    (the user opens the popup, picks the Folder tab, and either
+    creates the folder or opens it)."""
     text = _read_text(TAXONOMY_TREE_ROW_FILE)
-    match = re.search(
-        r'data-action="open-folder-tab"[\s\S]*?</button>',
-        text,
+    assert "hasMaterializedFolder" in text, (
+        "ODD-TAPOPUP-001: TreeRow.tsx must still consume "
+        "`hasMaterializedFolder` so the row's materialize "
+        "indicator stays."
     )
-    assert match, (
-        "ODD-OPENFOLDER-001: TreeRow.tsx must render the open-folder-tab "
-        "kebab item (rendered only for materialized rows)."
-    )
-    body = match.group(0)
-    # The kebab item is no longer deferred — the React Folder tab
-    # is fully backed and the navigation slice routes the action.
-    assert "disabled" not in body, (
-        "ODD-OPENFOLDER-001: 'Open folder' kebab item must NOT be "
-        "disabled; the React Folder tab + selection primitive back "
-        "the action (matching `web/nav.js::open-folder-tab`)."
-    )
-    assert 'aria-disabled="true"' not in body, (
-        "ODD-OPENFOLDER-001: 'Open folder' kebab item must NOT carry "
-        "aria-disabled=\"true\"; the navigation slice genuinely backs it."
-    )
-    # The item handler routes through `onKebabAction(taxon.id,
-    # "open-folder-tab")` so the parent can pin the active detail
-    # tab to "folder" and select/focus the taxon.
-    assert re.search(
-        r'onKebabAction\([^)]*"open-folder-tab"',
-        body,
-    ), (
-        "ODD-OPENFOLDER-001: 'Open folder' must call onKebabAction with "
-        "'open-folder-tab' so the parent can pin Folder as the active "
-        "detail tab (mirrors `web/nav.js::open-folder-tab`)."
-    )
-    # The kebab item is wrapped in `isMaterialized ? ... : null` so
-    # non-materialized rows do NOT expose the action — the predicate
-    # is preserved byte-for-byte (matches the legacy
-    # `web/tree.js::hasFolder` visibility rule).
-    assert re.search(
-        r"isMaterialized\s*\?\s*\(\s*<button",
+    # The row-level materialize indicator + its data attribute
+    # STAY (the row paints a materialize marker so the user can
+    # tell at a glance which rows are already on disk). The kebab
+    # menu item that USED to drive the open-folder action is
+    # gone.
+    assert not re.search(
+        r'data-action="open-folder-tab"',
         text,
     ), (
-        "ODD-OPENFOLDER-001: 'Open folder' must remain gated on the "
-        "`hasMaterializedFolder(taxon)` predicate so non-materialized "
-        "rows do NOT expose the action."
-    )
-    # The click handler must call `ev.stopPropagation()` so the row
-    # wrapper's `data-action="select"` / `"toggle-expand"` does not
-    # also fire on the click — matches the kebab-item contract used
-    # by the other enabled items.
-    assert "ev.stopPropagation()" in body, (
-        "ODD-OPENFOLDER-001: 'Open folder' click handler must "
-        "stopPropagation() so the row-level action does not also fire."
+        "ODD-TAPOPUP-001: TreeRow.tsx must NOT carry "
+        "`data-action=\"open-folder-tab\"` (the kebab menu item "
+        "is gone; the Folder tab in the popup drives the "
+        "create/open flow)."
     )
 
 
-def test_taxonomy_tree_handle_kebab_action_dispatches_view_details() -> None:
-    """ODD-TDDISC-001 (formerly ODD-NTP-005): handleKebabAction routes
-    'open-searches' through `handleSelect(id)` (the navigation
-    slice's selection primitive) and closes the kebab on dispatch.
-    The action name stayed `open-searches` even though the visible
-    kebab label is now 'View details' — the contract is preserved
-    so the parent mapping keeps working byte-for-byte."""
+def test_taxonomy_tree_no_kebab_menu_click_outside_handler() -> None:
+    """ODD-TAPOPUP-001: the kebab menu's document-level
+    click-outside handler is GONE. The popup owns its own
+    backdrop-click → close behavior (the DetailPanel renders a
+    `.detail-panel-backdrop` element that calls `onClose()` on
+    click; the tree no longer carries the `.kebab` closest()
+    check)."""
     text = _read_text(TAXONOMY_TREE_FILE)
-    handle_idx = text.find("const handleKebabAction")
-    assert handle_idx != -1, (
-        "TaxonomyTree.tsx must declare handleKebabAction."
-    )
-    body = text[handle_idx:handle_idx + 800]
-    assert 'open-searches' in body, (
-        "ODD-TDDISC-001: handleKebabAction must branch on 'open-searches'."
-    )
-    assert "handleSelect(id)" in body, (
-        "ODD-TDDISC-001: handleKebabAction must call handleSelect(id) "
-        "for open-searches (the navigation slice's selection primitive)."
-    )
-
-
-def test_taxonomy_tree_handle_kebab_action_routes_open_folder_tab() -> None:
-    """ODD-OPENFOLDER-001: handleKebabAction routes 'open-folder-tab'
-    through the existing selection/focus primitive AND pins the
-    per-taxon active tab to 'folder' — mirroring the legacy
-    `web/nav.js::open-folder-tab` byte-for-byte (which set
-    `state.focused = id`, `state.activeTab[id] = "folder"`, then
-    `selectTaxon(id)`). The kebab dismissal contract stays intact
-    because `handleSelect` closes the kebab as a side effect."""
-    text = _read_text(TAXONOMY_TREE_FILE)
-    handle_idx = text.find("const handleKebabAction")
-    assert handle_idx != -1, (
-        "TaxonomyTree.tsx must declare handleKebabAction."
-    )
-    # Inspect the whole callback body (not just the first 800 chars)
-    # so the assertion on the 'open-folder-tab' branch is robust to
-    # any future comment padding above the new branch.
-    body = text[handle_idx:handle_idx + 1600]
-    assert "open-folder-tab" in body, (
-        "ODD-OPENFOLDER-001: handleKebabAction must branch on "
-        "'open-folder-tab'."
-    )
-    # Pin the active tab to 'folder' before delegating to
-    # handleSelect — matches `state.activeTab[id] = "folder"` in
-    # `web/nav.js`. The functional updater form keeps the callback
-    # identity stable across per-taxon cache mutations, so we
-    # anchor on the literal pattern rather than the deps array.
-    assert re.search(
-        r"setPerTaxonActiveTab\(",
-        body,
+    # No `mousedown` document-level listener for `.kebab`
+    # closest-check — the kebab menu is gone.
+    assert not re.search(
+        r"closest\(\s*['\"]\.kebab['\"]\s*\)",
+        text,
     ), (
-        "ODD-OPENFOLDER-001: 'open-folder-tab' branch must update "
-        "perTaxonActiveTab so the Folder tab becomes the active tab "
-        "on first render (mirrors `state.activeTab[id] = 'folder'`)."
-    )
-    assert re.search(
-        r'next\.set\(\s*id\s*,\s*["\']folder["\']\s*\)',
-        body,
-    ), (
-        "ODD-OPENFOLDER-001: per-taxon active-tab update must set the "
-        "key to the literal 'folder' so the Folder tab lands on the "
-        "right row."
-    )
-    # Then call handleSelect(id) for selection/focus + kebab close
-    # (the kebab dismissal contract stays intact — handleSelect
-    # closes the kebab as a side effect, matching the legacy
-    # `selectTaxon(id)` flow in `web/nav.js`). Anchor on the
-    # `if (action === "open-folder-tab")` branch head so the regex
-    # proves THIS branch (and not a stray docstring mention of
-    # either token) actually calls handleSelect(id).
-    assert re.search(
-        r'if\s*\(\s*action\s*===\s*["\']open-folder-tab["\']\s*\)[\s\S]*?handleSelect\(id\)',
-        body,
-    ), (
-        "ODD-OPENFOLDER-001: 'open-folder-tab' branch must call "
-        "handleSelect(id) AFTER pinning the active tab so the "
-        "selection/focus + kebab-close side effects fire."
+        "ODD-TAPOPUP-001: TaxonomyTree.tsx must NOT carry the "
+        "`.kebab` closest-check (the kebab menu is gone; the "
+        "popup backdrop owns the click-outside close)."
     )
 
 
@@ -2778,167 +2848,648 @@ def test_detail_panel_is_a_client_component() -> None:
 
 
 def test_detail_panel_uses_canonical_helpers() -> None:
-    """ODD-TDO-001: DetailPanel composes the canonical row-format +
-    breadcrumb helpers — never invents its own wire mapping, italic
-    predicate, or species-count formatter. spec.md rule 4 keeps
+    """ODD-TDO-001 + ODD-TAPOPUP-001: DetailPanel composes the
+    canonical row-format helpers it still needs — the rank label
+    + the scientific-name italic-vs-roman predicate. The
+    Overview-only helpers (species-count badge, status-dot
+    descriptor, realm tint, source-aware breadcrumb walker)
+    are GONE — the popup replaces the sticky rail + the
+    Overview tab body, and those helpers are no longer
+    consumed inside the panel. spec.md rule 4 keeps the
     presentation pure; rule 5 blocks deep imports via the
     `no-restricted-imports` ESLint guard."""
     text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
     for helper in (
         "rankLabel",
         "scientificNameClass",
-        "speciesCountBadge",
-        "statusDotDescriptor",
-        "realmForPath",
-        "walkBreadcrumbForSource",
     ):
         assert helper in text, (
             f"DetailPanel.tsx must consume the canonical `{helper}` helper "
             f"(spec.md rule 4 / ODD-TDO-001 contract)."
         )
+    # The Overview-only helpers are GONE (the popup drops the
+    # Overview tab body + the realm tint + the parent-chain).
+    for helper in (
+        "speciesCountBadge",
+        "statusDotDescriptor",
+        "realmForPath",
+        "walkBreadcrumbForSource",
+    ):
+        assert helper not in text, (
+            f"ODD-TAPOPUP-001: DetailPanel.tsx must NOT consume "
+            f"`{helper}` (the popup drops the Overview tab body; "
+            f"the helper stays in `row-format.ts` / "
+            f"`breadcrumb-path.ts` for other consumers)."
+        )
 
 
 def test_detail_panel_emits_native_overview_identity() -> None:
-    """ODD-TDO-001: the Overview body must render the canonical
-    label/value rows (Scientific name / Status / Authorship /
-    Species count / Parent chain). Mirrors the legacy
-    `web/detail.js::renderOverview` byte-for-byte so the React
-    cutover's identity block matches the native oracle."""
+    """ODD-TAPOPUP-001 (negative witness): the popup has NO
+    Overview tab body. The pre-popup sticky rail rendered a
+    rich Overview tab with Scientific name / Status /
+    Authorship / Species count / Parent chain rows — that
+    body is GONE (the popup replaces the sticky rail and
+    the user-selected four tabs are Synonyms / Distribution /
+    Search / Folder).
+
+    The labels MUST NOT appear as JSX literals in the file.
+    The string-substring anchor below catches any leak of the
+    legacy Overview body into the popup's source."""
     text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
-    # Each label is unique; presence in the source proves the row
-    # is rendered (the JSX literal appears once per Overview).
     for label in (
         "Scientific name:",
-        "Status:",
-        "Authorship:",
-        "Species count:",
         "Parent chain:",
     ):
-        assert label in text, (
-            f"DetailPanel.tsx must render the `{label}` Overview label."
+        assert label not in text, (
+            f"ODD-TAPOPUP-001: DetailPanel.tsx must NOT render "
+            f"the `{label}` label (the Overview tab body is "
+            f"gone; the popup ships Synonyms / Distribution / "
+            f"Search / Folder)."
         )
 
 
 def test_detail_panel_emits_native_source_affordances() -> None:
-    """ODD-TDO-001: the header badges include the CoL-only badge
-    (`coldp_id && !worms_id` in CoL view) and the WoRMS cross-link
-    badge (`worms_id && source !== "col"`). Mirrors the legacy
-    `web/detail.js::renderDetailPanel` byte-for-byte."""
+    """ODD-TAPOPUP-001 (negative witness): the popup has NO
+    WoRMS / CoL-only header badges. The pre-popup sticky rail
+    carried the source-affordance badges (CoL-only ID + WoRMS
+    cross-link) in the header; the popup's header is minimal
+    (taxon name + authorship + close button) so the badges are
+    GONE.
+
+    The coldp_id + worms_id field reads MAY survive (the
+    canonical Taxon fields are still consumed elsewhere) but
+    the badge-rendering JSX is gone."""
     text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
-    assert "coldp_id" in text and "worms_id" in text, (
-        "DetailPanel.tsx must consume the canonical coldp_id + worms_id "
-        "fields for the source affordance branches."
-    )
-    # CoL-only badge.
-    assert "CoL-only" in text or "CoL \u00b7" in text, (
-        "DetailPanel.tsx must render the CoL-only badge copy."
-    )
-    # WoRMS cross-link bracket.
-    assert "WoRMS \u00b7" in text, (
-        "DetailPanel.tsx must render the WoRMS cross-link badge copy."
-    )
+    # The badge-rendering JSX literals are GONE. The strings
+    # `CoL-only` / `WoRMS ·` MUST NOT appear in the source.
+    for needle in ("CoL-only", "WoRMS \u00b7"):
+        assert needle not in text, (
+            f"ODD-TAPOPUP-001: DetailPanel.tsx must NOT render "
+            f"the `{needle}` badge copy (the popup header is "
+            f"minimal; the legacy source-affordance badges are "
+            f"gone)."
+        )
 
 
 def test_detail_panel_emits_extinct_treatment() -> None:
-    """ODD-TDO-001 + ODD-PHASE2: when `taxon.is_extinct` is
-    truthy, the panel applies the canonical `line-through
-    opacity-70` treatment so the extinct taxon reads as struck
-    through + faded — matching the legacy
-    `web/detail.js::renderDetailPanel::extinctCls`.
+    """ODD-TAPOPUP-001 (negative witness): the popup header
+    has NO extinct badge + NO `line-through opacity-70`
+    treatment. The pre-popup sticky rail carried the extinct
+    `<Badge variant="warning">` marker + the strikethrough
+    treatment; the popup's header is minimal so the extinct
+    affordance is gone.
 
-    ODD-PHASE2 update: the extinct marker is now a
-    `<Badge variant="warning">` from the `@taxa/design-system`
-    barrel (the `<span className="rank-badge text-red-700
-    bg-red-50">` pattern collapsed into the design-system
-    primitive). The Badge variant="warning" maps to the
-    `bg-red-50 text-red-700` Tailwind utilities so the visual
-    treatment is byte-for-byte identical to the legacy oracle;
-    the `data-detail-extinct=""` attribute stays on the element
-    so the test + tooling can still observe the marker."""
+    The `is_extinct` field read MAY survive (the canonical
+    Taxon field is still consumed elsewhere), but the badge
+    JSX + the `line-through opacity-70` styling MUST be gone."""
     text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
-    assert "is_extinct" in text, (
-        "DetailPanel.tsx must consume the canonical is_extinct field."
+    code_only = re.sub(r"/\*[\s\S]*?\*/", "", text)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
+    assert "line-through" not in code_only, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must NOT apply the "
+        "`line-through opacity-70` extinct treatment (the "
+        "popup header is minimal; the extinct affordance is "
+        "gone)."
     )
-    assert "line-through" in text and "opacity-70" in text, (
-        "DetailPanel.tsx must apply the line-through opacity-70 "
-        "extinct treatment to match the legacy oracle."
-    )
-    # ODD-PHASE2 — the extinct marker is now a Badge primitive
-    # instead of an inline `<span className="rank-badge ...">`.
-    assert re.search(
-        r'<Badge[^>]*\bvariant\s*=\s*["\']warning["\']',
-        text,
-    ), (
-        "DetailPanel.tsx must render the extinct marker as "
-        '<Badge variant="warning"> from @taxa/design-system.'
-    )
-    # The legacy inline span pattern is GONE.
-    assert not re.search(
-        r'<span[^>]*\bclassName\s*=\s*["\'][^"\']*\brank-badge\b[^"\']*\btext-red-700\b[^"\']*\bbg-red-50\b',
-        text,
-    ), (
-        "DetailPanel.tsx must NOT render the legacy inline "
-        '<span className="rank-badge text-red-700 bg-red-50"> '
-        "extinct marker — the Badge primitive owns the treatment."
-    )
-    # `data-detail-extinct=""` stays on the element so tests +
-    # tooling can still observe the marker.
-    assert 'data-detail-extinct=""' in text, (
-        "DetailPanel.tsx must stamp data-detail-extinct=\"\" "
-        "on the extinct marker element."
+    assert 'data-detail-extinct=""' not in code_only, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must NOT stamp "
+        "`data-detail-extinct=\"\"` (the extinct marker is "
+        "gone; the popup's minimal header doesn't carry it)."
     )
 
 
 def test_detail_panel_stamps_data_realm_attribute() -> None:
-    """ODD-TDO-001: the panel host carries `data-realm` (derived
-    from `taxon.path` via `realmForPath`) so the realm-tint cascade
-    in `globals.css` can color the scientific-name span per domain
-    / kingdom. Mirrors the legacy `web/tree.js::realm` contract on
-    the Overview body."""
+    """ODD-TAPOPUP-001 (negative witness): the popup host
+    does NOT carry `data-realm` (the realm-tint cascade was
+    scoped to the pre-popup Overview body; the popup replaces
+    the sticky rail and the realm tint is gone). The
+    `realmForPath` helper MAY still be consumed elsewhere in
+    the codebase (it's a canonical row-format helper), but the
+    popup MUST NOT stamp the `data-realm` attribute on its
+    host."""
     text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
-    assert "data-realm" in text, (
-        "DetailPanel.tsx must stamp data-realm on the panel host."
-    )
-    assert "realmForPath" in text, (
-        "DetailPanel.tsx must compute the realm via realmForPath."
+    code_only = re.sub(r"/\*[\s\S]*?\*/", "", text)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
+    assert "data-realm" not in code_only, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must NOT stamp "
+        "`data-realm` on the popup host (the realm-tint "
+        "cascade was scoped to the pre-popup Overview body; "
+        "the popup replaces the sticky rail and the realm "
+        "tint is gone)."
     )
 
 
-def test_detail_panel_emits_tab_strip_with_six_tabs() -> None:
-    """ODD-TDO-001 + ODD-TDS-001: the tab strip carries every
-    legacy tab (Overview / Search / Folder / Vernaculars /
-    Synonyms / Distribution) so the React cutover's surface
-    matches the native oracle. ODD-TDS-001 enables the Search
-    tab alongside Overview; Folder / Vernaculars / Synonyms /
-    Distribution render as `disabled` + `aria-disabled="true"`
-    buttons with no fake actions (per the user-selected
-    "visibly mark unavailable later tabs without fake actions"
-    policy)."""
+def test_detail_panel_emits_tab_strip_with_four_tabs() -> None:
+    """ODD-TAPOPUP-001: the popup's tab strip carries exactly
+    four tabs in the user-selected order: Synonyms, Distribution
+    ("Location/Distribution"), Search ("Search links"), Folder
+    ("Folder creation"). The legacy Overview + Vernaculars tabs
+    are GONE — the popup replaces the sticky detail rail and
+    the user explicitly chose these four tabbed sections.
+
+    Mirrors the user-approved taxonomy UX (the popup is the
+    selected-taxon surface; the four tabs subsume the legacy
+    Overview body's rank/name/status/authorship/count/parent-
+    chain identity + the Vernaculars body's common-name list).
+    """
     text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
-    for tab in ("Overview", "Search", "Folder",
-                "Vernaculars", "Synonyms", "Distribution"):
+    # The four user-selected tab labels MUST appear in the
+    # `DETAIL_TABS` array. The labels carry the user-facing copy
+    # ("Synonyms" / "Distribution" / "Search" / "Folder") — the
+    # "Location/Distribution" + "Search links" + "Folder
+    # creation" phrasing lives in the docstring above.
+    for tab in ("Synonyms", "Distribution", "Search", "Folder"):
         assert tab in text, (
-            f"DetailPanel.tsx must declare the {tab!r} tab in the strip."
+            f"ODD-TAPOPUP-001: DetailPanel.tsx must declare the "
+            f"{tab!r} tab in the popup's strip."
         )
+    # The legacy Overview + Vernaculars tabs are GONE. Strip
+    # comments first so the regex doesn't trip on
+    # docstring-history mentions of the legacy hooks.
+    code_only = re.sub(r"/\*[\s\S]*?\*/", "", text)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
+    # The tab label "Overview" MUST NOT appear in the
+    # `DETAIL_TABS` array.
+    overview_match = re.search(
+        r"DETAIL_TABS[\s\S]*?\bOverview\b",
+        code_only,
+    )
+    assert overview_match is None, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must NOT declare the "
+        "Overview tab in the popup's `DETAIL_TABS` array (the "
+        "popup replaces the sticky detail rail; the four tabs "
+        "are Synonyms / Distribution / Search / Folder)."
+    )
+    vernacular_match = re.search(
+        r"DETAIL_TABS[\s\S]*?\bVernaculars\b",
+        code_only,
+    )
+    assert vernacular_match is None, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must NOT declare the "
+        "Vernaculars tab in the popup's `DETAIL_TABS` array "
+        "(the popup owns only the four user-selected tabs)."
+    )
+
+
+def test_detail_panel_all_four_tabs_are_available() -> None:
+    """ODD-TAPOPUP-001: every popup tab carries
+    `available: true` — the user-selected four tabs are all
+    fully enabled (no `disabled` + `aria-disabled="true"`
+    deferral). The legacy "visibly mark unavailable later tabs
+    without fake actions" policy no longer applies (the popup
+    ships the four tabs as real backing surfaces)."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    # Pin the `available: true` flag for each of the four tabs.
+    for tab_key in ("synonyms", "distribution", "searches", "folder"):
+        pattern = (
+            rf"key\s*:\s*[\"\']{tab_key}[\"\'][\s\S]{{0,200}}?"
+            rf"available\s*:\s*true"
+        )
+        assert re.search(pattern, text), (
+            f"ODD-TAPOPUP-001: DetailPanel.tsx must declare the "
+            f"`{tab_key}` tab with `available: true` (the popup "
+            f"ships all four tabs as real backing surfaces)."
+        )
+    # No deferred tabs: no `disabled` + `aria-disabled="true"`
+    # carry through to the rendered tab buttons.
+    assert "data-tab-available=\"false\"" not in text, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must NOT carry any "
+        "`data-tab-available=\"false\"` button (the popup "
+        "ships all four tabs as real backing surfaces)."
+    )
 
 
 def test_detail_panel_disables_unavailable_tabs() -> None:
-    """ODD-TDO-001 + ODD-TDS-001: non-enabled tabs render with
-    `disabled` + `aria-disabled="true"` so the user sees them as
-    clearly unavailable rather than silently wired to a
-    placeholder. ODD-TDS-001 enables Search alongside Overview;
-    Folder / Vernaculars / Synonyms / Distribution carry
-    `data-tab-available="false"` so tests + tooling can observe
-    the deferred state."""
+    """ODD-TAPOPUP-001: this negative witness pins the
+    "no disabled tabs" contract. The pre-popup sticky rail
+    deferred Folder / Vernaculars / Synonyms / Distribution as
+    `disabled` + `aria-disabled="true"` — the popup replaces
+    that policy with all-four-tabs-enabled. The panel MUST
+    NOT render any `data-tab-available="false"` tab button;
+    the popup's four tabs are all `available: true`."""
     text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
-    assert "data-tab-available" in text, (
-        "DetailPanel.tsx must stamp data-tab-available on each tab button."
+    code_only = re.sub(r"/\*[\s\S]*?\*/", "", text)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
+    assert "data-tab-available=\"false\"" not in code_only, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must NOT carry any "
+        "`data-tab-available=\"false\"` tab button (the popup "
+        "ships all four tabs as real backing surfaces)."
     )
-    assert "available" in text, (
-        "DetailPanel.tsx must carry an availability flag on every tab."
+    assert "aria-disabled=\"true\"" not in code_only, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must NOT stamp "
+        "`aria-disabled=\"true\"` on any tab button (the popup "
+        "ships all four tabs as enabled)."
     )
-    assert "aria-disabled" in text, (
-        "DetailPanel.tsx must stamp aria-disabled on unavailable tabs."
+
+
+def test_detail_panel_is_a_modal_dialog() -> None:
+    """ODD-TAPOPUP-001: the popup replaces the sticky detail
+    rail with a modal dialog. The DetailPanel host carries
+    `role="dialog"` + `aria-modal="true"` so assistive tech
+    treats the panel as a true modal (focus is trapped inside
+    the dialog; outside clicks are blocked by the backdrop).
+
+    The dialog also carries `aria-labelledby` pointing at the
+    scientific-name `<h2>` so screen readers announce the
+    dialog's title (the taxon name) when the popup opens."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert 'role="dialog"' in text, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must stamp "
+        "`role=\"dialog\"` on the popup host (the popup is a "
+        "modal dialog, not a sticky aside)."
+    )
+    assert 'aria-modal="true"' in text, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must stamp "
+        "`aria-modal=\"true\"` on the popup host (the popup is "
+        "a true modal — outside clicks + focus are trapped)."
+    )
+    assert "aria-labelledby" in text, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must stamp "
+        "`aria-labelledby` on the popup host (the dialog's "
+        "accessible name is the taxon's scientific name)."
+    )
+
+
+def test_detail_panel_renders_backdrop() -> None:
+    """ODD-TAPOPUP-001: the popup renders a backdrop element
+    that closes the dialog on click. The backdrop sits behind
+    the dialog content (z-index lower than the dialog host),
+    covers the full viewport, and is a sibling of the dialog
+    content so clicking it does not bubble to the dialog.
+
+    The backdrop element carries the `.detail-panel-backdrop`
+    class hook + an `onClick` handler that calls the
+    `onClose` callback (the same close handler the close
+    IconButton + Escape use)."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    # The `.detail-panel-backdrop` class hook MUST appear in
+    # the source.
+    assert "detail-panel-backdrop" in text, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must render a "
+        "`.detail-panel-backdrop` element (the modal "
+        "backdrop closes the popup on click)."
+    )
+    # The backdrop element carries an `onClick` handler that
+    # routes through `onClose`.
+    backdrop_match = re.search(
+        r'detail-panel-backdrop[^>]*',
+        text,
+    )
+    assert backdrop_match, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must render the "
+        "backdrop with a discoverable element (the class hook "
+        "alone is not enough — the element must be in the JSX)."
+    )
+
+
+def test_detail_panel_closes_on_escape() -> None:
+    """ODD-TAPOPUP-001: the popup registers a document-level
+    keydown listener that calls `onClose()` on Escape. The
+    listener is attached while the popup is open
+    (`DetailPanel` only mounts when `selected !== null` so the
+    listener is bound for the popup's lifetime; on unmount the
+    listener is removed via the `useEffect` cleanup)."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    # The listener MUST register a keydown handler that
+    # branches on `Escape`.
+    assert re.search(
+        r'addEventListener\s*\(\s*["\']keydown["\']',
+        text,
+    ), (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must register a "
+        "keydown listener that closes the popup on Escape."
+    )
+    assert "Escape" in text, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must branch on "
+        "`Escape` in the keydown handler."
+    )
+    assert "removeEventListener" in text, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must clean up the "
+        "keydown listener via `removeEventListener` so the "
+        "document-level touchpoint is removed when the popup "
+        "closes."
+    )
+
+
+def test_detail_panel_focuses_on_open() -> None:
+    """ODD-TAPOPUP-001: the popup focuses its close button on
+    mount so keyboard users land inside the dialog as soon as
+    it opens (the WAI-ARIA Authoring Practices dialog pattern).
+    A `useEffect` with an empty deps array focuses the close
+    IconButton on mount; the user's keyboard tab order picks
+    up from there."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert "useEffect" in text, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must use `useEffect` "
+        "for the focus-on-open behavior (the dialog mounts and "
+        "focuses on the same render frame)."
+    )
+    # The `.focus()` call on a ref'd element.
+    assert re.search(
+        r"\.focus\s*\(\s*\)",
+        text,
+    ), (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must call `.focus()` "
+        "on a ref'd element when the dialog opens (the close "
+        "button is the canonical first-focus target)."
+    )
+
+
+def test_detail_panel_outside_click_closes_popup() -> None:
+    """ODD-TAPOPUP-002: the host `<div id="detail-panel">`
+    carries an `onClick` handler that closes the popup when
+    the user clicks the dim overlay area surrounding the
+    dialog (the Card sits centered inside the host; clicks
+    on the host area outside the Card are outside-click
+    dismissals). The handler uses `e.target ===
+    e.currentTarget` so in-Card clicks do NOT bubble up and
+    accidentally close the popup (the Card's own onClick is
+    not present; the target check is the only guard).
+
+    The backdrop's onClick stays as a fallback (the backdrop
+    is below the host's z-index, so the host onClick is the
+    primary dismissal surface; the backdrop onClick is the
+    redundancy layer for future layout reshuffles)."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    # The host has an onClick handler. The handler uses
+    # `e.target === e.currentTarget` (or equivalent) so the
+    # host's click handler only fires on the host itself, not
+    # on bubbled events from Card children.
+    host_open = re.search(
+        r'<div[^>]*\bid\s*=\s*["\']detail-panel["\'][^>]*>',
+        text,
+    )
+    assert host_open, (
+        "ODD-TAPOPUP-002: DetailPanel.tsx must render the "
+        "host `<div id=\"detail-panel\">` with an `onClick` "
+        "handler so outside clicks close the popup."
+    )
+    assert "onClick" in host_open.group(0) or re.search(
+        r'<div[^>]*\bonClick[^>]*\bid\s*=\s*["\']detail-panel["\']',
+        text,
+    ) or re.search(
+        r'<div[^>]*\bid\s*=\s*["\']detail-panel["\'][^>]*\bonClick',
+        text,
+    ), (
+        "ODD-TAPOPUP-002: DetailPanel.tsx must render the "
+        "host `<div id=\"detail-panel\">` with an `onClick` "
+        "prop so outside clicks close the popup."
+    )
+    # The handler uses `e.target === e.currentTarget` so
+    # Card clicks do not bubble up to close the popup.
+    assert re.search(
+        r"(?:e\.target\s*===\s*e\.currentTarget|target\s*===\s*currentTarget)",
+        text,
+    ), (
+        "ODD-TAPOPUP-002: DetailPanel.tsx must use the "
+        "`e.target === e.currentTarget` guard on the host's "
+        "`onClick` so clicks inside the Card (which bubble up "
+        "through the host) do not close the popup."
+    )
+
+
+def test_detail_panel_tab_cycles_focus_inside_dialog() -> None:
+    """ODD-TAPOPUP-002: Tab / Shift+Tab inside the dialog
+    cycles focus within the dialog (the WAI-ARIA focus-trap
+    pattern). The keydown handler intercepts `Tab` (and
+    `Shift+Tab`) and wraps focus from the last focusable
+    element back to the first (and vice versa). Without the
+    trap, Tab from the close button would jump to the next
+    focusable element on the page (the tree rows), which
+    would silently escape the modal context.
+
+    The keydown handler is the same document-level listener
+    that closes the popup on Escape (the existing ODD-TAPOPUP-
+    001 contract); the Tab branch is added alongside the
+    Escape branch."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    # The Tab branch must live in the existing keydown
+    # listener (the listener MUST branch on `Tab` in addition
+    # to `Escape`). The regex captures the full `useEffect`
+    # body (from the `useEffect(() =>` opener to the matching
+    # `}, [onClose]);` closer) so the `onKeyDown` body
+    # (defined BEFORE the `addEventListener` call) is included
+    # in the check.
+    keydown_match = re.search(
+        r"useEffect\s*\(\s*\(\s*\)\s*=>\s*\{[\s\S]+?\}\s*,\s*\[onClose\]\s*\)\s*;",
+        text,
+    )
+    assert keydown_match, (
+        "ODD-TAPOPUP-002: DetailPanel.tsx must register a "
+        "document-level keydown listener with a cleanup that "
+        "removes it on unmount."
+    )
+    keydown_body = keydown_match.group(0)
+    assert "Escape" in keydown_body, (
+        "ODD-TAPOPUP-002: DetailPanel.tsx keydown listener must "
+        "still branch on `Escape`."
+    )
+    assert re.search(
+        r"\bTab\b",
+        keydown_body,
+    ), (
+        "ODD-TAPOPUP-002: DetailPanel.tsx keydown listener must "
+        "branch on the `Tab` key so focus cycling stays inside "
+        "the dialog."
+    )
+    assert "addEventListener" in keydown_body, (
+        "ODD-TAPOPUP-002: DetailPanel.tsx keydown handler must "
+        "register the listener via `addEventListener(\"keydown\", ...)`."
+    )
+    assert "removeEventListener" in keydown_body, (
+        "ODD-TAPOPUP-002: DetailPanel.tsx keydown handler must "
+        "clean up via `removeEventListener` on unmount."
+    )
+    # The Tab handler must wrap focus (a `focus()` call on a
+    # queried focusable element inside the dialog).
+    assert re.search(
+        r"\.focus\s*\(\s*\)",
+        text,
+    ), (
+        "ODD-TAPOPUP-002: DetailPanel.tsx Tab-cycling handler "
+        "must call `.focus()` on a queried focusable element "
+        "to wrap focus to the first/last focusable inside the "
+        "dialog."
+    )
+
+
+def test_detail_panel_restores_focus_to_trigger_on_close() -> None:
+    """ODD-TAPOPUP-002: when the popup closes, focus is
+    restored to the per-row kebab trigger that opened it
+    (WAI-ARIA Authoring Practices dialog pattern — focus
+    returns to the element that triggered the dialog). The
+    trigger is captured BEFORE the close button gets focused
+    on mount (the `document.activeElement` at mount time is
+    the kebab button the user just clicked), then the cleanup
+    of the focus-on-mount useEffect restores focus to that
+    trigger when the dialog unmounts.
+
+    Implementation contract:
+      - `useRef<HTMLElement | null>(null)` (or equivalent) to
+        store the trigger element.
+      - The focus-on-mount useEffect captures
+        `document.activeElement` synchronously BEFORE focusing
+        the close button.
+      - The useEffect cleanup restores focus via
+        `triggerRef.current?.focus()`."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    code_only = re.sub(r"/\*[\s\S]*?\*/", "", text)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
+    # A useRef is used to store the trigger element.
+    assert re.search(
+        r"useRef\s*[<(]",
+        code_only,
+    ), (
+        "ODD-TAPOPUP-002: DetailPanel.tsx must use `useRef` "
+        "to store the trigger element so the unmount cleanup "
+        "can restore focus."
+    )
+    # The focus-on-mount useEffect captures
+    # `document.activeElement` (the kebab button the user just
+    # clicked) BEFORE focusing the close button.
+    assert "document.activeElement" in code_only, (
+        "ODD-TAPOPUP-002: DetailPanel.tsx must capture "
+        "`document.activeElement` synchronously on mount "
+        "(BEFORE focusing the close button) so the trigger "
+        "element survives the focus shift."
+    )
+    # The useEffect has a cleanup function (so the focus
+    # restoration happens on unmount).
+    assert re.search(
+        r"useEffect\s*\(\s*\(\s*\)\s*=>\s*\{[\s\S]+?return\s*\(\s*\)\s*=>",
+        code_only,
+    ), (
+        "ODD-TAPOPUP-002: DetailPanel.tsx focus-on-mount "
+        "useEffect must have a cleanup function so focus is "
+        "restored on unmount."
+    )
+
+
+def test_tab_strip_overflow_handled_on_narrow_viewports() -> None:
+    """ODD-TAPOPUP-002: the `.tab-strip` rule handles
+    horizontal overflow on narrow viewports so the four
+    tabs (Synonyms / Distribution / Search / Folder) don't
+    clip. The rule carries `overflow-x: auto` (or wraps via
+    `flex-wrap`) so narrow viewports can scroll the tab
+    strip horizontally without losing any tab.
+
+    The fix is scoped to the `.tab-strip` rule alone (no
+    global overflow behavior); the existing rule already
+    sets `display: flex` + `padding: 0 16px` + the per-tab
+    padding cascade."""
+    text = _read_text(TAXONOMY_GLOBALS_CSS)
+    # The `.tab-strip` rule (NOT the descendant `.tab-strip >
+    # .tab-button` rule) must carry `overflow-x` or
+    # `flex-wrap` so the four tabs don't clip on narrow
+    # viewports.
+    tab_strip_block = re.search(
+        r"\.tab-strip\s*\{([^}]*)\}",
+        text,
+        re.DOTALL,
+    )
+    assert tab_strip_block, (
+        "ODD-TAPOPUP-002: globals.css must declare the "
+        "`.tab-strip` base rule."
+    )
+    body = tab_strip_block.group(1)
+    assert "overflow-x" in body or "flex-wrap" in body, (
+        "ODD-TAPOPUP-002: globals.css `.tab-strip` rule must "
+        "carry `overflow-x: auto` (or `flex-wrap: wrap`) so "
+        "the four tabs don't clip on narrow viewports."
+    )
+
+
+def test_detail_panel_card_has_responsive_dimensions() -> None:
+    """ODD-TAPOPUP-002: the dialog `<Card>` carries explicit
+    responsive width + max-width so the dialog scales with
+    the viewport (not a fixed pixel size). The Card's
+    className includes a `w-full` width constraint + a
+    `max-w-[…]` Tailwind utility so the dialog fills narrow
+    viewports AND caps at a sensible reading width on wide
+    viewports (typically `max-w-[720px]` for the four-tab
+    popup + `max-w-[90vw]` as the hard upper bound for the
+    Card width on wider screens).
+
+    The Card is the inner dialog content; the host
+    (`.detail-panel`) provides the centered flexbox, the
+    Card provides the content dimensions."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    # Strip block + line comments so the regex doesn't trip on
+    # docstring-history mentions of `<Card variant="default">`.
+    code_only = re.sub(r"/\*[\s\S]*?\*/", "", text)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
+    # The Card className includes `w-full` (so it fills the
+    # host's centered flexbox at narrow viewports) + a
+    # `max-w-[…]` Tailwind utility (so it caps at a sensible
+    # reading width on wide viewports).
+    # The Card element spans multiple lines (the className is
+    # typically wrapped across lines for readability), so the
+    # regex captures from the `<Card` opening to the matching
+    # `>` terminator of the JSX tag.
+    card_match = re.search(
+        r"<Card\b[^>]*\bvariant\s*=\s*[\"']default[\"'][^>]*>",
+        code_only,
+        re.DOTALL,
+    )
+    assert card_match, (
+        "ODD-TAPOPUP-002: DetailPanel.tsx must render "
+        "`<Card variant=\"default\">` as the inner dialog "
+        "content."
+    )
+    card_open_idx = card_match.start()
+    card_close_idx = code_only.find(">", card_match.end())
+    assert card_close_idx != -1, (
+        "ODD-TAPOPUP-002: Card opening tag must terminate with `>`."
+    )
+    card_open = code_only[card_open_idx:card_close_idx + 1]
+    assert "w-full" in card_open, (
+        "ODD-TAPOPUP-002: DetailPanel.tsx Card className must "
+        "include `w-full` so the dialog fills the host's "
+        "centered flexbox at narrow viewports."
+    )
+    assert re.search(
+        r"max-w-\[",
+        card_open,
+    ), (
+        "ODD-TAPOPUP-002: DetailPanel.tsx Card className must "
+        "include a `max-w-[…]` Tailwind utility so the dialog "
+        "caps at a sensible reading width on wide viewports."
+    )
+
+
+def test_detail_panel_adapts_for_narrow_viewports() -> None:
+    """ODD-TAPOPUP-001: the popup reuses the
+    `perTaxonActiveTab` memory so re-selecting a previously
+    selected taxon lands the user on the last tab they used
+    for it (or the default `DEFAULT_DETAIL_TAB` for new taxa).
+    The default tab key survives the popup cutover — the
+    pre-popup `"overview"` default is replaced by the
+    user-selected four-tab default (the first tab in the
+    user-selected order)."""
+    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
+    assert "DEFAULT_DETAIL_TAB" in text, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must declare the "
+        "`DEFAULT_DETAIL_TAB` constant (the default active "
+        "tab for newly selected taxa)."
+    )
+    # The default MUST be one of the four user-selected tabs.
+    # The regex anchors on the assignment (`= "key"`) to skip the
+    # TypeScript type annotation (`DetailTabKey`) that lives
+    # between the constant name + the assignment operator.
+    default_match = re.search(
+        r"DEFAULT_DETAIL_TAB[^=\n]*=\s*[\"'](\w+)[\"']",
+        text,
+    )
+    assert default_match, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must declare "
+        "`DEFAULT_DETAIL_TAB` as a string literal."
+    )
+    default_key = default_match.group(1)
+    assert default_key in ("synonyms", "distribution", "searches", "folder"), (
+        f"ODD-TAPOPUP-001: `DEFAULT_DETAIL_TAB` must be one of "
+        f"the four user-selected tab keys "
+        f"(synonyms / distribution / searches / folder); got "
+        f"{default_key!r}."
     )
 
 
@@ -3062,27 +3613,50 @@ def test_detail_panel_renders_close_button() -> None:
 
 
 def test_detail_panel_chain_segment_routes_to_breadcrumb_handler() -> None:
-    """ODD-TDO-001: the parent-chain segments render as buttons
-    with `data-action="focus-segment"` + `data-taxon-id` so the
-    legacy source-aware breadcrumb handler stays compatible. The
-    click handler routes through the `onFocusSegment` callback so
-    the Overview chain shares the canonical `handleFocusSegment`
-    primitive the visible breadcrumb uses."""
+    """ODD-TAPOPUP-001 (negative witness): the popup has NO
+    parent-chain segment buttons. The pre-popup Overview body
+    rendered the source-aware parent chain as a list of
+    `data-action="focus-segment"` buttons; the popup replaces
+    the Overview body and the chain-segment JSX is gone.
+
+    The breadcrumb at the top of the tree still exposes the
+    parent chain (the TaxonomyTree renders the breadcrumb above
+    the rows; the popup's four tabs do not duplicate the
+    chain). The `onFocusSegment` prop on DetailPanel is
+    therefore no longer needed; the popup MUST NOT consume it.
+    """
     text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
-    assert re.search(r'data-action\s*=\s*["\']focus-segment["\']', text), (
-        "DetailPanel.tsx must stamp data-action=\"focus-segment\" "
-        "on every parent-chain segment button."
+    # The chain-segment JSX is gone. Anchor on the JSX form
+    # (`data-action="focus-segment"` inside a `<button>` or
+    # rendered element) to avoid matching any docstring
+    # references that mention the legacy hook.
+    assert not re.search(
+        r'<button\b[^>]*\bdata-action\s*=\s*["\']focus-segment["\']',
+        text,
+    ), (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must NOT render a "
+        "parent-chain segment button with "
+        "`data-action=\"focus-segment\"` (the popup's Overview "
+        "body is gone; the chain-segment JSX is gone)."
     )
-    assert "onFocusSegment" in text, (
-        "DetailPanel.tsx must consume the onFocusSegment callback prop."
+    assert "onFocusSegment" not in text, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must NOT consume the "
+        "`onFocusSegment` callback prop (the Overview body's "
+        "parent chain is gone; the breadcrumb above the tree "
+        "owns the focus-segment affordance)."
     )
 
 
 def test_taxonomy_tree_mounts_detail_panel_when_selected() -> None:
-    """ODD-TDO-001: TaxonomyTree mounts the DetailPanel next to the
-    tree rows whenever `selected !== null`. The parent passes
-    `taxon`, `state`, `activeSource`, `activeTab`, the tab-change
-    callback, the focus-segment callback, and the close callback."""
+    """ODD-TDO-001 + ODD-TAPOPUP-001: TaxonomyTree mounts the
+    DetailPanel whenever `selected !== null`. The panel IS the
+    popup — clicking the row-level kebab IconButton calls
+    `handleSelect(id)` which sets `selected = id` and the panel
+    mounts in its centered-dialog form. The parent passes
+    `taxon`, `state`, `activeSource`, `activeTab`, the
+    tab-change callback, and the close callback. The
+    `onFocusSegment` callback is gone (the Overview body's
+    parent-chain is gone with the popup cutover)."""
     text = _read_text(TAXONOMY_TREE_FILE)
     assert re.search(r"<\s*DetailPanel\b", text), (
         "TaxonomyTree.tsx must render a <DetailPanel> component."
@@ -3129,6 +3703,339 @@ def test_taxonomy_tree_close_detail_clears_selection() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# ODD-CLOSEFIX-001 — fix the close-detail → URL-state reopen defect.
+#
+# `handleSelect(id)` writes `/?taxon=<id>` via `router.replace`. The
+# pre-fix `handleCloseDetail` only cleared the local `selected` state —
+# the URL still carried `?taxon=<id>`, so the URL → state sync effect
+# (which runs on every `searchParams` + `selected` change) immediately
+# reselected the dismissed taxon and reopened the panel. The user saw a
+# "close → reopen → close" flash.
+#
+# The fix is two-pronged:
+#   1. `handleCloseDetail` writes a ref-based dismissal guard for the
+#      just-closed taxon AND calls `router.replace("/")` so the URL
+#      loses its `?taxon=` param.
+#   2. The URL → state sync effect consults the guard and skips
+#      reopening for the dismissed id. The guard is cleared whenever
+#      the URL points at a different taxon (the user actively
+#      navigated to a new taxon or the back/forward buttons moved
+#      past the dismissed one).
+# ---------------------------------------------------------------------------
+
+
+def test_taxonomy_tree_close_detail_removes_taxon_from_url() -> None:
+    """ODD-CLOSEFIX-001: `handleCloseDetail` must call
+    `router.replace("/")` so the URL no longer carries
+    `?taxon=<id>` once the user dismisses the popup. Without this
+    the URL → state sync effect would re-select the dismissed
+    taxon on the next render and reopen the panel.
+
+    The router call MUST use the `replace` strategy (NOT `push`)
+    so dismissing the popup does not add a history entry — the
+    user must not have to press back twice to escape the panel
+    they just closed.
+
+    ODD-CLOSEFIX-002 (refinement): the router call MUST pass
+    `{ scroll: false }` as the second argument so Next.js does
+    NOT scroll the tree surface to the top of the viewport when
+    the user only dismisses the popup. The App Router's default
+    `scroll: true` scrolls the page to the top on every
+    navigation, which would yank the user out of their current
+    scroll position in the tree for a same-page dismissal that
+    does not change the route. The Next 16 `useRouter` reference
+    (see `node_modules/next/dist/docs/01-app/03-api-reference/
+    04-functions/use-router.md`) documents the second-arg
+    `{ scroll: boolean, transitionTypes: string[] }` shape; the
+    close handler passes only the `scroll` key.
+
+    The handler MUST also still call `setSelected(null)` so the
+    existing pre-fix regression
+    (`test_taxonomy_tree_close_detail_clears_selection`) keeps
+    passing."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    handle_idx = text.find("handleCloseDetail")
+    assert handle_idx != -1, (
+        "TaxonomyTree.tsx must declare a handleCloseDetail handler."
+    )
+    body = text[handle_idx:handle_idx + 800]
+    assert "setSelected(null)" in body, (
+        "handleCloseDetail must call setSelected(null) so the panel "
+        "unmounts on the next render."
+    )
+    assert re.search(
+        r"router\.replace\(\s*[\"']/[\"']\s*,\s*\{\s*scroll\s*:\s*false\s*\}\s*\)",
+        body,
+    ), (
+        "handleCloseDetail must call "
+        "`router.replace(\"/\", { scroll: false })` so the URL no "
+        "longer carries the dismissed `?taxon=<id>` param AND "
+        "Next.js does NOT scroll the page to the top on a "
+        "same-page dismissal. Without `scroll: false`, the "
+        "App Router's default `scroll: true` yanks the user out "
+        "of their current tree scroll position for a popup "
+        "dismissal that does not change the route. The Next 16 "
+        "`useRouter` API documents the `{ scroll: boolean, "
+        "transitionTypes: string[] }` second-arg shape."
+    )
+
+
+def test_taxonomy_tree_close_detail_writes_dismissal_guard_ref() -> None:
+    """ODD-CLOSEFIX-001: `handleCloseDetail` must capture the
+    dismissed taxon id into a `useRef`-backed guard so a stale
+    `searchParams` value — between the `setSelected(null)` re-
+    render and the async `router.replace(\"/\")` navigation
+    completing — cannot trigger the URL → state sync effect to
+    reopen the panel for the just-dismissed taxon.
+
+    The guard MUST live on a `useRef` (NOT a `useState`) so the
+    write does not trigger a fresh re-render of the entire tree —
+    the ref carries the value across renders without a render
+    cycle. The ref MUST be read by the URL → state sync effect
+    so the dismissal guard actually short-circuits the
+    reselection path (the matching witness lives in
+    `test_taxonomy_tree_url_state_effect_skips_dismissed_taxon`)."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    # The ref MUST be declared with `useRef<number | null>` so the
+    # guard value carries across renders without a re-render
+    # cycle (the URL → state effect reads the ref synchronously
+    # without subscribing to it).
+    assert re.search(
+        r"useRef<\s*number\s*\|\s*null\s*>\s*\(\s*(?:null|undefined)\s*\)",
+        text,
+    ), (
+        "TaxonomyTree.tsx must declare a `useRef<number | null>(null)` "
+        "(or `(undefined)`) guard to carry the last-dismissed taxon "
+        "id across renders. A `useState`-backed guard would trigger a "
+        "fresh re-render on every write and the URL → state effect "
+        "would still trip on the in-flight `setSelected(null)` render."
+    )
+    handle_idx = text.find("handleCloseDetail")
+    assert handle_idx != -1
+    body = text[handle_idx:handle_idx + 800]
+    # The handler MUST write the dismissed taxon id into the ref
+    # BEFORE the URL → state effect can run with the stale param.
+    # The exact name of the ref is implementation-defined; the
+    # pattern `.current = <value>` is the canonical write.
+    assert re.search(
+        r"\.current\s*=",
+        body,
+    ), (
+        "handleCloseDetail must write the dismissed taxon id into "
+        "the dismissal-guard ref (`refName.current = taxonId`) so "
+        "the URL → state sync effect can skip reselecting it."
+    )
+    # The handler MUST capture the just-selected taxon id BEFORE
+    # calling `setSelected(null)` (after the set, the closure's
+    # `selected` value is stale until the next render). Pin the
+    # capture pattern so a future refactor cannot invert the
+    # order and write `null` into the guard.
+    assert re.search(
+        r"(?:const|let)\s+\w+\s*=\s*selected\b",
+        body,
+    ) or re.search(
+        r"selected\b.*?(?:const|let)\s+\w+",
+        body,
+        re.DOTALL,
+    ), (
+        "handleCloseDetail must capture the selected taxon id "
+        "(e.g., `const taxonId = selected`) BEFORE calling "
+        "`setSelected(null)` so the dismissal guard stores the "
+        "real id, not `null`."
+    )
+
+
+def test_taxonomy_tree_url_state_effect_skips_dismissed_taxon() -> None:
+    """ODD-CLOSEFIX-001: the URL → state sync effect must consult
+    the dismissal-guard ref and skip reselecting when the URL's
+    `taxon` param matches the dismissed id. The guard ref MUST be
+    read INSIDE the effect body — a guard write outside the
+    effect would not gate the reselection logic."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    # Locate the URL → state sync effect by its unique anchors:
+    # the body reads `searchParams.get("taxon")` and runs after
+    # the close handler. The effect depends on `searchParams`,
+    # `state.nodes`, and `selected` per the existing comment.
+    effect_match = re.search(
+        r"useEffect\(\s*\(\s*\)\s*=>\s*\{\s*const\s+taxonParam\s*=\s*searchParams\.get\(\s*[\"']taxon[\"']\s*\)[\s\S]*?\}\s*,\s*\[\s*searchParams\s*,\s*state\.nodes\s*,\s*selected\s*\]\s*\)",
+        text,
+    )
+    assert effect_match is not None, (
+        "TaxonomyTree.tsx must declare the URL → state sync effect "
+        "with `const taxonParam = searchParams.get(\"taxon\")` as "
+        "the opener and `[searchParams, state.nodes, selected]` as "
+        "the deps array. The existing ODD-URLSTATE-001 contract."
+    )
+    effect_body = effect_match.group(0)
+    # The effect body MUST read the dismissal-guard ref so a stale
+    # `searchParams` value (between `setSelected(null)` and the
+    # async `router.replace(\"/\")` completing) cannot reopen the
+    # dismissed taxon.
+    assert re.search(
+        r"dismissedTaxonIdRef",
+        effect_body,
+    ), (
+        "The URL → state sync effect must read the dismissal-guard "
+        "ref (`dismissedTaxonIdRef.current`) so a stale `?taxon=` "
+        "param cannot reopen the just-dismissed taxon. The guard "
+        "write in `handleCloseDetail` is useless without the matching "
+        "read in the URL → state sync effect."
+    )
+    # The effect MUST short-circuit (early return or skip the
+    # `setSelected(id)` write) when the URL's taxon id equals
+    # the guard. The exact pattern is implementation-defined;
+    # accept either an early `return` or an `if` guard wrapping
+    # the reselection write.
+    has_skip = bool(re.search(
+        r"return\b",
+        effect_body,
+    )) and (
+        re.search(
+            r"dismissedTaxonIdRef\.current\s*===\s*id",
+            effect_body,
+        )
+        or re.search(
+            r"id\s*===\s*dismissedTaxonIdRef\.current",
+            effect_body,
+        )
+    )
+    assert has_skip, (
+        "The URL → state sync effect must short-circuit (early "
+        "return) when the URL's `taxon` param equals the "
+        "dismissal-guard ref value. The pattern "
+        "`if (dismissedTaxonIdRef.current === id) return;` (or "
+        "the inverted comparison) prevents the in-flight reopen "
+        "race between `setSelected(null)` and `router.replace(\"/\")`."
+    )
+
+
+def test_taxonomy_tree_url_state_effect_clears_dismissal_guard_on_different_taxon() -> None:
+    """ODD-CLOSEFIX-001: the URL → state sync effect must clear
+    the dismissal-guard ref whenever the URL points at a
+    DIFFERENT taxon (the user actively navigated to a new taxon
+    or the back/forward buttons moved past the dismissed one).
+    Without this clear, the guard would block every future
+    `?taxon=<old>` reselection — including legitimate ones like
+    the back button returning to a previously-dismissed taxon
+    AFTER the user navigated away and back to it via a
+    different path.
+
+    The clear MUST happen INSIDE the URL → state sync effect
+    body (not in `handleSelect` or `handleCloseDetail`) so a
+    passive URL change — back/forward, external link, etc. —
+    also clears the guard. The guard MUST be set to `null`
+    (NOT `undefined`) so the strict-equal guard check stays
+    type-safe."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    # Find the URL → state sync effect (same anchors as the
+    # previous test).
+    effect_match = re.search(
+        r"useEffect\(\s*\(\s*\)\s*=>\s*\{\s*const\s+taxonParam\s*=\s*searchParams\.get\(\s*[\"']taxon[\"']\s*\)[\s\S]*?\}\s*,\s*\[\s*searchParams\s*,\s*state\.nodes\s*,\s*selected\s*\]\s*\)",
+        text,
+    )
+    assert effect_match is not None
+    effect_body = effect_match.group(0)
+    # The effect body MUST clear the ref to null when the URL
+    # taxon differs from the guard. Accept either an explicit
+    # assignment (`dismissedTaxonIdRef.current = null`) or a
+    # combined skip-and-clear branch — both forms work. The
+    # `= null` literal (NOT `= undefined`) is the canonical
+    # contract since the ref is typed `number | null`.
+    assert re.search(
+        r"dismissedTaxonIdRef\.current\s*=\s*null\b",
+        effect_body,
+    ), (
+        "The URL → state sync effect must clear the dismissal "
+        "guard when navigating to a different taxon "
+        "(`dismissedTaxonIdRef.current = null`). Without this "
+        "clear, the guard would block legitimate future "
+        "reselections of the previously-dismissed taxon. The "
+        "clear happens inside the URL → state effect (NOT in "
+        "`handleSelect` / `handleCloseDetail`) so passive URL "
+        "changes — back/forward, external links — also clear "
+        "the guard. The literal `null` matches the ref type "
+        "`useRef<number | null>(null)`."
+    )
+
+
+def test_taxonomy_tree_url_state_effect_clears_dismissal_guard_on_no_taxon_param() -> None:
+    """ODD-CLOSEFIX-002 (refinement): the URL → state sync
+    effect MUST clear the dismissal-guard ref inside the
+    `taxonParam === null` branch. Without this clear, the
+    guard stays set to the just-dismissed taxon id, and a
+    subsequent browser-Back navigation that returns to
+    `/?taxon=<id>` is incorrectly suppressed by the stale
+    guard — the panel would NOT reopen even though the user
+    explicitly navigated back to the URL that previously
+    opened it.
+
+    Trace (pre-fix):
+      1. user selects taxon 5: URL=`/?taxon=5`, guard=null.
+      2. user clicks close: handleCloseDetail writes
+         guard=5, navigates to URL=`/`.
+      3. URL=`/`: effect runs `taxonParam === null` branch
+         and RETURNS without clearing the guard.
+      4. user presses browser Back: URL=`/?taxon=5`.
+      5. URL=`/?taxon=5`: effect sees `id === 5 === guard`,
+         SKIPS — panel does NOT reopen. Bug.
+
+    The clear lives inside the `taxonParam === null` branch
+    (BEFORE the early `return`) so a URL with no `taxon`
+    param always resets the guard regardless of whether
+    `selected` is null or non-null. The clear MUST happen
+    INSIDE the URL → state sync effect (NOT in
+    `handleCloseDetail`) so a passive URL change — browser
+    Back, programmatic navigation, external link — also
+    clears the guard. The literal `null` matches the ref
+    type `useRef<number | null>(null)`."""
+    text = _read_text(TAXONOMY_TREE_FILE)
+    # Locate the URL → state sync effect (same anchors as
+    # the previous tests).
+    effect_match = re.search(
+        r"useEffect\(\s*\(\s*\)\s*=>\s*\{\s*const\s+taxonParam\s*=\s*searchParams\.get\(\s*[\"']taxon[\"']\s*\)[\s\S]*?\}\s*,\s*\[\s*searchParams\s*,\s*state\.nodes\s*,\s*selected\s*\]\s*\)",
+        text,
+    )
+    assert effect_match is not None
+    effect_body = effect_match.group(0)
+    # Isolate the `taxonParam === null` branch body. The
+    # branch is a single `if` with a small body; the regex
+    # tolerates whitespace, comments, and a single nested
+    # `if (selected !== null) setSelected(null);` line.
+    null_branch_match = re.search(
+        r"if\s*\(\s*taxonParam\s*===\s*null\s*\)\s*\{([\s\S]*?)\}",
+        effect_body,
+    )
+    assert null_branch_match is not None, (
+        "The URL → state sync effect must declare an "
+        "`if (taxonParam === null) { ... }` branch. The "
+        "branch body must clear the dismissal-guard ref "
+        "(`dismissedTaxonIdRef.current = null`) BEFORE the "
+        "early `return` so a passive URL drop of the "
+        "`?taxon=` param (close, browser Back to a "
+        "no-taxon URL, programmatic navigation) resets "
+        "the guard."
+    )
+    null_branch = null_branch_match.group(1)
+    # The branch MUST write `null` (NOT `undefined`) to
+    # the ref so the strict-equal guard check in the
+    # later branches stays type-safe (the ref is typed
+    # `useRef<number | null>(null)`).
+    assert re.search(
+        r"dismissedTaxonIdRef\.current\s*=\s*null\b",
+        null_branch,
+    ), (
+        "The `taxonParam === null` branch MUST clear the "
+        "dismissal-guard ref (`dismissedTaxonIdRef.current "
+        "= null`). Without this clear, closing the panel "
+        "and then pressing browser Back to return to the "
+        "same `?taxon=<id>` URL is incorrectly suppressed "
+        "by the stale guard — the panel does not reopen "
+        "even though the user explicitly navigated back "
+        "to the URL that previously opened it."
+    )
+
+
 def test_taxonomy_tree_source_switch_clears_panel() -> None:
     """ODD-TDO-001: a source switch clears `selected` (already in
     the ODD-NTP-005 source-switch reset), which collapses the
@@ -3151,36 +4058,26 @@ def test_taxonomy_tree_source_switch_clears_panel() -> None:
 
 
 def test_out_index_html_has_detail_panel_overview_styles(static_export) -> None:
-    """ODD-TDO-001 + ODD-PHASE2: the static export's CSS must
-    define every surviving detail-panel + Overview descendant
-    rule. The selectors are nested under the whitelisted
-    `.detail-panel` / `.overview-tab` base classes so the
-    chain-topology guard in `tests/test_research_styles.py` keeps
-    whitelisting them under the 3c-b taxonomy surface.
+    """ODD-TAPOPUP-001 (negative witness): the popup replaces
+    the sticky detail rail + the Overview tab. The pre-popup
+    overview + detail-panel inner-structure CSS rules
+    (`.overview-tab .overview-grid`, `.overview-tab
+    .overview-row`, `.overview-tab .overview-chain`, the
+    realm-tint cascade, etc.) are GONE — the popup's header is
+    minimal (no Overview tab body) and the popup host is a
+    centered dialog (not a sticky aside).
 
-    ODD-PHASE2 update: four dead selectors are GONE because the
-    DetailPanel migration replaced them with design-system
-    primitives:
-      - `.detail-panel .detail-card` → `<Card variant="default">`
-      - `.overview-tab .overview-label` → `<Text variant="caption">`
-      - `.overview-tab .overview-rank` → `<Badge variant="primary">`
-      - `.overview-tab .overview-value` → `<Text variant="body">`
-
-    The realm tint cascade stays."""
+    The chain-topology guard in `tests/test_research_styles.py`
+    keeps the `.detail-panel` base whitelisted (the dialog host
+    + close button still consume the class). Descendant rules
+    under `.detail-panel` are reachable via the base; the
+    Overview-only rules (.overview-tab + descendants, the
+    realm-tint cascade) MUST be gone from the static CSS."""
     css_chunks = sorted((REPO_ROOT / "out" / "_next" / "static" / "chunks").glob("*.css"))
     css_body = "\n".join(
         c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks
     )
-    # Detail-panel inner structure.
-    for needle in (
-        ".detail-panel .detail-header",
-        ".detail-panel .detail-section",
-        ".detail-panel .detail-header-title",
-    ):
-        assert needle in css_body, (
-            f"ODD-TDO-001: static CSS must define the {needle} rule."
-        )
-    # Overview tab inner structure.
+    # The pre-popup Overview inner-structure rules are GONE.
     for needle in (
         ".overview-tab .overview-grid",
         ".overview-tab .overview-row",
@@ -3188,81 +4085,117 @@ def test_out_index_html_has_detail_panel_overview_styles(static_export) -> None:
         ".overview-tab .overview-chain-segment",
         ".overview-tab .overview-tab-heading",
     ):
-        assert needle in css_body, (
-            f"ODD-TDO-001: static CSS must define the {needle} rule."
+        assert needle not in css_body, (
+            f"ODD-TAPOPUP-001: static CSS must NOT define the "
+            f"`{needle}` Overview inner-structure rule (the "
+            f"Overview tab body is gone; the popup ships "
+            f"Synonyms / Distribution / Search / Folder)."
         )
-    # Realm tint cascade — mirrors `.tree-row[data-realm="X"]
-    # .scientific-name` so the Overview scientific name picks up
-    # the same hue the tree rows paint. The minifier strips the
-    # quotes around valid-identifier attribute values, so accept
-    # either `data-realm=animalia` (minified) or `data-realm="animalia"`
-    # (source form) in the static export.
+    # The realm-tint cascade (scoped to the Overview body's
+    # scientific-name span) is GONE.
     for realm in ("animalia", "archaea", "bacteria", "chromista",
                   "fungi", "plantae", "viruses"):
         quoted = f'.detail-panel[data-realm="{realm}"]'
         unquoted = f'.detail-panel[data-realm={realm}]'
-        assert quoted in css_body or unquoted in css_body, (
-            f"ODD-TDO-001: static CSS must define the "
-            f"`.detail-panel[data-realm=\"{realm}\"] .scientific-name` "
-            f"realm tint rule (found neither {quoted!r} nor {unquoted!r})."
+        assert not (quoted in css_body or unquoted in css_body), (
+            f"ODD-TAPOPUP-001: static CSS must NOT define the "
+            f"`.detail-panel[data-realm=\"{realm}\"] "
+            f".scientific-name` realm tint rule (the popup "
+            f"replaces the sticky rail and the Overview body; "
+            f"the realm tint cascade is gone)."
         )
+    # The sticky-positioning rule is GONE (the popup is a
+    # fixed-positioned dialog, not a sticky aside). The
+    # assertion is anchored on the compound `.detail-panel`
+    # rule carrying `position: sticky` — the regex requires
+    # BOTH the selector AND the declaration to be present in
+    # the SAME rule (the `.detail-panel` base rule is the
+    # only rule the pre-popup sticky positioning applied to;
+    # descendant rules like `.detail-panel .detail-header`
+    # are not sticky in the popup).
+    detail_panel_sticky_match = re.search(
+        r"\.detail-panel\s*\{[^}]*?position\s*:\s*sticky",
+        css_body,
+        re.DOTALL,
+    )
+    assert detail_panel_sticky_match is None, (
+        "ODD-TAPOPUP-001: static CSS must NOT carry the "
+        "pre-popup `.detail-panel { position: sticky; ... }` "
+        "rule (the popup replaces the sticky detail rail with "
+        "a centered dialog)."
+    )
 
 
 def test_globals_css_declares_detail_panel_overview_selectors() -> None:
-    """ODD-TDO-001 + ODD-PHASE2: `src/app/globals.css` must
-    declare every surviving detail-panel + overview inner
-    selector. The locales live under `@layer components` so the
-    chain-topology guard keeps the alphabetic contract.
+    """ODD-TAPOPUP-001 (negative witness): the pre-popup
+    overview + detail-panel inner-structure CSS rules are GONE
+    (the popup replaces the sticky detail rail + the Overview
+    tab body). The chain-topology guard in
+    `tests/test_research_styles.py` keeps the `.detail-panel`
+    base whitelisted (the dialog host + close button still
+    consume the class); the Overview-only rules (the
+    `.overview-tab` base + descendants, the realm-tint
+    cascade) MUST be gone from `globals.css`.
 
-    ODD-PHASE2 update: four selectors are GONE because the
-    DetailPanel migration replaced them with design-system
-    primitives (Card / Badge / Text):
-      - `.detail-panel .detail-card` → `<Card variant="default">`
-        carries the chroming
-      - `.overview-tab .overview-label` → `<Text variant="caption">`
-        carries the label typography
-      - `.overview-tab .overview-rank` → `<Badge variant="primary">`
-        carries the rank badge styling
-      - `.overview-tab .overview-value` → `<Text variant="body">`
-        carries the value typography
-
-    The standalone `.rank-badge` and `.authorship` rules stay
-    because they are still consumed outside the DetailPanel
-    surface (`TaxonomyTree.tsx` search dropdown uses
-    `.rank-badge`; `SynonymTab.tsx` uses `.authorship`). They
-    stay in the `TAXONOMY_OWNED_BY_3C_B` whitelist the
-    chain-topology guard pins."""
+    This negative witness catches a regression that leaves
+    dead Overview rules in `globals.css` after the popup
+    cutover."""
     text = _read_text(TAXONOMY_GLOBALS_CSS)
     layer = re.search(r"@layer\s+components\s*\{", text)
     assert layer, "@layer components must exist in globals.css"
     body = text[layer.end():]
-    # Each selector must appear in the source. The closing brace of
-    # the @layer components block ends the searchable region.
+    # The closing brace of the @layer components block ends the
+    # searchable region.
     layer_end = body.find("\n}\n")
     if layer_end == -1:
         layer_end = body.find("}")
     body = body[:layer_end]
+    # Strip comments so the assertion doesn't trip on
+    # docstring-history mentions of the legacy selectors (the
+    # current globals.css mentions them in a comment block
+    # that documents what was removed).
+    body_code_only = re.sub(r"/\*[\s\S]*?\*/", "", body)
+    # The pre-popup Overview inner-structure rules are GONE.
     for needle in (
-        ".detail-panel .detail-header",
-        ".detail-panel .detail-header-title",
-        ".detail-panel .detail-section",
-        ".detail-panel[data-realm=\"animalia\"] .scientific-name",
-        ".detail-panel[data-realm=\"archaea\"] .scientific-name",
-        ".detail-panel[data-realm=\"bacteria\"] .scientific-name",
-        ".detail-panel[data-realm=\"chromista\"] .scientific-name",
-        ".detail-panel[data-realm=\"fungi\"] .scientific-name",
-        ".detail-panel[data-realm=\"plantae\"] .scientific-name",
-        ".detail-panel[data-realm=\"viruses\"] .scientific-name",
-        ".detail-panel[data-realm] .scientific-name",
         ".overview-tab .overview-grid",
         ".overview-tab .overview-row",
         ".overview-tab .overview-chain",
         ".overview-tab .overview-chain-segment",
         ".overview-tab .overview-tab-heading",
+        ".overview-tab .overview-label",
+        ".overview-tab .overview-rank",
+        ".overview-tab .overview-value",
     ):
-        assert needle in body, (
-            f"globals.css @layer components must declare {needle}."
+        assert needle not in body_code_only, (
+            f"ODD-TAPOPUP-001: globals.css @layer components "
+            f"must NOT declare the `{needle}` Overview inner-"
+            f"structure rule (the Overview tab body is gone)."
         )
+    # The realm-tint cascade is GONE.
+    for realm in ("animalia", "archaea", "bacteria", "chromista",
+                  "fungi", "plantae", "viruses"):
+        needle = f'.detail-panel[data-realm="{realm}"] .scientific-name'
+        assert needle not in body, (
+            f"ODD-TAPOPUP-001: globals.css @layer components "
+            f"must NOT declare the `{needle}` realm tint rule "
+            f"(the popup replaces the sticky rail and the "
+            f"Overview body; the realm tint cascade is gone)."
+        )
+    # The `.detail-panel` sticky-positioning rule is GONE
+    # (the popup is a fixed-positioned dialog, not a sticky
+    # aside). The base `.detail-panel` rule MUST still exist
+    # (the chain-topology guard keeps it whitelisted) but it
+    # MUST NOT carry `position: sticky`.
+    detail_panel_match = re.search(
+        r"\.detail-panel\s*\{[^}]*?position\s*:\s*sticky",
+        body,
+        re.DOTALL,
+    )
+    assert detail_panel_match is None, (
+        "ODD-TAPOPUP-001: globals.css @layer components must "
+        "NOT carry `.detail-panel { position: sticky; ... }` "
+        "(the popup replaces the sticky detail rail)."
+    )
 
 
 def test_barrel_reexports_detail_panel_contract() -> None:
@@ -3302,85 +4235,45 @@ def test_barrel_reexports_detail_panel_contract() -> None:
 # ---------------------------------------------------------------------------
 
 def test_detail_panel_below_md_is_static() -> None:
-    r"""ODD-SBP-001: `src/app/globals.css` MUST declare a
+    """ODD-TAPOPUP-001 (negative witness): the pre-popup
+    `.detail-panel` sticky-positioning + the
     `@media (max-width: 768px) { .detail-panel { position:
-    static; ... } }` rule so the detail panel flips to in-flow
-    at viewports below the md breakpoint (was sticky + top:
-    144px at >= md viewport).
+    static; ... } }` breakpoint flip are GONE. The popup
+    replaces the sticky detail rail with a centered dialog;
+    the `@media` rule is no longer needed (the popup is
+    `position: fixed` at every viewport, not in-flow below the
+    md breakpoint).
 
-    The regex anchors on three pieces in order:
-      1. `@media (max-width: 768px) {` — the media query
-         opener (whitespace-tolerant so the source remains
-         lint-clean).
-      2. `.detail-panel {` — the selector that flips inside
-         the media block (the descendant `.detail-panel
-         .detail-header` is allowed to follow in the same
-         block; the non-greedy `[\s\S]*?` jumps over it).
-      3. `position: static` — the first declaration inside the
-         `.detail-panel` rule (the non-greedy `[^}]*?` jumps
-         over intervening whitespace + comments).
-
-    The @media rule lives AFTER the outer `.detail-panel { ... }`
-    rule inside `@layer components` so CSS source order wins the
-    cascade specificity tiebreak — both selectors carry (0,1,0)
-    specificity, so the later rule wins when the media query
-    matches. The alphabetic-order contract (the `_top_level`
-    helper in `tests/test_research_styles.py`) keeps passing
-    because the `@media` block head does not start with `.`,
-    so it is not added to the alphabetic heads list; the inner
-    selectors live at depth 1 inside the @media block, also
-    not added."""
+    The `.detail-panel` base rule still exists in `@layer
+    components` (the chain-topology guard keeps it
+    whitelisted; the popup host + close button still consume
+    the class) — but the rule does NOT carry `position: sticky`
+    + `top: 144px` + `z-index: 30` AND there is NO
+    `@media (max-width: 768px)` block flipping the rule to
+    `position: static`."""
     text = _read_text(TAXONOMY_GLOBALS_CSS)
-    assert re.search(
+    # The sticky rule is GONE.
+    assert not re.search(
+        r"\.detail-panel\s*\{[^}]*?position\s*:\s*sticky[^}]*?"
+        r"top\s*:\s*144px",
+        text,
+        re.DOTALL,
+    ), (
+        "ODD-TAPOPUP-001: globals.css must NOT carry the "
+        "pre-popup `.detail-panel { position: sticky; top: "
+        "144px; ... }` rule (the popup replaces the sticky "
+        "detail rail with a centered dialog)."
+    )
+    # The `@media (max-width: 768px)` sticky-flip is GONE.
+    assert not re.search(
         r"@media\s*\(\s*max-width\s*:\s*768px\s*\)\s*\{[\s\S]*?"
         r"\.detail-panel\s*\{[^}]*?position\s*:\s*static",
         text,
     ), (
-        "globals.css must declare a `@media (max-width: 768px) "
-        "{ .detail-panel { position: static; … } }` rule so the "
-        "detail panel flips to in-flow at viewports below the md "
-        "breakpoint (was sticky + top: 144px at >= md viewport)."
-    )
-
-
-def test_detail_panel_above_md_remains_sticky() -> None:
-    r"""ODD-SBP-001 (regression guard): the existing
-    `.detail-panel { position: sticky; top: 144px; z-index: 30; }`
-    rule in `@layer components` MUST remain intact for viewports
-    >= md — the new `@media (max-width: 768px)` rule only
-    overrides below the md breakpoint, leaving the sticky
-    behavior unchanged for desktop + tablet-landscape viewports.
-
-    The regex anchors on the four pieces in source order inside
-    the FIRST `.detail-panel { ... }` block (the outer rule,
-    not any descendant or attribute variant):
-      1. `.detail-panel {` — exact selector (no descendant,
-      no `[data-realm=...]` attribute modifier). The
-      `\s*` after `\.detail-panel` matches the opening brace
-      directly; the descendant `.detail-panel .detail-header`
-      and attribute `.detail-panel[data-realm=...]` selectors
-      are skipped because they have additional tokens between
-      `.detail-panel` and `{`.
-      2. `position: sticky` — the sticky declaration.
-      3. `top: 144px` — the offset.
-      4. `z-index: 30` — the stacking order.
-
-    The new `@media` block's `.detail-panel { position: static;
-    ... }` rule MUST NOT satisfy this regex because the second
-    declaration is `position: static`, not `position: sticky`.
-    The regression guard only passes when the original sticky
-    rule survives intact."""
-    text = _read_text(TAXONOMY_GLOBALS_CSS)
-    assert re.search(
-        r"\.detail-panel\s*\{[^}]*?position\s*:\s*sticky[^}]*?"
-        r"top\s*:\s*144px[^}]*?z-index\s*:\s*30",
-        text,
-        re.DOTALL,
-    ), (
-        "globals.css must keep `.detail-panel { position: sticky; "
-        "top: 144px; z-index: 30; }` for >= md viewports "
-        "(ODD-SBP-001 regression guard — the @media rule only "
-        "overrides below the md breakpoint)."
+        "ODD-TAPOPUP-001: globals.css must NOT carry the "
+        "pre-popup `@media (max-width: 768px) { .detail-panel "
+        "{ position: static; ... } }` breakpoint flip (the "
+        "popup is a dialog at every viewport)."
     )
 
 
@@ -4050,244 +4943,106 @@ def test_vernacular_tab_renders_error_and_retry_state() -> None:
 
 
 def test_detail_panel_enables_vernaculars_tab() -> None:
-    """ODD-TDV-001: the Vernaculars tab is ENABLED
-    (`available: true`). The legacy `web/detail.js::tabs` array
-    always pushed the Vernaculars tab when `hasVern` was true;
-    the React port's first slice shipped Overview + Search and
-    marked the rest as `available: false` per the
-    "visibly mark unavailable later tabs without fake actions"
-    policy. ODD-TDV-001 flips the Vernaculars entry to `true`
-    so the user can click into the native Vernacular names grid."""
-    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
-    # The DETAIL_TABS array must contain a `Vernaculars` entry
-    # whose `available` flag is `true`. The pattern below accepts
-    # either source-form (`available: true`) or a multi-line layout.
-    assert re.search(
-        r"key\s*:\s*[\"\']vernaculars[\"\']\s*,\s*label\s*:\s*[\"\']Vernaculars[\"\']"
-        r"[\s\S]{0,200}?available\s*:\s*true",
-        text,
-    ), (
-        "DetailPanel.tsx must declare the Vernaculars tab with `available: true` "
-        "(ODD-TDV-001 enables the Vernaculars tab body)."
-    )
+    """ODD-TAPOPUP-001 (negative witness): the popup MUST NOT
+    declare the Vernaculars tab in `DETAIL_TABS`. The
+    pre-popup sticky rail carried the Vernaculars tab
+    alongside Overview / Search / Folder; the popup replaces
+    the sticky rail and the user-selected four tabs are
+    Synonyms / Distribution / Search / Folder.
 
-
-def test_detail_panel_renders_vernacular_tab_when_active() -> None:
-    """ODD-TDV-001: when `activeTab === "vernaculars"`, the panel
-    body renders `<VernacularTab>` instead of the Overview body.
-    The body slot must consume the canonical `VernacularTabStatus`
-    discriminated-union + the `onRetryVernaculars` callback so
-    the loading / empty / error / loaded states all render
-    correctly."""
+    The VernacularTab component itself MAY still exist as a
+    canonical projection (a future slice could surface it),
+    but the popup MUST NOT consume it."""
     text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
-    assert "VernacularTab" in text, (
-        "DetailPanel.tsx must import the canonical VernacularTab component."
-    )
-    assert "VernacularTabStatus" in text, (
-        "DetailPanel.tsx must consume the VernacularTabStatus type for the "
-        "vernacularStatus prop."
-    )
-    # Body slot must dispatch on activeTab === "vernaculars" to
-    # render VernacularTab. The dispatch must branch BEFORE the
-    # Overview fallback.
-    assert re.search(
-        r"activeTab\s*===\s*[\"\']vernaculars[\"\']",
+    assert not re.search(
+        r"DETAIL_TABS[\s\S]*?\bvernaculars\b",
         text,
     ), (
-        "DetailPanel.tsx body must dispatch on activeTab === \"vernaculars\" "
-        "to render the VernacularTab."
+        "ODD-TAPOPUP-001: DetailPanel.tsx must NOT declare the "
+        "Vernaculars tab in the popup's `DETAIL_TABS` array."
     )
-    assert re.search(
-        r"activeTab\s*===\s*[\"\']vernaculars[\"\'][\s\S]{0,200}?<VernacularTab",
-        text,
-    ), (
-        "DetailPanel.tsx must render <VernacularTab> when activeTab === \"vernaculars\"."
+    # The `onRetryVernaculars` / `vernacularStatus` props
+    # MUST NOT appear (no Vernaculars tab = no props to
+    # thread through).
+    assert "onRetryVernaculars" not in text, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must NOT consume "
+        "`onRetryVernaculars` (the Vernaculars tab is gone)."
     )
-    # onRetryVernaculars callback must be threaded through to the VernacularTab.
-    assert "onRetryVernaculars" in text, (
-        "DetailPanel.tsx must thread onRetryVernaculars through to VernacularTab."
+    assert "VernacularTabStatus" not in text, (
+        "ODD-TAPOPUP-001: DetailPanel.tsx must NOT consume "
+        "`VernacularTabStatus` (the Vernaculars tab is gone)."
     )
 
 
 def test_taxonomy_tree_eager_fetches_vernaculars_on_selection() -> None:
-    """ODD-TDV-001: TaxonomyTree fires the canonical
-    `fetchVernaculars(id, { limit: 200 })` round trip the moment
-    a taxon becomes the active selection. The eager-fetch
-    contract pins the `useEffect` so re-selecting a previously
-    selected taxon lands on the cached result without a round
-    trip. The legacy `/api/taxon/{id}/vernaculars?limit=200`
-    request shape is preserved byte-identically."""
+    """ODD-TAPOPUP-001 (negative witness): the Vernaculars cache
+    is GONE. The pre-popup sticky rail carried the Vernaculars
+    tab + a per-taxon `vernacularsByTaxonId` cache; the popup
+    replaces the sticky rail and the user-selected four tabs are
+    Synonyms / Distribution / Search / Folder. The
+    `fetchVernaculars` helper MAY still be exported from the
+    barrel (it's a canonical typed projection) but the popup
+    MUST NOT eager-fetch on selection."""
     text = _read_text(TAXONOMY_TREE_FILE)
-    assert "fetchVernaculars" in text, (
-        "TaxonomyTree.tsx must call the canonical fetchVernaculars helper."
+    code_only = re.sub(r"/\*[\s\S]*?\*/", "", text)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
+    assert "vernacularsByTaxonId" not in code_only, (
+        "ODD-TAPOPUP-001: TaxonomyTree.tsx must NOT own the "
+        "per-taxon vernacular cache (the popup drops the "
+        "Vernaculars tab)."
     )
-    assert "loadVernaculars" in text, (
-        "TaxonomyTree.tsx must declare a loadVernaculars callback."
-    )
-    assert "limit: 200" in text or "limit:200" in text, (
-        "TaxonomyTree.tsx must forward `limit: 200` to fetchVernaculars so the "
-        "request shape stays byte-identical to the legacy oracle."
-    )
-    # Eager-fetch effect must fire on `selected` change.
-    assert re.search(
-        r"useEffect\s*\(\s*\(\s*\)\s*=>\s*\{[^}]*selected[^}]*loadVernaculars",
-        text,
-        re.DOTALL,
-    ), (
-        "TaxonomyTree.tsx must declare a useEffect that calls "
-        "loadVernaculars when `selected` changes (ODD-TDV-001 eager-fetch contract)."
+    assert "fetchVernaculars" not in code_only, (
+        "ODD-TAPOPUP-001: TaxonomyTree.tsx must NOT call "
+        "`fetchVernaculars` (the popup drops the Vernaculars "
+        "tab; the helper stays in the barrel for future use)."
     )
 
 
 def test_taxonomy_tree_owns_vernacular_cache() -> None:
-    """ODD-TDV-001: TaxonomyTree owns the per-taxon vernacular
-    cache as a `Map<number, VernacularTabStatus>`. The cache
-    survives across deselects so re-selecting a previously
-    selected taxon is also instant (mirrors how
-    `perTaxonActiveTab` memory + `searchesByTaxonId` cache
-    survive across deselects)."""
+    """ODD-TAPOPUP-001 (negative witness): the per-taxon
+    `vernacularsByTaxonId` cache is GONE. The pre-popup sticky
+    rail owned a `Map<number, VernacularTabStatus>` cache;
+    the popup drops the Vernaculars tab so the cache is
+    dead state."""
     text = _read_text(TAXONOMY_TREE_FILE)
-    assert "vernacularsByTaxonId" in text, (
-        "TaxonomyTree.tsx must own a vernacularsByTaxonId cache."
+    code_only = re.sub(r"/\*[\s\S]*?\*/", "", text)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
+    assert "vernacularsByTaxonId" not in code_only, (
+        "ODD-TAPOPUP-001: TaxonomyTree.tsx must NOT own the "
+        "per-taxon vernacular cache."
     )
-    assert re.search(
-        r"Map\s*<\s*number\s*,\s*VernacularTabStatus\s*>",
-        text,
-    ), (
-        "TaxonomyTree.tsx must own a Map<number, VernacularTabStatus> for "
-        "the per-taxon vernacular cache."
+    assert "VernacularTabStatus" not in code_only, (
+        "ODD-TAPOPUP-001: TaxonomyTree.tsx must NOT consume "
+        "`VernacularTabStatus` (the Vernaculars tab is gone)."
     )
 
 
 def test_taxonomy_tree_keeps_vernacular_cache_across_source_switch() -> None:
-    """ODD-TDV-001: a source switch MUST NOT clear the per-taxon
-    vernacular cache (the `/api/taxon/{id}/vernaculars` endpoint
-    is source-agnostic, so a previously cached payload stays
-    valid under the new active source). The cached payload
-    survives the source-switch cascade so re-selecting the same
-    taxon after a source switch is also instant (mirrors how
-    `perTaxonActiveTab` memory survives deselects).
-
-    ODD-HSS-001 — the cascade moved from `handleSourceChange` to
-    the reactive `useEffect(() => { ... }, [activeSource])`
-    body. The regression guard pins the contract against the
-    new effect-based location: the effect body MUST carry
-    `setSearchesByTaxonId` (the ODD-TDS-001 invalidate) AND
-    MUST NOT carry `setVernacularsByTaxonId` (the ODD-TDV-001
-    retention contract)."""
+    """ODD-TAPOPUP-001 (negative witness): the source-switch
+    cascade no longer touches the vernacular cache (the cache
+    itself is gone)."""
     text = _read_text(TAXONOMY_TREE_FILE)
-    body = _od_hss_source_switch_effect_body(text)
-    # The search-link cache IS cleared (ODD-TDS-001 contract).
-    assert "setSearchesByTaxonId" in body, (
-        "ODD-TDS-001: the ODD-HSS-001 source-switch effect body "
-        "must clear the per-taxon search-link cache alongside the "
-        "other source-bound resets."
-    )
-    # The vernacular cache MUST NOT be cleared (ODD-TDV-001
-    # contract). The effect body must NOT carry a
-    # `setVernacularsByTaxonId(...)` call. Reading the source
-    # surface as text proves the contract; any future PR that
-    # adds the clear-call must also update this test.
-    assert "setVernacularsByTaxonId" not in body, (
-        "ODD-TDV-001: the ODD-HSS-001 source-switch effect body "
-        "MUST NOT clear the per-taxon vernacular cache (the "
-        "vernacular endpoint is source-agnostic)."
+    code_only = re.sub(r"/\*[\s\S]*?\*/", "", text)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
+    assert "vernacularsByTaxonId" not in code_only, (
+        "ODD-TAPOPUP-001: TaxonomyTree.tsx must NOT reference "
+        "`vernacularsByTaxonId` (the cache is gone)."
     )
 
 
 def test_taxonomy_tree_passes_vernacular_props_to_detail_panel() -> None:
-    """ODD-TDV-001: TaxonomyTree threads `vernacularStatus` + the
-    retry callback through to the DetailPanel so the VernacularTab
-    body can render the loading / empty / error / loaded states.
-    The retry callback re-issues the `fetchVernaculars` request
-    through the same callback the eager-fetch effect uses."""
+    """ODD-TAPOPUP-001 (negative witness): TaxonomyTree does
+    NOT thread `vernacularStatus` or `onRetryVernaculars` to
+    DetailPanel anymore (the Vernaculars tab is gone)."""
     text = _read_text(TAXONOMY_TREE_FILE)
-    assert "vernacularStatus" in text, (
-        "TaxonomyTree.tsx must thread vernacularStatus to DetailPanel."
+    assert "vernacularStatus" not in text, (
+        "ODD-TAPOPUP-001: TaxonomyTree.tsx must NOT thread "
+        "`vernacularStatus` to DetailPanel."
     )
-    assert "onRetryVernaculars" in text, (
-        "TaxonomyTree.tsx must thread onRetryVernaculars to DetailPanel."
+    assert "onRetryVernaculars" not in text, (
+        "ODD-TAPOPUP-001: TaxonomyTree.tsx must NOT thread "
+        "`onRetryVernaculars` to DetailPanel."
     )
-    # The retry callback must re-issue loadVernaculars for the
-    # currently selected taxon (mirrors the eager-fetch path).
-    assert re.search(
-        r"onRetryVernaculars\s*=\s*\{[^}]*loadVernaculars",
-        text,
-        re.DOTALL,
-    ), (
-        "TaxonomyTree.tsx must map onRetryVernaculars to a loadVernaculars call."
-    )
-
-
-def test_barrel_reexports_vernacular_contract() -> None:
-    """ODD-TDV-001: the taxonomy barrel must re-export the public
-    vernacular data contract so cross-module consumers can type
-    the payload + call the helper without a deep import
-    (spec.md rule 5)."""
-    text = _read_text(TAXONOMY_BARREL)
-    for name in (
-        "fetchVernaculars",
-        "FetchVernacularsOptions",
-        "VernacularName",
-    ):
-        assert name in text, (
-            f"taxonomy barrel must re-export `{name}` (ODD-TDV-001)."
-        )
-
-
-def test_globals_css_declares_vernacular_tab_selectors() -> None:
-    """ODD-TDV-001: `src/app/globals.css` must declare the new
-    `.vernacular-tab` cascade so the per-row `.detail-item` rows
-    + the verbatim ISO language / country chips + the section
-    header + count badge all render identically to the legacy
-    oracle. The selectors live under `@layer components` and are
-    in alphabetical order so the chain-topology guard in
-    `tests/test_research_styles.py` keeps whitelisting them."""
-    text = _read_text(TAXONOMY_GLOBALS_CSS)
-    layer = re.search(r"@layer\s+components\s*\{", text)
-    assert layer, "@layer components must exist in globals.css"
-    body = text[layer.end():]
-    layer_end = body.find("\n}\n")
-    if layer_end == -1:
-        layer_end = body.find("}")
-    body = body[:layer_end]
-    # Every selector must appear in the source. The minifier
-    # may strip whitespace / quotes, so we accept the bare class
-    # names without descendants.
-    for needle in (
-        ".vernacular-tab",
-        ".vernacular-tab > .vernacular-list",
-        ".vernacular-tab > .vernacular-list > .detail-item",
-        ".vernacular-tab > .vernacular-list > .detail-item > .lang",
-        ".vernacular-tab > .vernacular-list > .detail-item > .country",
-        ".vernacular-tab > .vernacular-section-header",
-        ".vernacular-tab > .vernacular-section-count",
-    ):
-        assert needle in body, (
-            f"globals.css @layer components must declare {needle}."
-        )
-
-
-def test_out_index_html_has_vernacular_tab_styles(static_export) -> None:
-    """ODD-TDV-001: the static export's CSS must define the
-    VernacularTab selectors introduced by the React cutover so
-    the native-style Vernacular names grid renders identically to
-    the legacy oracle. The selectors live under the whitelisted
-    `.vernacular-tab` base class so the chain-topology guard in
-    `tests/test_research_styles.py` keeps whitelisting them."""
-    css_chunks = sorted((REPO_ROOT / "out" / "_next" / "static" / "chunks").glob("*.css"))
-    css_body = "\n".join(
-        c.read_text(encoding="utf-8", errors="ignore") for c in css_chunks
-    )
-    # The container + list + row + chip selectors are covered by
-    # the `.vernacular-tab` cascade in `src/app/globals.css`. The
-    # static export's CSS must surface at least the top-level
-    # `.vernacular-tab` rule plus the per-row `.detail-item`
-    # rule (so the legacy `web/detail.js` chip rendering matches).
-    for needle in (".vernacular-tab", ".detail-item"):
-        assert needle in css_body, (
-            f"ODD-TDV-001: static CSS must define the {needle} rule."
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -6258,13 +7013,13 @@ def test_detail_panel_threads_folder_callbacks() -> None:
 
 
 def test_detail_panel_imports_design_system_primitives() -> None:
-    """ODD-PHASE2: DetailPanel imports `Badge`, `Card`,
-    `IconButton`, and `Text` from `@taxa/design-system` (the
-    public barrel — spec.md rule 5 forbids deep imports into
-    the layer folders). The four primitives are the ones this
-    PR migrates; the remaining four (Button / EmptyState /
-    Spinner / InlineMessage) are reserved for future Phase 2
-    consumers."""
+    """ODD-TAPOPUP-001 + ODD-PHASE2: DetailPanel imports
+    `Badge`, `Card`, and `IconButton` from `@taxa/design-system`
+    (the public barrel — spec.md rule 5 forbids deep imports
+    into the layer folders). The popup header uses the
+    `Badge` + `Card` + `IconButton` primitives; the `Text`
+    primitive is no longer needed (the popup drops the
+    Overview body which was the only `Text` consumer)."""
     text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
     assert re.search(
         r'import\s*\{[^}]*\bBadge\b[^}]*\}\s*from\s*["\']\@taxa/design-system["\']',
@@ -6284,11 +7039,17 @@ def test_detail_panel_imports_design_system_primitives() -> None:
     ), (
         "DetailPanel.tsx must import IconButton from @taxa/design-system."
     )
-    assert re.search(
+    # The `Text` primitive is no longer consumed (the popup
+    # drops the Overview body which was the only `Text`
+    # consumer).
+    assert not re.search(
         r'import\s*\{[^}]*\bText\b[^}]*\}\s*from\s*["\']\@taxa/design-system["\']',
         text,
     ), (
-        "DetailPanel.tsx must import Text from @taxa/design-system."
+        "ODD-TAPOPUP-001: DetailPanel.tsx must NOT import "
+        "`Text` from @taxa/design-system (the popup drops "
+        "the Overview body which was the only `Text` "
+        "consumer)."
     )
 
 
@@ -6372,71 +7133,224 @@ def test_detail_panel_uses_badge_primitive_for_rank() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# ODD-SECSCROLL-001 — make `.detail-section` vertically scrollable.
+#
+# The popup Card sits inside `<Card variant="default" ...overflow-hidden
+# max-h-[calc(90vh-2px)]>`. Pre-fix the `.detail-section` rule carried
+# only padding + border-bottom — no flex shrink, no min-height: 0, and
+# no overflow-y. When the tab body (long Search links, Synonyms, or
+# Distribution lists) overflowed the Card's max-height, the content
+# was silently clipped at the Card edge instead of scrolling inside
+# the section. The user saw a popup with truncated content and no
+# scroll affordance.
+#
+# The fix applies the canonical flexbox-child overflow pattern:
+#   - `flex: 1 1 auto` + `min-height: 0` so the section claims the
+#     remaining Card height and shrinks instead of overflowing.
+#   - `overflow-y: auto` so the section scrolls its own contents
+#     vertically when the body exceeds the available height.
+# Horizontal tab scrolling (the `.tab-strip` row above the section)
+# stays intact because the new declarations only target the
+# `.detail-section` descendant. The pre-existing
+# `.detail-panel .detail-section:last-child` rule (border-bottom: 0)
+# stays intact so the last tab doesn't carry a redundant divider.
+# ---------------------------------------------------------------------------
+
+
+def test_globals_css_detail_section_is_vertically_scrollable() -> None:
+    """ODD-SECSCROLL-001: the `.detail-panel .detail-section`
+    rule in `globals.css` MUST carry the canonical flexbox-child
+    overflow pattern so the tab body scrolls inside the Card
+    instead of being clipped at the Card edge.
+
+    Required declarations (all four must be present):
+      - `flex: 1 1 auto` (or equivalent `flex: 1 1 0` /
+        `flex: 1` shorthand) so the section claims the
+        remaining Card height.
+      - `min-height: 0` so flexbox allows the section to
+        shrink below its content's intrinsic height (the
+        canonical flexbox overflow workaround).
+      - `overflow-y: auto` so the section scrolls its own
+        contents vertically when the body exceeds the
+        available height.
+      - The selector MUST stay scoped under `.detail-panel` so
+        the chain-topology guard in `tests/test_research_styles.py`
+        continues to whitelist the descendant through the
+        `.detail-panel` base.
+
+    The pre-existing padding + border-bottom declarations stay
+    so the visual contract (16/24px padding + 1px surface-
+    container divider) is preserved. The test only checks the
+    three new declarations are present; an additive CSS edit
+    inside the existing rule is the canonical fix."""
+    text = _read_text(TAXONOMY_GLOBALS_CSS)
+    rule_match = re.search(
+        r"\.detail-panel\s+\.detail-section\s*\{([^}]*)\}",
+        text,
+        re.DOTALL,
+    )
+    assert rule_match is not None, (
+        "globals.css must declare the `.detail-panel .detail-section` "
+        "rule (the descendant of `.detail-panel` that hosts the tab "
+        "body content). The chain-topology guard in "
+        "`tests/test_research_styles.py` keeps the `.detail-panel` "
+        "base whitelisted; the descendant rule MUST stay scoped "
+        "under it so the descendant is reachable through the base."
+    )
+    body = rule_match.group(1)
+    # `flex: 1 1 auto` — the section claims the remaining Card
+    # height when paired with `min-height: 0`. Accept `flex: 1`,
+    # `flex: 1 1 0`, or `flex: 1 1 auto` — the canonical
+    # flexbox-child overflow pattern tolerates any of the three.
+    assert re.search(
+        r"\bflex\s*:\s*(?:1\b|1\s+1\s+(?:auto|0)\b)",
+        body,
+    ), (
+        "globals.css `.detail-panel .detail-section` MUST carry "
+        "`flex: 1` / `flex: 1 1 auto` / `flex: 1 1 0` so the section "
+        "claims the remaining Card height. Without the flex "
+        "shorthand, the section sticks at its content's intrinsic "
+        "height and overflows the Card's `max-h-[calc(90vh-2px)]` "
+        "with the content silently clipped."
+    )
+    # `min-height: 0` — the canonical flexbox overflow workaround
+    # that lets the section shrink below its content's intrinsic
+    # height. Without this, flexbox sets the section's min-height
+    # to the content's intrinsic height and `overflow-y: auto`
+    # cannot fire (the section never becomes shorter than its
+    # content, so there's nothing to scroll).
+    assert re.search(
+        r"\bmin-height\s*:\s*0\b",
+        body,
+    ), (
+        "globals.css `.detail-panel .detail-section` MUST carry "
+        "`min-height: 0` so flexbox allows the section to shrink "
+        "below its content's intrinsic height. Without this, the "
+        "section stays at its content height and the "
+        "`overflow-y: auto` scroll surface never engages (the "
+        "section is as tall as its content, so there's nothing to "
+        "scroll)."
+    )
+    # `overflow-y: auto` — the vertical scroll affordance for the
+    # section. `overflow-y: scroll` is also acceptable but `auto`
+    # hides the scrollbar when the content fits (the legacy
+    # oracle's behaviour). Pin `auto` to keep the contract tight.
+    assert re.search(
+        r"\boverflow-y\s*:\s*auto\b",
+        body,
+    ), (
+        "globals.css `.detail-panel .detail-section` MUST carry "
+        "`overflow-y: auto` so the section scrolls its own "
+        "contents vertically when the tab body exceeds the "
+        "Card's `max-h-[calc(90vh-2px)]`. Without this, the "
+        "content is silently clipped at the Card edge and the "
+        "user has no way to scroll the body inside the popup."
+    )
+
+
+def test_globals_css_detail_section_preserves_tab_strip_horizontal_scroll() -> None:
+    """ODD-SECSCROLL-001 (regression guard): adding the vertical
+    scroll affordance to `.detail-section` MUST NOT touch the
+    horizontal tab scrolling the `.tab-strip` row above it
+    provides. The chain-topology guard keeps `.tab-strip` as a
+    separate top-level selector; the `.detail-section` rule
+    only carries declarations that affect vertical overflow +
+    flex sizing — no horizontal-overflow overrides that could
+    fight the tab-strip's horizontal scroll."""
+    text = _read_text(TAXONOMY_GLOBALS_CSS)
+    rule_match = re.search(
+        r"\.detail-panel\s+\.detail-section\s*\{([^}]*)\}",
+        text,
+        re.DOTALL,
+    )
+    assert rule_match is not None
+    body = rule_match.group(1)
+    # `overflow-x` MUST stay at its default (`visible`) or be
+    # unset. If a future refactor adds `overflow-x: hidden` (a
+    # common reflex when adding vertical scroll), the
+    # `.detail-section`'s content might lose horizontal scroll
+    # for wide rows. Pin the absence so the regression is
+    # loud.
+    assert not re.search(
+        r"\boverflow-x\s*:\s*(?:hidden|scroll|auto)\b",
+        body,
+    ), (
+        "globals.css `.detail-panel .detail-section` MUST NOT "
+        "set `overflow-x: hidden` / `scroll` / `auto`. The new "
+        "vertical-scroll fix only needs `overflow-y: auto`; "
+        "clamping horizontal overflow would fight the tab-strip "
+        "horizontal scroll surface the legacy oracle provides. "
+        "If a wide row needs horizontal scroll inside the "
+        "section, that is the section's own horizontal overflow "
+        "concern (the user can `overflow-x: auto` the inner "
+        "container at a future iteration)."
+    )
+
+
 def test_detail_panel_uses_badge_primitive_for_status() -> None:
-    """ODD-PHASE2: the status badge (formerly
-    `<span className="rank-badge text-on-surface-variant
-    bg-surface-container-highest ...">`) collapses into
-    `<Badge variant="subtle" uppercase={true}>` from the
-    design-system barrel."""
+    """ODD-TAPOPUP-001 (negative witness): the popup's header
+    has NO status badge + NO CoL-only badge. The pre-popup
+    sticky rail carried the status badge + the CoL-only
+    badge + the WoRMS cross-link badge; the popup drops
+    every source-affordance badge so the header is minimal
+    (just the scientific-name `<h2>` + the close IconButton).
+
+    The rank badge (variant="primary") STAYS in the header
+    (the user sees the taxon's rank at a glance). The status
+    + extinct + CoL-only + WoRMS link badges are all gone
+    (the popup's minimal header doesn't carry them)."""
     text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
-    assert re.search(
+    code_only = re.sub(r"/\*[\s\S]*?\*/", "", text)
+    code_only = re.sub(r"//[^\n]*", "", code_only)
+    # No status badge + no CoL-only badge in the popup header.
+    # The status badge (pre-popup) carried `taxon.status ?? "unknown"`
+    # as a `<Badge variant="subtle">` chip. The regex below
+    # anchors on `<Badge` (NOT `<IconButton`) so the close
+    # IconButton's `variant="subtle"` doesn't trip the
+    # assertion (IconButton is not a Badge).
+    assert not re.search(
         r'<Badge\b[^>]*\bvariant\s*=\s*["\']subtle["\']',
-        text,
+        code_only,
     ), (
-        "DetailPanel.tsx must render the status badge + the CoL-only "
-        'badge as <Badge variant="subtle"> from @taxa/design-system.'
+        "ODD-TAPOPUP-001: DetailPanel.tsx must NOT carry any "
+        "`<Badge variant=\"subtle\">` chip in the popup header "
+        "(the status + CoL-only + extinct + WoRMS link badges "
+        "are all gone; the minimal header only carries the "
+        "rank badge + the close IconButton)."
     )
     assert not re.search(
-        r'<span[^>]*\bclassName\s*=\s*["\'][^"\']*\brank-badge\b[^"\']*\btext-on-surface-variant\b[^"\']*\bbg-surface-container-highest\b',
-        text,
+        r'taxon\.status\s*\?\?\s*["\']unknown["\']',
+        code_only,
     ), (
-        "DetailPanel.tsx must NOT render the legacy inline "
-        '<span className="rank-badge text-on-surface-variant '
-        'bg-surface-container-highest"> status badge — the Badge '
-        'variant="subtle" primitive owns the treatment.'
+        "ODD-TAPOPUP-001: DetailPanel.tsx must NOT render the "
+        "`taxon.status ?? 'unknown'` status chip (the popup "
+        "drops the status badge)."
     )
-
-
-def test_detail_panel_uses_badge_primitive_for_extinct() -> None:
-    """ODD-PHASE2: the extinct marker (formerly
-    `<span className="rank-badge text-red-700 bg-red-50 ...">`)
-    collapses into `<Badge variant="warning" uppercase={true}>`
-    from the design-system barrel. The Badge primitive maps to
-    the same `bg-red-50 text-red-700` Tailwind utilities so the
-    visual treatment is byte-for-byte identical to the legacy
-    oracle. The `data-detail-extinct=""` attribute stays on
-    the element so tests + tooling can still observe the
-    marker."""
-    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
-    assert re.search(
-        r'<Badge\b[^>]*\bvariant\s*=\s*["\']warning["\']',
-        text,
-    ), (
-        "DetailPanel.tsx must render the extinct marker as "
-        '<Badge variant="warning"> from @taxa/design-system.'
-    )
+    # The legacy inline span pattern is GONE.
     assert not re.search(
-        r'<span[^>]*\bclassName\s*=\s*["\'][^"\']*\brank-badge\b[^"\']*\btext-red-700\b[^"\']*\bbg-red-50\b',
-        text,
+        r'<span[^>]*\bclassName\s*=\s*["\'][^"\']*\brank-badge\b[^"\']*\btext-on-surface-variant\b',
+        code_only,
     ), (
-        "DetailPanel.tsx must NOT render the legacy inline "
-        '<span className="rank-badge text-red-700 bg-red-50"> '
-        "extinct marker — the Badge variant=\"warning\" primitive "
-        "owns the treatment."
+        "ODD-TAPOPUP-001: DetailPanel.tsx must NOT render the "
+        "legacy inline `<span className=\"rank-badge ...\">` "
+        "status badge (the popup drops the status badge)."
     )
 
 
 def test_detail_panel_uses_iconbutton_primitive_for_close() -> None:
-    """ODD-PHASE2: the close button (formerly
-    `<button className="detail-close material-symbols-outlined
-    text-on-surface-variant hover:text-on-surface p-1 rounded"
-    data-action="close-detail" ...>`) collapses into
+    """ODD-PHASE2 + ODD-TAPOPUP-001: the close button is an
     `<IconButton variant="subtle" aria-label="Hide details">`
-    from the design-system barrel. The IconButton primitive
-    enforces the a11y contract (icon-only buttons MUST carry
-    an `aria-label`). The `data-action="close-detail"`
-    attribute stays on the element so the selector + data-
-    action delegation contract survives the React cutover."""
+    from the design-system barrel. The `data-action=
+    "close-detail"` attribute stays on the element so the
+    selector + data-action delegation contract survives the
+    React cutover (the popup close calls `onClose()` which the
+    parent maps to `setSelected(null)`).
+
+    ODD-TAPOPUP-001: the close IconButton is the popup's
+    dialog close affordance — the popup closes via the close
+    button + Escape + backdrop click (all wired through
+    `onClose()`)."""
     text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
     assert re.search(
         r'<IconButton\b[^>]*\bvariant\s*=\s*["\']subtle["\']',
@@ -6471,41 +7385,15 @@ def test_detail_panel_uses_iconbutton_primitive_for_close() -> None:
     )
 
 
-def test_detail_panel_uses_text_primitive_for_overview_labels() -> None:
-    """ODD-PHASE2: the Overview description-list label
-    typography (formerly `<dt className="overview-label">`)
-    collapses into `<Text variant="caption" as="span">` from
-    the design-system barrel. The Text primitive owns the
-    caption typography (`text-xs text-on-surface-variant`);
-    the `<dt>` wrapper stays so the semantic description-list
-    structure survives."""
-    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
-    assert re.search(
-        r'<Text\b[^>]*\bvariant\s*=\s*["\']caption["\']',
-        text,
-    ), (
-        "DetailPanel.tsx must render the Overview description-list "
-        'labels as <Text variant="caption"> from @taxa/design-system.'
-    )
-    # The legacy `<dt className="overview-label">` pattern is
-    # GONE — the label className is dead CSS that collapsed
-    # out of globals.css.
-    assert not re.search(
-        r'<dt\b[^>]*\bclassName\s*=\s*["\'][^"\']*\boverview-label\b',
-        text,
-    ), (
-        "DetailPanel.tsx must NOT render the legacy "
-        '<dt className="overview-label"> label — the '
-        'Text variant="caption" primitive owns the treatment.'
-    )
-
-
 def test_detail_panel_no_inline_rank_badge_span() -> None:
-    """ODD-PHASE2: the legacy inline `<span className="rank-badge
-    ...">` pattern is GONE from DetailPanel. The standalone
-    `.rank-badge` CSS rule stays because `TaxonomyTree.tsx`
-    search-dropdown still consumes it; the DetailPanel
-    consumption migrated to the `<Badge>` primitive."""
+    """ODD-PHASE2 + ODD-TAPOPUP-001: the legacy inline
+    `<span className="rank-badge ...">` pattern is GONE from
+    DetailPanel. The standalone `.rank-badge` CSS rule stays
+    because `TaxonomyTree.tsx` search-dropdown still consumes
+    it; the DetailPanel consumption migrated to the `<Badge>`
+    primitive. The popup keeps the rank badge primitive (the
+    header's `<Badge variant="primary">` carries the rank
+    label)."""
     text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
     # No inline rank-badge spans for any of the rank / status /
     # extinct / CoL-only badges.
@@ -6519,33 +7407,6 @@ def test_detail_panel_no_inline_rank_badge_span() -> None:
             '<span className="rank-badge ..."> badge — '
             "the Badge primitive owns the treatment."
         )
-
-
-def test_detail_panel_no_inline_overview_value_class() -> None:
-    """ODD-PHASE2: the legacy `<dd className="overview-value">`
-    pattern is GONE from DetailPanel. The `.overview-value`
-    CSS rule collapsed out of globals.css; the value
-    typography now comes from `<Text variant="body">`. The
-    semantic `<dd>` wrapper stays so the description-list
-    structure survives."""
-    text = _read_text(TAXONOMY_DETAIL_PANEL_FILE)
-    assert not re.search(
-        r'<dd\b[^>]*\bclassName\s*=\s*["\'][^"\']*\boverview-value\b',
-        text,
-    ), (
-        "DetailPanel.tsx must NOT render the legacy "
-        '<dd className="overview-value"> value — the '
-        'Text variant="body" primitive owns the treatment.'
-    )
-    # And the Overview body renders at least one
-    # `<Text variant="body">` for the value column.
-    assert re.search(
-        r'<Text\b[^>]*\bvariant\s*=\s*["\']body["\']',
-        text,
-    ), (
-        "DetailPanel.tsx must render at least one "
-        '<Text variant="body"> for the Overview value column.'
-    )
 
 
 def test_taxonomy_tree_eager_fetches_folder_preview_on_selection() -> None:
@@ -7879,13 +8740,22 @@ def test_tree_row_uses_badge_primitive_for_rank() -> None:
 
 
 def test_tree_row_uses_iconbutton_primitive_for_kebab() -> None:
-    """ODD-PHASE2: the row kebab trigger uses the `<IconButton>`
-    design-system primitive (imported from `@taxa/design-system`)
-    instead of the legacy manual `<button className="kebab-trigger
-    material-symbols-outlined ...">` button. The `subtle` variant
-    keeps the new-icon-button affordance (`hover:bg-surface-container-low`)
-    consistent with the row chrome; the `aria-label` carries the
-    canonical "More actions for {taxon.name}" template."""
+    """ODD-PHASE2 + ODD-TAPOPUP-001: the row kebab trigger uses
+    the `<IconButton>` design-system primitive (imported from
+    `@taxa/design-system`) instead of the legacy manual
+    `<button className="kebab-trigger material-symbols-outlined
+    ...">` button. The `subtle` variant keeps the icon-button
+    affordance (`hover:bg-surface-container-low`) consistent
+    with the row chrome; the `aria-label` carries the canonical
+    "More actions for {taxon.name}" template.
+
+    ODD-TAPOPUP-001 update: the trigger opens a DIALOG (the
+    taxon-action popup), NOT a menu — so
+    `aria-haspopup="dialog"` replaces the legacy
+    `aria-haspopup="menu"`. The kebab trigger also carries the
+    `kebab-trigger` class hook (added to the IconButton's
+    className) so the existing CSS discoverability rule
+    (passive-hint opacity + hover/focus reveal) is wired."""
     text = _read_text(TAXONOMY_TREE_ROW_FILE)
     assert re.search(
         r'import\s*\{[^}]*\bIconButton\b[^}]*\}\s*from\s*["\']@taxa/design-system["\']',
@@ -7903,27 +8773,38 @@ def test_tree_row_uses_iconbutton_primitive_for_kebab() -> None:
         "literal or JSX expression form)."
     )
     # The IconButton MUST carry `data-action="toggle-kebab"` +
-    # `aria-haspopup="menu"` + `aria-expanded` so the existing
-    # kebab-state contract (kebabOpenId owned by TaxonomyTree)
-    # works byte-for-byte against the new primitive.
+    # `aria-haspopup="dialog"` + `aria-expanded` so the new
+    # popup-state contract (selection-driven) works against the
+    # new primitive.
     kebab_match = re.search(
         r'<\s*IconButton\b[^>]*\bdata-action\s*=\s*["\']toggle-kebab["\'][^>]*>',
         text,
     )
     assert kebab_match, (
-        "ODD-PHASE2: TreeRow.tsx IconButton kebab trigger MUST stamp "
-        "`data-action=\"toggle-kebab\"` (matches the kebab-state "
-        "contract owned by TaxonomyTree)."
+        "ODD-TAPOPUP-001: TreeRow.tsx IconButton kebab trigger MUST "
+        "stamp `data-action=\"toggle-kebab\"` (matches the kebab-"
+        "state contract owned by TaxonomyTree)."
     )
     body = kebab_match.group(0)
-    assert 'aria-haspopup="menu"' in body, (
-        "ODD-PHASE2: IconButton kebab trigger MUST declare "
-        "`aria-haspopup=\"menu\"` (a11y hook for the row-level menu)."
+    assert 'aria-haspopup="dialog"' in body, (
+        "ODD-TAPOPUP-001: IconButton kebab trigger MUST declare "
+        "`aria-haspopup=\"dialog\"` (the popup is a dialog, NOT "
+        "a menu)."
     )
     assert "aria-expanded" in body, (
-        "ODD-PHASE2: IconButton kebab trigger MUST declare "
-        "`aria-expanded` so the menu state is observable to "
-        "assistive tech."
+        "ODD-TAPOPUP-001: IconButton kebab trigger MUST declare "
+        "`aria-expanded` so the popup's open state is observable "
+        "to assistive tech."
+    )
+    # The `kebab-trigger` class hook MUST be wired (either on
+    # the IconButton's className or via a wrapper) so the
+    # `.kebab .kebab-trigger` CSS discoverability rule
+    # (passive-hint opacity + hover/focus reveal) is active.
+    assert "kebab-trigger" in body, (
+        "ODD-TAPOPUP-001: IconButton kebab trigger MUST carry "
+        "the `kebab-trigger` class hook (or be wrapped in a "
+        "div carrying it) so the CSS discoverability rule "
+        "applies."
     )
 
 
