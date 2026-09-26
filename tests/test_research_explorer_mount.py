@@ -836,6 +836,116 @@ def test_w6_1_file_tree_folder_row_separates_select_from_expand() -> None:
 
 
 # ---------------------------------------------------------------------------
+# W6.1 Folder-row icon polarity — `renderFolderRow` must
+# derive the Material Symbols folder glyph from `isExpanded`
+# with the collapsed / expanded polarity the live browser
+# contract pins. The legacy
+# `web/file_explorer.js::renderFolderRow()` chevron click
+# handler toggles the icon between two states whose final
+# mapping is `aria-expanded === "true" → "folder_open"` and
+# `aria-expanded === "false" → "folder"`. The React render
+# is the single source of truth — the chevron glyph, the
+# `aria-expanded` attribute, and the folder icon must all
+# read from `isExpanded` and stay in sync. The W6.1
+# contract explicitly pins the polarity (collapsed rows
+# show the closed-folder glyph; expanded rows show the
+# open-folder glyph); a future PR that inverts the ternary
+# — `isExpanded ? "folder" : "folder_open"` — flips both
+# glyphs and the live browser shows `folder_open` on
+# collapsed root rows + `folder` on the expanded Archaea
+# row, the visual bug this regression guards. Comments
+# are stripped before scanning so the docblock can quote
+# the legacy + the buggy literal without tripping the
+# assertion.
+# ---------------------------------------------------------------------------
+def test_w6_1_file_tree_folder_row_icon_state_matches_expansion() -> None:
+    if not FILE_TREE_FILE.is_file():
+        pytest.skip("FileTree.tsx not present yet")
+    text = _strip_ts_comments(FILE_TREE_FILE.read_text())
+
+    # 1. `renderFolderRow` MUST derive the folder icon from
+    #    `isExpanded` via a single ternary of the shape
+    #    `const folderIcon = isExpanded ? <icon-a> : <icon-b>;`.
+    #    The chevron glyph directly above it uses the same
+    #    conditional, so the row's three visual signals
+    #    (chevron, aria-expanded, folder icon) share one
+    #    source of truth at render time.
+    icon_ternary = re.search(
+        r"const\s+folderIcon\s*=\s*isExpanded\s*\?\s*"
+        r"([\"'])([^\"']+)\1\s*:\s*"
+        r"([\"'])([^\"']+)\3\s*;",
+        text,
+    )
+    assert icon_ternary, (
+        "FileTree `renderFolderRow` must derive the folder "
+        "icon from `isExpanded` via a single ternary of the "
+        "shape `const folderIcon = isExpanded ? <icon-a> : "
+        "<icon-b>;`. The chevron glyph directly above it "
+        "uses the same conditional so the row's three "
+        "visual signals (chevron, aria-expanded, folder "
+        "icon) share one source of truth at render time."
+    )
+    expanded_icon = icon_ternary.group(2)
+    collapsed_icon = icon_ternary.group(4)
+    assert expanded_icon == "folder_open", (
+        f"FileTree `renderFolderRow` must paint the "
+        f"open-folder glyph (`folder_open`) on EXPANDED rows "
+        f"(`isExpanded === true` branch); got {expanded_icon!r}. "
+        f"The legacy chevron click handler's final-state "
+        f"mapping pins `icon = 'folder_open'` when "
+        f"`aria-expanded === 'true'`. The React equivalent "
+        f"must agree so the chevron glyph, the aria-expanded "
+        f"attribute, and the folder icon stay in sync — "
+        f"inverting the polarity causes the live browser "
+        f"to show the closed-folder glyph on expanded rows "
+        f"and the open-folder glyph on collapsed rows."
+    )
+    assert collapsed_icon == "folder", (
+        f"FileTree `renderFolderRow` must paint the closed-"
+        f"folder glyph (`folder`) on COLLAPSED rows "
+        f"(`isExpanded === false` branch); got {collapsed_icon!r}. "
+        f"The legacy chevron click handler's final-state "
+        f"mapping pins `icon = 'folder'` when collapsing — "
+        f"the React equivalent must agree."
+    )
+
+    # 2. The chevron glyph directly above the folder icon
+    #    uses the same polarity — both read from
+    #    `isExpanded`. This guards against a future PR
+    #    that decouples the two ternaries (e.g. flipping
+    #    only the folder icon while leaving the chevron
+    #    intact, which would re-introduce the same
+    #    inversion a different way).
+    chevron_ternary = re.search(
+        r"const\s+chevron\s*=\s*isExpanded\s*\?\s*"
+        r"([\"'])([^\"']+)\1\s*:\s*"
+        r"([\"'])([^\"']+)\3\s*;",
+        text,
+    )
+    assert chevron_ternary, (
+        "FileTree `renderFolderRow` must derive the chevron "
+        "glyph from `isExpanded` via a single ternary of "
+        "the shape `const chevron = isExpanded ? <glyph-a> : "
+        "<glyph-b>;` — the chevron and the folder icon "
+        "share one source of truth at render time."
+    )
+    chevron_expanded = chevron_ternary.group(2)
+    chevron_collapsed = chevron_ternary.group(4)
+    assert chevron_expanded == "keyboard_arrow_down", (
+        f"FileTree `renderFolderRow` chevron must point "
+        f"DOWN on EXPANDED rows (`keyboard_arrow_down`); "
+        f"got {chevron_expanded!r}. The chevron polarity "
+        f"agrees with the folder icon polarity (both flow "
+        f"from `isExpanded`)."
+    )
+    assert chevron_collapsed == "keyboard_arrow_right", (
+        f"FileTree `renderFolderRow` chevron must point "
+        f"RIGHT on COLLAPSED rows (`keyboard_arrow_right`); "
+        f"got {chevron_collapsed!r}."
+    )
+
+
+# ---------------------------------------------------------------------------
 # W6.2 Escape-clears-tree synchronously — Explorer.tsx must
 # flush the debounced query in the same Escape handler so the
 # FileTree render-puro walker paints the unfiltered tree

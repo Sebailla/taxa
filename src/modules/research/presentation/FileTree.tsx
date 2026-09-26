@@ -284,7 +284,7 @@ function renderFolderRow(
 ): ReactNode {
   const folderPath = folder.path || "";
   const chevron = isExpanded ? "keyboard_arrow_down" : "keyboard_arrow_right";
-  const folderIcon = isExpanded ? "folder" : "folder_open";
+  const folderIcon = isExpanded ? "folder_open" : "folder";
   const hasMatch = rowHasMatchClass(folderPath, searchAnnotation, searchMode);
   const rowClass =
     `fex-row folder` +
