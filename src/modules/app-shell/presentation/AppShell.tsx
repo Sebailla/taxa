@@ -104,7 +104,7 @@ export default function AppShell({
       <main className="app-shell-main flex-1">
         <div
           id="main"
-          className="app-shell-main-anchor mx-auto w-full max-w-5xl px-6 py-6"
+          className="app-shell-main-anchor mx-auto w-full max-w-none px-6 py-6"
         >
           {children}
         </div>

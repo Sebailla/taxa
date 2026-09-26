@@ -3391,3 +3391,21 @@ def test_appshell_brand_link_is_anchor_not_button():
         "navigation link (anchor / next/link `<Link>` is the "
         "correct primitive)."
     )
+
+
+# ODD-FULLWIDTH-001: shared shell rows use the available width while keeping
+# their existing gutters and responsive layout primitives.
+def test_shared_shell_containers_use_full_width_without_losing_responsiveness():
+    cases = (
+        (APP_SHELL_FILE, r'<div\s+id="main"\s+className="([^"]+)"', ("px-6",)),
+        (APP_SHELL_HEADER_FILE, r'<div className="([^"]+)"', ("flex-wrap", "px-6")),
+        (APP_SHELL_FOOTER_FILE, r'<div className="([^"]+)"', ("grid-cols-3", "px-6")),
+    )
+    for path, pattern, responsive_classes in cases:
+        match = re.search(pattern, _read_text(path))
+        assert match, f"Could not find shared shell container in {path.name}"
+        classes = set(match.group(1).split())
+        assert "w-full" in classes
+        assert "max-w-none" in classes
+        assert not any(token.startswith("max-w-") and token != "max-w-none" for token in classes)
+        assert set(responsive_classes) <= classes
