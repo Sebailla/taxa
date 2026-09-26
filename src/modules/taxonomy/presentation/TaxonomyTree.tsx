@@ -181,7 +181,6 @@ import {
   fetchDomains,
   fetchSearches,
   fetchSearch,
-  fetchVernaculars,
   fetchSynonyms,
   fetchDistribution,
   openFolder,
@@ -219,7 +218,6 @@ import type {
   SearchLink,
   SynonymName,
   TaxonomySource,
-  VernacularName,
 } from "@taxa/taxonomy";
 import type { BreadcrumbSegment } from "./breadcrumb-path";
 import type { Rank, Taxon } from "../domain/taxon";
@@ -229,7 +227,6 @@ import DetailPanel, {
 import type { DetailTabKey } from "./DetailPanel";
 import type { SearchTabStatus } from "./SearchTab";
 import type { SynonymTabStatus } from "./SynonymTab";
-import type { VernacularTabStatus } from "./VernacularTab";
 import type { DistributionTabStatus } from "./DistributionTab";
 import type {
   FolderCopyStatus,
@@ -375,10 +372,6 @@ export default function TaxonomyTree(
     status: "idle",
     message: null,
   });
-  // ODD-NTP-004 — kebab open state. Lives at the tree level so a
-  // click-outside / Escape dismisses every open menu at once and
-  // the visible tree carries only one open kebab at a time.
-  const [kebabOpenId, setKebabOpenId] = useState<number | null>(null);
   // ODD-NTP-005 — focused + selected navigation state. Mirrors the
   // legacy `web/state.js::focused` + `selected` pair. `focused`
   // drives the breadcrumb; `selected` is the row the user has
@@ -417,26 +410,15 @@ export default function TaxonomyTree(
   const [searchesByTaxonId, setSearchesByTaxonId] = useState<
     Map<number, SearchTabStatus>
   >(() => new Map());
-  // ODD-TDV-001 — per-taxon vernacular cache. Same shape as the
-  // search-link cache so the DetailPanel contract stays symmetric
-  // across the Search and Vernaculars tabs. Source switch
-  // behaviour DIFFERS from the search-link cache: the
-  // `/api/taxon/{id}/vernaculars` endpoint is source-AGNOSTIC
-  // (mirrors the legacy `web/detail.js::loadDetail` payload which
-  // is also source-agnostic), so a previously cached vernacular
-  // payload stays valid under a new active source. The cache
-  // therefore survives `handleSourceChange` so re-selecting the
-  // same taxon after a source switch is also instant. The
-  // `handleSourceChange` callback intentionally does NOT clear
-  // this map. Status is the discriminated-union shape the
-  // VernacularTab consumes (idle / loading / loaded / empty /
-  // error — byte-identical to `SearchTabStatus`).
-  const [vernacularsByTaxonId, setVernacularsByTaxonId] = useState<
-    Map<number, VernacularTabStatus>
-  >(() => new Map());
+  // ODD-TAPOPUP-001 — the per-taxon vernacular cache is GONE.
+  // The pre-popup sticky rail owned the Vernaculars tab + a
+  // ODD-TAPOPUP-001 — the pre-popup Vernaculars cache is gone
+  // (the popup drops the Vernaculars tab). The canonical
+  // Vernaculars data projection is a future slice's concern.
+  //
   // ODD-TDSYN-001 — per-taxon synonyms cache. Same shape as the
-  // vernacular cache so the DetailPanel contract stays symmetric
-  // across the Vernaculars and Synonyms tabs. The
+  // pre-popup vernacular cache so the DetailPanel contract stays
+  // symmetric across the Synonyms tab. The
   // `/api/taxon/{id}/synonyms` endpoint is source-AGNOSTIC
   // (mirrors the legacy `web/detail.js::loadDetail` payload —
   // the FastAPI SQL pre-filters by `parent_id = taxon_id AND
@@ -445,11 +427,9 @@ export default function TaxonomyTree(
   // new active source. The cache therefore survives
   // `handleSourceChange` so re-selecting the same taxon after a
   // source switch is also instant. The `handleSourceChange`
-  // callback intentionally does NOT clear this map (mirrors the
-  // ODD-TDV-001 source-agnostic retention contract). Status is
+  // callback intentionally does NOT clear this map. Status is
   // the discriminated-union shape the SynonymTab consumes
-  // (idle / loading / loaded / empty / error — byte-identical to
-  // `SearchTabStatus` + `VernacularTabStatus`).
+  // (idle / loading / loaded / empty / error).
   const [synonymsByTaxonId, setSynonymsByTaxonId] = useState<
     Map<number, SynonymTabStatus>
   >(() => new Map());
@@ -528,6 +508,33 @@ export default function TaxonomyTree(
   // a time, but the map gives the component a stable read point
   // that survives React's reconciliation).
   const rowRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  // ODD-CLOSEFIX-001 — last-dismissed taxon id guard. The
+  // pre-fix close primitive only cleared the local `selected`
+  // state, but the URL still carried `?taxon=<id>` (the
+  // `handleSelect` primitive wrote it via `router.replace`).
+  // The URL → state sync effect — which runs on every
+  // `searchParams` + `selected` change — would then
+  // immediately reselect the dismissed taxon and reopen the
+  // panel, producing a "close → reopen → close" flash.
+  //
+  // The dismissal guard lives on a `useRef` (NOT `useState`)
+  // so the write does not trigger an extra re-render of the
+  // entire tree. The ref carries the dismissed id across
+  // renders without subscribing any effect to it. The URL →
+  // state sync effect reads the ref synchronously and short-
+  // circuits when the URL's `?taxon=` matches the dismissed
+  // id, preventing the in-flight reopen race between
+  // `setSelected(null)` and `router.replace("/")` completing.
+  //
+  // The guard is cleared whenever the URL points at a
+  // DIFFERENT taxon (the user actively navigated to a new
+  // taxon or the back/forward buttons moved past the
+  // dismissed one) — see the URL → state sync effect body.
+  // A `useState`-backed guard would force a fresh re-render
+  // on every write and the URL → state effect would still
+  // trip on the in-flight `setSelected(null)` render, so the
+  // ref-backed guard is the canonical fix.
+  const dismissedTaxonIdRef = useRef<number | null>(null);
   // ODD-NTP-005 — select-pulse trigger. Bumped on every successful
   // `select` so the row renders a brief pulse affordance (mirrors
   // the legacy `web/nav.js::select-from-search` `search-pulse`
@@ -638,14 +645,9 @@ export default function TaxonomyTree(
   // selected row can pick up its focused affordance without a
   // competing focus state on the input.
   //
-  // The handler inlines the selection primitive (setFocused +
-  // setSelected + setPulseNonce + setKebabOpenId(null)) so the
-  // forward reference to `handleSelect` (defined further down
-  // in the file) stays out of the search-handler block — the
-  // ast-grep purity contract forbids referencing a `const` before
-  // its declaration. The inline copy is byte-identical to the
-  // body of `handleSelect` so the user-facing behavior is the
-  // same.
+  // ODD-TAPOPUP-001 — the inline `setKebabOpenId(null)` call is
+  // GONE (the kebab menu is gone; the popup is `selected`-
+  // driven).
   //
   // ODD-ASN-002 — the result-click now routes the clear-query
   // through the lifted `onSearchQueryChange` mutator (the
@@ -658,7 +660,6 @@ export default function TaxonomyTree(
   const handleSearchResultClick = useCallback(
     (id: number) => {
       if (!Number.isFinite(id)) return;
-      setKebabOpenId(null);
       setFocused(id);
       setSelected(id);
       setPulseNonce((prev) => prev + 1);
@@ -714,32 +715,11 @@ export default function TaxonomyTree(
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // ODD-NTP-004 — Escape dismisses any open kebab menu. Mirrors
-  // the legacy `web/nav.js::keydown` listener.
-  useEffect(() => {
-    if (kebabOpenId === null) return;
-    const onKeyDown = (ev: KeyboardEvent): void => {
-      if (ev.key === "Escape") setKebabOpenId(null);
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [kebabOpenId]);
-
-  // ODD-NTP-004 — click-outside dismisses any open kebab menu.
-  useEffect(() => {
-    if (kebabOpenId === null) return;
-    const onMouseDown = (ev: MouseEvent): void => {
-      const target = ev.target;
-      if (!(target instanceof Element)) {
-        setKebabOpenId(null);
-        return;
-      }
-      if (target.closest(".kebab")) return;
-      setKebabOpenId(null);
-    };
-    document.addEventListener("mousedown", onMouseDown);
-    return () => document.removeEventListener("mousedown", onMouseDown);
-  }, [kebabOpenId]);
+  // ODD-TAPOPUP-001 — the kebab menu's document-level keydown
+  // + click-outside listeners are GONE. The popup's Escape +
+  // backdrop-click → close behavior lives in `DetailPanel.tsx`
+  // (the popup owns the close handler now). The tree-level
+  // `useEffect` listeners for the kebab menu are retired.
 
   // Apply the active source to the raw root payload. Fires when
   // (a) `rawRoots` first becomes non-null after a successful
@@ -862,72 +842,6 @@ export default function TaxonomyTree(
     // eager-fetch effect below. The callback identity is stable
     // across cache mutations so the effect stays a one-shot
     // per-selection-change fire.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
-
-  // ODD-TDV-001 — per-taxon vernacular loader. Reads the cached
-  // `vernacularsByTaxonId` map and skips the round trip if a
-  // previous load already landed (loaded / empty / errored) for
-  // the same taxon. The eager-fetch-on-selection effect below
-  // triggers this callback on every selection change so the
-  // cache stays warm by the time the user clicks the Vernaculars
-  // tab. The callback also fires from the VernacularTab's Retry
-  // button so a transient failure (network blip, 5xx) is
-  // recoverable without a fresh taxon selection. The callback
-  // intentionally does NOT depend on `activeSource` — the
-  // `/api/taxon/{id}/vernaculars` endpoint is source-agnostic
-  // (mirrors the legacy `web/detail.js::loadDetail` payload
-  // shape), so the cache survives source switches.
-  const loadVernaculars = useCallback(
-    async (id: number) => {
-      const current = vernacularsByTaxonId.get(id);
-      if (
-        current &&
-        (current.kind === "loaded" ||
-          current.kind === "empty" ||
-          current.kind === "error")
-      ) {
-        return;
-      }
-      setVernacularsByTaxonId((prev) => {
-        const next = new Map(prev);
-        next.set(id, { kind: "loading" });
-        return next;
-      });
-      try {
-        const names: readonly VernacularName[] = await fetchVernaculars(id, {
-          baseUrl: TAXA_API_ORIGIN,
-          limit: 200,
-        });
-        setVernacularsByTaxonId((prev) => {
-          const next = new Map(prev);
-          if (names.length === 0) {
-            next.set(id, { kind: "empty" });
-          } else {
-            next.set(id, { kind: "loaded", names });
-          }
-          return next;
-        });
-      } catch (err) {
-        setVernacularsByTaxonId((prev) => {
-          const next = new Map(prev);
-          next.set(id, {
-            kind: "error",
-            message: messageFor(err, `Could not load vernaculars of taxon ${id}`),
-          });
-          return next;
-        });
-      }
-    },
-    // `vernacularsByTaxonId` is intentionally NOT in the deps: the
-    // callback reads the latest cache through the functional
-    // updater, so listing it would force a fresh `loadVernaculars`
-    // identity on every cache mutation and re-trigger the
-    // eager-fetch effect below. The callback identity is stable
-    // across cache mutations so the effect stays a one-shot
-    // per-selection-change fire (same rationale as
-    // `loadSearches`).
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
@@ -1357,7 +1271,10 @@ export default function TaxonomyTree(
     // clear the breadcrumb would briefly render the previous
     // source's ancestor chain after the source switch, then
     // re-derive against the new cache.
-    setKebabOpenId(null);
+    //
+    // ODD-TAPOPUP-001: the inline `setKebabOpenId(null)` call
+    // is GONE (the kebab menu is gone; clearing `selected`
+    // already closes the popup).
     setFocused(null);
     setSelected(null);
     // ODD-TDS-001: a source switch also clears the per-taxon
@@ -1375,13 +1292,15 @@ export default function TaxonomyTree(
     // stale CoL preview yields a different chain under WoRMS
     // when the parent_id columns diverge — the
     // source-AGNOSTIC retention contract that protects the
-    // vernaculars / synonyms / distribution caches does NOT
-    // apply here. The folder-create / folder-open /
-    // folder-copy side-effect states are also cleared so a
-    // stale "Opened with `open`" message cannot bleed into
-    // the next source's selection. The folder-create-armed
-    // gate is cleared so the next source's first render
-    // lands on the bare CTA.
+    // synonyms / distribution caches does NOT apply here. The
+    // folder-create / folder-open / folder-copy side-effect
+    // states are also cleared so a stale "Opened with `open`"
+    // message cannot bleed into the next source's selection.
+    // The folder-create-armed gate is cleared so the next
+    // source's first render lands on the bare CTA.
+    //
+    // ODD-TAPOPUP-001: the pre-popup vernacular cache is gone
+    // (the popup drops the Vernaculars tab).
     setFolderByTaxonId(new Map());
     setFolderCreateByTaxonId(new Map());
     setFolderOpenByTaxonId(new Map());
@@ -1400,105 +1319,13 @@ export default function TaxonomyTree(
     // ODD-NTP-005: collapse-all preserves focused + selected (the
     // legacy `web/nav.js::collapseAll` does the same — collapsing
     // the tree does not clear the user's navigation intent).
+    //
+    // ODD-TAPOPUP-001: the inline `setKebabOpenId(null)` call is
+    // GONE (the kebab menu is gone). Collapse-all keeps
+    // `selected` intact so the popup stays open over the
+    // collapsed tree.
     setState((prev) => clearExpansion(prev));
-    setKebabOpenId(null);
   }, []);
-
-  // ODD-NTP-005 — kebab trigger handler.
-  const handleToggleKebab = useCallback((id: number) => {
-    setKebabOpenId((prev) => (prev === id ? null : id));
-  }, []);
-
-  // ODD-TDO-001 — per-taxon active-tab memory primitives. The legacy
-  // `web/state.js::activeTab` map survives every selection;
-  // re-selecting a taxon lands the user on the last tab they used
-  // for it (or the default for new taxa). The React port mirrors
-  // the same shape. Reads always default to `DEFAULT_DETAIL_TAB`
-  // so a freshly selected taxon lands on Overview.
-  const getActiveTabFor = useCallback(
-    (taxonId: number): DetailTabKey => {
-      return perTaxonActiveTab.get(taxonId) ?? DEFAULT_DETAIL_TAB;
-    },
-    [perTaxonActiveTab],
-  );
-
-  const handleTabChange = useCallback(
-    (taxonId: number, tab: DetailTabKey) => {
-      setPerTaxonActiveTab((prev) => {
-        const current = prev.get(taxonId);
-        if (current === tab) return prev;
-        const next = new Map(prev);
-        next.set(taxonId, tab);
-        return next;
-      });
-    },
-    [],
-  );
-
-  // ODD-TDO-001 — close handler. Mirrors the legacy
-  // `web/nav.js::close-detail` action: clears the selection so the
-  // detail panel unmounts on the next render. The kebab + focused
-  // states are NOT cleared (they belong to the tree surface, not
-  // the detail surface; the legacy oracle keeps them too).
-  const handleCloseDetail = useCallback(() => {
-    setSelected(null);
-  }, []);
-
-  // ODD-NTP-005 — kebab item action handler. With ODD-NTP-005 the
-  // navigation slice genuinely backs `open-searches` (select the
-  // taxon). ODD-OPENFOLDER-001 enables `open-folder-tab` for
-  // materialized rows: the handler pins the per-taxon active tab
-  // to "folder" BEFORE `handleSelect(id)` runs so the detail panel
-  // lands on the Folder tab on first render — matching the legacy
-  // `web/nav.js::open-folder-tab` byte-for-byte (which set
-  // `state.focused = id`, `state.activeTab[id] = "folder"`, then
-  // `selectTaxon(id)`). `handleSelect` closes the kebab as a side
-  // effect, so the menu dismissal contract stays intact. The
-  // kebab item is rendered only for materialized rows on the
-  // TreeRow side (`hasMaterializedFolder(taxon)` predicate stays
-  // intact), so this handler is safe to dispatch unconditionally
-  // on the action name.
-  const handleKebabAction = useCallback(
-    (
-      id: number,
-      action: "open-searches" | "open-folder-tab" | "view-on-worms",
-    ) => {
-      if (action === "open-searches") {
-        // Mirrors the legacy `web/nav.js::open-searches` handler:
-        // sets focused + selected so the breadcrumb rebuilds and
-        // the row picks up the focused / selected affordances.
-        handleSelect(id);
-        return;
-      }
-      if (action === "open-folder-tab") {
-        // ODD-OPENFOLDER-001 — pin the active tab to "folder"
-        // first (matches `state.activeTab[id] = "folder"` in
-        // `web/nav.js`), then select + focus the taxon via the
-        // navigation primitive. The functional updater keeps the
-        // per-taxon map immutable so React's render cycle stays
-        // pure; `handleSelect` closes the kebab as a side effect
-        // so the menu dismissal contract is preserved.
-        setPerTaxonActiveTab((prev) => {
-          const next = new Map(prev);
-          next.set(id, "folder");
-          return next;
-        });
-        handleSelect(id);
-        return;
-      }
-      if (action === "view-on-worms") {
-        // The anchor + target="_blank" already navigates; this
-        // handler is the future hook for analytics / log lines.
-      }
-      setKebabOpenId(null);
-    },
-    // `handleSelect` is stable by useCallback identity; listing
-    // it explicitly keeps the exhaustive-deps lint quiet.
-    // `setPerTaxonActiveTab` uses the functional updater form so
-    // the callback identity stays stable across cache mutations.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
 
   // ODD-NTP-005 — selection primitive. Sets focused + selected to
   // `id` and triggers a pulse animation. Selection is ORTHOGONAL
@@ -1507,14 +1334,20 @@ export default function TaxonomyTree(
   // expansion state intact. Mirrors the legacy
   // `web/nav.js::selectTaxon` predicate (focused = id, selected =
   // id; no expansion mutation).
+  //
+  // ODD-TAPOPUP-001: the inline `setKebabOpenId(null)` call is
+  // GONE (the kebab menu is gone; the popup is `selected`-
+  // driven). The kebab IconButton's click handler delegates to
+  // this primitive so the kebab-click opens the popup for the
+  // row byte-for-byte against the leaf-disclosure click path.
+  // The handler is declared BEFORE `handleToggleKebab` so the
+  // kebab handler can delegate without a forward reference (the
+  // ast-grep purity contract forbids referencing a `const`
+  // before its declaration; declaring `handleSelect` here keeps
+  // the delegation clean).
   const handleSelect = useCallback(
     (id: number) => {
       if (!Number.isFinite(id)) return;
-      // Close the kebab if the selected row had one open — the
-      // legacy `selectTaxon` renders a fresh tree, and an open
-      // kebab over the focused row would otherwise linger past
-      // the select.
-      setKebabOpenId(null);
       setFocused(id);
       setSelected(id);
       // Bump the pulse nonce so a freshly rendered row plays the
@@ -1542,6 +1375,93 @@ export default function TaxonomyTree(
     },
     [selected, router],
   );
+
+  // ODD-TAPOPUP-001 — kebab trigger handler. The kebab IconButton
+  // on every row opens the taxon-action popup for that row; the
+  // popup is `selected`-driven so the handler delegates to the
+  // canonical `handleSelect(id)` primitive (selection is
+  // orthogonal to expansion; opening the popup is the same
+  // primitive as selecting the row's leaf disclosure).
+  const handleToggleKebab = useCallback(
+    (id: number) => {
+      handleSelect(id);
+    },
+    [handleSelect],
+  );
+
+  // ODD-TDO-001 — per-taxon active-tab memory primitives. The legacy
+  // `web/state.js::activeTab` map survives every selection;
+  // re-selecting a taxon lands the user on the last tab they used
+  // for it (or the default for new taxa). The React port mirrors
+  // the same shape. Reads always default to `DEFAULT_DETAIL_TAB`
+  // so a freshly selected taxon lands on the first tab in the
+  // user-selected order (Synonyms for ODD-TAPOPUP-001).
+  const getActiveTabFor = useCallback(
+    (taxonId: number): DetailTabKey => {
+      return perTaxonActiveTab.get(taxonId) ?? DEFAULT_DETAIL_TAB;
+    },
+    [perTaxonActiveTab],
+  );
+
+  const handleTabChange = useCallback(
+    (taxonId: number, tab: DetailTabKey) => {
+      setPerTaxonActiveTab((prev) => {
+        const current = prev.get(taxonId);
+        if (current === tab) return prev;
+        const next = new Map(prev);
+        next.set(taxonId, tab);
+        return next;
+      });
+    },
+    [],
+  );
+
+  // ODD-TDO-001 — close handler. Mirrors the legacy
+  // `web/nav.js::close-detail` action: clears the selection so the
+  // detail panel unmounts on the next render. The focused state
+  // is NOT cleared (it belongs to the tree surface, not the
+  // detail surface; the legacy oracle keeps it too).
+  // ODD-TAPOPUP-001: closing the popup clears `selected` (the
+  // popup is `selected`-driven; clearing `selected` unmounts the
+  // panel and the user lands back on the tree).
+  //
+  // ODD-CLOSEFIX-001 — close URL sync fix. The handler also:
+  //   1. Captures the dismissed taxon id into
+  //      `dismissedTaxonIdRef` BEFORE `setSelected(null)` so the
+  //      URL → state sync effect can short-circuit when a stale
+  //      `searchParams` value arrives between the local state
+  //      clear and the async `router.replace("/")` completing.
+  //      Without the guard the effect would re-select the
+  //      dismissed taxon on the next render and reopen the panel.
+  //   2. Calls `router.replace("/")` so the URL no longer
+  //      carries the `?taxon=<id>` param. The `replace` strategy
+  //      (NOT `push`) keeps the browser history tidy — the user
+  //      does not have to press back twice to escape the panel
+  //      they just closed. The URL → state effect clears the
+  //      guard as soon as the URL points at a different taxon
+  //      OR drops the `?taxon=` param entirely (browser Back to
+  //      a no-taxon URL, programmatic navigation, external
+  //      link) — see ODD-CLOSEFIX-002.
+  //
+  // ODD-CLOSEFIX-002 — `scroll: false` on close. The router call
+  // passes `{ scroll: false }` as the second argument so Next.js
+  // does NOT scroll the tree surface to the top of the viewport
+  // when the user only dismisses the popup. The App Router's
+  // default `scroll: true` scrolls the page to the top on every
+  // navigation, which would yank the user out of their current
+  // scroll position in the tree for a same-page dismissal that
+  // does not change the route. The Next 16 `useRouter` reference
+  // (see `node_modules/next/dist/docs/01-app/03-api-reference/
+  // 04-functions/use-router.md`) documents the second-arg
+  // `{ scroll: boolean, transitionTypes: string[] }` shape; the
+  // close handler passes only the `scroll` key.
+  const handleCloseDetail = useCallback(() => {
+    if (selected === null) return;
+    const taxonId = selected;
+    setSelected(null);
+    dismissedTaxonIdRef.current = taxonId;
+    router.replace("/", { scroll: false });
+  }, [router, selected]);
 
   // ODD-NTP-005 — scroll the selected row into view. Browser
   // capability governs smoothness: `block: "nearest"` only
@@ -1596,7 +1516,13 @@ export default function TaxonomyTree(
           target.isContentEditable;
         if (editable) return;
       }
-      if (kebabOpenId !== null) return;
+      // ODD-TAPOPUP-001: skip j/k navigation when the popup is
+      // open (the popup is `selected`-driven; the user is
+      // interacting with the popup so the row-navigation
+      // shortcut should not steal the keystroke). The pre-popup
+      // kebab menu used `kebabOpenId !== null` for the same
+      // guard; the popup substitutes `selected !== null`.
+      if (selected !== null) return;
       const rows = flattenVisibleRows(state);
       if (rows.length === 0) return;
       ev.preventDefault();
@@ -1617,7 +1543,7 @@ export default function TaxonomyTree(
     return (): void => {
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [state, selected, kebabOpenId, handleSelect]);
+  }, [state, selected, handleSelect]);
 
   // ODD-URLSTATE-001 — URL → state sync. Reads `?taxon=ID`
   // from the URL search params + syncs `selected` (and
@@ -1639,15 +1565,64 @@ export default function TaxonomyTree(
   // compare) so the effect re-runs ONLY on URL changes,
   // not on every render. `router` is NOT in the deps — the
   // effect does not call it.
+  //
+  // ODD-CLOSEFIX-001 — dismissal-guard consult. `handleCloseDetail`
+  // captures the dismissed taxon id into `dismissedTaxonIdRef`
+  // and calls `router.replace("/")`. Between the local
+  // `setSelected(null)` re-render and the async navigation
+  // completing, the URL still carries the stale `?taxon=<id>`
+  // param and this effect can re-run with `selected` having just
+  // changed. Without the guard the effect would reselect the
+  // dismissed taxon and reopen the panel (the "close → reopen →
+  // close" flash). The guard short-circuits the reselection when
+  // the URL's `taxon` param matches the dismissed id.
+  //
+  // The guard is cleared whenever the URL points at a DIFFERENT
+  // taxon (the user actively navigated to a new taxon or the
+  // back/forward buttons moved past the dismissed one). Clearing
+  // inside the URL → state effect (NOT in `handleSelect` /
+  // `handleCloseDetail`) keeps the contract passive: any URL
+  // change — programmatic, back/forward, external link — clears
+  // the guard so a future legitimate `?taxon=<old>` reselection
+  // is not blocked. The literal `null` matches the ref type
+  // `useRef<number | null>(null)`.
+  //
+  // ODD-CLOSEFIX-002 (refinement): the guard MUST also be
+  // cleared inside the `taxonParam === null` branch (BEFORE
+  // the early `return`) so a passive URL drop of the `?taxon=`
+  // param — closing the popup, browser Back to a no-taxon URL,
+  // programmatic navigation — resets the guard. Without this
+  // clear, closing the panel and then pressing browser Back to
+  // return to `/?taxon=<id>` is incorrectly suppressed by the
+  // stale guard (the effect would see `id === guard` and skip,
+  // leaving the panel closed even though the user explicitly
+  // navigated back to the URL that previously opened it).
   useEffect(() => {
     const taxonParam = searchParams.get("taxon");
     if (taxonParam === null) {
+      // Clear the dismissal guard on every no-`?taxon=` render
+      // so the Back-button-to-same-taxon case (close → / →
+      // back to /?taxon=<id>) reopens the panel. The clear
+      // happens unconditionally so a passive URL drop
+      // (programmatic navigation, external link) also resets
+      // the guard.
+      dismissedTaxonIdRef.current = null;
       if (selected !== null) setSelected(null);
       return;
     }
     const id = Number(taxonParam);
     if (!Number.isFinite(id) || !Number.isInteger(id) || id <= 0) return;
     if (!state.nodes.has(id)) return;
+    // Dismissal guard — skip reselecting the just-dismissed
+    // taxon when the URL still carries its `?taxon=` param
+    // (the in-flight race between `setSelected(null)` and
+    // `router.replace("/", { scroll: false })` completing).
+    // If the URL points at a DIFFERENT taxon, clear the
+    // guard so the new selection is not blocked.
+    if (dismissedTaxonIdRef.current === id) return;
+    if (dismissedTaxonIdRef.current !== null) {
+      dismissedTaxonIdRef.current = null;
+    }
     if (selected !== id) {
       setSelected(id);
       setFocused(id);
@@ -1696,10 +1671,14 @@ export default function TaxonomyTree(
   // ODD-NTP-005 — breadcrumb segment activation. Replicates the
   // legacy `web/nav.js::focus-segment` handler: expand the
   // ancestors of the chosen segment + focus + select it.
+  //
+  // ODD-TAPOPUP-001: the inline `setKebabOpenId(null)` call is
+  // GONE (the kebab menu is gone). The breadcrumb activation
+  // delegates to `handleSelect(id)` for the selection primitive
+  // so the popup opens for the chosen segment.
   const handleFocusSegment = useCallback(
-    async (id: number) => {
+    (id: number) => {
       if (!Number.isFinite(id)) return;
-      setKebabOpenId(null);
       // `expandAncestorsOf` is async (loadChildren round trips);
       // we don't await so the click feels instant — the row
       // starts to expand on the next render frame, and the
@@ -1716,8 +1695,11 @@ export default function TaxonomyTree(
   // ODD-NTP-005 — breadcrumb home click. Mirrors the legacy
   // `web/nav.js::focus-home` handler: clear focused + selected
   // (no expansion mutation — `collapseAll` is its own button).
+  //
+  // ODD-TAPOPUP-001: the inline `setKebabOpenId(null)` call is
+  // GONE (the kebab menu is gone; clearing `selected` already
+  // closes the popup).
   const handleFocusHome = useCallback(() => {
-    setKebabOpenId(null);
     setFocused(null);
     setSelected(null);
   }, []);
@@ -1737,28 +1719,8 @@ export default function TaxonomyTree(
     void loadSearches(selected);
   }, [selected, loadSearches]);
 
-  // ODD-TDV-001 — eager-fetch-on-selection contract for the
-  // Vernaculars tab. Mirrors the SearchTab eager-fetch effect
-  // byte-for-byte: whenever `selected` becomes a non-null taxon
-  // id, fire the canonical `fetchVernaculars(id, { limit: 200 })`
-  // round trip so the Vernaculars tab activation paints the
-  // rendered `Vernacular names` header + count + per-row chips
-  // + name span instantly. Re-selecting the same taxon is a
-  // no-op (the `loadVernaculars` callback short-circuits on
-  // `loaded` / `empty` / `error` cached entries). Closing the
-  // panel (selected → null) does NOT clear the cache — the
-  // cached result survives across deselects AND across source
-  // switches (the `/api/taxon/{id}/vernaculars` endpoint is
-  // source-agnostic, so the previously cached payload stays
-  // valid under the new active source).
-  useEffect(() => {
-    if (selected === null) return;
-    void loadVernaculars(selected);
-  }, [selected, loadVernaculars]);
-
   // ODD-TDSYN-001 — eager-fetch-on-selection contract for the
-  // Synonyms tab. Mirrors the Vernaculars eager-fetch effect
-  // byte-for-byte: whenever `selected` becomes a non-null taxon
+  // Synonyms tab. Whenever `selected` becomes a non-null taxon
   // id, fire the canonical `fetchSynonyms(id, { limit: 200 })`
   // round trip so the Synonyms tab activation paints the
   // rendered `Synonyms` header + count + the per-row rank chip
@@ -1773,6 +1735,11 @@ export default function TaxonomyTree(
   // `parent_id = taxon_id AND status != 'accepted'`
   // regardless of the active tree source — so the previously
   // cached payload stays valid under the new active source).
+  //
+  // ODD-TAPOPUP-001 — the Vernaculars eager-fetch effect is
+  // GONE (the popup drops the Vernaculars tab; the
+  // `loadVernaculars` callback + the `vernacularsByTaxonId`
+  // cache are retired).
   useEffect(() => {
     if (selected === null) return;
     void loadSynonyms(selected);
@@ -2234,9 +2201,7 @@ export default function TaxonomyTree(
             activeSource={activeSource}
             focused={focused}
             selected={selected}
-            kebabOpenId={kebabOpenId}
             onToggleKebab={handleToggleKebab}
-            onKebabAction={handleKebabAction}
             registerRowRef={registerRowRef}
             pulseNonce={pulseNonce}
           />
@@ -2277,9 +2242,7 @@ export default function TaxonomyTree(
               activeSource={activeSource}
               focused={focused}
               selected={selected}
-              kebabOpenId={kebabOpenId}
               onToggleKebab={handleToggleKebab}
-              onKebabAction={handleKebabAction}
               registerRowRef={registerRowRef}
               pulseNonce={pulseNonce}
             />
@@ -2404,8 +2367,10 @@ export default function TaxonomyTree(
                   const activeTab = getActiveTabFor(selected);
                   const searchStatus: SearchTabStatus =
                     searchesByTaxonId.get(selected) ?? { kind: "idle" };
-                  const vernacularStatus: VernacularTabStatus =
-                    vernacularsByTaxonId.get(selected) ?? { kind: "idle" };
+                  // ODD-TAPOPUP-001: the Vernaculars tab + cache
+                  // are GONE (the popup drops the Vernaculars
+                  // tab; the user-selected four tabs are
+                  // Synonyms / Distribution / Search / Folder).
                   const synonymStatus: SynonymTabStatus =
                     synonymsByTaxonId.get(selected) ?? { kind: "idle" };
                   const distributionStatus: DistributionTabStatus =
@@ -2427,12 +2392,14 @@ export default function TaxonomyTree(
                       activeSource={activeSource}
                       activeTab={activeTab}
                       onTabChange={(tab) => handleTabChange(selected, tab)}
-                      onFocusSegment={handleFocusSegment}
+                      // ODD-TAPOPUP-001: the `onFocusSegment`
+                      // prop is GONE (the popup drops the
+                      // Overview body's parent-chain; the
+                      // breadcrumb above the tree still owns
+                      // the focus-segment affordance).
                       onClose={handleCloseDetail}
                       searchStatus={searchStatus}
                       onRetrySearches={() => void loadSearches(selected)}
-                      vernacularStatus={vernacularStatus}
-                      onRetryVernaculars={() => void loadVernaculars(selected)}
                       synonymStatus={synonymStatus}
                       onRetrySynonyms={() => void loadSynonyms(selected)}
                       distributionStatus={distributionStatus}

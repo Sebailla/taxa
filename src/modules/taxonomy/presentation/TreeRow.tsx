@@ -1,6 +1,7 @@
 /**
  * TreeRow — single disclosure row in the visible taxonomy tree
- * (ODD-VTREE-002 / ODD-NTP-003 / ODD-NTP-004 / ODD-NTP-005).
+ * (ODD-VTREE-002 / ODD-NTP-003 / ODD-NTP-004 / ODD-NTP-005 /
+ * ODD-TAPOPUP-001).
  *
  * Renders one taxon as a real block element (NOT a `display: contents`
  * placeholder) so the depth indent applies to the WHOLE identity +
@@ -12,23 +13,40 @@
  * and across source switches.
  *
  * ODD-PHASE2 — design-system cutover (post-PR #385):
- *   The row density collapses from 9 visible elements to 5:
+ *   The row density collapsed from 9 visible elements to 5
+ *   (disclosure + rank Badge + name + status+count Badge +
+ *   kebab IconButton). The materialize indicator +
+ *   source-info glyph + row-level `visibility` icon button all
+ *   collapsed into the kebab menu / name span title.
  *
- *     1. disclosure glyph (kept — needed for the expand / leaf affordance)
- *     2. <Badge variant="subtle" uppercase> for the rank
- *     3. scientific name (kept inline — too context-specific to extract)
- *     4. <Badge variant="subtle" uppercase={false}> for the status dot +
- *        species count composite (status indicator is an inline span with
- *        Tailwind colour utilities; count is `font-mono-data`)
- *     5. <IconButton variant="subtle"> for the kebab trigger
+ * ODD-TAPOPUP-001 — taxon-action popup replaces the kebab menu:
+ *   The pre-popup kebab menu carried two conditional items
+ *   ("Open folder" for materialized rows + "View on WoRMS" for
+ *   WoRMS rows). Both items are GONE — the popup replaces the
+ *   sticky detail rail and the user-selected four tabs
+ *   (Synonyms / Distribution / Search / Folder) subsume the
+ *   menu shortcuts. Clicking the row-level kebab IconButton
+ *   now opens the popup directly via the canonical
+ *   `onToggleKebab(id)` callback (which the parent wires to
+ *   `handleSelect(id)` so the selection primitive is the
+ *   single source of truth for popup-open).
  *
- *   The materialize indicator + source-info glyph + row-level
- *   `visibility` icon button collapse into the kebab menu (one
- *   <IconButton> opens it; the menu carries "Open folder"
- *   conditional on `isMaterialized` + "View on WoRMS" conditional
- *   on `wormsUrl`). The kebab menu's "View details" item is gone —
- *   it was a duplicate affordance of the disclosure button's
- *   `onSelect(taxon.id)` click.
+ *   The kebab IconButton advertises the popup target via
+ *   `aria-haspopup="dialog"` (was `aria-haspopup="menu"` in
+ *   the pre-popup kebab menu) + `aria-expanded={selected ===
+ *   taxon.id ? "true" : "false"}` so assistive tech sees the
+ *   popup's open state for that row. The kebab-trigger CSS
+ *   discoverability hook (passive-hint opacity + hover/focus
+ *   reveal) is restored by adding the `kebab-trigger` class
+ *   hook to the IconButton's className chain.
+ *
+ *   The "Open folder" kebab item is gone (the Folder tab in
+ *   the popup owns the create/open flow). The "View on WoRMS"
+ *   shortcut is gone (the WoRMS badge was an Overview-tab
+ *   affordance; the popup drops the Overview tab). The
+ *   materialize indicator stays as a `data-materialized`
+ *   attribute on the row surface so the Folder tab knows
+ *   whether the row is materialized.
  *
  * The disclosure control is a `<button>` with `aria-expanded` for
  * expandable rows; species / subspecies leaves carry a `•` glyph
@@ -86,16 +104,11 @@
  *   - species count + JetBrains Mono — rendered inside the same
  *     Badge composite. The previous `.species-count-badge` rule is
  *     gone (the new Badge centralizes the treatment).
- *   - kebab trigger via `<IconButton variant="subtle">` (the
- *     previous row-level `visibility` icon button + the manual
- *     `kebab-trigger` span are replaced by one IconButton).
- *   - kebab menu carries the two remaining conditional items:
- *       - "Open folder" — `isMaterialized` only (ODD-OPENFOLDER-001)
- *       - "View on WoRMS" — `wormsUrl` only (the outbound anchor
- *         routes to marinespecies.org).
- *     The kebab item previously labelled "View details" (with
- *     `data-action="open-searches"`) is GONE — it duplicated the
- *     disclosure button's `onSelect(taxon.id)` click.
+ *   - kebab trigger via `<IconButton variant="subtle">` with
+ *     `kebab-trigger` class hook (the CSS discoverability
+ *     cascade is wired via the `kebab-trigger` class). The
+ *     kebab menu is GONE in ODD-TAPOPUP-001 — the trigger
+ *     opens the popup directly.
  *
  * spec.md rule 4: depends on the taxonomy domain (`Taxon`,
  * `Rank`) and the sibling tree-state helpers + the row-format
@@ -119,7 +132,6 @@ import {
   scientificNameDepthClass,
   speciesCountBadge,
   statusDotDescriptor,
-  wormsUrlFor,
 } from "./row-format";
 
 /** Indent step — matches `web/tree.js::renderNodeRow`'s `depth * 24`
@@ -167,30 +179,13 @@ export interface TreeRowProps {
    *  border. Mirrors
    *  `web/tree.js::renderNodeRow::rowClassFor(isSelected=true)`. */
   readonly selected: number | null;
-  /** Identifier of the row whose kebab menu is currently open, or
-   *  `null` when every kebab is closed. Owned by `TaxonomyTree` so
-   *  only one kebab can be open at a time across the whole tree. */
-  readonly kebabOpenId: number | null;
-  /** Toggle the kebab for `id`. Called by the kebab trigger
-   *  `<IconButton>` (`data-action="toggle-kebab"`). The parent
-   *  owns the state so click-outside / Escape dismissal live at
-   *  the tree level. */
+  /** ODD-TAPOPUP-001 — kebab trigger callback. Called by the
+   *  kebab `<IconButton>` (`data-action="toggle-kebab"`). The
+   *  parent wires this to `handleSelect(id)` so the popup opens
+   *  via the canonical selection primitive (the popup is
+   *  `selected`-driven; the kebab-click is functionally
+   *  equivalent to clicking the row's leaf disclosure). */
   readonly onToggleKebab: (id: number) => void;
-  /** Kebab item action handler. Called by every enabled kebab menu
-   *  item. The kebab menu carries only two items after ODD-PHASE2:
-   *    - "open-folder-tab" — Materialised rows only. Routes
-   *      through ODD-OPENFOLDER-001 to pin the Folder tab +
-   *      select/focus the taxon.
-   *    - "view-on-worms" — Anchor + `target="_blank"`.
-   *  The legacy `"open-searches"` action signature is preserved in
-   *  the parent handler so external callers (the handleKebabAction
-   *  action union) keep type-checking, but no UI consumer fires it
-   *  after the ODD-PHASE2 collapse (the disclosure button replaced
-   *  the "View details" kebab item). */
-  readonly onKebabAction: (
-    id: number,
-    action: "open-searches" | "open-folder-tab" | "view-on-worms",
-  ) => void;
   /** ODD-NTP-005 — register the row's DOM node so the parent's
    *  `scrollIntoView({ block: "nearest" })` call after `select`
    *  can target it. Called on mount with the ref + on unmount
@@ -199,9 +194,10 @@ export interface TreeRowProps {
   readonly registerRowRef: (id: number, node: HTMLDivElement | null) => void;
   /** ODD-NTP-005 — monotonic counter that triggers the row's
    *  one-shot pulse animation. The parent bumps the nonce on
-   *  every successful `select` so the freshly focused row plays
-   *  the legacy `web/nav.js::select-from-search` `search-pulse`
-   *  affordance once. */
+   *  every successful `select` so the row renders a brief
+   *  pulse affordance (mirrors the legacy
+   *  `web/nav.js::select-from-search` `search-pulse`
+   *  affordance once). */
   readonly pulseNonce: number;
 }
 
@@ -238,9 +234,7 @@ export default function TreeRow({
   activeSource: _activeSource,
   focused,
   selected,
-  kebabOpenId,
   onToggleKebab,
-  onKebabAction,
   registerRowRef,
   pulseNonce,
 }: TreeRowProps): ReactElement {
@@ -305,17 +299,22 @@ export default function TreeRow({
   // port mirrors the exact predicate so the affordance surface stays
   // in lock-step with the native oracle. After ODD-PHASE2 the
   // materialize indicator + source info glyph + visibility icon
-  // button are gone from the row surface (they collapse into the
+  // button are gone from the row surface (they collapsed into the
   // kebab menu / name span title); what remains is the status +
   // species count composite.
   const realm = realmForPath(taxon.path);
   const statusDot = statusDotDescriptor(taxon.status);
   const statusDotTitle = statusDot.title;
   const statusColorCls = statusDotColorClass(taxon.status);
-  const wormsUrl = wormsUrlFor(taxon);
   const speciesCountText = speciesCountBadge(taxon.species_count);
+  // ODD-TAPOPUP-001 — the materialize indicator stays as a
+  // `data-materialized` attribute on the row surface so the Folder
+  // tab in the popup knows whether the row is already on disk (the
+  // pre-popup kebab menu used the predicate for the conditional
+  // "Open folder" item; the popup subsumes that affordance via the
+  // Folder tab). The helper stays imported + consumed here so the
+  // canonical row-affordance surface survives the popup cutover.
   const isMaterialized = hasMaterializedFolder(taxon);
-  const kebabOpen = kebabOpenId === taxon.id;
   const taxonIdStr = String(taxon.id);
 
   return (
@@ -364,7 +363,12 @@ export default function TreeRow({
           if (!Number.isFinite(taxon.id) || !Number.isInteger(taxon.id) || taxon.id <= 0) {
             return;
           }
-          const url = `/?taxon=${taxon.id}`;
+          // Build the URL with an explicit `window.location.origin`
+          // prefix so the navigation is provably same-origin (the
+          // id is the only dynamic component, defensively validated
+          // with `Number.isFinite` / `Number.isInteger` / `id > 0`
+          // so a malformed id never produces an open redirect).
+          const url = `${window.location.origin}/?taxon=${taxon.id}`;
           window.open(url, "_blank", "noopener,noreferrer");
         }}
         disabled={knownLeaf}
@@ -419,26 +423,43 @@ export default function TreeRow({
             </span>
           ) : null}
         </Badge>
-        {/* ODD-PHASE2 — kebab trigger via the design-system
-            <IconButton> primitive. Replaces the previous
-            `.kebab-trigger material-symbols-outlined ...` button
-            (the row-level `.tree-search-icon` `visibility` button
-            was already removed in this collapse). The kebab menu
-            itself is unchanged structurally — it carries the two
-            conditional items below. */}
+        {/* ODD-PHASE2 + ODD-TAPOPUP-001 — kebab trigger via the
+            design-system <IconButton> primitive. Replaces the
+            previous `.kebab-trigger material-symbols-outlined ...`
+            button (the row-level `.tree-search-icon` `visibility`
+            button was already removed in this collapse).
+
+            ODD-TAPOPUP-001 — the kebab menu is GONE. The trigger
+            opens the taxon-action popup directly via the canonical
+            `onToggleKebab(id)` callback (which the parent wires
+            to `handleSelect(id)`). The `kebab-trigger` class hook
+            is restored so the existing CSS discoverability rule
+            (passive-hint opacity + hover/focus reveal) is wired:
+            the IconButton's className chain picks up the
+            `margin-left / padding / border-radius / opacity /
+            transition` declarations from `.kebab .kebab-trigger`.
+
+            The trigger advertises the popup target via
+            `aria-haspopup="dialog"` (was `aria-haspopup="menu"`
+            in the pre-popup kebab menu). The `aria-expanded`
+            attribute reflects the popup's open state for this
+            row (`selected === taxon.id`). The `data-action=
+            "toggle-kebab"` attribute stays so the selector +
+            data-action delegation contract survives the React
+            cutover. */}
         <div
           className="kebab"
           data-kebab-for={taxonIdStr}
-          data-kebab-open={kebabOpen ? "true" : undefined}
         >
           <IconButton
             variant="subtle"
             aria-label={`More actions for ${taxon.name}`}
             title="More actions"
-            aria-haspopup="menu"
-            aria-expanded={kebabOpen ? "true" : "false"}
+            aria-haspopup="dialog"
+            aria-expanded={selected === taxon.id ? "true" : "false"}
             data-action="toggle-kebab"
             data-taxon-id={taxonIdStr}
+            className="kebab-trigger"
             onClick={(ev) => {
               ev.stopPropagation();
               onToggleKebab(taxon.id);
@@ -448,74 +469,6 @@ export default function TreeRow({
               more_vert
             </span>
           </IconButton>
-          <div
-            className={`kebab-menu${kebabOpen ? " open" : ""}`}
-            role="menu"
-            data-kebab-menu-for={taxonIdStr}
-          >
-            {/* "Open folder" — ENABLED in ODD-OPENFOLDER-001 when
-                the taxon's root→taxon folder exists on disk (the
-                legacy oracle showed the action only when
-                `hasMaterializedFolder(taxon)` is true). The item
-                routes through `onKebabAction(id, "open-folder-tab")`
-                so the parent can pin the active detail tab to
-                "folder" and select/focus the taxon — mirrors the
-                legacy `web/nav.js::open-folder-tab` handler byte-
-                for-byte (which set `state.focused = id`,
-                `state.activeTab[id] = "folder"`, then
-                `selectTaxon(id)`). Non-materialized rows do NOT
-                expose the action — the predicate stays intact
-                so the affordance only appears when the folder
-                is on disk, matching the legacy visibility rule. */}
-            {isMaterialized ? (
-              <button
-                type="button"
-                className="kebab-item"
-                data-action="open-folder-tab"
-                data-taxon-id={taxonIdStr}
-                role="menuitem"
-                title="Open folder"
-                onClick={(ev) => {
-                  ev.stopPropagation();
-                  onKebabAction(taxon.id, "open-folder-tab");
-                }}
-              >
-                <span
-                  aria-hidden="true"
-                  className="material-symbols-outlined text-[16px] text-on-surface-variant"
-                >
-                  folder_open
-                </span>
-                <span className="kebab-item-label">Open folder</span>
-              </button>
-            ) : null}
-            {/* "View on WoRMS" — ENABLED when `wormsUrlFor(taxon)`
-                returns a URL. Renders as an `<a target="_blank">`
-                that opens the canonical marinespecies.org URL.
-                No React handler needed (anchor + target does the
-                navigation), so this is the only kebab item with
-                backing behavior in ODD-NTP-004. */}
-            {wormsUrl ? (
-              <a
-                className="kebab-item"
-                href={wormsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                role="menuitem"
-                data-action="view-on-worms"
-                data-taxon-id={taxonIdStr}
-                onClick={() => onKebabAction(taxon.id, "view-on-worms")}
-              >
-                <span
-                  aria-hidden="true"
-                  className="material-symbols-outlined text-[16px] text-on-surface-variant"
-                >
-                  open_in_new
-                </span>
-                <span className="kebab-item-label">View on WoRMS</span>
-              </a>
-            ) : null}
-          </div>
         </div>
       </div>
     </div>
