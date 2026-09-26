@@ -67,7 +67,7 @@ export default function AppShellHeader(
       className="app-shell-header border-b border-outline-variant bg-surface"
       data-app-shell-header=""
     >
-      <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-4 gap-y-2 px-6 py-3">
+      <div className="mx-auto flex w-full max-w-none flex-wrap items-center gap-x-4 gap-y-2 px-6 py-3">
         <a
           href="/"
           className="app-shell-brand font-semibold tracking-tight text-on-surface"
