@@ -116,6 +116,13 @@ class _StrictChromium:
         return _StrictBrowser(self._cm)
 
 
+# Module-level list of pages created by the strict fake browser so
+# tests can inspect registered route handlers AFTER run_iteration
+# returns (the page is local to the run, but the registration order
+# proves the safety boundary was armed before any request could fire).
+_LAST_BROWSER_PAGES: list = []
+
+
 class _StrictBrowser:
     def __init__(self, cm):
         self._cm = cm
@@ -136,17 +143,53 @@ class _StrictBrowser:
                 "LIFECYCLE VIOLATION: browser.new_page() called outside "
                 "active sync_playwright() context or after close().")
         self.new_page_calls += 1
-        return _StrictPage()
+        page = _StrictPage()
+        _LAST_BROWSER_PAGES.append(page)
+        return page
 
     def close(self):
         self._closed = True
 
 
 class _StrictPage:
+    def __init__(self):
+        self.route_handlers: list = []
+        # Ordered record of every page-level call. Tests assert the
+        # `route(...)` → `goto(...)` ordering contract: the safety
+        # boundary MUST be armed before navigation so requests are
+        # intercepted before they hit the network/server. Capturing
+        # just the registered handler count is insufficient — a
+        # regression that registers the handler AFTER goto would
+        # still leave at least one handler attached but every
+        # request fired during the unfiltered goto would slip past
+        # the boundary.
+        self.event_log: list[tuple] = []
+
     def on(self, event, handler):
-        pass
+        self.event_log.append(("on", event))
+
+    def route(self, *args, **kwargs):
+        # Mirrors the real Playwright sync API:
+        #   page.route(handler)              → intercept every URL
+        #   page.route(url_pattern, handler) → intercept specific URL
+        # Either form is a no-op stub for the handler storage; the
+        # test asserts the handler is captured, not the URL pattern.
+        self.event_log.append(("route", args, kwargs))
+        for arg in args:
+            if callable(arg):
+                self.route_handlers.append(arg)
 
     def goto(self, url, wait_until=None):
+        # Default navigation is GET. Drive the registered route
+        # handlers so the safety boundary is exercised end-to-end.
+        # Tests that need a mutating request subclass / monkeypatch
+        # `goto` to swap in a different method — GET is the safe
+        # baseline so the existing lifecycle tests still pass.
+        self.event_log.append(("goto", url, wait_until))
+        if self.route_handlers:
+            route = _StrictRoute(method="GET", url=url)
+            for h in self.route_handlers:
+                h(route)
         return _StrictResponse()
 
     def evaluate(self, script):
@@ -157,6 +200,29 @@ class _StrictPage:
 
     def locator(self, selector):
         return _StrictLocator()
+
+
+class _StrictRoute:
+    """Fake Playwright Route for unit tests of the safety boundary.
+
+    Mirrors the real sync API surface used by the handler:
+      - `route.request.method`  (str; the HTTP method)
+      - `route.continue_()`     (continue the request to network)
+      - `route.abort()`         (abort the request before network)
+
+    Records `continued` / `aborted` so the test can verify which
+    branch the handler chose.
+    """
+    def __init__(self, method="GET", url="http://127.0.0.1:8765/"):
+        self.request = types.SimpleNamespace(method=method, url=url)
+        self.continued = False
+        self.aborted = False
+
+    def continue_(self):
+        self.continued = True
+
+    def abort(self):
+        self.aborted = True
 
 
 class _StrictResponse:
@@ -1354,3 +1420,298 @@ def test_validate_candidate_root_accepts_real_next_static_export(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Task 15 — Client-side HTTP safety boundary.
+#
+# Context: a previous G5 capture run exercised a target that exposed
+# mutators (no mutating method was actually observed, but this was a
+# procedure deviation). This slice adds a CLIENT-SIDE boundary in the
+# Playwright adapter that permits only GET/HEAD/OPTIONS; every other
+# request MUST be aborted BEFORE network/server and MUST fail the
+# capture closed (no partial output publication).
+#
+# Tested via the strict Playwright sync-API fake (page/route seam).
+# No real browser, no real server.
+# ---------------------------------------------------------------------------
+
+
+def test_route_handler_permits_only_get_head_options():
+    """Client-side safety boundary: GET / HEAD / OPTIONS are the only
+    HTTP methods the adapter permits. Each safe method MUST call
+    `route.continue_()` and MUST NOT call `route.abort()`."""
+    adapter = ch.PlaywrightBrowserAdapter()
+    for method in ("GET", "HEAD", "OPTIONS"):
+        route = _StrictRoute(method=method)
+        adapter.route_handler(route)
+        assert route.continued, (
+            f"{method} must call route.continue_()")
+        assert not route.aborted, (
+            f"{method} must NOT call route.abort()")
+
+
+@pytest.mark.parametrize("method", ["POST", "PUT", "DELETE", "PATCH"])
+def test_route_handler_blocks_mutating_method_and_fails_capture(method):
+    """Every mutating method MUST be aborted AND raise to fail the
+    capture closed. The handler aborts the request before network and
+    then raises — `collect_raw_samples` propagates and the CLI never
+    writes `--out` (no partial publication)."""
+    adapter = ch.PlaywrightBrowserAdapter()
+    route = _StrictRoute(method=method)
+    with pytest.raises(RuntimeError, match="blocked unsafe HTTP method"):
+        adapter.route_handler(route)
+    assert route.aborted, (
+        f"{method} MUST call route.abort() before raising")
+    assert not route.continued, (
+        f"{method} MUST NOT call route.continue_()")
+
+
+@pytest.mark.parametrize("bad_method", ["TRACE", "CONNECT", "FOOBAR", "", None])
+def test_route_handler_blocks_unknown_or_non_string_method(bad_method):
+    """Defensive: unknown, empty, or non-string methods MUST fail
+    closed (treated as mutating). An empty / missing method MUST NOT
+    silently pass through as if it were GET."""
+    adapter = ch.PlaywrightBrowserAdapter()
+    route = _StrictRoute(method=bad_method)
+    with pytest.raises(RuntimeError, match="blocked unsafe HTTP method"):
+        adapter.route_handler(route)
+    assert route.aborted
+    assert not route.continued
+
+
+def test_route_handler_method_match_is_case_insensitive():
+    """Method matching is case-insensitive. HTTP method names are
+    conventionally uppercase but defensive parsing accepts lowercase
+    so a misbehaving server or proxy cannot smuggle a mutating verb
+    past the boundary."""
+    adapter = ch.PlaywrightBrowserAdapter()
+    for method in ("get", "head", "options"):
+        route = _StrictRoute(method=method)
+        adapter.route_handler(route)
+        assert route.continued, f"lowercase {method} must be allowed"
+        assert not route.aborted
+    for method in ("post", "put", "delete", "patch"):
+        route = _StrictRoute(method=method)
+        with pytest.raises(RuntimeError, match="blocked unsafe"):
+            adapter.route_handler(route)
+        assert route.aborted
+        assert not route.continued
+
+
+def test_route_handler_aborts_before_attempting_continue(monkeypatch):
+    """The unsafe-method branch MUST call abort() and never
+    continue_() — aborting BEFORE attempting continue is the
+    safety-boundary invariant (the request must NOT be allowed to
+    reach the network/server)."""
+    adapter = ch.PlaywrightBrowserAdapter()
+    route = _StrictRoute(method="POST")
+    calls: list = []
+    monkeypatch.setattr(route, "abort", lambda: calls.append("abort"))
+    monkeypatch.setattr(route, "continue_", lambda: calls.append("continue"))
+    with pytest.raises(RuntimeError, match="blocked unsafe HTTP method"):
+        adapter.route_handler(route)
+    assert calls == ["abort"], (
+        f"unsafe-method branch MUST call abort() only; got {calls!r}")
+
+
+def test_run_iteration_registers_route_handler_before_goto(monkeypatch):
+    """`page.route(handler)` MUST be called inside `run_iteration`
+    BEFORE `page.goto()` so the safety boundary intercepts requests
+    before they hit the network/server."""
+    _LAST_BROWSER_PAGES.clear()
+    cm = _StrictPlaywrightCM()
+    fake_module = types.SimpleNamespace(sync_playwright=lambda: cm)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", fake_module)
+
+    adapter = ch.PlaywrightBrowserAdapter()
+    adapter.run_iteration(
+        target_url=TARGET_URL,
+        dom_marker_selector=ch.DEFAULT_DOM_MARKER_SELECTOR,
+        iteration_index=0,
+    )
+
+    assert len(_LAST_BROWSER_PAGES) == 1, (
+        "expected exactly one page from run_iteration")
+    page = _LAST_BROWSER_PAGES[0]
+    assert len(page.route_handlers) >= 1, (
+        "page.route(handler) MUST be registered before page.goto() so the "
+        "client-side safety boundary is in place")
+    # PIN THE ORDER: `page.route(...)` MUST precede `page.goto(...)`.
+    # The mere presence of a registered handler is NOT enough — a
+    # regression that arms the boundary AFTER navigation would still
+    # leave at least one handler attached, but every request fired
+    # during the unfiltered goto would slip past the safety boundary
+    # to the network/server. The first relevant page event MUST
+    # therefore be a `route` registration, NOT a `goto`.
+    relevant_kinds = [
+        kind for kind, *_ in page.event_log if kind in ("route", "goto")
+    ]
+    assert relevant_kinds, (
+        f"page.event_log must record at least one route/goto event; "
+        f"got {page.event_log!r}")
+    assert relevant_kinds[0] == "route", (
+        f"page.route(...) MUST be called BEFORE page.goto(...); "
+        f"first relevant page event was {relevant_kinds[0]!r}; "
+        f"full event_log: {page.event_log!r}")
+
+
+def test_run_iteration_fails_closed_when_route_blocks_mutating_request(
+        monkeypatch):
+    """Integration via the page/route seam: when the page's goto
+    drives a mutating method through the registered route handler,
+    the handler aborts the request AND raises to fail the iteration
+    closed (no partial sample returned)."""
+    _LAST_BROWSER_PAGES.clear()
+    cm = _StrictPlaywrightCM()
+    fake_module = types.SimpleNamespace(sync_playwright=lambda: cm)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", fake_module)
+
+    # Wrap `_StrictBrowser.new_page` so the page's goto fires a POST
+    # through the registered route handlers (the seam is local to
+    # the run — no real browser, no real server).
+    original_new_page = _StrictBrowser.new_page
+
+    def post_new_page(self):
+        page = original_new_page(self)
+
+        def post_goto(url, wait_until=None):
+            if page.route_handlers:
+                route = _StrictRoute(method="POST", url=url)
+                for h in page.route_handlers:
+                    h(route)
+            return _StrictResponse()
+
+        page.goto = post_goto
+        return page
+
+    monkeypatch.setattr(_StrictBrowser, "new_page", post_new_page)
+
+    adapter = ch.PlaywrightBrowserAdapter()
+    with pytest.raises(RuntimeError, match="blocked unsafe HTTP method"):
+        adapter.run_iteration(
+            target_url=TARGET_URL,
+            dom_marker_selector=ch.DEFAULT_DOM_MARKER_SELECTOR,
+            iteration_index=0,
+        )
+
+
+def test_collect_raw_samples_propagates_blocked_mutating_request(
+        monkeypatch):
+    """End-to-end: when the safety boundary aborts a mutating request,
+    `collect_raw_samples` MUST propagate the exception — NO partial
+    sample, NO partial publication. The CLI never writes `--out` when
+    `collect_raw_samples` raises."""
+    _LAST_BROWSER_PAGES.clear()
+    cm = _StrictPlaywrightCM()
+    fake_module = types.SimpleNamespace(sync_playwright=lambda: cm)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", fake_module)
+
+    original_new_page = _StrictBrowser.new_page
+
+    def post_new_page(self):
+        page = original_new_page(self)
+
+        def post_goto(url, wait_until=None):
+            if page.route_handlers:
+                route = _StrictRoute(method="POST", url=url)
+                for h in page.route_handlers:
+                    h(route)
+            return _StrictResponse()
+
+        page.goto = post_goto
+        return page
+
+    monkeypatch.setattr(_StrictBrowser, "new_page", post_new_page)
+
+    adapter = ch.PlaywrightBrowserAdapter()
+    with pytest.raises(RuntimeError, match="blocked unsafe HTTP method"):
+        ch.collect_raw_samples(
+            target_url=TARGET_URL, browser_adapter=adapter,
+        )
+    # The adapter must have attempted exactly one iteration before
+    # the boundary aborted and raised — no samples were emitted.
+    assert len(_LAST_BROWSER_PAGES) == 1
+
+
+def test_playwright_adapter_has_public_safe_methods_contract():
+    """Contract surface: the adapter MUST expose the safe-method set
+    so tests, reviewers, and downstream tools can read what the
+    boundary permits without scraping source code."""
+    adapter = ch.PlaywrightBrowserAdapter()
+    safe = getattr(adapter, "_SAFE_HTTP_METHODS", None) \
+        or getattr(ch, "_SAFE_HTTP_METHODS", None)
+    assert safe is not None, (
+        "PlaywrightBrowserAdapter / module MUST expose "
+        "_SAFE_HTTP_METHODS for the safety boundary contract")
+    assert set(safe) == {"GET", "HEAD", "OPTIONS"}, (
+        f"_SAFE_HTTP_METHODS MUST be exactly GET/HEAD/OPTIONS; got {set(safe)!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Task 15 — `validate_candidate_root` docstring + read-once contract.
+#
+# The docstring MUST be aligned with caller-supplied `target_url`
+# behavior: this function NEVER fetches `<target-url>/index.html`
+# (that role belongs to `_http_get_index`, called separately by
+# `collect_migrated_samples`). The function MUST also read
+# `<root>/index.html` exactly once and reuse the same bytes for
+# both the static-reference check AND the SHA-256 hash so a writer
+# racing the validation cannot split the trust contract.
+# ---------------------------------------------------------------------------
+
+
+def test_validate_candidate_root_docstring_does_not_claim_url_fetch():
+    """`validate_candidate_root` is strictly local. The docstring MUST
+    NOT claim that it fetches `<target-url>/index.html` (the served-body
+    pre-flight lives in `_http_get_index`, called separately by
+    `collect_migrated_samples`)."""
+    doc = ch.validate_candidate_root.__doc__ or ""
+    # Must NOT reference `<target-url>` — this function is local-only.
+    assert "<target-url>" not in doc, (
+        f"validate_candidate_root is local-only; docstring must NOT "
+        f"reference `<target-url>` (URL fetching is `_http_get_index`'s "
+        f"role, called by `collect_migrated_samples`). Got:\n{doc!r}")
+    # Must NOT contain phrasing that implies this function performs an
+    # HTTP fetch on its own.
+    assert "Pre-flight fetches" not in doc, (
+        f"docstring must NOT claim this function 'Pre-flight fetches' "
+        f"the served URL. Got:\n{doc!r}")
+    # Must clearly identify itself as a local / on-disk validation so
+    # callers understand the trust boundary.
+    assert "local" in doc.lower() or "on disk" in doc.lower() \
+        or "on-disk" in doc.lower(), (
+        f"docstring must clearly identify this function as local-only "
+        f"(mention 'local' / 'on disk' / 'on-disk'). Got:\n{doc!r}")
+
+
+def test_validate_candidate_root_reads_index_html_bytes_once(
+        tmp_path, monkeypatch):
+    """`validate_candidate_root` MUST read `<root>/index.html` exactly
+    once and reuse the same bytes for BOTH the static-reference check
+    AND the SHA-256 hash. Reading the file twice could race a writer
+    that swaps the file mid-validation, silently inverting the trust
+    contract (the static-reference check would see one revision and
+    the SHA-256 would be pinned to a different one)."""
+    root = _make_candidate_root(tmp_path / "candidate")
+    read_calls: list = []
+    real_read_bytes = Path.read_bytes
+
+    def tracking_read_bytes(self):
+        # Track only the candidate-root index.html (other Paths in the
+        # validation flow stay unobserved).
+        try:
+            if self.name == "index.html" and \
+                    self.parent.resolve() == root.resolve():
+                read_calls.append(self)
+        except (OSError, ValueError):
+            pass
+        return real_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", tracking_read_bytes)
+    result = ch.validate_candidate_root(root)
+    assert read_calls == [root / "index.html"], (
+        f"index.html must be read exactly once; got {len(read_calls)} "
+        f"calls: {[str(p) for p in read_calls]}")
+    expected_hash = hashlib.sha256(
+        (root / "index.html").read_bytes()).hexdigest()
+    assert result["candidate_index_sha256"] == expected_hash
+    assert result["static_dir_present"] is True

@@ -66,6 +66,12 @@ ITERATIONS = 10
 # never matched the controlled runtime.
 DEFAULT_DOM_MARKER_SELECTOR = '#tree-view[data-state="ready"]'
 EXIT_OK, EXIT_USAGE, EXIT_FAILURE = 0, 2, 10
+# Client-side HTTP safety boundary (Task 15). The Playwright adapter
+# permits ONLY these methods. Anything else is aborted BEFORE the
+# network/server and the capture fails closed (no partial output
+# publication). Per RFC 9110 §9.3, GET / HEAD / OPTIONS are the safe
+# methods that MUST NOT change server state.
+_SAFE_HTTP_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
 # ---------------------------------------------------------------------------
@@ -144,12 +150,26 @@ def _http_get_index(target_url: str, *, timeout_s: float = 10.0) -> tuple[int, b
 
 
 def validate_candidate_root(candidate_root):
-    """Verify ``candidate_root`` is a Next.js static-export root.
+    """Verify ``candidate_root`` is a Next.js static-export root on disk.
 
-    Returns a dict carrying ``candidate_root``, the on-disk
-    ``candidate_index_sha256``, and ``static_dir_present`` so the
-    migrated capture can be traced back to the exact bytes served.
-    Fails closed (``ValueError``) on any deviation.
+    This is a strictly LOCAL validation. It NEVER fetches the served
+    URL — the served-body pre-flight lives in ``_http_get_index`` and
+    is performed separately by ``collect_migrated_samples`` against
+    the caller-supplied ``target_url``. The caller is responsible for
+    verifying that the served bytes match the on-disk bytes; this
+    function's role is to ensure the on-disk root is a real Next.js
+    static export, not a legacy ``web/`` root padded with an empty
+    ``_next/static`` directory.
+
+    Read-once contract: ``<root>/index.html`` is read exactly once
+    and the same bytes are used for both the static-reference check
+    AND the returned SHA-256. Reading twice could race a writer that
+    swaps the file mid-validation and silently split the trust
+    contract (one revision for the reference check, another for the
+    pinned hash). Returns a dict carrying ``candidate_root``, the
+    on-disk ``candidate_index_sha256`` (computed once from local
+    bytes), and ``static_dir_present``. Fails closed (``ValueError``)
+    on any deviation.
 
     Identity hardening (parent review): a legacy ``web/`` root padded
     with an empty ``_next/static`` directory must NOT pass. A real
@@ -157,7 +177,7 @@ def validate_candidate_root(candidate_root):
     ``_next/static/`` AND (2) an ``index.html`` that references a
     ``/_next/static/`` asset. Both checks are minimal — the exact-hash
     served-body preflight in ``_http_get_index`` continues to be the
-    binding contract.
+    binding contract for served bytes.
     """
     root = Path(candidate_root)
     if not root.exists():
@@ -191,14 +211,15 @@ def validate_candidate_root(candidate_root):
     # Identity check 2: `index.html` MUST reference a `/_next/static/`
     # asset. Legacy `web/` pages reference local CSS/JS via
     # `web/dist/` or inline; they do not reference `/_next/static/`.
-    index_body = index_html.read_bytes()
-    if b"/_next/static/" not in index_body:
+    # Read-once: the same bytes are reused below for the SHA-256 hash
+    # so a writer cannot swap the file mid-validation.
+    body = index_html.read_bytes()
+    if b"/_next/static/" not in body:
         raise ValueError(
             "--candidate-root/index.html does not reference any "
             "`/_next/static/` asset (a real Next.js static export "
             "index links its JS/CSS chunks under _next/static/)"
         )
-    body = index_html.read_bytes()
     return {
         "candidate_root": str(root.resolve()),
         "candidate_index_sha256": hashlib.sha256(body).hexdigest(),
@@ -642,6 +663,42 @@ class PlaywrightBrowserAdapter:
         except Exception:
             return {"version": getattr(playwright, "__version__", "unknown")}
 
+    def route_handler(self, route: Any) -> None:
+        """Client-side HTTP safety boundary (Task 15).
+
+        Permits ONLY ``GET`` / ``HEAD`` / ``OPTIONS`` (RFC 9110
+        §9.3 safe methods — they MUST NOT change server state). Any
+        other request is aborted BEFORE the network/server and the
+        handler raises to fail the capture closed — ``collect_raw_samples``
+        propagates the exception and the CLI never writes ``--out``
+        (no partial output publication).
+
+        Registered on the page via ``page.route(self.route_handler)``
+        in ``run_iteration`` so every request the browser attempts
+        passes through this filter. Defensive against missing / empty
+        / unknown methods: anything that is not a recognised safe
+        method is treated as mutating.
+        """
+        request = getattr(route, "request", None)
+        raw_method = getattr(request, "method", None) if request is not None else None
+        method = (raw_method or "").upper()
+        if method in _SAFE_HTTP_METHODS:
+            route.continue_()
+            return
+        # Mutating (or unknown) — abort the request and fail closed.
+        # ``route.abort()`` is best-effort: a quirky transport that
+        # raises on abort MUST NOT excuse the violation. The raise
+        # below is the binding contract and is independent of any
+        # side-effect on the route object.
+        with contextlib.suppress(Exception):
+            route.abort()
+        raise RuntimeError(
+            f"blocked unsafe HTTP method {method!r}; only "
+            f"GET/HEAD/OPTIONS are permitted by the capture adapter "
+            f"(client-side safety boundary; mutating requests are "
+            f"aborted before network/server to fail capture closed)"
+        )
+
     def run_iteration(self, *, target_url, dom_marker_selector, iteration_index):
         with self._pw_ctx() as p:
             browser = p.chromium.launch(headless=self._headless)
@@ -649,6 +706,10 @@ class PlaywrightBrowserAdapter:
                 page = browser.new_page()
                 msgs: list[dict] = []
                 page.on("console", lambda m: msgs.append({"type": m.type, "text": m.text}))
+                # Client-side HTTP safety boundary: arm BEFORE goto so
+                # the very first request (and any subresource fetch
+                # the page may issue) is filtered through this handler.
+                page.route(self.route_handler)
                 resp = page.goto(target_url, wait_until="domcontentloaded")
                 nav = page.evaluate(
                     "() => { const e = performance.getEntriesByType('navigation')[0];"
