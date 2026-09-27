@@ -1001,3 +1001,329 @@ def test_validate_capture_rejects_bad_iteration_indices(mutation, match,
     with pytest.raises(ValueError, match=match):
         ch_comp.validate_capture({**m, "samples": samples},
                                   role="migrated", candidate_root=root)
+
+
+# ---------------------------------------------------------------------------
+# Parent-review hardening: null first_paint_ms (mirrors sample 7 of the
+# preserved candidate capture at
+# /tmp/taxa-g5-safe-20260927-023728/reports/migrated/migrated.capture.json —
+# read-only evidence: first_paint_ms: null, first_contentful_paint_ms: null,
+# valid DCL, absent readiness marker).
+#
+# `first_paint_ms: null` is the migrated capture's explicit
+# "unavailable metric" sentinel — the field IS present, but holds a JSON
+# null. It MUST NOT be conflated with malformed (bool/string/NaN/zero/
+# negative/absent-key), and the comparator MUST NEVER compute a partial
+# median over the 9 remaining valid samples. The contract:
+#
+#   * validation accepts an explicit null as the "unavailable" sentinel
+#     on EITHER role (the shared validator permits both);
+#   * validation continues to reject bool/string/NaN/zero/negative as
+#     malformed;
+#   * validation continues to reject an absent `first_paint_ms` key as
+#     malformed (the field IS required — only the VALUE may be null);
+#   * the comparator emits `blocked/unassessable` when ANY sample on
+#     EITHER role carries `first_paint_ms: null`;
+#   * `server_shell.first_paint_ms` is reported as `null` on BOTH
+#     sides' metrics when ANY side has an unavailable sample (so the
+#     artifact never claims a number on one side and null on the other,
+#     and never synthesises a partial-sample median);
+#   * other raw, truly-captured metrics (e.g. `dom_content_loaded_ms`
+#     when all 10 DCL values are present) remain truthful in the
+#     artifact — the comparator never invents values;
+#   * `delta_pct` is omitted and `passed` is `False`;
+#   * the readiness block continues to fire independently (missing
+#     readiness still blocks even if first_paint_ms is valid);
+#   * the CLI exit remains `EXIT_BLOCKED` (5), and the artifact is
+#     still written with shape unchanged (schema / captured_at /
+#     threshold / metrics keys / unassessable_reason).
+# ---------------------------------------------------------------------------
+
+
+def _set_sample_null_first_paint(envelope, *, sample_index):
+    """Return a deep copy of `envelope` whose `samples[sample_index]`
+    carries `first_paint_ms: null` AND `first_contentful_paint_ms: null`,
+    matching the relevant paint shape of sample 7 in the preserved
+    capture. The DCL and dom_marker fields are NOT mutated by this
+    helper — callers layer those on when they need to.
+    """
+    samples = [dict(s) for s in envelope["samples"]]
+    for s in samples:
+        s["paint"] = dict(s["paint"])
+    samples[sample_index]["paint"]["first_paint_ms"] = None
+    samples[sample_index]["paint"]["first_contentful_paint_ms"] = None
+    return {**envelope, "samples": samples}
+
+
+def test_validate_capture_accepts_null_first_paint_as_unavailable(tmp_path):
+    """`first_paint_ms: null` is a valid "unavailable" sentinel.
+    Validation MUST accept it on EITHER role and flag the summary
+    so the comparator knows the metric is uncomputable."""
+    root = _candidate_root(tmp_path / "next")
+    migrated = _set_sample_null_first_paint(_migrated_envelope(root),
+                                              sample_index=7)
+    summary = ch_comp.validate_capture(
+        migrated, role="migrated", candidate_root=root)
+    assert summary.get("first_paint_unavailable") is True
+    assert 7 in summary.get("first_paint_unavailable_indices", [])
+    # The metric is null (no partial-sample median).
+    assert summary["server_shell.first_paint_ms"] is None
+    # Other raw metrics stay computable from full samples.
+    assert summary["server_shell.dom_content_loaded_ms"] > 0
+
+
+def test_validate_capture_accepts_null_first_paint_on_legacy_role(tmp_path):
+    """The shared validator MUST permit null first_paint_ms on
+    EITHER role — the contract is symmetric even though real
+    captures never produce a null on legacy in practice."""
+    legacy = _set_sample_null_first_paint(_legacy_envelope(),
+                                            sample_index=5)
+    summary = ch_comp.validate_capture(legacy, role="legacy")
+    assert summary.get("first_paint_unavailable") is True
+    assert summary["server_shell.first_paint_ms"] is None
+    assert summary["server_shell.dom_content_loaded_ms"] > 0
+
+
+@pytest.mark.parametrize("bad_value", [
+    True,            # bool (reject — parent-review typing contract)
+    False,           # bool (reject)
+    "256",           # string (reject)
+    float("nan"),    # NaN (reject)
+    -1.0,            # negative (reject)
+    0,               # zero (reject — must be strictly positive)
+    -0.5,            # negative fractional (reject)
+])
+def test_validate_capture_rejects_non_null_invalid_first_paint(bad_value,
+                                                                tmp_path):
+    """Malformed `first_paint_ms` values — bool, string, NaN,
+    finite non-positive (zero or negative) — remain validation
+    errors. Only an explicit `null` (Python None) is accepted as
+    the "unavailable metric" sentinel."""
+    root = _candidate_root(tmp_path / "next")
+    m = _migrated_envelope(root)
+    samples = [dict(s) for s in m["samples"]]
+    for s in samples:
+        s["paint"] = dict(s["paint"])
+    samples[3]["paint"]["first_paint_ms"] = bad_value
+    with pytest.raises(ValueError,
+                       match="first_paint|finite|positive|null"):
+        ch_comp.validate_capture(
+            {**m, "samples": samples}, role="migrated",
+            candidate_root=root)
+
+
+def test_validate_capture_rejects_missing_first_paint_key(tmp_path):
+    """Absent `first_paint_ms` key on a sample is malformed and
+    continues to fail closed at validation. Only an explicit
+    `null` value represents 'unavailable' — a MISSING key is
+    not the same thing. The comparator never invents the missing
+    key by reading it back as null."""
+    root = _candidate_root(tmp_path / "next")
+    m = _migrated_envelope(root)
+    samples = [dict(s) for s in m["samples"]]
+    for s in samples:
+        s["paint"] = dict(s["paint"])
+    del samples[3]["paint"]["first_paint_ms"]
+    with pytest.raises(ValueError,
+                       match="first_paint|positive|finite|required"):
+        ch_comp.validate_capture(
+            {**m, "samples": samples}, role="migrated",
+            candidate_root=root)
+
+
+def test_validate_capture_does_not_invent_first_paint_when_key_absent_on_all(
+        tmp_path):
+    """When `first_paint_ms` is absent on EVERY sample (not just
+    one), validation still rejects the capture as malformed. The
+    comparator never defaults an absent key to null on a
+    wholesale basis."""
+    root = _candidate_root(tmp_path / "next")
+    m = _migrated_envelope(root)
+    samples = [dict(s) for s in m["samples"]]
+    for s in samples:
+        s["paint"] = dict(s["paint"])
+        del s["paint"]["first_paint_ms"]
+    with pytest.raises(ValueError, match="first_paint|required"):
+        ch_comp.validate_capture(
+            {**m, "samples": samples}, role="migrated",
+            candidate_root=root)
+
+
+def test_compare_blocks_when_sample_has_null_first_paint(tmp_path):
+    """Regression fixture for sample 7 of the preserved candidate
+    capture (first_paint_ms: null). Mirror the relevant paint
+    fields without mutating the capture. Expectation:
+      * result = "blocked/unassessable"
+      * passed = False
+      * no "delta_pct" key on the artifact
+      * server_shell.first_paint_ms is null on BOTH sides'
+        metrics (artifact symmetry — never one-side-null)
+      * server_shell.dom_content_loaded_ms remains truthful
+        (all 10 DCL values are valid; the comparator does not
+        confuse first_paint's partial-sample status with DCL's
+        full-sample status)
+      * the unassessable_reason explains the first_paint issue.
+    """
+    root = _candidate_root(tmp_path / "next")
+    migrated = _set_sample_null_first_paint(_migrated_envelope(root),
+                                              sample_index=7)
+    out = ch_comp.compare_captures(
+        _legacy_envelope(), migrated, candidate_root=root)
+    assert out["result"] == "blocked/unassessable"
+    assert out["passed"] is False
+    assert "delta_pct" not in out
+    # Both sides report null for first_paint — the artifact never
+    # claims a number on one side and null on the other.
+    assert out["migrated"]["metrics"]["server_shell.first_paint_ms"] is None
+    assert out["legacy"]["metrics"]["server_shell.first_paint_ms"] is None
+    # DCL remains truthful (computed over all 10 valid samples on
+    # both sides). The comparator never reduces a partial-sample
+    # median over 9/10 first_paint values and labels it as the
+    # first_paint metric.
+    assert (out["migrated"]["metrics"]
+            ["server_shell.dom_content_loaded_ms"]) > 0
+    assert (out["legacy"]["metrics"]
+            ["server_shell.dom_content_loaded_ms"]) > 0
+    # Reason explains the first_paint issue and never claims pass.
+    assert "first_paint" in out["unassessable_reason"].lower()
+    assert "passed" not in out["unassessable_reason"].lower()
+
+
+def test_compare_blocks_when_legacy_has_null_first_paint(tmp_path):
+    """Null first_paint_ms on EITHER role triggers
+    blocked/unassessable — the shared validator is symmetric
+    even though real legacy captures never produce a null FP
+    in practice. DCL stays truthful on both sides."""
+    root = _candidate_root(tmp_path / "next")
+    legacy = _set_sample_null_first_paint(_legacy_envelope(),
+                                            sample_index=5)
+    out = ch_comp.compare_captures(
+        legacy, _migrated_envelope(root), candidate_root=root)
+    assert out["result"] == "blocked/unassessable"
+    assert out["passed"] is False
+    assert "delta_pct" not in out
+    # Both sides report null for first_paint.
+    assert out["legacy"]["metrics"]["server_shell.first_paint_ms"] is None
+    assert out["migrated"]["metrics"]["server_shell.first_paint_ms"] is None
+    # DCL stays truthful on both sides.
+    assert (out["legacy"]["metrics"]
+            ["server_shell.dom_content_loaded_ms"]) > 0
+    assert (out["migrated"]["metrics"]
+            ["server_shell.dom_content_loaded_ms"]) > 0
+
+
+def test_compare_blocks_when_both_roles_have_null_first_paint(tmp_path):
+    """Both roles carrying a null first_paint sample → blocked,
+    no delta_pct, no synthesis of any side's metric. The
+    unassessable_reason names both sides."""
+    root = _candidate_root(tmp_path / "next")
+    legacy = _set_sample_null_first_paint(_legacy_envelope(),
+                                            sample_index=2)
+    migrated = _set_sample_null_first_paint(_migrated_envelope(root),
+                                              sample_index=9)
+    out = ch_comp.compare_captures(
+        legacy, migrated, candidate_root=root)
+    assert out["result"] == "blocked/unassessable"
+    assert out["passed"] is False
+    assert "delta_pct" not in out
+    assert out["migrated"]["metrics"]["server_shell.first_paint_ms"] is None
+    assert out["legacy"]["metrics"]["server_shell.first_paint_ms"] is None
+    reason = out["unassessable_reason"].lower()
+    assert "first_paint" in reason
+    assert "both" in reason
+
+
+def test_compare_with_null_first_paint_does_not_synthesize_median(tmp_path):
+    """The comparator MUST NOT synthesise a partial-sample
+    median. With even ONE null first_paint_ms out of 10, the
+    first_paint metric is `null` — never a median of the 9
+    remaining valid samples. This protects against a
+    quiet regression where a future change to `validate_capture`
+    accidentally computes `statistics.median(fps_valid)`."""
+    root = _candidate_root(tmp_path / "next")
+    migrated = _set_sample_null_first_paint(_migrated_envelope(root),
+                                              sample_index=4)
+    out = ch_comp.compare_captures(
+        _legacy_envelope(), migrated, candidate_root=root)
+    assert out["result"] == "blocked/unassessable"
+    fp_metric = out["migrated"]["metrics"]["server_shell.first_paint_ms"]
+    assert fp_metric is None
+    # Defensive: the field is JSON-serialised as null, not 0 or a
+    # median value derived from 9 valid samples.
+    serialised = json.dumps(out["migrated"]["metrics"])
+    assert "\"server_shell.first_paint_ms\": null" in serialised
+
+
+def test_compare_dcl_stays_truthful_with_partial_first_paint(tmp_path):
+    """Even when first_paint_ms is unavailable on some samples,
+    DCL on those samples is still captured (sample 7 of the
+    preserved capture has valid DCL alongside the null
+    first_paint_ms). The DCL median reflects the real captured
+    DCL values, not a synthesis."""
+    root = _candidate_root(tmp_path / "next")
+    migrated = _migrated_envelope(root)
+    # Sample 7: paint null, DCL valid, readiness absent.
+    samples = [dict(s) for s in migrated["samples"]]
+    for s in samples:
+        s["paint"] = dict(s["paint"])
+        s["dom_marker"] = dict(s["dom_marker"])
+    samples[7]["paint"]["first_paint_ms"] = None
+    samples[7]["paint"]["first_contentful_paint_ms"] = None
+    samples[7]["dom_marker"]["found"] = False
+    samples[7]["dom_marker"]["count"] = 0
+    samples[7]["dom_marker"]["wait_ms"] = -1.0
+    samples[7]["dom_marker"]["first_text"] = None
+    legacy = _legacy_envelope()
+    out = ch_comp.compare_captures(
+        legacy, {**migrated, "samples": samples},
+        candidate_root=root)
+    assert out["result"] == "blocked/unassessable"
+    # Both reasons should be present (readiness AND first_paint).
+    reason = out["unassessable_reason"].lower()
+    assert ("dom_marker" in reason or "readiness" in reason
+            or "found" in reason)
+    assert "first_paint" in reason
+    # DCL is the truthful median over both captures' 10 DCL values.
+    assert (out["migrated"]["metrics"]
+            ["server_shell.dom_content_loaded_ms"]) > 0
+    # first_paint is null on BOTH sides.
+    assert out["migrated"]["metrics"]["server_shell.first_paint_ms"] is None
+    assert out["legacy"]["metrics"]["server_shell.first_paint_ms"] is None
+    # interactive is also null (the readiness block fired for sample 7).
+    assert (out["migrated"]["metrics"].get(INTERACTIVE) is None
+            or INTERACTIVE not in out["migrated"]["metrics"])
+    assert (out["legacy"]["metrics"].get(INTERACTIVE) is None
+            or INTERACTIVE not in out["legacy"]["metrics"])
+
+
+def test_cli_returns_exit_blocked_for_null_first_paint(tmp_path):
+    """CLI path: migrated capture with `first_paint_ms: null`
+    (sample 7 shape, but without readiness mutations) →
+    EXIT_BLOCKED (5), artifact written, result=blocked/
+    unassessable, no delta_pct, first_paint_ms is null on
+    both sides."""
+    root = _candidate_root(tmp_path / "next")
+    legacy = _legacy_envelope()
+    migrated = _set_sample_null_first_paint(_migrated_envelope(root),
+                                              sample_index=7)
+    legacy_path = tmp_path / "legacy.json"
+    migrated_path = tmp_path / "migrated.json"
+    out_path = tmp_path / "comparison.json"
+    legacy_path.write_text(json.dumps(legacy))
+    migrated_path.write_text(json.dumps(migrated))
+    rc = ch_comp.main([
+        "compare_hydration.py", str(legacy_path), str(migrated_path),
+        "--candidate-root", str(root), "--out", str(out_path),
+    ])
+    assert rc == ch_comp.EXIT_BLOCKED
+    doc = json.loads(out_path.read_text())
+    assert doc["result"] == "blocked/unassessable"
+    assert doc["passed"] is False
+    assert "delta_pct" not in doc
+    assert (doc["migrated"]["metrics"]
+            ["server_shell.first_paint_ms"]) is None
+    assert (doc["legacy"]["metrics"]
+            ["server_shell.first_paint_ms"]) is None
+    # DCL remains a truthful float in the artifact.
+    assert (doc["migrated"]["metrics"]
+            ["server_shell.dom_content_loaded_ms"]) > 0

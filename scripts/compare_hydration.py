@@ -161,10 +161,34 @@ def _validate_legacy_envelope(capture: dict) -> None:
         paint = s["paint"]
         navigation = s["navigation"]
         dom_marker = s["dom_marker"]
-        fp = paint.get("first_paint_ms")
-        _require(_is_finite_positive(fp),
-                 f"samples[{i}].paint.first_paint_ms must be finite positive; "
-                 f"got {fp!r}")
+        # `first_paint_ms` is required as a KEY. An explicit JSON
+        # null (`None`) is the migrated capture's documented
+        # "unavailable metric" sentinel — the field is present
+        # but holds null because the underlying metric could not
+        # be captured for that sample. The validator MUST NOT
+        # conflate the null sentinel with a malformed value:
+        #
+        #   * explicit null  → accepted (caller decides how to
+        #                       represent it in the artifact);
+        #   * any other non-finite-positive value (bool, string,
+        #     NaN, zero, negative) → fail closed here;
+        #   * absent key (`"first_paint_ms" not in paint`) →
+        #     fail closed here. Missing the key is NOT the
+        #     same thing as the value being null.
+        #
+        # `_is_finite_positive` is left untouched so the OTHER
+        # `_is_finite_positive` call below (`dom_content_loaded_ms`)
+        # still rejects null exactly as before — only
+        # `first_paint_ms` widens to permit null.
+        _require("first_paint_ms" in paint,
+                 f"samples[{i}].paint.first_paint_ms is a required key "
+                 f"(absent; pass null explicitly to mark the metric "
+                 f"unavailable); got no first_paint_ms key")
+        fp = paint["first_paint_ms"]
+        if fp is not None:
+            _require(_is_finite_positive(fp),
+                     f"samples[{i}].paint.first_paint_ms must be finite "
+                     f"positive or null (unavailable metric); got {fp!r}")
         dcl = navigation.get("dom_content_loaded_ms")
         _require(_is_finite_positive(dcl),
                  f"samples[{i}].navigation.dom_content_loaded_ms must be "
@@ -283,11 +307,36 @@ def validate_capture(capture: dict, *, role: str,
              f"role must be one of {{'legacy', 'migrated'}}; got {role!r}")
     _check_role_mislabel(capture, role=role)
     _validate_legacy_envelope(capture)
-    fps = [float(s["paint"]["first_paint_ms"]) for s in capture["samples"]]
+    # `first_paint_ms: null` is the documented "unavailable metric"
+    # sentinel — preserve None in the raw vector for fidelity and
+    # track the indices so the comparator can produce a
+    # first_paint-specific unassessable reason. Even ONE null
+    # sample disables the median (the comparator never computes a
+    # partial-sample median) — the stored METRIC_FIRST_PAINT is
+    # then None and `first_paint_unavailable` is True.
+    fps: list[float | None] = []
+    fp_unavailable_idx: list[int] = []
+    for i, s in enumerate(capture["samples"]):
+        value = s["paint"]["first_paint_ms"]
+        if value is None:
+            fps.append(None)
+            fp_unavailable_idx.append(i)
+        else:
+            fps.append(float(value))
     dcls = [float(s["navigation"]["dom_content_loaded_ms"])
             for s in capture["samples"]]
     waits = [float(s["dom_marker"]["wait_ms"]) for s in capture["samples"]]
     interactive = [d + w for d, w in zip(dcls, waits, strict=True)]
+    first_paint_unavailable = bool(fp_unavailable_idx)
+    if first_paint_unavailable:
+        first_paint_median: Any = None
+    else:
+        # At this point every entry is `float` (no None leaked past
+        # `_validate_legacy_envelope`'s explicit-null acceptance);
+        # `statistics.median` over all-floats is the contracted
+        # ±10 %-comparison input.
+        first_paint_median = float(statistics.median(
+            [v for v in fps if v is not None]))
     summary: dict[str, Any] = {
         "schema": capture["schema"],
         "iterations": capture["iterations"],
@@ -295,7 +344,9 @@ def validate_capture(capture: dict, *, role: str,
         "raw_first_paint_ms": fps,
         "raw_dom_content_loaded_ms": dcls,
         "raw_readiness_wait_ms": waits,
-        METRIC_FIRST_PAINT: float(statistics.median(fps)),
+        "first_paint_unavailable": first_paint_unavailable,
+        "first_paint_unavailable_indices": list(fp_unavailable_idx),
+        METRIC_FIRST_PAINT: first_paint_median,
         METRIC_DCL: float(statistics.median(dcls)),
         METRIC_INTERACTIVE: float(statistics.median(interactive)),
     }
@@ -365,15 +416,21 @@ def validate_capture(capture: dict, *, role: str,
     return summary
 
 
-def compute_medians(summary: dict) -> dict[str, float]:
+def compute_medians(summary: dict) -> dict[str, float | None]:
     """Read the medians the summary already carries.
 
     `validate_capture` computes the medians once at validation time
     so the comparator never recomputes them. This helper is the
     canonical accessor — kept for symmetry with the test surface.
+
+    When the summary flags `first_paint_unavailable`, the stored
+    `server_shell.first_paint_ms` is `None` and this helper
+    surfaces it as-is; downstream `compare_captures` translates
+    that to `blocked/unassessable` rather than passing a partial
+    median into the ±10 %-comparison primitive.
     """
     return {
-        METRIC_FIRST_PAINT: float(summary[METRIC_FIRST_PAINT]),
+        METRIC_FIRST_PAINT: summary[METRIC_FIRST_PAINT],
         METRIC_DCL: float(summary[METRIC_DCL]),
         METRIC_INTERACTIVE: float(summary[METRIC_INTERACTIVE]),
     }
@@ -413,20 +470,33 @@ def compare_captures(legacy_capture: dict, migrated_capture: dict,
     artifact. Never mutates the input dicts. Does not write to disk —
     the caller (CLI / orchestrator) decides where the artifact goes.
 
-    Fail-closed contract: when the readiness check fails on
-    EITHER side, the result is ``blocked/unassessable`` and the
-    fabricated ``tree_first_interactive_ms`` metric (which is
-    derived from the readiness wait) is omitted from BOTH sides'
-    metrics sections. ``server_shell.first_paint_ms`` and
-    ``server_shell.dom_content_loaded_ms`` remain numeric because
-    they are derived from independent raw fields. The raw captures
-    (with their sentinels) are available separately via the
-    caller's input handles — the artifact never duplicates them
-    under a metrics key.
+    Fail-closed contract: there are two independent blocked paths.
+
+    1. **Readiness block** — when the readiness check fails on
+       EITHER side, the result is ``blocked/unassessable`` and
+       the fabricated ``tree_first_interactive_ms`` metric (which
+       is derived from the readiness wait) is omitted from BOTH
+       sides' metrics sections (set explicitly to ``None``).
+
+    2. **First-paint-unavailable block** — when ANY sample on
+       EITHER role carries ``first_paint_ms: null``, the
+       ``server_shell.first_paint_ms`` metric is reported as
+       ``None`` on BOTH sides' metrics (artifact symmetry — the
+       comparator never claims a number on one side and null on
+       the other, and never computes a partial-sample median over
+       the 9 remaining valid samples). Other raw metrics
+       (``dom_content_loaded_ms`` when all 10 DCL values are
+       present) remain truthful.
+
+    When BOTH blocks fire on the same artifact, both reasons are
+    concatenated into ``unassessable_reason`` and BOTH metrics
+    (``tree_first_interactive_ms`` AND ``server_shell.first_paint_ms``)
+    are reported as ``None`` on BOTH sides. ``delta_pct`` is
+    NEVER emitted on a blocked artifact and ``passed`` is always
+    ``False``.
 
     Threshold / passed branch: ``delta_pct`` is computed from the
-    numeric medians and emitted ONLY when both sides pass the
-    readiness check.
+    numeric medians and emitted ONLY when neither block fires.
     """
     legacy_summary = validate_capture(legacy_capture, role=LEGACY_BUILD_LABEL)
     migrated_summary = validate_capture(
@@ -437,6 +507,13 @@ def compare_captures(legacy_capture: dict, migrated_capture: dict,
 
     legacy_ready = _readiness_all_found(legacy_capture)
     migrated_ready = _readiness_all_found(migrated_capture)
+    # Symmetric contract: the shared validator permits null
+    # first_paint_ms on EITHER role, so the comparator must check
+    # BOTH sides. Computed once here, reused in both the
+    # decision and the reason-string branches.
+    legacy_unav_fp = bool(legacy_summary.get("first_paint_unavailable", False))
+    migrated_unav_fp = bool(
+        migrated_summary.get("first_paint_unavailable", False))
 
     legacy_metrics: dict[str, Any] = dict(legacy_medians)
     migrated_metrics: dict[str, Any] = dict(migrated_medians)
@@ -464,6 +541,8 @@ def compare_captures(legacy_capture: dict, migrated_capture: dict,
         },
     }
 
+    blocked_reasons: list[str] = []
+
     if not (legacy_ready and migrated_ready):
         # Honest fail-closed: drop the fabricated interaction
         # metric on BOTH sides so the artifact cannot be read as
@@ -475,7 +554,7 @@ def compare_captures(legacy_capture: dict, migrated_capture: dict,
         legacy_metrics[METRIC_INTERACTIVE] = None
         migrated_metrics[METRIC_INTERACTIVE] = None
         if not legacy_ready and not migrated_ready:
-            artifact["unassessable_reason"] = (
+            blocked_reasons.append(
                 "both captures have at least one sample with "
                 "dom_marker.found=false (or count<=0); the readiness "
                 "metric is required for ±10 % assessment and the "
@@ -483,7 +562,7 @@ def compare_captures(legacy_capture: dict, migrated_capture: dict,
                 "marker."
             )
         elif not legacy_ready:
-            artifact["unassessable_reason"] = (
+            blocked_reasons.append(
                 "legacy capture has at least one sample with "
                 "dom_marker.found=false (or count<=0); the readiness "
                 "metric is required for ±10 % assessment and the "
@@ -491,13 +570,57 @@ def compare_captures(legacy_capture: dict, migrated_capture: dict,
                 "marker. Migrated side remains valid for inspection."
             )
         else:
-            artifact["unassessable_reason"] = (
+            blocked_reasons.append(
                 "migrated capture has at least one sample with "
                 "dom_marker.found=false (or count<=0); the readiness "
                 "metric is required for ±10 % assessment and the "
                 "comparator never invents equivalence for an absent "
                 "marker. Legacy side remains valid for inspection."
             )
+
+    if legacy_unav_fp or migrated_unav_fp:
+        # Honest fail-closed: drop `server_shell.first_paint_ms`
+        # on BOTH sides so the artifact never claims a number on
+        # one side and null on the other. The comparator never
+        # computes a partial-sample median (the contract permits
+        # all-10 or none-at-all), never synthesises a missing
+        # value, and keeps other raw captured metrics
+        # (e.g. `dom_content_loaded_ms`) truthful.
+        legacy_metrics.pop(METRIC_FIRST_PAINT, None)
+        migrated_metrics.pop(METRIC_FIRST_PAINT, None)
+        legacy_metrics[METRIC_FIRST_PAINT] = None
+        migrated_metrics[METRIC_FIRST_PAINT] = None
+        legacy_idx = legacy_summary.get(
+            "first_paint_unavailable_indices", [])
+        migrated_idx = migrated_summary.get(
+            "first_paint_unavailable_indices", [])
+        if legacy_unav_fp and migrated_unav_fp:
+            blocked_reasons.append(
+                f"both captures have at least one sample with "
+                f"first_paint_ms: null (legacy sample indices="
+                f"{legacy_idx}, migrated sample indices={migrated_idx}); "
+                f"the comparator never computes a median over partial "
+                f"samples and never synthesises missing values."
+            )
+        elif legacy_unav_fp:
+            blocked_reasons.append(
+                f"legacy capture has at least one sample with "
+                f"first_paint_ms: null (sample indices={legacy_idx}); "
+                f"the comparator never computes a median over partial "
+                f"samples and never synthesises missing values. Migrated "
+                f"side remains valid for inspection."
+            )
+        else:
+            blocked_reasons.append(
+                f"migrated capture has at least one sample with "
+                f"first_paint_ms: null (sample indices={migrated_idx}); "
+                f"the comparator never computes a median over partial "
+                f"samples and never synthesises missing values. Legacy "
+                f"side remains valid for inspection."
+            )
+
+    if blocked_reasons:
+        artifact["unassessable_reason"] = " ".join(blocked_reasons)
         artifact["result"] = "blocked/unassessable"
         artifact["passed"] = False
         return artifact
