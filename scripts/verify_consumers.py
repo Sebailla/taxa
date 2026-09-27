@@ -105,6 +105,34 @@ def _validate_schema(manifest: dict) -> list[str]:
         if not isinstance(ver, dict):
             errs.append(f"consumers[{i}] ({cid}) verification must be an object")
             continue
+        # Follow-up 30: optional `verification.status == "blocked"` with a
+        # required non-empty trimmed `verification.blocked_reason`. Omitted
+        # status preserves current behavior; any other status value
+        # (including null) fails schema validation; a `blocked_reason`
+        # without blocked status fails schema validation. Selected
+        # `replacement.status` and `activation_status` checks above remain
+        # unchanged. A valid blocked consumer is exempt from the non-HTTP
+        # `verification.assertions` requirement below.
+        ver_status = ver.get("status")
+        is_blocked = False
+        # Distinguish "status key present (any value)" from "status key
+        # absent": a present null is still an invalid value and must
+        # produce a schema diagnostic. Absent status preserves current
+        # behavior; only the exact string "blocked" is accepted.
+        if "status" in ver:
+            if ver_status != "blocked":
+                errs.append(f"consumers[{i}] ({cid}) verification.status must be "
+                            f"'blocked' or omitted (got {ver_status!r})")
+            elif (not isinstance(ver.get("blocked_reason"), str)
+                    or not ver["blocked_reason"].strip()):
+                errs.append(f"consumers[{i}] ({cid}) verification.blocked_reason "
+                            f"must be non-empty trimmed string when "
+                            f"verification.status is 'blocked'")
+            else:
+                is_blocked = True
+        elif "blocked_reason" in ver:
+            errs.append(f"consumers[{i}] ({cid}) verification.blocked_reason "
+                        f"requires verification.status == 'blocked'")
         for k in REQUIRED_PER_VERIFICATION:
             if k not in ver:
                 errs.append(f"consumers[{i}] ({cid}) verification missing {k!r}")
@@ -112,10 +140,13 @@ def _validate_schema(manifest: dict) -> list[str]:
             errs.append(f"consumers[{i}] ({cid}) verification.command must be string")
         if not isinstance(ver.get("expect"), str):
             errs.append(f"consumers[{i}] ({cid}) verification.expect must be string")
-        elif not is_http_status_expectation(ver["expect"]):
+        elif not is_blocked and not is_http_status_expectation(ver["expect"]):
             # Non-HTTP expectations require non-empty structured
             # `verification.assertions` (machine-evaluated against
             # captured stdout; HTTP-shape expects use the helper instead).
+            # Blocked consumers are exempt — readiness is never emitted
+            # for them (preflight short-circuits), so machine-evaluated
+            # assertions are not needed.
             errs.extend(_validate_assertions_schema(
                 ver.get("assertions"),
                 prefix=f"consumers[{i}] ({cid})"))
@@ -630,6 +661,21 @@ def main(argv=None) -> int:
             _log("verify_consumers", e)
         return EXIT_MANIFEST
     consumers = manifest["consumers"]
+
+    # Blocked-gate preflight (Follow-up 30): every consumer with
+    # verification.status == "blocked" short-circuits the entire run
+    # BEFORE venv/helper discovery, server construction, or any
+    # consumer command. The diagnostic carries the consumer ID and
+    # the human-supplied blocked_reason; readiness is never emitted;
+    # EXIT_CHECK is returned so existing fail-closed exit semantics
+    # are preserved, and no other selected check runs.
+    blockers = [(str(c["id"]), str(c["verification"]["blocked_reason"]).strip())
+                for c in consumers
+                if c["verification"].get("status") == "blocked"]
+    if blockers:
+        for cid, reason in blockers:
+            _log("verify_consumers", f"blocked: {cid}: {reason}")
+        return EXIT_CHECK
 
     # Resolve venv (opt-in: explicit --venv wins; else auto-detect from
     # --repo-root, falling back to the manifest's parent directory).

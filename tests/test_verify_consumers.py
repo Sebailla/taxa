@@ -1024,3 +1024,113 @@ def test_assertions_structured_evaluation(tmp_path, bad, cmd, min_passed,
         assert r.returncode != 0, r.stderr
         assert not (out / "CONSUMER-READINESS.json").is_file()
         assert cid in r.stderr
+
+
+# ── Follow-up 30: blocked-gate contract for selected consumers ──
+
+def _blocked_consumer(idx, reason="<reason>", status="blocked"):
+    return {"id": idx, "ownership_edge": "fastapi_web_mount",
+            "current_path": f"web/legacy/{idx}.html",
+            "replacement": {"status": "selected", "path": "/new/path"},
+            "verification": {"command": "printf 'ok\\n'", "expect": "ok",
+                             "assertions": [{"type": "stdout_regex", "pattern": "^ok$",
+                                             "min_matches": 1, "max_matches": 1}],
+                             "status": status, "blocked_reason": reason},
+            "activation_status": "selected",
+            "rollback": f"git revert <pr3e-sha> restores {idx}"}
+
+
+def test_blocked_status_unknown_value_fails_schema_validation(tmp_path):
+    out = tmp_path / "out"
+    mp = _write_manifest(tmp_path, _base_manifest(
+        [_blocked_consumer(idx="bad-1", status="not-real")]))
+    r = _run(["--manifest", str(mp), "--out", str(out)])
+    assert r.returncode == 4 and not (out / "CONSUMER-READINESS.json").is_file()
+    assert "bad-1" in r.stderr, r.stderr
+
+
+def test_blocked_reason_missing_fails_schema_validation(tmp_path):
+    out = tmp_path / "out"
+    c = _blocked_consumer(idx="no-reason-1")
+    del c["verification"]["blocked_reason"]
+    mp = _write_manifest(tmp_path, _base_manifest([c]))
+    r = _run(["--manifest", str(mp), "--out", str(out)])
+    assert r.returncode == 4 and not (out / "CONSUMER-READINESS.json").is_file()
+    assert "no-reason-1" in r.stderr and "blocked_reason" in r.stderr
+
+
+def test_blocked_reason_blank_fails_schema_validation(tmp_path):
+    out = tmp_path / "out"
+    mp = _write_manifest(tmp_path, _base_manifest(
+        [_blocked_consumer(idx="blank-reason-1", reason="   ")]))
+    r = _run(["--manifest", str(mp), "--out", str(out)])
+    assert r.returncode == 4 and not (out / "CONSUMER-READINESS.json").is_file()
+    assert "blank-reason-1" in r.stderr, r.stderr
+
+
+def test_blocked_reason_without_blocked_status_fails_schema_validation(tmp_path):
+    out = tmp_path / "out"
+    c = _blocked_consumer(idx="orphan-1")
+    c["verification"].pop("status", None)
+    mp = _write_manifest(tmp_path, _base_manifest([c]))
+    r = _run(["--manifest", str(mp), "--out", str(out)])
+    assert r.returncode == 4 and not (out / "CONSUMER-READINESS.json").is_file()
+    assert "orphan-1" in r.stderr, r.stderr
+
+
+def test_blocked_status_explicit_null_fails_schema_validation(tmp_path):
+    out = tmp_path / "out"
+    c = _blocked_consumer(idx="null-status-1")
+    c["verification"]["status"] = None
+    del c["verification"]["blocked_reason"]
+    mp = _write_manifest(tmp_path, _base_manifest([c]))
+    r = _run(["--manifest", str(mp), "--out", str(out)])
+    assert r.returncode == 4 and not (out / "CONSUMER-READINESS.json").is_file()
+    assert "null-status-1" in r.stderr and "verification.status" in r.stderr
+
+
+def test_blocked_consumer_fails_closed_with_id_and_reason_diagnostic(tmp_path):
+    # Pop `assertions` to prove blocked needs none; OLD→rc4, NEW→rc5.
+    out = tmp_path / "out"
+    reason = "size budget not accepted for #18"
+    c = _blocked_consumer(idx="block-18", reason=reason)
+    c["verification"].pop("assertions", None)
+    assert c["replacement"]["status"] == "selected"
+    assert c["activation_status"] == "selected"
+    mp = _write_manifest(tmp_path, _base_manifest([c]))
+    r = _run(["--manifest", str(mp), "--out", str(out)])
+    assert r.returncode == 5, r.stderr
+    assert not (out / "CONSUMER-READINESS.json").is_file()
+    assert "block-18" in r.stderr and reason in r.stderr
+
+
+def test_blocked_preflight_short_circuits_before_server_start(
+        tmp_path, monkeypatch):
+    import scripts.verify_consumers as vc
+    mp = _write_manifest(tmp_path, _base_manifest(
+        [_blocked_consumer(idx="block-pre-srv", reason="<r>")]))
+    entered = []
+    def _fail_enter(self):
+        entered.append(self)
+        raise RuntimeError("blocked preflight should run before LocalServer")
+    monkeypatch.setattr(vc.LocalServer, "__enter__", _fail_enter)
+    rc, _ = _run_in_process(
+        ["--manifest", str(mp), "--out", str(tmp_path / "out"), "--serve"])
+    assert rc != 0 and not (tmp_path / "out" / "CONSUMER-READINESS.json").is_file()
+    assert entered == []
+
+
+def test_blocked_preflight_short_circuits_before_any_consumer_command(
+        tmp_path, monkeypatch):
+    import scripts.verify_consumers as vc
+    cs = [_consumer(idx="passing-1", cmd=": (must not run)"),
+          _blocked_consumer(idx="block-20", reason="<r>")]
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    recorder = []
+    def _fake_run(cmd, **kw):
+        recorder.append(cmd)
+        return (0, "ok\n")
+    monkeypatch.setattr(vc, "_run_check_with_stdout", _fake_run)
+    rc, _ = _run_in_process(["--manifest", str(mp), "--out", str(tmp_path / "out")])
+    assert rc != 0 and not (tmp_path / "out" / "CONSUMER-READINESS.json").is_file()
+    assert recorder == []
