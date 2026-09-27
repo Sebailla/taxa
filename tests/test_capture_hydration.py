@@ -8,20 +8,24 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import functools
 import hashlib
+import http.server
 import io
 import json
 import os
 import re
 import subprocess
 import sys
+import threading
 import types
+import urllib.error
 from pathlib import Path
+from typing import Self
 
 import pytest
 
 import scripts.capture_hydration as ch
-
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "capture_hydration.py"
@@ -940,3 +944,413 @@ def test_publish_validation_catches_extra_files_in_staging(tmp_path):
     assert (target / "stale.json").read_bytes() == prior
     leftovers = [p.name for p in tmp_path.iterdir() if p.name != "out"]
     assert leftovers == [], f"unexpected residue: {leftovers}"
+
+
+# ---------------------------------------------------------------------------
+# G5 candidate role (`--role migrated`) — strict-TDD slice.
+# Contract: `--role migrated` REQUIRES `--candidate-root`; legacy
+# default REJECTS `--candidate-root`; pre-flight verifies Next.js
+# static-export root + HTTP-200 no-redirect + sha256 equality BEFORE
+# Chromium; output carries migrated schema/build/candidate_root/sha;
+# legacy default output (schema/provenance/samples) is byte-pinned.
+# ---------------------------------------------------------------------------
+
+
+MIGRATED_SCHEMA = "taxa.g5-capture.migrated/1"
+MIGRATED_PROVENANCE_SCHEMA = "taxa.g5-capture.migrated-provenance/1"
+
+
+def _free_port() -> int:
+    """Bind a free localhost port; immediately release."""
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+def _serve(handler_factory) -> tuple[str, threading.Thread,
+                                       http.server.ThreadingHTTPServer]:
+    """Bind a one-shot HTTP server on a free port. Returns
+    ``(url, thread, httpd)``; caller must ``shutdown`` / ``join`` /
+    ``server_close`` to release the port."""
+    port = _free_port()
+    httpd = http.server.ThreadingHTTPServer(
+        ("127.0.0.1", port), handler_factory)
+    t = threading.Thread(target=httpd.serve_forever, daemon=True)
+    t.start()
+    return f"http://127.0.0.1:{port}", t, httpd
+
+
+class _CandidateServer:
+    """Serve `root` over HTTP on a free localhost port. Threading
+    server so concurrent fetches from the candidate pre-flight work
+    without serialising. Each request maps to a fresh
+    ``SimpleHTTPRequestHandler`` so concurrent reads are independent."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.port: int | None = None
+        self._httpd: http.server.ThreadingHTTPServer | None = None
+        self._thread: threading.Thread | None = None
+
+    def __enter__(self) -> Self:
+        self.port = _free_port()
+        handler = functools.partial(
+            http.server.SimpleHTTPRequestHandler,
+            directory=str(self.root.resolve()),
+        )
+        self._httpd = http.server.ThreadingHTTPServer(
+            ("127.0.0.1", self.port), handler)
+        self._thread = threading.Thread(
+            target=self._httpd.serve_forever, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        if self._httpd is not None:
+            self._httpd.shutdown()
+            self._httpd.server_close()
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+
+    @property
+    def url(self) -> str:
+        return f"http://127.0.0.1:{self.port}"
+
+
+def _make_candidate_root(root: Path, *, body: bytes | None = None,
+                         include_static: bool = True) -> Path:
+    """Materialise a minimal Next.js static-export root.
+
+    Required shape per design.md §3.3.2.1 + parent-review identity
+    hardening: a real Next static export carries (1) at least one
+    file under `_next/static/` and (2) an `index.html` that references
+    a `/_next/static/` asset. The default fixture satisfies both so
+    happy-path tests pass without per-test setup.
+
+    Pass `include_static=False` to omit `_next/static/` entirely
+    (used by the fail-closed negative test).
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "index.html").write_bytes(
+        body if body is not None
+        else (b"<!doctype html><html><body>candidate fixture</body>\n"
+              b'<script src="/_next/static/chunks/main.js"></script>\n'
+              b'<link rel="stylesheet" href="/_next/static/css/app.css">\n'
+              b"</html>\n"))
+    if include_static:
+        static_dir = root / "_next" / "static"
+        static_dir.mkdir(parents=True, exist_ok=True)
+        # One representative static asset so the identity check
+        # (>= 1 file under _next/static) passes.
+        (static_dir / "chunks").mkdir(exist_ok=True)
+        (static_dir / "chunks" / "main.js").write_bytes(b"// js\n")
+    return root
+
+
+# --- migrated role CLI contract --------------------------------------
+
+
+def test_migrated_module_constants_and_parser_surface():
+    for name in ("MIGRATED_SCHEMA", "MIGRATED_PROVENANCE_SCHEMA",
+                 "MIGRATED_BUILD_LABEL", "collect_migrated_samples",
+                 "validate_candidate_root"):
+        assert hasattr(ch, name), f"missing migrated symbol: {name}"
+    assert ch.MIGRATED_SCHEMA == MIGRATED_SCHEMA
+    assert ch.MIGRATED_PROVENANCE_SCHEMA == MIGRATED_PROVENANCE_SCHEMA
+    assert ch.MIGRATED_BUILD_LABEL == "migrated"
+
+
+def test_cli_migrated_role_requires_candidate_root(tmp_path, monkeypatch,
+                                                   capsys):
+    """`--role migrated` without `--candidate-root` fails closed
+    (exit != 0, no --out written, stderr mentions candidate-root)."""
+    monkeypatch.setattr(ch, "PlaywrightBrowserAdapter", lambda: FakeBrowserAdapter())
+    out = tmp_path / "out.json"
+    rc = ch.main(["capture_hydration.py", "--target-url", TARGET_URL,
+                  "--out", str(out), "--role", "migrated"])
+    assert rc != 0
+    assert not out.exists()
+    err = capsys.readouterr().err
+    assert "candidate-root" in err.lower() or "role" in err.lower()
+
+
+@pytest.mark.parametrize("role", ["", "legacy"])
+def test_cli_legacy_role_rejects_candidate_root(role, tmp_path, monkeypatch,
+                                                  capsys):
+    """Legacy default AND explicit `--role legacy` must REJECT
+    `--candidate-root` (candidate-only flag)."""
+    monkeypatch.setattr(ch, "PlaywrightBrowserAdapter", lambda: FakeBrowserAdapter())
+    out = tmp_path / "out.json"
+    argv = ["capture_hydration.py", "--target-url", TARGET_URL,
+            "--out", str(out)]
+    if role:
+        argv.extend(["--role", role])
+    argv.extend(["--candidate-root", str(tmp_path / "cr")])
+    rc = ch.main(argv)
+    assert rc != 0
+    assert not out.exists()
+    assert "candidate" in capsys.readouterr().err.lower()
+
+
+# --- migrated candidate-root pre-flight (filesystem) -----------------
+
+
+def test_validate_candidate_root_happy(tmp_path):
+    root = _make_candidate_root(tmp_path / "next")
+    result = ch.validate_candidate_root(root)
+    assert result["candidate_root"] == str(root.resolve())
+    assert result["candidate_index_sha256"] == hashlib.sha256(
+        (root / "index.html").read_bytes()).hexdigest()
+    assert result["static_dir_present"] is True
+
+
+@pytest.mark.parametrize("setup,match", [
+    ("missing_dir", "not found|candidate-root|exists"),
+    ("missing_index", "index.html"),
+    ("missing_static", "_next/static|_next"),
+    ("file_not_dir", "directory|dir"),
+])
+def test_validate_candidate_root_rejects_malformed(setup, match, tmp_path):
+    """All four pre-flight failure shapes fail closed with a clear
+    ValueError before Chromium is ever launched."""
+    if setup == "missing_dir":
+        target = tmp_path / "does-not-exist"
+    elif setup == "missing_index":
+        target = tmp_path / "no-index"
+        target.mkdir()
+        (target / "_next" / "static").mkdir(parents=True)
+    elif setup == "missing_static":
+        target = tmp_path / "no-static"
+        target.mkdir()
+        (target / "index.html").write_bytes(b"<html></html>")
+    else:
+        assert setup == "file_not_dir", f"unknown setup: {setup}"
+        target = tmp_path / "file-as-root"
+        target.write_bytes(b"x")
+    with pytest.raises(ValueError, match=match):
+        ch.validate_candidate_root(target)
+
+
+# --- migrated HTTP pre-flight (no auto-redirect, 200, sha match) -----
+
+
+def test_http_get_index_returns_body_status_on_200(tmp_path):
+    root = _make_candidate_root(tmp_path / "next")
+    expected = (root / "index.html").read_bytes()
+    with _CandidateServer(root) as srv:
+        status, body = ch._http_get_index(srv.url + "/index.html")
+    assert status == 200 and body == expected
+
+
+def _http_fault_handler(status_code: int, *, location: str | None = None):
+    """Factory for a BaseHTTPRequestHandler that replies with
+    `status_code` to every GET. Inline import keeps the helper local
+    to this module."""
+    import http.server as _hs
+
+    class _Handler(_hs.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(status_code)
+            if location:
+                self.send_header("Location", location)
+            self.end_headers()
+            if status_code == 404:
+                self.wfile.write(b"nope")
+
+        def log_message(self, *args, **kwargs):
+            return
+
+    return _Handler
+
+
+@pytest.mark.parametrize("status_code,location,expected_exc,match", [
+    (302, "http://127.0.0.1:1/", urllib.error.HTTPError, None),
+    (404, None, ValueError, "200|404|status"),
+])
+def test_http_get_index_redirect_and_404_fail_closed(status_code, location,
+                                                      expected_exc, match,
+                                                      tmp_path):
+    """`_http_get_index` MUST NOT auto-follow redirects (a legacy
+    8765 → migrated path would silently pass the SHA check against
+    the wrong root) and MUST treat 4xx as fail-closed."""
+    url, _, httpd = _serve(
+        _http_fault_handler(status_code, location=location))
+    try:
+        with pytest.raises(expected_exc, match=match):
+            ch._http_get_index(url + "/index.html")
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+# --- migrated collect_migrated_samples -------------------------------
+
+
+def test_collect_migrated_samples_writes_migrated_schema_and_metadata(
+    tmp_path):
+    """Happy path: candidate-root passes pre-flight, samples carry
+    the migrated schema/build/candidate_root/candidate_index_sha256,
+    provenance identifies the migrated capture, Chromium runs after
+    pre-flight, and `found:false` data is preserved verbatim."""
+    root = _make_candidate_root(tmp_path / "next")
+    adapter = FakeBrowserAdapter()
+    with _CandidateServer(root) as srv:
+        target = srv.url + "/index.html"
+        result = ch.collect_migrated_samples(
+            target_url=target, browser_adapter=adapter, candidate_root=root)
+    assert result["schema"] == MIGRATED_SCHEMA
+    assert result["build"] == "migrated"
+    assert result["candidate_root"] == str(root.resolve())
+    expected_hash = hashlib.sha256(
+        (root / "index.html").read_bytes()).hexdigest()
+    assert result["candidate_index_sha256"] == expected_hash
+    assert result["static_dir_present"] is True
+    assert result["provenance"]["schema"] == MIGRATED_PROVENANCE_SCHEMA
+    assert result["provenance"]["candidate_root"] == str(root.resolve())
+    assert result["provenance"]["candidate_index_sha256"] == expected_hash
+    assert result["iterations"] == 10
+    assert len(result["samples"]) == 10
+    for s in result["samples"]:
+        assert s["dom_marker"]["selector"] == ch.DEFAULT_DOM_MARKER_SELECTOR
+    assert result["target_url"] == target
+
+
+def test_collect_migrated_samples_fails_closed_on_sha_mismatch(tmp_path):
+    """Served index.html body differs from `<candidate-root>/index.html`
+    → fail closed BEFORE Chromium launches."""
+    root = _make_candidate_root(tmp_path / "next")
+    fake_root = _make_candidate_root(
+        tmp_path / "fake", body=b"<html>DIFFERENT CONTENT</html>\n")
+    adapter = FakeBrowserAdapter()
+    adapter.calls = []
+    with _CandidateServer(fake_root) as srv, \
+            pytest.raises(ValueError, match="sha256|hash|mismatch"):
+        ch.collect_migrated_samples(
+            target_url=srv.url + "/index.html",
+            browser_adapter=adapter, candidate_root=root)
+    assert adapter.calls == []
+
+
+def test_collect_migrated_samples_fails_closed_on_missing_static_dir(
+    tmp_path):
+    """Candidate-root missing `_next/static` fails closed BEFORE
+    the HTTP fetch / Chromium launch."""
+    root = _make_candidate_root(tmp_path / "next", include_static=False)
+    adapter = FakeBrowserAdapter()
+    with pytest.raises(ValueError, match="_next/static|_next"):
+        ch.collect_migrated_samples(
+            target_url="http://127.0.0.1:1/index.html",
+            browser_adapter=adapter, candidate_root=root)
+    assert adapter.calls == []
+
+
+def test_collect_migrated_samples_fails_closed_on_url_unreachable(tmp_path):
+    """`<target-url>/index.html` unreachable → fail closed BEFORE
+    Chromium launches."""
+    root = _make_candidate_root(tmp_path / "next")
+    adapter = FakeBrowserAdapter()
+    with pytest.raises((ValueError, OSError, urllib.error.URLError)):
+        ch.collect_migrated_samples(
+            target_url=f"http://127.0.0.1:{_free_port()}/index.html",
+            browser_adapter=adapter, candidate_root=root)
+    assert adapter.calls == []
+
+
+def test_collect_migrated_samples_preserves_found_false_data(tmp_path):
+    """Migrated role MUST preserve `found:false` + `wait_ms:-1`
+    verbatim — never coerce a missing readiness marker into 0."""
+    root = _make_candidate_root(tmp_path / "next")
+    adapter = FakeBrowserAdapter(wait_ms=-1.0, found=False, count=0,
+                                  first_text=None)
+    with _CandidateServer(root) as srv:
+        result = ch.collect_migrated_samples(
+            target_url=srv.url + "/index.html",
+            browser_adapter=adapter, candidate_root=root)
+    for s in result["samples"]:
+        assert s["dom_marker"]["found"] is False
+        assert s["dom_marker"]["count"] == 0
+        assert s["dom_marker"]["wait_ms"] == -1.0
+        assert s["dom_marker"]["first_text"] is None
+
+
+# --- legacy default output remains pinned -----------------------------
+
+
+def test_legacy_default_output_schema_and_build_label_unchanged(tmp_path,
+                                                                 monkeypatch):
+    """Legacy default (no `--role`, no `--candidate-root`) MUST
+    continue to emit the legacy schema + provenance with NO
+    migrated fields. The legacy byte contract is preserved verbatim."""
+    monkeypatch.setattr(ch, "PlaywrightBrowserAdapter", lambda: FakeBrowserAdapter())
+    out = tmp_path / "out.json"
+    rc = ch.main(["capture_hydration.py", "--target-url", TARGET_URL,
+                  "--out", str(out)])
+    assert rc == 0
+    doc = json.loads(out.read_text())
+    assert doc["schema"] == ch.SCHEMA
+    assert doc["provenance"]["schema"] == ch.PROVENANCE_SCHEMA
+    for forbidden in ("candidate_root", "candidate_index_sha256",
+                      "static_dir_present", "build"):
+        assert forbidden not in doc, (
+            f"legacy output must NOT carry migrated field {forbidden!r}")
+    assert "build" not in doc["provenance"]
+    assert doc["dom_marker_selector"] == ch.DEFAULT_DOM_MARKER_SELECTOR
+    assert len(doc["samples"]) == 10
+
+
+# ---------------------------------------------------------------------------
+# Parent-review hardening: `validate_candidate_root` must reject a
+# legacy `web/` root that has been padded with an empty `_next/static`
+# directory. Real Next.js static export carries at least one file
+# under `_next/static/` and `index.html` references a `/_next/static/`
+# asset. Strengthen identity minimally:
+#   1. require at least one actual file below `_next/static/`
+#   2. require `index.html` to reference a `/_next/static/` asset
+# ---------------------------------------------------------------------------
+
+
+def test_validate_candidate_root_rejects_empty_static_dir(tmp_path):
+    """An empty `_next/static/` directory is NOT a real Next static
+    export. A legacy `web/` root padded with an empty directory
+    must fail closed so `--role migrated` cannot pass against it."""
+    root = tmp_path / "candidate"
+    root.mkdir()
+    (root / "index.html").write_bytes(b"<html></html>\n")
+    (root / "_next" / "static").mkdir(parents=True)  # empty
+    with pytest.raises(ValueError, match="empty _next/static|empty.*static"):
+        ch.validate_candidate_root(root)
+
+
+def test_validate_candidate_root_rejects_index_without_next_static_ref(
+        tmp_path):
+    """`index.html` MUST reference a `/_next/static/` asset. A legacy
+    `web/` root with an arbitrary HTML document and a populated
+    `_next/static/` directory must still fail closed — the index
+    itself must reference the static asset to be a real Next export."""
+    root = tmp_path / "candidate"
+    root.mkdir()
+    (root / "index.html").write_bytes(
+        b"<!doctype html><html><body>legacy page</body></html>\n")
+    static_dir = root / "_next" / "static"
+    static_dir.mkdir(parents=True)
+    (static_dir / "chunks").mkdir()
+    (static_dir / "chunks" / "main.js").write_bytes(b"// js")
+    with pytest.raises(ValueError,
+                       match="index.html.*_next/static|reference.*_next"):
+        ch.validate_candidate_root(root)
+
+
+def test_validate_candidate_root_accepts_real_next_static_export(tmp_path):
+    """A real Next.js static export root passes: non-empty
+    `_next/static/` directory AND `index.html` references
+    `/_next/static/`."""
+    root = _make_candidate_root(tmp_path / "candidate")
+    result = ch.validate_candidate_root(root)
+    assert result["static_dir_present"] is True
+    assert result["candidate_root"] == str(root.resolve())
+
+
+# ---------------------------------------------------------------------------
