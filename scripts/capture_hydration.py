@@ -7,18 +7,57 @@ Playwright/environment provenance; in-memory + raw JSON written
 atomically; fail-closed on iteration failure. Out of scope (later
 chain children): Lighthouse, G5 launcher invocation, parity-reports
 emission, baseline/candidate comparison. Exit codes: 0/2/10.
+
+Migrated candidate role (`--role migrated`):
+  * CLI `--role migrated` REQUIRES `--candidate-root`.
+  * Legacy default (`--role legacy` or no `--role`) REJECTS
+    `--candidate-root` (it is a candidate-only flag).
+  * Pre-flight verifies `<candidate-root>` is a Next.js static export
+    root (must contain `index.html` and `_next/static/`).
+  * Pre-flight fetches `<target-url>/index.html` with a read-only GET
+    that BLOCKS redirects, requires HTTP 200, and asserts exact
+    SHA-256 equality with `<candidate-root>/index.html` BEFORE
+    Chromium launches. Never emits a `migrated` label when the
+    legacy `web/` content was served.
+  * Output carries `schema: taxa.g5-capture.migrated/1`,
+    `build: migrated`, `candidate_root`, `candidate_index_sha256`,
+    `static_dir_present`; provenance identifies the migrated capture.
+  * Capture preserves `dom_marker.found:false` data verbatim —
+    never coerces a missing readiness marker into zero / pass.
 """
 from __future__ import annotations
 
-import argparse, contextlib, datetime as _dt, hashlib, json, os, platform, re, shutil, sys, time, uuid
+import argparse
+import contextlib
+import datetime as _dt
+import hashlib
+import json
+import os
+import platform
+import re
+import shutil
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator, Protocol
-
+from typing import Any, Protocol
 
 SCHEMA = "taxa.g5-capture.legacy/1"
 PROVENANCE_SCHEMA = "taxa.g5-capture.legacy-provenance/1"
 PUBLICATION_SCHEMA = "taxa.g5-publication.evidence-manifest/1"
 BRIDGE_ADVISORIES_SCHEMA = "taxa.g5-publication.bridge-advisories/1"
+# Migrated (Next.js candidate) capture role — emitted only when the
+# CLI pre-flight (candidate-root + HTTP sha256 equality) succeeds.
+# Legacy default (`web/`) never carries these.
+MIGRATED_SCHEMA = "taxa.g5-capture.migrated/1"
+MIGRATED_PROVENANCE_SCHEMA = "taxa.g5-capture.migrated-provenance/1"
+MIGRATED_BUILD_LABEL = "migrated"
+LEGACY_BUILD_LABEL = "legacy"
+ROLES = ("legacy", "migrated")
 ITERATIONS = 10
 # G5 readiness contract: target the controlled G3 fixture's dynamic
 # readiness marker (`#tree-view[data-state="ready"]`) flipped by
@@ -27,6 +66,144 @@ ITERATIONS = 10
 # never matched the controlled runtime.
 DEFAULT_DOM_MARKER_SELECTOR = '#tree-view[data-state="ready"]'
 EXIT_OK, EXIT_USAGE, EXIT_FAILURE = 0, 2, 10
+
+
+# ---------------------------------------------------------------------------
+# Migrated candidate pre-flight helpers (Next.js static-export contract).
+# ---------------------------------------------------------------------------
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Block ALL redirects so the pre-flight can detect a legacy
+    serve that proxies the migrated request back to `web/`. Any 3xx
+    response raises ``HTTPError`` instead of being followed."""
+
+    def http_error_301(self, req, fp, code, msg, headers):
+        raise urllib.error.HTTPError(req.full_url, code,
+                                      "redirect blocked", headers, fp)
+
+    def http_error_302(self, req, fp, code, msg, headers):
+        raise urllib.error.HTTPError(req.full_url, code,
+                                      "redirect blocked", headers, fp)
+
+    def http_error_303(self, req, fp, code, msg, headers):
+        raise urllib.error.HTTPError(req.full_url, code,
+                                      "redirect blocked", headers, fp)
+
+    def http_error_307(self, req, fp, code, msg, headers):
+        raise urllib.error.HTTPError(req.full_url, code,
+                                      "redirect blocked", headers, fp)
+
+    def http_error_308(self, req, fp, code, msg, headers):
+        raise urllib.error.HTTPError(req.full_url, code,
+                                      "redirect blocked", headers, fp)
+
+
+def _http_get_index(target_url: str, *, timeout_s: float = 10.0) -> tuple[int, bytes]:
+    """Read-only GET against ``target_url`` with redirects blocked.
+
+    Returns ``(status_code, body_bytes)`` on HTTP 200. Raises
+    ``urllib.error.HTTPError`` directly on 3xx (redirects — the
+    caller MUST treat a redirect as fail-closed because the served
+    URL may have been silently swapped to a different root). Raises
+    ``ValueError`` on other non-2xx responses (4xx / 5xx). Network
+    failures propagate as ``OSError`` / ``urllib.error.URLError``
+    unchanged.
+    """
+    if not target_url:
+        raise ValueError("target_url must be a non-empty string")
+    parsed = urllib.parse.urlparse(target_url)
+    # Only http(s) URLs are allowed. The pre-flight exists to
+    # verify that a remote serve carries the migrated bytes;
+    # `file://` would silently bypass the network check.
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(
+            f"target_url must use http:// or https://; got scheme={parsed.scheme!r}"
+        )
+    safe_url = parsed.geturl()
+    opener = urllib.request.build_opener(_NoRedirectHandler())
+    try:
+        with opener.open(safe_url, timeout=timeout_s) as resp:
+            status = int(getattr(resp, "status", 200))
+            if status != 200:
+                raise urllib.error.HTTPError(
+                    safe_url, status,
+                    f"non-200 response: {status}",
+                    resp.headers, None,
+                )
+            return status, resp.read()
+    except urllib.error.HTTPError as e:
+        if 300 <= int(e.code) < 400:
+            # Redirect — surface verbatim so the migrated caller can
+            # treat it as fail-closed (legacy serve that proxies the
+            # migrated path back to `web/` MUST not pass the sha check).
+            raise
+        raise ValueError(
+            f"target_url did not return HTTP 200; got status={e.code}"
+        ) from e
+
+
+def validate_candidate_root(candidate_root):
+    """Verify ``candidate_root`` is a Next.js static-export root.
+
+    Returns a dict carrying ``candidate_root``, the on-disk
+    ``candidate_index_sha256``, and ``static_dir_present`` so the
+    migrated capture can be traced back to the exact bytes served.
+    Fails closed (``ValueError``) on any deviation.
+
+    Identity hardening (parent review): a legacy ``web/`` root padded
+    with an empty ``_next/static`` directory must NOT pass. A real
+    Next.js static export carries (1) at least one actual file below
+    ``_next/static/`` AND (2) an ``index.html`` that references a
+    ``/_next/static/`` asset. Both checks are minimal — the exact-hash
+    served-body preflight in ``_http_get_index`` continues to be the
+    binding contract.
+    """
+    root = Path(candidate_root)
+    if not root.exists():
+        raise ValueError(
+            f"--candidate-root does not exist: {root}"
+        )
+    if not root.is_dir():
+        raise ValueError(
+            f"--candidate-root must be a directory; got file: {root}"
+        )
+    index_html = root / "index.html"
+    if not index_html.is_file():
+        raise ValueError(
+            f"--candidate-root is missing Next.js index.html: {index_html}"
+        )
+    static_dir = root / "_next" / "static"
+    if not static_dir.is_dir():
+        raise ValueError(
+            f"--candidate-root is missing Next.js _next/static directory: {static_dir}"
+        )
+    # Identity check 1: `_next/static/` must contain at least one
+    # actual file. An empty directory (legacy `web/` padded with a
+    # bare `_next/static`) fails closed so `--role migrated` cannot
+    # pass against a legacy root.
+    static_files = [p for p in static_dir.rglob("*") if p.is_file()]
+    if not static_files:
+        raise ValueError(
+            f"--candidate-root has empty _next/static directory: {static_dir} "
+            f"(a real Next.js static export carries at least one asset)"
+        )
+    # Identity check 2: `index.html` MUST reference a `/_next/static/`
+    # asset. Legacy `web/` pages reference local CSS/JS via
+    # `web/dist/` or inline; they do not reference `/_next/static/`.
+    index_body = index_html.read_bytes()
+    if b"/_next/static/" not in index_body:
+        raise ValueError(
+            "--candidate-root/index.html does not reference any "
+            "`/_next/static/` asset (a real Next.js static export "
+            "index links its JS/CSS chunks under _next/static/)"
+        )
+    body = index_html.read_bytes()
+    return {
+        "candidate_root": str(root.resolve()),
+        "candidate_index_sha256": hashlib.sha256(body).hexdigest(),
+        "static_dir_present": True,
+    }
 
 
 def _now_iso() -> str:
@@ -78,6 +255,78 @@ def collect_raw_samples(
         "dom_marker_selector": dom_marker_selector,
         "provenance": provenance, "samples": samples,
     }
+
+
+def collect_migrated_samples(
+    *, target_url: str, browser_adapter: BrowserAdapter,
+    candidate_root,
+    iterations: int = ITERATIONS,
+    dom_marker_selector: str = DEFAULT_DOM_MARKER_SELECTOR,
+    http_get_index=_http_get_index,
+) -> dict:
+    """Migrated-role collector: pre-flight verifies the candidate
+    root + the served URL point at the same Next.js static-export
+    bytes BEFORE Chromium launches, then delegates to
+    ``collect_raw_samples`` with the migrated schema / provenance.
+
+    Fail-closed contract: any pre-flight violation raises
+    ``ValueError`` and the browser adapter is NEVER invoked. The
+    legacy output byte contract (``SCHEMA`` /
+    ``PROVENANCE_SCHEMA``) is never emitted on this path; the
+    migrated output MUST carry ``MIGRATED_SCHEMA`` +
+    ``build: migrated`` + ``candidate_root`` +
+    ``candidate_index_sha256`` + ``static_dir_present`` so the
+    comparator (later chain child) can re-verify the root before
+    joining against the legacy baseline.
+    """
+    if not candidate_root:
+        raise ValueError(
+            "--role migrated requires --candidate-root (Next.js static export root)"
+        )
+    root_meta = validate_candidate_root(candidate_root)
+    # Read-only HTTP pre-flight. The fetcher blocks redirects; we
+    # never want the migrated root to silently hash against a legacy
+    # serve that proxies the same path.
+    try:
+        status, body = http_get_index(target_url)
+    except urllib.error.HTTPError as e:
+        raise ValueError(
+            f"target_url did not return HTTP 200; got status={e.code}"
+        ) from e
+    if status != 200:
+        raise ValueError(
+            f"target_url did not return HTTP 200; got status={status}"
+        )
+    if not body:
+        raise ValueError("target_url returned an empty body")
+    fetched_hash = hashlib.sha256(body).hexdigest()
+    if fetched_hash != root_meta["candidate_index_sha256"]:
+        raise ValueError(
+            "candidate_root/index.html sha256 does not match the served "
+            "target_url/index.html; the served URL is not the migrated "
+            "candidate root (legacy `web/` content was served?). "
+            f"expected={root_meta['candidate_index_sha256']} got={fetched_hash}"
+        )
+    base = collect_raw_samples(
+        target_url=target_url, browser_adapter=browser_adapter,
+        iterations=iterations, dom_marker_selector=dom_marker_selector,
+    )
+    # Promote to the migrated envelope. Per-sample DOM-marker fields
+    # are preserved verbatim — including ``found:false`` — so the
+    # comparator can fail-closed as blocked/unassessable when the
+    # migrated candidate does not yet emit the readiness marker.
+    provenance = dict(base["provenance"])
+    provenance["schema"] = MIGRATED_PROVENANCE_SCHEMA
+    provenance["candidate_root"] = root_meta["candidate_root"]
+    provenance["candidate_index_sha256"] = root_meta["candidate_index_sha256"]
+    result = dict(base)
+    result["schema"] = MIGRATED_SCHEMA
+    result["build"] = MIGRATED_BUILD_LABEL
+    result["candidate_root"] = root_meta["candidate_root"]
+    result["candidate_index_sha256"] = root_meta["candidate_index_sha256"]
+    result["static_dir_present"] = root_meta["static_dir_present"]
+    result["provenance"] = provenance
+    return result
 
 
 def write_result(result: dict, out_path: Path) -> None:
@@ -200,7 +449,17 @@ _PUBLISH_BACKUP_SUFFIX = ".bak"
 
 
 def _safe_rmtree(path: Path) -> None:
-    shutil.rmtree(path, ignore_errors=True)
+    # Defensive cleanup: ignore any FS error (permission, missing
+    # path, race with another publisher) so a publisher failure
+    # cannot leak residue on disk. Equivalent to the prior
+    # ``ignore_errors=True`` argument.
+    try:
+        shutil.rmtree(path)
+    except OSError:
+        # No re-raise: cleanup MUST be best-effort to keep the
+        # publisher contract intact. Swallowed errors are
+        # non-actionable for the caller.
+        return
 
 
 def _default_publish_write_bytes(path: Path, data: bytes) -> None:
@@ -438,13 +697,28 @@ class PlaywrightBrowserAdapter:
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="capture_hydration.py",
-        description="Raw Playwright legacy collector (G5 child; samples-only).")
-    p.add_argument("--target-url", required=True, help="Controlled FastAPI target URL (PR #131).")
-    p.add_argument("--out", required=True, help="Path to write the raw JSON result.")
+        description=(
+            "Raw Playwright collector (G5 child; samples-only). "
+            "Legacy default (--role legacy); --role migrated enables the "
+            "candidate capture against a Next.js static export root."
+        ))
+    p.add_argument("--target-url", required=True,
+                   help="Controlled FastAPI / candidate-serve URL (PR #131).")
+    p.add_argument("--out", required=True,
+                   help="Path to write the raw JSON result.")
+    p.add_argument("--role", choices=ROLES, default=LEGACY_BUILD_LABEL,
+                   help=("Capture role. Default 'legacy' preserves the "
+                         "original byte contract; 'migrated' enables "
+                         "candidate capture (requires --candidate-root)."))
+    p.add_argument("--candidate-root", default=None,
+                   help=("Candidate web root (Next.js static export) for "
+                         "--role migrated. Required when --role migrated; "
+                         "rejected when --role legacy."))
     p.add_argument("--iterations", type=int, default=ITERATIONS,
                    help=f"Must equal {ITERATIONS} (G5 contract).")
     p.add_argument("--dom-marker-selector", default=DEFAULT_DOM_MARKER_SELECTOR)
-    p.add_argument("--dry-run", action="store_true", help="Print to stdout instead of writing --out.")
+    p.add_argument("--dry-run", action="store_true",
+                   help="Print to stdout instead of writing --out.")
     p.add_argument("--browser", default="playwright", choices=("playwright",))
     return p.parse_args(argv[1:])
 
@@ -452,15 +726,50 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str]) -> int:
     args = _parse_args(argv)
     if args.iterations != ITERATIONS:
-        sys.stderr.write(f"[capture_hydration] --iterations must be {ITERATIONS} (G5 contract); got {args.iterations}\n")
+        sys.stderr.write(
+            f"[capture_hydration] --iterations must be {ITERATIONS} "
+            f"(G5 contract); got {args.iterations}\n"
+        )
+        return EXIT_USAGE
+    # Cross-flag validation. Argparse cannot express these: legacy
+    # mode MUST NOT carry --candidate-root (it would silently emit a
+    # migrated label against a non-Next root), and migrated mode
+    # MUST carry --candidate-root (no default exists).
+    if args.role == LEGACY_BUILD_LABEL and args.candidate_root is not None:
+        sys.stderr.write(
+            f"[capture_hydration] --candidate-root is only valid with "
+            f"--role migrated; got --role {args.role!r}. "
+            f"Remove --candidate-root for the legacy capture.\n"
+        )
+        return EXIT_USAGE
+    if args.role == MIGRATED_BUILD_LABEL and not args.candidate_root:
+        sys.stderr.write(
+            "[capture_hydration] --role migrated requires --candidate-root "
+            "pointing at a Next.js static export root (index.html + "
+            "_next/static).\n"
+        )
         return EXIT_USAGE
     out_path = Path(args.out)
     try:
-        result = collect_raw_samples(
-            target_url=args.target_url, browser_adapter=PlaywrightBrowserAdapter(),
-            iterations=args.iterations, dom_marker_selector=args.dom_marker_selector)
+        if args.role == MIGRATED_BUILD_LABEL:
+            result = collect_migrated_samples(
+                target_url=args.target_url,
+                browser_adapter=PlaywrightBrowserAdapter(),
+                candidate_root=args.candidate_root,
+                iterations=args.iterations,
+                dom_marker_selector=args.dom_marker_selector,
+            )
+        else:
+            result = collect_raw_samples(
+                target_url=args.target_url,
+                browser_adapter=PlaywrightBrowserAdapter(),
+                iterations=args.iterations,
+                dom_marker_selector=args.dom_marker_selector,
+            )
     except Exception as e:
-        sys.stderr.write(f"[capture_hydration] capture failed (fail-closed; no --out written): {e}\n")
+        sys.stderr.write(
+            f"[capture_hydration] capture failed (fail-closed; no --out written): {e}\n"
+        )
         return EXIT_FAILURE
     if args.dry_run:
         sys.stdout.write(json.dumps(result, indent=2) + "\n")
@@ -470,7 +779,10 @@ def main(argv: list[str]) -> int:
     except OSError as e:
         sys.stderr.write(f"[capture_hydration] cannot write --out: {e}\n")
         return EXIT_FAILURE
-    sys.stdout.write(f"[capture_hydration] wrote {len(result['samples'])} raw samples to {out_path}\n")
+    sys.stdout.write(
+        f"[capture_hydration] wrote {len(result['samples'])} raw samples "
+        f"(role={result.get('build', args.role)}) to {out_path}\n"
+    )
     return EXIT_OK
 
 
