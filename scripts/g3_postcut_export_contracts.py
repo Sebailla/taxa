@@ -1,19 +1,28 @@
-"""G3 post-cut root-shell and first-party chunk-reference contracts.
+"""G3 post-cut root-shell, chunk-reference, and build-profile contracts.
 
-#16 verifies the AppShell marker and ``<main`` landmark. #17 extracts
-first-party ``/_next/static/chunks/*.js`` URLs only from HTML ``src`` and
-``href`` attributes with stdlib ``HTMLParser``, decodes percent escapes
-before traversal validation, and checks forward reference integrity inside
-the supplied export root. Synthetic tests use ``tmp_path``; future real
-export consumers are kept separate and do not establish a G3 pass.
+#16 verifies the AppShell marker and ``<main`` landmark. #17 parses first-party
+chunk references and validates forward integrity inside the supplied export.
+#19 runs the existing profile emitter with an explicit external output path
+and validates the inventory sums without inventing size thresholds. Synthetic
+tests use ``tmp_path``; future ``out`` consumers do not establish a G3 pass.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import subprocess
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote
+
+# ---------------------------------------------------------------------------
+# Repo root: parent of this file (``scripts/`` lives at the repo root).
+# ---------------------------------------------------------------------------
+REPO_ROOT = Path(__file__).resolve().parent.parent
+EMIT_SCRIPT = REPO_ROOT / "scripts" / "emit_build_profile.mjs"
+
 
 class PostcutContractError(Exception):
     """Raised by the three helpers on any verification failure.
@@ -306,3 +315,159 @@ def verify_chunk_references(html_path: Path, export_root: Path) -> list[str]:
             raise PostcutContractError(f"chunk reference target empty: {ref}")
 
     return refs
+
+
+# ===========================================================================
+# #19 — real-export build-profile inventory
+#
+# Wraps ``scripts/emit_build_profile.mjs``. The emitter walks an
+# export directory recursively and writes a JSON profile with
+# ``chunks``, ``total_bytes``, and ``per_route_bytes``. The wrapper
+# invokes the emitter via ``subprocess.run([node, emit, export,
+# output])`` so the explicit output path always wins over
+# ``$BUILD_PROFILE_OUT_DIR`` and the repo-root default
+# (``web/dist/build-profile.json``). The subprocess environment
+# strips ``BUILD_PROFILE_OUT_DIR`` defensively; the profile is then
+# re-read from disk and validated.
+# ===========================================================================
+def _emit_build_profile(
+    export_dir: Path, output_path: Path, *, env: dict | None = None
+) -> subprocess.CompletedProcess:
+    """Run the emitter with explicit args. The caller supplies a
+    clean ``env`` if it needs to strip ``BUILD_PROFILE_OUT_DIR``;
+    the default keeps the env but the explicit ``[2]`` arg wins
+    over the env-derived default inside the emitter (defense in
+    depth).
+    """
+    if not EMIT_SCRIPT.is_file():
+        raise PostcutContractError(f"emitter script not found: {EMIT_SCRIPT}")
+    argv = ["node", str(EMIT_SCRIPT), str(export_dir), str(output_path)]
+    return subprocess.run(
+        argv,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env if env is not None else None,
+        timeout=120,
+    )
+
+
+def verify_build_profile_inventory(export_dir: Path, output_path: Path) -> dict:
+    """Invoke ``scripts/emit_build_profile.mjs`` against
+    ``export_dir``, writing the profile JSON exactly at the explicit
+    ``output_path``. The synthetic tests pin ``output_path`` to
+    pytest ``tmp_path``; the future ``test_consumer_build_profile_inventory``
+    node also writes to ``tmp_path`` so the export directory is
+    never mutated. Validate non-empty ``chunks`` / ``per_route_bytes``,
+    integer non-negative totals/values, and the internal sums:
+
+        total_bytes == sum(chunk.bytes) == sum(per_route_bytes.values())
+
+    Do not invent any size or chunk-count threshold. The subprocess
+    environment strips ``BUILD_PROFILE_OUT_DIR`` so the explicit
+    output argument is the only output destination.
+
+    Reject the emitter's exact repo ``web/dist/build-profile.json`` default
+    as a defense-in-depth safeguard. The consumer supplies pytest
+    ``tmp_path`` as its external output destination.
+
+    A JSON-root-object guard rejects profiles whose root is not an
+    object (e.g. ``[]``, ``null``) so a malformed profile fails
+    closed with :class:`PostcutContractError` instead of
+    ``AttributeError`.
+
+    Returns the validated profile dict. Raises
+    :class:`PostcutContractError` on containment violation,
+    subprocess failure, or invalid profile.
+    """
+    export_dir_resolved = Path(export_dir).resolve()
+    output_path_resolved = Path(output_path).resolve()
+
+    # Defense in depth: reject the emitter's repo-root default.
+    repo_web_dist = (REPO_ROOT / "web" / "dist" / "build-profile.json").resolve()
+    if output_path_resolved == repo_web_dist:
+        raise PostcutContractError(
+            f"output_path collides with repo web/dist default: {output_path}"
+        )
+
+    # Strip ``BUILD_PROFILE_OUT_DIR`` from the subprocess env so
+    # the emitter cannot route output through the env override.
+    # The emitter's explicit ``[2]`` arg would still win when both
+    # are present, but stripping the env keeps the contract surface
+    # explicit and observable.
+    env = {k: v for k, v in os.environ.items() if k != "BUILD_PROFILE_OUT_DIR"}
+
+    proc = _emit_build_profile(export_dir_resolved, output_path_resolved, env=env)
+    if proc.returncode != 0:
+        raise PostcutContractError(
+            f"emit_build_profile.mjs exited {proc.returncode}; stderr={proc.stderr!r}"
+        )
+    if not output_path_resolved.is_file():
+        raise PostcutContractError(
+            f"profile not written at explicit output path: {output_path_resolved}"
+        )
+
+    try:
+        profile = json.loads(output_path_resolved.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PostcutContractError(
+            f"cannot read profile JSON at {output_path_resolved}: {exc}"
+        ) from exc
+
+    # JSON-root-object guard. ``profile.get(...)`` would raise
+    # ``AttributeError`` on a list / null / int / string root; the
+    # contract surface requires a fail-closed
+    # :class:`PostcutContractError` instead.
+    if not isinstance(profile, dict):
+        raise PostcutContractError(
+            f"profile JSON root must be an object, got "
+            f"{type(profile).__name__}: "
+            f"{output_path_resolved.read_text(encoding='utf-8')[:200]!r}"
+        )
+
+    # ---- internal-sums validation (no size / count threshold) ----
+    chunks = profile.get("chunks")
+    if not isinstance(chunks, list) or not chunks:
+        raise PostcutContractError("profile.chunks must be a non-empty list")
+    for c in chunks:
+        if not isinstance(c, dict):
+            raise PostcutContractError(f"profile.chunks entry must be an object: {c!r}")
+        b = c.get("bytes")
+        if not isinstance(b, int) or isinstance(b, bool) or b < 0:
+            raise PostcutContractError(
+                f"profile.chunks[].bytes must be non-negative int: {c!r}"
+            )
+        if not isinstance(c.get("path"), str):
+            raise PostcutContractError(f"profile.chunks[].path must be string: {c!r}")
+
+    total = profile.get("total_bytes")
+    if not isinstance(total, int) or isinstance(total, bool) or total < 0:
+        raise PostcutContractError("profile.total_bytes must be non-negative int")
+
+    per_route = profile.get("per_route_bytes")
+    if not isinstance(per_route, dict) or not per_route:
+        raise PostcutContractError("profile.per_route_bytes must be a non-empty object")
+    for route, val in per_route.items():
+        if not isinstance(route, str):
+            raise PostcutContractError(
+                f"profile.per_route_bytes key must be string: {route!r}"
+            )
+        if not isinstance(val, int) or isinstance(val, bool) or val < 0:
+            raise PostcutContractError(
+                f"profile.per_route_bytes[{route!r}] must be "
+                f"non-negative int: {val!r}"
+            )
+
+    chunk_sum = sum(c["bytes"] for c in chunks)
+    per_route_sum = sum(per_route.values())
+    if total != chunk_sum:
+        raise PostcutContractError(
+            f"profile.total_bytes ({total}) != sum(chunk.bytes) ({chunk_sum})"
+        )
+    if total != per_route_sum:
+        raise PostcutContractError(
+            f"profile.total_bytes ({total}) != "
+            f"sum(per_route_bytes.values()) ({per_route_sum})"
+        )
+
+    return profile
