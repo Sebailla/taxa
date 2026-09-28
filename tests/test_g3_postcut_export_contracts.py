@@ -1,12 +1,44 @@
-"""Synthetic and future real-export consumer tests for G3 #16 and #17.
+"""Strict-TDD contract tests for the G3 post-cut export contracts helper
+(`scripts/g3_postcut_export_contracts.py`). Follow-up 33 / Slice B.
 
-Synthetic HTML/export inputs use ``tmp_path``. Real ``out`` consumer nodes
-remain separate and are not run as part of this contract slice.
+Two test layers:
+
+1. ``test_synthetic_*`` — pure ``tmp_path``-based tests that exercise
+   the helpers against synthetic HTML / build-dir inputs. Selected
+   by ``pytest -k 'synthetic_'``. They never read ``Path.cwd()/out``
+   and never depend on a real Next.js export.
+
+2. ``test_consumer_*`` — future G3 consumer nodes that read
+   ``Path.cwd()/out`` (the isolated candidate worktree's export).
+   These are real assertions for the future manifest contract but
+   MUST NOT be run in this slice. They are deselected by
+   ``pytest -k 'synthetic_'`` (NOT skipped). They remain unrun
+   until a separately authorized isolated candidate worktree
+   supplies ``Path.cwd()/out/index.html`` + ``Path.cwd()/out``.
+
+Coverage matrix (Follow-up 33 / Slice B acceptance):
+  #16 ``verify_root_shell(html_path)``
+        accept: minimal HTML + realistic AppShell HTML.
+        reject: missing marker / missing landmark / missing both / empty file.
+  #17 ``verify_chunk_references(html_path, export_root)``
+        accept: single + multiple valid references that resolve
+                to non-empty files.
+        reject: zero references / missing target / empty target /
+                traversal / query / fragment / foreign origin
+                (silently ignored but zero valid references then
+                fail closed).
+  #19 ``verify_build_profile_inventory(export_dir, output_path)``
+        accept: synthetic build dir + explicit tmp_path output.
+        reject: missing export dir / empty export dir.
+
+The synthetic tests do NOT prove real ``out/`` conformance —
+that requires a separately authorized isolated candidate worktree.
 """
 
 from __future__ import annotations
 
 import importlib
+import subprocess
 import sys
 from pathlib import Path
 
@@ -14,6 +46,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "g3_postcut_export_contracts.py"
+EMIT_SCRIPT = REPO_ROOT / "scripts" / "emit_build_profile.mjs"
 
 
 def _load_module():
@@ -52,6 +85,7 @@ def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
 
+
 def _make_chunk_file(
     export_root: Path, name: str, content: bytes = b"// chunk"
 ) -> Path:
@@ -60,6 +94,7 @@ def _make_chunk_file(
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(content)
     return p
+
 
 # ===========================================================================
 # #16 — verify_root_shell
@@ -361,6 +396,232 @@ def test_synthetic_chunk_references_accepts_mixed_foreign_and_first_party(
     refs = mod.verify_chunk_references(f, export_root)
     assert refs == ["/_next/static/chunks/real.js"]
 
+
+# ===========================================================================
+# #19 — verify_build_profile_inventory
+# ===========================================================================
+def _make_synthetic_build_dir(root: Path) -> Path:
+    """Create a synthetic Next.js-like build directory in root/build/."""
+    build = root / "build"
+    chunks = build / "_next" / "static" / "chunks"
+    chunks.mkdir(parents=True)
+    (chunks / "app-abc.js").write_bytes(b"a" * 4096)
+    (chunks / "app-def.js").write_bytes(b"b" * 2048)
+    chunks_css = build / "_next" / "static" / "css"
+    chunks_css.mkdir(parents=True)
+    (chunks_css / "app-abc.css").write_bytes(b"c" * 1024)
+    framework = chunks / "framework-ghi.js"
+    framework.write_bytes(b"d" * 8192)
+    (build / "index.html").write_bytes(b"<html>" + b"e" * 1014)
+    return build
+
+
+def test_synthetic_build_profile_inventory_accepts_valid_export(tmp_path: Path):
+    """A valid synthetic build directory must produce a profile
+    with non-empty ``chunks`` / ``per_route_bytes`` and consistent
+    internal sums:
+      ``total_bytes == sum(chunk.bytes) == sum(per_route_bytes.values())``.
+    No size or chunk-count threshold is imposed.
+    """
+    mod = _load_module()
+    build = _make_synthetic_build_dir(tmp_path)
+    output = tmp_path / "build-profile.json"
+    profile = mod.verify_build_profile_inventory(build, output)
+    assert isinstance(profile, dict)
+    assert isinstance(profile["chunks"], list) and profile["chunks"]
+    assert isinstance(profile["per_route_bytes"], dict) and profile["per_route_bytes"]
+    assert isinstance(profile["total_bytes"], int) and profile["total_bytes"] >= 0
+    chunk_sum = sum(c["bytes"] for c in profile["chunks"])
+    per_route_sum = sum(profile["per_route_bytes"].values())
+    assert profile["total_bytes"] == chunk_sum
+    assert profile["total_bytes"] == per_route_sum
+    # Output must live under tmp_path, not the repo.
+    assert output.is_file()
+    assert str(output.resolve()).startswith(str(tmp_path.resolve()))
+
+
+def test_synthetic_build_profile_inventory_explicit_output_under_tmp(tmp_path: Path):
+    """The profile JSON must be written exactly at the supplied
+    explicit output_path (not derived from env or repo defaults).
+    """
+    mod = _load_module()
+    build = _make_synthetic_build_dir(tmp_path)
+    explicit = tmp_path / "explicit" / "build-profile.json"
+    mod.verify_build_profile_inventory(build, explicit)
+    assert explicit.is_file(), f"explicit output path missing: {explicit}"
+
+
+def test_synthetic_build_profile_inventory_rejects_missing_export_dir(tmp_path: Path):
+    """A missing export directory must fail closed (subprocess non-zero)."""
+    mod = _load_module()
+    missing = tmp_path / "no-such-export"
+    output = tmp_path / "build-profile.json"
+    with pytest.raises(mod.PostcutContractError):
+        mod.verify_build_profile_inventory(missing, output)
+
+
+def test_synthetic_build_profile_inventory_rejects_empty_export_dir(tmp_path: Path):
+    """An empty export directory must fail closed (emitter refuses)."""
+    mod = _load_module()
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    output = tmp_path / "build-profile.json"
+    with pytest.raises(mod.PostcutContractError):
+        mod.verify_build_profile_inventory(empty, output)
+
+
+def test_synthetic_build_profile_inventory_rejects_non_object_json_root(
+    tmp_path: Path, monkeypatch
+):
+    """A profile JSON whose root is not an object (e.g. ``[]``,
+    ``null``, an int, or a string) must fail closed with
+    :class:`PostcutContractError` (NOT ``AttributeError``). The
+    emitter is monkeypatched to write each non-object root directly
+    to the ``tmp_path`` output so the helper's JSON parsing path is
+    exercised without invoking Node.
+    """
+    mod = _load_module()
+    build = _make_synthetic_build_dir(tmp_path)
+
+    for bad_root in ("[]", "null", "42", '"a string"'):
+        output_path = tmp_path / f"profile-{hash(bad_root) & 0xffffffff}.json"
+
+        def _fake_emit(*args, _output=output_path, _body=bad_root, **kwargs):
+            _output.write_text(_body)
+            return subprocess.CompletedProcess(
+                args=[], returncode=0, stdout="", stderr=""
+            )
+
+        monkeypatch.setattr(mod, "_emit_build_profile", _fake_emit)
+        with pytest.raises(mod.PostcutContractError):
+            mod.verify_build_profile_inventory(build, output_path)
+
+
+def _sentinel_fail_if_called(*args, **kwargs):
+    """Sentinel replacement for ``_emit_build_profile`` that raises
+    ``AssertionError`` if called. Used to prove the helper rejects
+    disallowed output paths BEFORE invoking the emitter.
+    """
+    raise AssertionError(
+        "_emit_build_profile MUST NOT be called when output_path "
+        "is rejected by the containment guard"
+    )
+
+
+def test_synthetic_build_profile_inventory_rejects_output_inside_export(
+    tmp_path: Path, monkeypatch
+):
+    """An explicit ``output_path`` that resolves inside (or equals)
+    the resolved ``export_dir`` must fail closed with
+    :class:`PostcutContractError` BEFORE the emitter subprocess
+    is invoked. ``_emit_build_profile`` is monkeypatched to a
+    sentinel that raises ``AssertionError`` if called so rejection
+    proves containment happens first.
+    """
+    mod = _load_module()
+    build = _make_synthetic_build_dir(tmp_path)
+    # Direct containment: output inside export_dir/subpath
+    output_path = build / "subpath" / "profile.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(mod, "_emit_build_profile", _sentinel_fail_if_called)
+    with pytest.raises(mod.PostcutContractError) as excinfo:
+        mod.verify_build_profile_inventory(build, output_path)
+    msg = str(excinfo.value).lower()
+    assert "inside" in msg or "export_dir" in msg or "export" in msg, (
+        f"expected containment-related error, got: {excinfo.value!r}"
+    )
+
+
+def test_synthetic_build_profile_inventory_rejects_output_equal_to_export_dir(
+    tmp_path: Path, monkeypatch
+):
+    """An explicit ``output_path`` that equals the resolved
+    ``export_dir`` (the directory itself, not a file inside it)
+    must fail closed with :class:`PostcutContractError`. The
+    emitter must NOT be called.
+    """
+    mod = _load_module()
+    build = _make_synthetic_build_dir(tmp_path)
+    output_path = build  # equal to export_dir itself
+    monkeypatch.setattr(mod, "_emit_build_profile", _sentinel_fail_if_called)
+    with pytest.raises(mod.PostcutContractError):
+        mod.verify_build_profile_inventory(build, output_path)
+
+
+def test_synthetic_build_profile_inventory_rejects_symlink_resolving_inside_export(
+    tmp_path: Path, monkeypatch
+):
+    """An explicit ``output_path`` that is a symlink resolving inside
+    the export directory must fail closed with
+    :class:`PostcutContractError` BEFORE the emitter subprocess is
+    invoked. ``Path.resolve()`` follows the symlink so the
+    containment guard sees the resolved target, not the link
+    itself. The emitter must NOT be called.
+
+    Skipped with an explicit reason when the platform cannot
+    create symlinks (e.g. some Windows configurations).
+    """
+    if not hasattr(Path, "symlink_to"):
+        pytest.skip("platform does not support Path.symlink_to")
+    mod = _load_module()
+    build = _make_synthetic_build_dir(tmp_path)
+
+    # Create a symlink that resolves into the export tree.
+    symlink_target = build / "subpath" / "target.json"
+    symlink_target.parent.mkdir(parents=True, exist_ok=True)
+    symlink_target.touch()
+    symlink_path = tmp_path / "link.json"
+    try:
+        symlink_path.symlink_to(symlink_target)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"platform cannot create symlinks: {exc}")
+
+    monkeypatch.setattr(mod, "_emit_build_profile", _sentinel_fail_if_called)
+    with pytest.raises(mod.PostcutContractError):
+        mod.verify_build_profile_inventory(build, symlink_path)
+
+
+def test_synthetic_build_profile_inventory_rejects_output_inside_repo_root(
+    tmp_path: Path, monkeypatch
+):
+    """An explicit ``output_path`` that resolves anywhere inside the
+    repo root must fail closed with :class:`PostcutContractError`
+    BEFORE the emitter subprocess is invoked. The intended caller
+    destination is external pytest ``tmp_path``; never write into
+    repo-owned paths. ``_emit_build_profile`` is monkeypatched to a
+    sentinel so rejection proves containment happens first.
+    """
+    mod = _load_module()
+    build = _make_synthetic_build_dir(tmp_path)
+    # A non-existent path inside the repo root. ``Path.resolve()``
+    # handles non-existent paths via lexical resolution; the file
+    # is NEVER created because the helper rejects before the
+    # emitter subprocess runs.
+    output_path = REPO_ROOT / "scripts" / "sneaky-profile.json"
+    assert not output_path.exists(), (
+        f"unexpected pre-existing file at {output_path}; pick a "
+        f"different test path"
+    )
+
+    monkeypatch.setattr(mod, "_emit_build_profile", _sentinel_fail_if_called)
+    with pytest.raises(mod.PostcutContractError) as excinfo:
+        mod.verify_build_profile_inventory(build, output_path)
+    msg = str(excinfo.value).lower()
+    assert "repo" in msg or "repository" in msg, (
+        f"expected repo-root-related error, got: {excinfo.value!r}"
+    )
+    # The file MUST NOT have been created by the rejected call.
+    assert not output_path.exists(), (
+        f"output_path was created despite containment rejection: "
+        f"{output_path}"
+    )
+
+
+# ===========================================================================
+# Future G3 consumer nodes (DESELECTED under -k 'synthetic_').
+# MUST NOT be run in this slice. They are real assertions for the
+# future isolated-candidate-worktree contract only.
+# ===========================================================================
 def test_consumer_root_shell():
     """Future G3 consumer for #16: verify the AppShell markers in
     the real ``out/index.html`` when present in the isolated
@@ -376,6 +637,7 @@ def test_consumer_root_shell():
         )
     mod.verify_root_shell(out_index)
 
+
 def test_consumer_chunk_references():
     """Future G3 consumer for #17: verify first-party chunk
     references in the real ``out/index.html`` when present in the
@@ -389,6 +651,25 @@ def test_consumer_chunk_references():
             "no out/ in current worktree; future isolated candidate worktree only"
         )
     mod.verify_chunk_references(out_index, out_dir)
+
+
+def test_consumer_build_profile_inventory(tmp_path: Path):
+    """Future G3 consumer for #19: verify the build profile
+    inventory of the real ``out/`` when present in the isolated
+    candidate worktree. Reads ``Path.cwd()/out`` (emitter input)
+    and writes the profile JSON to ``tmp_path/build-profile.json``
+    (NOT ``Path.cwd()/out`` and NOT repo ``web/dist``) so the
+    export directory is never mutated. NOT a G3 pass; NOT run in
+    this slice.
+    """
+    mod = _load_module()
+    out_dir = Path.cwd() / "out"
+    if not out_dir.is_dir():
+        pytest.skip(
+            "no out/ in current worktree; future isolated candidate worktree only"
+        )
+    output_path = tmp_path / "build-profile.json"
+    mod.verify_build_profile_inventory(out_dir, output_path)
 
 
 def test_synthetic_chunk_references_ignores_stylesheet_refs(tmp_path: Path):
