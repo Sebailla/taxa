@@ -1026,6 +1026,243 @@ def test_assertions_structured_evaluation(tmp_path, bad, cmd, min_passed,
         assert cid in r.stderr
 
 
+# ── Follow-up 30: blocked-gate contract for selected consumers ──
+
+def _blocked_consumer(idx, reason="<reason>", status="blocked"):
+    return {"id": idx, "ownership_edge": "fastapi_web_mount",
+            "current_path": f"web/legacy/{idx}.html",
+            "replacement": {"status": "selected", "path": "/new/path"},
+            "verification": {"command": "printf 'ok\\n'", "expect": "ok",
+                             "assertions": [{"type": "stdout_regex", "pattern": "^ok$",
+                                             "min_matches": 1, "max_matches": 1}],
+                             "status": status, "blocked_reason": reason},
+            "activation_status": "selected",
+            "rollback": f"git revert <pr3e-sha> restores {idx}"}
+
+
+def test_blocked_status_unknown_value_fails_schema_validation(tmp_path):
+    out = tmp_path / "out"
+    mp = _write_manifest(tmp_path, _base_manifest(
+        [_blocked_consumer(idx="bad-1", status="not-real")]))
+    r = _run(["--manifest", str(mp), "--out", str(out)])
+    assert r.returncode == 4 and not (out / "CONSUMER-READINESS.json").is_file()
+    assert "bad-1" in r.stderr, r.stderr
+
+
+def test_blocked_reason_missing_fails_schema_validation(tmp_path):
+    out = tmp_path / "out"
+    c = _blocked_consumer(idx="no-reason-1")
+    del c["verification"]["blocked_reason"]
+    mp = _write_manifest(tmp_path, _base_manifest([c]))
+    r = _run(["--manifest", str(mp), "--out", str(out)])
+    assert r.returncode == 4 and not (out / "CONSUMER-READINESS.json").is_file()
+    assert "no-reason-1" in r.stderr and "blocked_reason" in r.stderr
+
+
+def test_blocked_reason_blank_fails_schema_validation(tmp_path):
+    out = tmp_path / "out"
+    mp = _write_manifest(tmp_path, _base_manifest(
+        [_blocked_consumer(idx="blank-reason-1", reason="   ")]))
+    r = _run(["--manifest", str(mp), "--out", str(out)])
+    assert r.returncode == 4 and not (out / "CONSUMER-READINESS.json").is_file()
+    assert "blank-reason-1" in r.stderr, r.stderr
+
+
+def test_blocked_reason_without_blocked_status_fails_schema_validation(tmp_path):
+    out = tmp_path / "out"
+    c = _blocked_consumer(idx="orphan-1")
+    c["verification"].pop("status", None)
+    mp = _write_manifest(tmp_path, _base_manifest([c]))
+    r = _run(["--manifest", str(mp), "--out", str(out)])
+    assert r.returncode == 4 and not (out / "CONSUMER-READINESS.json").is_file()
+    assert "orphan-1" in r.stderr, r.stderr
+
+
+def test_blocked_status_explicit_null_fails_schema_validation(tmp_path):
+    out = tmp_path / "out"
+    c = _blocked_consumer(idx="null-status-1")
+    c["verification"]["status"] = None
+    del c["verification"]["blocked_reason"]
+    mp = _write_manifest(tmp_path, _base_manifest([c]))
+    r = _run(["--manifest", str(mp), "--out", str(out)])
+    assert r.returncode == 4 and not (out / "CONSUMER-READINESS.json").is_file()
+    assert "null-status-1" in r.stderr and "verification.status" in r.stderr
+
+
+def test_blocked_consumer_fails_closed_with_id_and_reason_diagnostic(tmp_path):
+    # Pop `assertions` to prove blocked needs none; OLD→rc4, NEW→rc5.
+    out = tmp_path / "out"
+    reason = "size budget not accepted for #18"
+    c = _blocked_consumer(idx="block-18", reason=reason)
+    c["verification"].pop("assertions", None)
+    assert c["replacement"]["status"] == "selected"
+    assert c["activation_status"] == "selected"
+    mp = _write_manifest(tmp_path, _base_manifest([c]))
+    r = _run(["--manifest", str(mp), "--out", str(out)])
+    assert r.returncode == 5, r.stderr
+    assert not (out / "CONSUMER-READINESS.json").is_file()
+    assert "block-18" in r.stderr and reason in r.stderr
+
+
+def test_blocked_preflight_short_circuits_before_server_start(
+        tmp_path, monkeypatch):
+    import scripts.verify_consumers as vc
+    mp = _write_manifest(tmp_path, _base_manifest(
+        [_blocked_consumer(idx="block-pre-srv", reason="<r>")]))
+    entered = []
+    def _fail_enter(self):
+        entered.append(self)
+        raise RuntimeError("blocked preflight should run before LocalServer")
+    monkeypatch.setattr(vc.LocalServer, "__enter__", _fail_enter)
+    rc, _ = _run_in_process(
+        ["--manifest", str(mp), "--out", str(tmp_path / "out"), "--serve"])
+    assert rc != 0 and not (tmp_path / "out" / "CONSUMER-READINESS.json").is_file()
+    assert entered == []
+
+
+def test_blocked_preflight_short_circuits_before_any_consumer_command(
+        tmp_path, monkeypatch):
+    import scripts.verify_consumers as vc
+    cs = [_consumer(idx="passing-1", cmd=": (must not run)"),
+          _blocked_consumer(idx="block-20", reason="<r>")]
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    recorder = []
+    def _fake_run(cmd, **kw):
+        recorder.append(cmd)
+        return (0, "ok\n")
+    monkeypatch.setattr(vc, "_run_check_with_stdout", _fake_run)
+    rc, _ = _run_in_process(["--manifest", str(mp), "--out", str(tmp_path / "out")])
+    assert rc != 0 and not (tmp_path / "out" / "CONSUMER-READINESS.json").is_file()
+    assert recorder == []
+
+
+# ── Follow-up 31: valid blocked gates surface before unrelated
+# non-HTTP assertion-schema failures ───────────────────────────
+
+def test_blocked_short_circuits_before_unblocked_assertion_schema(
+        tmp_path, monkeypatch):
+    """Follow-up 31: when the manifest carries at least one valid
+    blocked consumer alongside an unblocked non-HTTP consumer whose
+    `verification.assertions` are absent, the verifier MUST:
+
+      1. validate base manifest structure and every blocked
+         status/reason first,
+      2. report each blocked ID and reason in stderr,
+      3. return EXIT_CHECK (5), NOT EXIT_MANIFEST (4),
+      4. emit NO CONSUMER-READINESS.json,
+      5. skip unrelated non-HTTP assertion-schema validation, and
+      6. not discover helpers/venvs, not construct LocalServer, not
+         execute any consumer command.
+
+    The pre-blocked validation pass MUST NOT mask the missing
+    assertion on the unblocked consumer — the blocked preflight is
+    the contract the verifier honors, and EXIT_CHECK is the right
+    semantic for an admitted blocked gate, not EXIT_MANIFEST.
+
+    Synthetic manifest, fake seams only (no sockets or subprocess
+    consumer runs)."""
+    import scripts.verify_consumers as vc
+    reason_18 = "no explicit JS/CSS size budget accepted"
+    reason_20 = "G5 evidence and capture authorization unresolved"
+    # Two valid blocked consumers (mirror Follow-up 30 #18/#20) plus
+    # one unblocked non-HTTP consumer with NO assertions key — this
+    # is the unrelated assertion-schema failure that previously
+    # forced EXIT_MANIFEST before the blocked preflight could fire.
+    cs = [
+        _blocked_consumer(idx="block-18", reason=reason_18),
+        _blocked_consumer(idx="block-20", reason=reason_20),
+        # Unblocked non-HTTP consumer missing assertions.
+        _consumer(idx="unblocked-1", cmd=": (must not run)"),
+    ]
+    cs[2]["verification"].pop("assertions", None)
+    assert cs[2]["verification"].get("status") != "blocked"
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+
+    # Fake seams: any call into LocalServer, helpers, or consumer
+    # command runners must fail loudly so the test detects bypass.
+    entered_server = []
+    def _fail_enter(self):
+        entered_server.append(self)
+        raise RuntimeError("LocalServer must not start when blocked "
+                           "preflight short-circuits")
+    monkeypatch.setattr(vc.LocalServer, "__enter__", _fail_enter)
+
+    consumer_runs = []
+    def _fake_run_with_stdout(cmd, **kw):
+        consumer_runs.append(cmd)
+        return (0, "ok\n")
+    def _fake_run(cmd, **kw):
+        consumer_runs.append(cmd)
+        return 0
+    monkeypatch.setattr(vc, "_run_check_with_stdout",
+                        _fake_run_with_stdout)
+    monkeypatch.setattr(vc, "_run_check", _fake_run)
+
+    helper_calls = []
+    monkeypatch.setattr(vc, "find_venv_python",
+                        lambda rp: helper_calls.append("venv") or None)
+    monkeypatch.setattr(vc, "find_check_http_status_script",
+                        lambda rp: helper_calls.append("helper") or None)
+
+    rc, err = _run_in_process(
+        ["--manifest", str(mp), "--out", str(tmp_path / "out"),
+         "--serve"])
+    # Outcome: EXIT_CHECK (5), not EXIT_MANIFEST (4).
+    assert rc == 5, (rc, err)
+    # All blocked IDs/reasons surface in stderr.
+    assert "block-18" in err, err
+    assert reason_18 in err, err
+    assert "block-20" in err, err
+    assert reason_20 in err, err
+    # The unblocked missing-assertion diagnostic must NOT bypass the
+    # blocked gate: the verifier honors the valid blockers, and
+    # EXIT_CHECK is the contract (no EXIT_MANIFEST leak).
+    assert "unblocked-1" not in err, err
+    assert "verification.assertions" not in err, err
+    # No readiness artifact.
+    assert not (tmp_path / "out" / "CONSUMER-READINESS.json").is_file()
+    # No server/helper/venv discovery, no consumer command ran.
+    assert entered_server == [], entered_server
+    assert consumer_runs == [], consumer_runs
+    assert helper_calls == [], helper_calls
+
+
+def test_no_blocker_unblocked_missing_assertions_still_fails_manifest(
+        tmp_path):
+    """Triangulate: with NO valid blocked consumer, an unblocked
+    non-HTTP consumer missing `verification.assertions` MUST still
+    fail closed with EXIT_MANIFEST (4). The Follow-up 31 reorder
+    only short-circuits when valid blockers exist; without blockers
+    the verifier preserves the existing fail-closed behavior for
+    missing/malformed assertions."""
+    out = tmp_path / "out"
+    cs = [_consumer(idx="unblocked-2", cmd=":")]
+    cs[0]["verification"].pop("assertions", None)
+    assert cs[0]["verification"].get("status") != "blocked"
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    r = _run(["--manifest", str(mp), "--out", str(out)])
+    assert r.returncode == 4, r.stderr
+    assert not (out / "CONSUMER-READINESS.json").is_file()
+    assert "unblocked-2" in r.stderr, r.stderr
+    assert "verification.assertions" in r.stderr, r.stderr
+
+
+def test_malformed_blocked_status_still_fails_schema_before_short_circuit(
+        tmp_path):
+    """Triangulate: a malformed `verification.status` (not the
+    string "blocked") MUST still fail base schema validation
+    (EXIT_MANIFEST) and must NOT be confused with a valid blocker.
+    The Follow-up 31 reorder is fail-closed: schema errors never
+    bypass EXIT_MANIFEST, regardless of any other consumer shape."""
+    out = tmp_path / "out"
+    cs = [_blocked_consumer(idx="bad-status-1", status="not-real")]
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    r = _run(["--manifest", str(mp), "--out", str(out)])
+    assert r.returncode == 4, r.stderr
+    assert not (out / "CONSUMER-READINESS.json").is_file()
+    assert "bad-status-1" in r.stderr, r.stderr
+
+
 def test_assertions_run_check_with_stdout_normalizes_bytes_to_str(
         tmp_path, monkeypatch):
     """Regression: hosted CI run 36424915843 on PR #454 head

@@ -72,8 +72,18 @@ def _log(prog: str, msg: str) -> None:
     sys.stderr.write(f"[{prog}] {msg}\n")
 
 
-def _validate_schema(manifest: dict) -> list[str]:
-    """Return list of fail-closed error strings. Empty list == pass."""
+def _validate_base_and_blocked(manifest: dict) -> list[str]:
+    """Validate manifest base structure and every blocked
+    status/reason. Does NOT validate non-blocked non-HTTP
+    `verification.assertions` schemas — that runs separately only
+    after the blocked-gate preflight decides no valid blockers exist
+    (Follow-up 31 reorder).
+
+    Returns list of fail-closed error strings. Empty == pass.
+    Malformed `verification.status`, missing/blank
+    `verification.blocked_reason`, or any other base structural
+    error MUST surface here so the verifier cannot bypass
+    EXIT_MANIFEST by short-circuiting on a malformed blocker."""
     errs: list[str] = []
     for k in REQUIRED_TOP:
         if k not in manifest:
@@ -105,6 +115,29 @@ def _validate_schema(manifest: dict) -> list[str]:
         if not isinstance(ver, dict):
             errs.append(f"consumers[{i}] ({cid}) verification must be an object")
             continue
+        # Follow-up 30: optional `verification.status == "blocked"` with a
+        # required non-empty trimmed `verification.blocked_reason`. Omitted
+        # status preserves current behavior; any other status value
+        # (including null) fails schema validation; a `blocked_reason`
+        # without blocked status fails schema validation. Selected
+        # `replacement.status` and `activation_status` checks above remain
+        # unchanged. A valid blocked consumer is exempt from the non-HTTP
+        # `verification.assertions` requirement (skipped below; the
+        # Follow-up 31 reorder moves that check to a separate pass that
+        # only runs when no valid blockers exist).
+        ver_status = ver.get("status")
+        if "status" in ver:
+            if ver_status != "blocked":
+                errs.append(f"consumers[{i}] ({cid}) verification.status must be "
+                            f"'blocked' or omitted (got {ver_status!r})")
+            elif (not isinstance(ver.get("blocked_reason"), str)
+                    or not ver["blocked_reason"].strip()):
+                errs.append(f"consumers[{i}] ({cid}) verification.blocked_reason "
+                            f"must be non-empty trimmed string when "
+                            f"verification.status is 'blocked'")
+        elif "blocked_reason" in ver:
+            errs.append(f"consumers[{i}] ({cid}) verification.blocked_reason "
+                        f"requires verification.status == 'blocked'")
         for k in REQUIRED_PER_VERIFICATION:
             if k not in ver:
                 errs.append(f"consumers[{i}] ({cid}) verification missing {k!r}")
@@ -112,13 +145,41 @@ def _validate_schema(manifest: dict) -> list[str]:
             errs.append(f"consumers[{i}] ({cid}) verification.command must be string")
         if not isinstance(ver.get("expect"), str):
             errs.append(f"consumers[{i}] ({cid}) verification.expect must be string")
-        elif not is_http_status_expectation(ver["expect"]):
-            # Non-HTTP expectations require non-empty structured
-            # `verification.assertions` (machine-evaluated against
-            # captured stdout; HTTP-shape expects use the helper instead).
-            errs.extend(_validate_assertions_schema(
-                ver.get("assertions"),
-                prefix=f"consumers[{i}] ({cid})"))
+    return errs
+
+
+def _validate_unblocked_assertions(manifest: dict) -> list[str]:
+    """Validate non-empty structured `verification.assertions` only
+    for unblocked non-HTTP consumers. Skipped when the
+    blocked-gate preflight short-circuits (Follow-up 31 reorder).
+
+    Skipped categories: blocked consumers (exempt by contract),
+    HTTP-shape `verification.expect` (route through the controlled
+    helper instead)."""
+    errs: list[str] = []
+    consumers = manifest.get("consumers")
+    if not isinstance(consumers, list):
+        return errs  # base validation already reported
+    for i, c in enumerate(consumers):
+        if not isinstance(c, dict):
+            continue
+        ver = c.get("verification") or {}
+        if not isinstance(ver, dict):
+            continue  # base validation already reported
+        cid = c.get("id")
+        # Blocked consumers: exempt from assertion-schema.
+        if ver.get("status") == "blocked":
+            continue
+        expected = ver.get("expect")
+        if not isinstance(expected, str):
+            continue  # base validation already reported
+        # HTTP-shape expectations route through the helper; not
+        # affected by the non-HTTP assertion-schema contract.
+        if is_http_status_expectation(expected):
+            continue
+        errs.extend(_validate_assertions_schema(
+            ver.get("assertions"),
+            prefix=f"consumers[{i}] ({cid})"))
     return errs
 
 
@@ -632,12 +693,46 @@ def main(argv=None) -> int:
     except json.JSONDecodeError as exc:
         _log("verify_consumers", f"manifest invalid JSON: {exc}")
         return EXIT_MANIFEST
-    errs = _validate_schema(manifest)
+    errs = _validate_base_and_blocked(manifest)
     if errs:
         for e in errs:
             _log("verify_consumers", e)
         return EXIT_MANIFEST
     consumers = manifest["consumers"]
+
+    # Blocked-gate preflight (Follow-up 30 + 31 reorder): every
+    # consumer with verification.status == "blocked" short-circuits
+    # the entire run BEFORE non-HTTP assertion-schema validation,
+    # venv/helper discovery, server construction, or any consumer
+    # command. The diagnostic carries the consumer ID and the
+    # human-supplied blocked_reason; readiness is never emitted;
+    # EXIT_CHECK is returned so existing fail-closed exit semantics
+    # are preserved, and no other selected check runs.
+    #
+    # Follow-up 31 explicitly reorders this BEFORE full assertion-
+    # schema validation so an unrelated missing/malformed assertion
+    # on an unblocked consumer cannot bypass a valid blocker and
+    # force EXIT_MANIFEST. Base manifest structure + every blocked
+    # status/reason has already been validated above; here we only
+    # confirm the consumers carry the keys needed to read their
+    # blocked_reason.
+    blockers = [(str(c["id"]), str(c["verification"]["blocked_reason"]).strip())
+                for c in consumers
+                if c["verification"].get("status") == "blocked"]
+    if blockers:
+        for cid, reason in blockers:
+            _log("verify_consumers", f"blocked: {cid}: {reason}")
+        return EXIT_CHECK
+
+    # No valid blockers: run full non-HTTP assertion-schema
+    # validation only for unblocked non-HTTP consumers. Blocked
+    # consumers and HTTP-shape expectations are skipped (Follow-up 31
+    # reorder — the short-circuit above already handled blockers).
+    unblocked_errs = _validate_unblocked_assertions(manifest)
+    if unblocked_errs:
+        for e in unblocked_errs:
+            _log("verify_consumers", e)
+        return EXIT_MANIFEST
 
     # Resolve venv (opt-in: explicit --venv wins; else auto-detect from
     # --repo-root, falling back to the manifest's parent directory).
