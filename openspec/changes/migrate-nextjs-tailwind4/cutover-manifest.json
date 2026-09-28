@@ -211,16 +211,16 @@
     {
       "id": "mount-runtime-cdn-lib-pins-013",
       "ownership_edge": "fastapi_web_mount",
-      "current_path": "web/index.html",
-      "current_path_lines": "2180,2188,2194",
-      "current_path_note": "mammoth@1.8.0, xlsx@0.18.5, epubjs@0.3.93 CDN URLs loaded by web/file_viewer.js::loadScriptOnce; three CDN pin lines",
+      "current_path": "src/modules/research/application/renderers.ts",
+      "current_path_lines": "211,244,278",
+      "current_path_note": "post-cut React/export contract pins the three CDN URLs as typed constants — MAMMOTH_CDN_URL (mammoth@1.8.0) at line 211, SHEETJS_CDN_URL (xlsx@0.18.5) at line 244, EPUBJS_CDN_URL (epubjs@0.3.93) at line 278; replaces the legacy `web/index.html` `loadScriptOnce` triplet",
       "replacement": {
         "status": "selected",
-        "path": "web/index.html:2180",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the three on-disk legacy CDN-pin lines in `web/index.html` (line 2180 → mammoth@1.8.0, line 2188 → xlsx@0.18.5, line 2194 → epubjs@0.3.93) are collectively identified as the pre-cut replacement for this consumer's three CDN pins. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS.",
-        "lines": "2180,2188,2194"
+        "path": "src/modules/research/application/renderers.ts",
+        "note": "Post-cut Re-anchoring Slice A (Follow-up 32, 2026-09-27): the typed `MAMMOTH_CDN_URL` / `SHEETJS_CDN_URL` / `EPUBJS_CDN_URL` constants in `src/modules/research/application/renderers.ts` (W4b1 / W4b2 / W4b3) pin the same mammoth@1.8.0, xlsx@0.18.5, epubjs@0.3.93 CDN URLs the legacy `web/index.html` `<script>` tags + `web/file_viewer.js::loadScriptOnce` (`.loadScriptOnce('mammoth' / 'XLSX' / 'ePub')`) carry verbatim; structured `verification.assertions` enforces exactly one match per literal so a future PR that bumps a CDN version breaks the consumer at the schema gate without trusting shell exit alone.",
+        "lines": "211,244,278"
       },
-      "verification": { "command": "grep -nE 'mammoth@1\\.8\\.0|xlsx@0\\.18\\.5|epubjs@0\\.3\\.93' web/index.html", "expect": "three matches at lines 2180, 2188, 2194" },
+      "verification": { "command": "grep -nE 'mammoth@1\\.8\\.0|xlsx@0\\.18\\.5|epubjs@0\\.3\\.93' src/modules/research/application/renderers.ts", "expect": "three matches at lines 211, 244, 278", "assertions": [ { "type": "stdout_regex", "pattern": "mammoth@1\\.8\\.0", "min_matches": 1, "max_matches": 1 }, { "type": "stdout_regex", "pattern": "xlsx@0\\.18\\.5", "min_matches": 1, "max_matches": 1 }, { "type": "stdout_regex", "pattern": "epubjs@0\\.3\\.93", "min_matches": 1, "max_matches": 1 } ] },
       "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores the three CDN pin lines in web/index.html atomically"
     },
@@ -228,13 +228,14 @@
       "id": "mount-test-smoke-static-index-014",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "tests/test_smoke.py:150",
-      "current_path_note": "test_static_index_html_served (GET /index.html, asserts 200 + HTML)",
+      "current_path_note": "test_static_index_html_served (GET /index.html, asserts 200 + HTML); when run in an isolated candidate with `out/` present it exercises that export's static mount; the React-specific shell contract is separately checked by #16",
       "replacement": {
         "status": "selected",
         "path": "tests/test_smoke.py:150",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_smoke.py:150 test_static_index_html_served` reader (GET /index.html) is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "note": "Post-cut Re-anchoring Slice A (Follow-up 32, 2026-09-27): preserves the existing `tests/test_smoke.py::test_static_index_html_served` TestClient smoke and supplements the prose-only `expect: \"1 passed\"` with a structured `pytest_summary` assertion requiring >=1 passed and 0 skipped; the test node itself is now the G3 anchor for static-index HTML delivery and the shell `#16` consumer (out of this slice) separately pins the React export shell.",
+        "lines": "150"
       },
-      "verification": { "command": "pytest tests/test_smoke.py::test_static_index_html_served -q", "expect": "1 passed" },
+      "verification": { "command": "pytest tests/test_smoke.py::test_static_index_html_served -q", "expect": "1 passed, 0 skipped", "assertions": [ { "type": "pytest_summary", "min_passed": 1, "max_skipped": 0 } ] },
       "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores tests/test_smoke.py:150 to its pre-cut reader path"
     },
@@ -242,13 +243,14 @@
       "id": "mount-test-smoke-static-app-js-015",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "tests/test_smoke.py:157",
-      "current_path_note": "test_static_app_js_served (GET /app.js, asserts 200 + >=1000 bytes)",
+      "current_path_note": "post-cut TestClient reader `test_static_app_js_served` (GET / returns 200 + carries `_next/static/chunks` reference per the ODD-MIGRATE-006 carveout — the legacy `/app.js` path is replaced by the React export chunk contract; pytest anchors the React chunk contract directly)",
       "replacement": {
         "status": "selected",
         "path": "tests/test_smoke.py:157",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_smoke.py:157 test_static_app_js_served` reader (GET /app.js) is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "note": "Post-cut Re-anchoring Slice A (Follow-up 32, 2026-09-27): preserves the existing `tests/test_smoke.py::test_static_app_js_served` TestClient smoke (which now asserts the React `/_next/static/chunks` substring per the ODD-MIGRATE-006 pre-cut carveout) and supplements the prose-only `expect: \"1 passed\"` with a structured `pytest_summary` assertion requiring >=1 passed and 0 skipped; the previous prose described the legacy `GET /app.js` shape — the actual contract is now the React export chunk reference inside the candidate `out/`-served HTML.",
+        "lines": "157"
       },
-      "verification": { "command": "pytest tests/test_smoke.py::test_static_app_js_served -q", "expect": "1 passed" },
+      "verification": { "command": "pytest tests/test_smoke.py::test_static_app_js_served -q", "expect": "1 passed, 0 skipped", "assertions": [ { "type": "pytest_summary", "min_passed": 1, "max_skipped": 0 } ] },
       "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores tests/test_smoke.py:157 to its pre-cut reader path"
     },
@@ -290,7 +292,7 @@
         "path": "tests/test_evidence_baseline.py:316",
         "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_evidence_baseline.py:316 test_legacy_total_source_size_below_threshold` reader is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
       },
-      "verification": { "command": "pytest tests/test_evidence_baseline.py::test_legacy_total_source_size_below_threshold -q", "expect": "1 passed" },
+      "verification": { "command": "pytest tests/test_evidence_baseline.py::test_legacy_total_source_size_below_threshold -q", "expect": "1 passed", "status": "blocked", "blocked_reason": "No explicit JavaScript/CSS size budget has been accepted; do not infer a pass." },
       "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores the WEB_DIR bytes walker at tests/test_evidence_baseline.py:316"
     },
@@ -322,7 +324,7 @@
         "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_hydration_timing.py` server-shell measurement against `web/index.html` is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS.",
         "lines": "140"
       },
-      "verification": { "command": "pytest tests/test_hydration_timing.py -q", "expect": "all passed" },
+      "verification": { "command": "pytest tests/test_hydration_timing.py -q", "expect": "all passed", "status": "blocked", "blocked_reason": "G5 remains blocked/unassessable: valid post-cut React hydration/readiness evidence and separate capture authorization are required." },
       "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores tests/test_hydration_timing.py server-shell measurement against web/index.html"
     },
@@ -330,90 +332,95 @@
       "id": "mount-extension-host-permissions-021",
       "ownership_edge": "fastapi_web_mount",
       "current_path": "extension/manifest.json:13",
-      "current_path_lines": "13-15, 21",
-      "current_path_note": "host_permissions at lines 13-15 + content_scripts.matches at line 21; Chrome content-script injection target = http://localhost:8765/*",
+      "current_path_lines": "14, 21",
+      "current_path_note": "post-cut extension/manifest.json declarations: `host_permissions` entry at line 14 plus `content_scripts.matches` entry at line 21 both pin the Chrome content-script injection target to `http://localhost:8765/*`; pre-cut G1 single-origin contract preserved",
       "replacement": {
         "status": "selected",
-        "path": "extension/manifest.json:13",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `extension/manifest.json` `host_permissions` (lines 13-15) and `content_scripts.matches` (line 21) pair pinning Chrome content-script injection to `http://localhost:8765/*` is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS.",
-        "lines": "13-15, 21"
+        "path": "extension/manifest.json",
+        "note": "Post-cut Re-anchoring Slice A (Follow-up 32, 2026-09-27): the extension's `host_permissions` array (line 14) and the `content_scripts.matches` array (line 21) continue to pin Chrome content-script injection to `http://localhost:8765/*`; structured `verification.assertions` requires exactly two `localhost:8765` matches (one per origin entry) so a future PR that drops one of the two declarations breaks the consumer at the schema gate without trusting shell exit alone.",
+        "lines": "14, 21"
       },
-      "verification": { "command": "grep -nE 'localhost:8765|127\\.0\\.0\\.1:8765' extension/manifest.json", "expect": "host_permissions:[\"http://localhost:8765/*\"] at lines 13-15 AND content_scripts.matches:[\"http://localhost:8765/*\"] at line 21" },
+      "verification": { "command": "grep -nE 'host_permissions|content_scripts|localhost:8765' extension/manifest.json", "expect": "matches at line 13 (host_permissions), 14 (localhost:8765), 19 (content_scripts), 21 (localhost:8765) — host_permissions>=1, content_scripts>=1, localhost:8765==2", "assertions": [ { "type": "stdout_regex", "pattern": "host_permissions", "min_matches": 1, "max_matches": 1 }, { "type": "stdout_regex", "pattern": "content_scripts", "min_matches": 1, "max_matches": 1 }, { "type": "stdout_regex", "pattern": "localhost:8765", "min_matches": 2, "max_matches": 2 } ] },
       "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores extension/manifest.json host_permissions + content_scripts.matches to http://localhost:8765/* unchanged"
     },
     {
       "id": "search-urls-runtime-import-detail-001",
       "ownership_edge": "web_search_urls_js",
-      "current_path": "web/search_urls.js",
-      "current_path_lines": "24",
-      "current_path_note": "SEARCH_ENGINES, CATEGORIES imported by web/detail.js:24",
+      "current_path": "src/modules/taxonomy/presentation/SearchTab.tsx",
+      "current_path_lines": "47-48",
+      "current_path_note": "post-cut SearchTab imports `SEARCH_CATEGORIES` + `resolveSearchEngineMeta` from the pure category bridge `./search-categories` at lines 47-48; replaces the legacy `web/detail.js:24` `SEARCH_ENGINES` / `CATEGORIES` import",
       "replacement": {
         "status": "selected",
-        "path": "web/search_urls.js",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/search_urls.js` (exporting `SEARCH_ENGINES` and `CATEGORIES`) is the pre-cut replacement — imported by `web/detail.js:24`. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "src/modules/taxonomy/presentation/SearchTab.tsx",
+        "note": "Post-cut Re-anchoring Slice A (Follow-up 32, 2026-09-27): the React `SearchTab.tsx` (ODD-TDS-001) imports the canonical `SEARCH_CATEGORIES` + `resolveSearchEngineMeta` symbols from the pure `./search-categories` bridge; structured `verification.assertions` enforces the import-line surface so a future PR that drops the bridge import breaks the consumer at the schema gate instead of relying on shell exit (which would still pass against a stale pre-cut reader).",
+        "lines": "47-48"
       },
-      "verification": { "command": "grep -n 'SEARCH_ENGINES\\|CATEGORIES' web/detail.js | head -5", "expect": "matches at line 24 (import), 325 (Map), 332 (for-loop)" },
+      "verification": { "command": "grep -nE 'SEARCH_CATEGORIES|resolveSearchEngineMeta' src/modules/taxonomy/presentation/SearchTab.tsx", "expect": "matches at lines 47-48 (import block) plus body usage in renderSections / renderLink", "assertions": [ { "type": "stdout_regex", "pattern": "SEARCH_CATEGORIES", "min_matches": 1, "max_matches": 20 }, { "type": "stdout_regex", "pattern": "resolveSearchEngineMeta", "min_matches": 1, "max_matches": 20 } ] },
       "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores web/search_urls.js + the detail.js import statement atomically"
     },
     {
       "id": "search-urls-runtime-engine-by-key-002",
       "ownership_edge": "web_search_urls_js",
-      "current_path": "web/search_urls.js",
-      "current_path_lines": "325",
-      "current_path_note": "SEARCH_ENGINES used by web/detail.js:325 to build engineByKey Map",
+      "current_path": "src/modules/taxonomy/presentation/search-categories.ts",
+      "current_path_lines": "102-104",
+      "current_path_note": "post-cut pure bridge: `SEARCH_ENGINE_LIST` (14 engine entries) at line 102 declared + `engineMetaByKey` (lazy `Map<key, meta>` cache) at line 124 + `resolveSearchEngineMeta` (single descriptor resolver) at line 171; replaces the legacy `web/detail.js:325` `new Map(SEARCH_ENGINES.map((e) => [e.key, e]))` Map construction",
       "replacement": {
         "status": "selected",
-        "path": "web/search_urls.js",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/search_urls.js` is the pre-cut replacement — `SEARCH_ENGINES` drives `engineByKey` Map construction at `web/detail.js:325`. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "src/modules/taxonomy/presentation/search-categories.ts",
+        "note": "Post-cut Re-anchoring Slice A (Follow-up 32, 2026-09-27): the pure `SEARCH_ENGINE_LIST` (14 canonical engine entries) is consumed by a `Map<key, meta>` cache (`engineMetaByKey`) built lazily at first access, plus a `resolveSearchEngineMeta` resolver; structured `verification.assertions` enforces the engine-list / cache / resolver co-located surface so a future PR that drifts the bridge breaks the consumer at the schema gate instead of trusting a sed-extracted one-liner against a stale reader.",
+        "lines": "102-104, 124, 171"
       },
-      "verification": { "command": "sed -n '325p' web/detail.js", "expect": "new Map(SEARCH_ENGINES.map((e) => [e.key, e]))" },
+      "verification": { "command": "grep -nE 'SEARCH_ENGINE_LIST|engineMetaByKey|resolveSearchEngineMeta' src/modules/taxonomy/presentation/search-categories.ts", "expect": "matches at line 102 (SEARCH_ENGINE_LIST), 124-130 (engineMetaByKey Map cache), 144-174 (resolver bodies)", "assertions": [ { "type": "stdout_regex", "pattern": "SEARCH_ENGINE_LIST", "min_matches": 1, "max_matches": 30 }, { "type": "stdout_regex", "pattern": "engineMetaByKey", "min_matches": 1, "max_matches": 30 }, { "type": "stdout_regex", "pattern": "resolveSearchEngineMeta", "min_matches": 1, "max_matches": 30 } ] },
       "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores web/search_urls.js + web/detail.js:325 atomically"
     },
     {
       "id": "search-urls-runtime-search-tab-ui-003",
       "ownership_edge": "web_search_urls_js",
-      "current_path": "web/search_urls.js",
-      "current_path_lines": "332",
-      "current_path_note": "SEARCH_ENGINES iterated by web/detail.js:332 to populate Search tab UI",
+      "current_path": "src/modules/taxonomy/presentation/SearchTab.tsx",
+      "current_path_lines": "210-211",
+      "current_path_note": "post-cut React SearchTab UI: `renderSection` emits a `<section className=\"search-category-section\" data-search-category-section={cat.key}>` for each category in `SEARCH_CATEGORIES.map(...)` at line 174; replaces the legacy `web/detail.js:332` `SEARCH_ENGINES` iteration",
       "replacement": {
         "status": "selected",
-        "path": "web/search_urls.js",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/search_urls.js` is the pre-cut replacement — `SEARCH_ENGINES` is iterated at `web/detail.js:332` to populate the Search tab UI. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "src/modules/taxonomy/presentation/SearchTab.tsx",
+        "note": "Post-cut Re-anchoring Slice A (Follow-up 32, 2026-09-27): the React SearchTab renders one `<section className=\"search-category-section\" data-search-category-section={cat.key}>` per `SEARCH_CATEGORIES` category (5 native sections — general / taxonomic / academic / multimedia / documents); structured `verification.assertions` enforces the section surface so a future PR that drops the section markers breaks the consumer at the schema gate instead of trusting a sed-extracted for-loop against a stale pre-cut reader.",
+        "lines": "174, 210-211"
       },
-      "verification": { "command": "sed -n '332p' web/detail.js", "expect": "for (const e of SEARCH_ENGINES) {" },
+      "verification": { "command": "grep -nE 'data-search-category-section[[:space:]]*=' src/modules/taxonomy/presentation/SearchTab.tsx", "expect": "match at line 211 (JSX attribute data-search-category-section={cat.key}); docstring mentions of the literal alone are excluded because they are not immediately followed by =", "assertions": [ { "type": "stdout_regex", "pattern": "data-search-category-section\\s*=", "min_matches": 1, "max_matches": 1 } ] },
       "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores web/search_urls.js + web/detail.js:332 atomically"
     },
     {
       "id": "search-urls-test-ac21-contract-004",
       "ownership_edge": "web_search_urls_js",
-      "current_path": "tests/test_smoke.py:77",
-      "current_path_lines": "77-100",
-      "current_path_note": "AC-21 test_search_engine_contract (open('web/search_urls.js').read() + regex parse on {key, label, with_authorship})",
+      "current_path": "tests/test_smoke.py",
+      "current_path_lines": "77-100, 4548-4549",
+      "current_path_note": "AC-21 server↔legacy byte-shape contract (`tests/test_smoke.py::test_search_engine_contract`) retained AND a focused React bridge assertion (`tests/test_visible_taxonomy_tree.py::test_search_categories_lists_fourteen_engines`) added — one pytest command exercises both contract surfaces",
       "replacement": {
         "status": "selected",
-        "path": "tests/test_smoke.py:77",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy AC-21 `tests/test_smoke.py:77-100 test_search_engine_contract` reader (`open('web/search_urls.js').read()` + regex parse on `{key, label, with_authorship}`) is the pre-cut replacement — byte-shape contract preserved unchanged. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS.",
-        "lines": "77-100"
+        "path": "tests/test_visible_taxonomy_tree.py",
+        "note": "Post-cut Re-anchoring Slice A (Follow-up 32, 2026-09-27): explicitly retains the AC-21 server↔legacy metadata consistency contract (`tests/test_smoke.py::test_search_engine_contract`) AND adds a focused React bridge assertion (`tests/test_visible_taxonomy_tree.py::test_search_categories_lists_fourteen_engines`) that pins the 14-entry `SEARCH_ENGINE_LIST`; one pytest command runs both nodes and a structured `pytest_summary` assertion enforces >=2 passed and 0 skipped so a future PR that breaks either surface fails the consumer at the schema gate instead of trusting shell exit (which would still pass against a stale pre-cut reader).",
+        "lines": "77-100, 4548-4549"
       },
-      "verification": { "command": "pytest tests/test_smoke.py::test_search_engine_contract -q", "expect": "1 passed" },
+      "verification": { "command": "pytest tests/test_smoke.py::test_search_engine_contract tests/test_visible_taxonomy_tree.py::test_search_categories_lists_fourteen_engines -q", "expect": "2 passed, 0 skipped (AC-21 server↔legacy metadata + React 14-engine bridge)", "assertions": [ { "type": "pytest_summary", "min_passed": 2, "max_skipped": 0 } ] },
       "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores the AC-21 open() reader at tests/test_smoke.py:77-100 to web/search_urls.js"
     },
     {
       "id": "search-urls-test-search-categories-005",
       "ownership_edge": "web_search_urls_js",
-      "current_path": "tests/test_search_categories.py:141",
-      "current_path_note": "references CATEGORIES in web/search_urls.js; expected grouping: general, taxonomic, academic, multimedia, documents",
+      "current_path": "tests/test_visible_taxonomy_tree.py",
+      "current_path_lines": "4343-4612",
+      "current_path_note": "post-cut React contract: focused source-level tests in `tests/test_visible_taxonomy_tree.py` replace the legacy skipped `tests/test_search_categories.py` — `test_search_categories_lists_fourteen_engines` pins the 14-entry bridge, `test_search_categories_exports_five_categories_in_native_order` pins the category order, `test_search_categories_categories_match_legacy_parity` pins the section-order parity, `test_search_tab_renders_five_category_sections` pins the SearchTab rendering surface",
       "replacement": {
         "status": "selected",
-        "path": "tests/test_search_categories.py:141",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_search_categories.py:141` reader of `CATEGORIES` in `web/search_urls.js` (with the expected grouping `general`, `taxonomic`, `academic`, `multimedia`, `documents`) is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "tests/test_visible_taxonomy_tree.py",
+        "note": "Post-cut Re-anchoring Slice A (Follow-up 32, 2026-09-27): the skipped legacy `tests/test_search_categories.py` (browser-based Playwright suite the previous pre-cut reader relied on) is replaced with four focused React source-level tests from `tests/test_visible_taxonomy_tree.py` — the bridge file (`search-categories.ts`) 14-entry list, the 5-category native order, the legacy category-parity ordering, and the SearchTab 5-section rendering surface; structured `pytest_summary` enforces >=4 passed and 0 skipped so a future PR that flips a test to `@pytest.mark.skip` no longer satisfies G3.",
+        "lines": "4343, 4498, 4548, 4583"
       },
-      "verification": { "command": "pytest tests/test_search_categories.py -q", "expect": "all passed" },
+      "verification": { "command": "pytest tests/test_visible_taxonomy_tree.py::test_search_categories_lists_fourteen_engines tests/test_visible_taxonomy_tree.py::test_search_categories_exports_five_categories_in_native_order tests/test_visible_taxonomy_tree.py::test_search_categories_categories_match_legacy_parity tests/test_visible_taxonomy_tree.py::test_search_tab_renders_five_category_sections -q", "expect": "4 passed, 0 skipped (React bridge 14-entry list + 5-category order + legacy parity + SearchTab 5-section rendering)", "assertions": [ { "type": "pytest_summary", "min_passed": 4, "max_skipped": 0 } ] },
       "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores the CATEGORIES reader at tests/test_search_categories.py:141"
     }
