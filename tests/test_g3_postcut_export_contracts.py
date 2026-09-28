@@ -389,3 +389,79 @@ def test_consumer_chunk_references():
             "no out/ in current worktree; future isolated candidate worktree only"
         )
     mod.verify_chunk_references(out_index, out_dir)
+
+
+def test_synthetic_chunk_references_ignores_stylesheet_refs(tmp_path: Path):
+    """An HTML carrying a Next.js ``<link rel="stylesheet">`` reference
+    under the same ``/_next/static/chunks/`` prefix AND a valid first-party
+    JS reference must verify only the JS reference. The stylesheet
+    reference is out of scope for the JS-only chunk contract and must be
+    silently dropped (no fail-closed on the ``.css`` extension), while
+    the valid JS reference continues to be verified.
+
+    Regression: PR #458 / CI run 36473147141 — the post-cut Next.js
+    static export injects ``/_next/static/chunks/<hash>.css`` as a
+    stylesheet via ``<link rel="stylesheet" href="...">``. That asset
+    shares the chunk prefix but is not a JS chunk and must not be
+    treated as a malformed chunk reference; only the matching ``.js``
+    reference is part of the chunk contract.
+    """
+    mod = _load_module()
+    export_root = tmp_path / "export"
+    export_root.mkdir()
+    _make_chunk_file(export_root, "real.js", b"// real chunk")
+    html = (
+        '<link rel="stylesheet" '
+        'href="/_next/static/chunks/10l7g2zktrg2x.css">'
+        '<script src="/_next/static/chunks/real.js"></script>'
+    )
+    f = tmp_path / "index.html"
+    _write(f, html)
+    refs = mod.verify_chunk_references(f, export_root)
+    assert refs == ["/_next/static/chunks/real.js"]
+
+
+def test_synthetic_chunk_references_rejects_unsupported_extension(tmp_path: Path):
+    """An HTML with a valid first-party JS reference AND a chunk-shaped
+    reference with an unsupported extension (``foo.jsx``) must fail
+    closed. The CSS-only exception is narrow: only ``.css``-suffixed
+    stylesheet references are silently dropped — every other chunk-shaped
+    extension must reach ``_validate_first_party_chunk`` and fail the
+    canonical ``[A-Za-z0-9_-]+\\.js$`` filename regex. A reference with
+    ``.jsx`` extension is NOT a CSS stylesheet and must not be
+    silently skipped.
+    """
+    mod = _load_module()
+    export_root = tmp_path / "export"
+    export_root.mkdir()
+    _make_chunk_file(export_root, "real.js", b"// real chunk")
+    html = (
+        '<script src="/_next/static/chunks/real.js"></script>'
+        '<script src="/_next/static/chunks/foo.jsx"></script>'
+    )
+    f = tmp_path / "index.html"
+    _write(f, html)
+    with pytest.raises(mod.PostcutContractError):
+        mod.verify_chunk_references(f, export_root)
+
+
+def test_synthetic_chunk_references_rejects_js_trailing_slash(tmp_path: Path):
+    """An HTML with a valid first-party JS reference AND a chunk-shaped
+    reference with a trailing slash (``foo.js/``) must fail closed. The
+    CSS-only exception is narrow: a non-CSS chunk-shaped path with an
+    empty trailing segment must NOT be silently dropped — it must reach
+    ``_validate_first_party_chunk`` and fail the existing empty-segment
+    check.
+    """
+    mod = _load_module()
+    export_root = tmp_path / "export"
+    export_root.mkdir()
+    _make_chunk_file(export_root, "real.js", b"// real chunk")
+    html = (
+        '<script src="/_next/static/chunks/real.js"></script>'
+        '<script src="/_next/static/chunks/foo.js/"></script>'
+    )
+    f = tmp_path / "index.html"
+    _write(f, html)
+    with pytest.raises(mod.PostcutContractError):
+        mod.verify_chunk_references(f, export_root)

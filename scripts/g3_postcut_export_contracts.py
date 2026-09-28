@@ -207,9 +207,23 @@ def _find_first_party_chunk_references(html_text: str) -> list[str]:
     ``%2f``) cannot bypass the check.
 
     Foreign-origin URLs (``https://...``, ``//cdn...``, any
-    scheme://host form) are silently ignored. Malformed first-party
-    URLs (query, fragment, decoded ``.`` / ``..`` path segments,
-    invalid filename) fail closed via :class:`PostcutContractError`.
+    scheme://host form) are silently ignored. The chunk contract
+    also has one narrow CSS exception: the Next.js post-cut
+    export injects ``/_next/static/chunks/<hash>.css`` via
+    ``<link rel="stylesheet">``, which shares the chunk prefix
+    but is a stylesheet, not a JS chunk. The exception is
+    intentionally narrow — only the ``.css`` extension on the
+    query/fragment-stripped base path is silently dropped, so a
+    CSS asset with a query parameter
+    (``/_next/static/chunks/<hash>.css?v=1``) is also out of
+    contract. Every other chunk-shaped reference (``.jsx``,
+    ``.map``, ``foo.js/`` with a trailing slash, or any other
+    non-``.css`` extension) falls through to
+    :func:`_validate_first_party_chunk` and fails closed via the
+    existing query / fragment / traversal / invalid-filename /
+    empty-segment checks. Malformed first-party JS URLs (query,
+    fragment, decoded ``.`` / ``..`` path segments, invalid
+    filename) fail closed via :class:`PostcutContractError`.
     """
     parser = _ChunkRefCollector()
     parser.feed(html_text)
@@ -245,6 +259,31 @@ def _find_first_party_chunk_references(html_text: str) -> list[str]:
         rest = decoded[len(CHUNK_PATH_PREFIX) :]
         if not rest:
             continue
+
+        # Narrow CSS-only exception: silently drop CSS-suffixed
+        # stylesheet references. The Next.js post-cut export injects
+        # ``/_next/static/chunks/<hash>.css`` via ``<link
+        # rel="stylesheet">``; that asset is out of scope for the
+        # JS-only chunk contract. Query / fragment is stripped
+        # before the extension check so a CSS path with a query
+        # parameter (``<hash>.css?v=1``) is also silently dropped.
+        # Every other chunk-shaped reference — ``.map``, ``.jsx``,
+        # a ``.js`` path with a trailing slash, or any non-``.css``
+        # extension — falls through to
+        # ``_validate_first_party_chunk`` and fails closed via the
+        # existing invalid-filename / empty-segment / query /
+        # fragment / traversal checks. The filter is intentionally
+        # narrow: it does NOT silently skip malformed ``.js``
+        # references.
+        base_end = len(decoded)
+        for sep in ("?", "#"):
+            i = decoded.find(sep)
+            if i != -1 and i < base_end:
+                base_end = i
+        base_path = decoded[:base_end]
+        if base_path.endswith(".css"):
+            continue
+
         found_any_chunk_shape = True
 
         canonical = _validate_first_party_chunk(decoded)
