@@ -496,6 +496,127 @@ def test_synthetic_build_profile_inventory_rejects_non_object_json_root(
         with pytest.raises(mod.PostcutContractError):
             mod.verify_build_profile_inventory(build, output_path)
 
+
+def _sentinel_fail_if_called(*args, **kwargs):
+    """Sentinel replacement for ``_emit_build_profile`` that raises
+    ``AssertionError`` if called. Used to prove the helper rejects
+    disallowed output paths BEFORE invoking the emitter.
+    """
+    raise AssertionError(
+        "_emit_build_profile MUST NOT be called when output_path "
+        "is rejected by the containment guard"
+    )
+
+
+def test_synthetic_build_profile_inventory_rejects_output_inside_export(
+    tmp_path: Path, monkeypatch
+):
+    """An explicit ``output_path`` that resolves inside (or equals)
+    the resolved ``export_dir`` must fail closed with
+    :class:`PostcutContractError` BEFORE the emitter subprocess
+    is invoked. ``_emit_build_profile`` is monkeypatched to a
+    sentinel that raises ``AssertionError`` if called so rejection
+    proves containment happens first.
+    """
+    mod = _load_module()
+    build = _make_synthetic_build_dir(tmp_path)
+    # Direct containment: output inside export_dir/subpath
+    output_path = build / "subpath" / "profile.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(mod, "_emit_build_profile", _sentinel_fail_if_called)
+    with pytest.raises(mod.PostcutContractError) as excinfo:
+        mod.verify_build_profile_inventory(build, output_path)
+    msg = str(excinfo.value).lower()
+    assert "inside" in msg or "export_dir" in msg or "export" in msg, (
+        f"expected containment-related error, got: {excinfo.value!r}"
+    )
+
+
+def test_synthetic_build_profile_inventory_rejects_output_equal_to_export_dir(
+    tmp_path: Path, monkeypatch
+):
+    """An explicit ``output_path`` that equals the resolved
+    ``export_dir`` (the directory itself, not a file inside it)
+    must fail closed with :class:`PostcutContractError`. The
+    emitter must NOT be called.
+    """
+    mod = _load_module()
+    build = _make_synthetic_build_dir(tmp_path)
+    output_path = build  # equal to export_dir itself
+    monkeypatch.setattr(mod, "_emit_build_profile", _sentinel_fail_if_called)
+    with pytest.raises(mod.PostcutContractError):
+        mod.verify_build_profile_inventory(build, output_path)
+
+
+def test_synthetic_build_profile_inventory_rejects_symlink_resolving_inside_export(
+    tmp_path: Path, monkeypatch
+):
+    """An explicit ``output_path`` that is a symlink resolving inside
+    the export directory must fail closed with
+    :class:`PostcutContractError` BEFORE the emitter subprocess is
+    invoked. ``Path.resolve()`` follows the symlink so the
+    containment guard sees the resolved target, not the link
+    itself. The emitter must NOT be called.
+
+    Skipped with an explicit reason when the platform cannot
+    create symlinks (e.g. some Windows configurations).
+    """
+    if not hasattr(Path, "symlink_to"):
+        pytest.skip("platform does not support Path.symlink_to")
+    mod = _load_module()
+    build = _make_synthetic_build_dir(tmp_path)
+
+    # Create a symlink that resolves into the export tree.
+    symlink_target = build / "subpath" / "target.json"
+    symlink_target.parent.mkdir(parents=True, exist_ok=True)
+    symlink_target.touch()
+    symlink_path = tmp_path / "link.json"
+    try:
+        symlink_path.symlink_to(symlink_target)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"platform cannot create symlinks: {exc}")
+
+    monkeypatch.setattr(mod, "_emit_build_profile", _sentinel_fail_if_called)
+    with pytest.raises(mod.PostcutContractError):
+        mod.verify_build_profile_inventory(build, symlink_path)
+
+
+def test_synthetic_build_profile_inventory_rejects_output_inside_repo_root(
+    tmp_path: Path, monkeypatch
+):
+    """An explicit ``output_path`` that resolves anywhere inside the
+    repo root must fail closed with :class:`PostcutContractError`
+    BEFORE the emitter subprocess is invoked. The intended caller
+    destination is external pytest ``tmp_path``; never write into
+    repo-owned paths. ``_emit_build_profile`` is monkeypatched to a
+    sentinel so rejection proves containment happens first.
+    """
+    mod = _load_module()
+    build = _make_synthetic_build_dir(tmp_path)
+    # A non-existent path inside the repo root. ``Path.resolve()``
+    # handles non-existent paths via lexical resolution; the file
+    # is NEVER created because the helper rejects before the
+    # emitter subprocess runs.
+    output_path = REPO_ROOT / "scripts" / "sneaky-profile.json"
+    assert not output_path.exists(), (
+        f"unexpected pre-existing file at {output_path}; pick a "
+        f"different test path"
+    )
+
+    monkeypatch.setattr(mod, "_emit_build_profile", _sentinel_fail_if_called)
+    with pytest.raises(mod.PostcutContractError) as excinfo:
+        mod.verify_build_profile_inventory(build, output_path)
+    msg = str(excinfo.value).lower()
+    assert "repo" in msg or "repository" in msg, (
+        f"expected repo-root-related error, got: {excinfo.value!r}"
+    )
+    # The file MUST NOT have been created by the rejected call.
+    assert not output_path.exists(), (
+        f"output_path was created despite containment rejection: "
+        f"{output_path}"
+    )
+
+
 # ===========================================================================
 # Future G3 consumer nodes (DESELECTED under -k 'synthetic_').
 # MUST NOT be run in this slice. They are real assertions for the

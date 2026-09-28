@@ -1,10 +1,75 @@
-"""G3 post-cut root-shell, chunk-reference, and build-profile contracts.
+"""G3 post-cut export contracts — reusable helpers for the future G3
+executor against an isolated Next.js candidate export.
 
-#16 verifies the AppShell marker and ``<main`` landmark. #17 parses first-party
-chunk references and validates forward integrity inside the supplied export.
-#19 runs the existing profile emitter with an explicit external output path
-and validates the inventory sums without inventing size thresholds. Synthetic
-tests use ``tmp_path``; future ``out`` consumers do not establish a G3 pass.
+Follow-up 33 / Slice B replaces three legacy evidence-baseline
+readers with three post-cut structural / export checks:
+
+  #16 ``verify_root_shell(html_path)``
+       The supplied HTML file must carry the AppShell
+       ``data-app-shell`` marker AND a ``<main`` landmark, based on
+       the source-backed surface in
+       ``src/modules/app-shell/presentation/AppShell.tsx``.
+
+  #17 ``verify_chunk_references(html_path, export_root)``
+       Parse first-party root-relative ``/_next/static/chunks/*.js``
+       references from the supplied HTML via the stdlib
+       ``html.parser.HTMLParser``; require at least one reference;
+       verify each referenced target resolves inside the supplied
+       ``export_root`` to a non-empty file. The parser inspects
+       only ``src`` / ``href`` attribute values — chunk-shaped
+       substrings embedded in comments, inline scripts, or other
+       non-attribute text are ignored. Each candidate URL is
+       percent-decoded before segment validation so encoded
+       traversal (``%2e%2e/``) cannot bypass the check. Forward
+       integrity only: do not assert chunk count or an inverse
+       "all files referenced" rule. Fail closed for malformed
+       first-party URLs (query, fragment, decoded ``.`` / ``..``
+       path segments, invalid filename, missing / empty target,
+       resolved path escape). Ignore unrelated external /
+       non-chunk assets; resolve + contain to avoid false path
+       escapes.
+
+  #19 ``verify_build_profile_inventory(export_dir, output_path)``
+       Invoke the existing ``scripts/emit_build_profile.mjs``
+       against ``export_dir``, writing the profile JSON exactly at
+       the explicit ``output_path``. The synthetic tests pin
+       ``output_path`` to pytest ``tmp_path``; the future
+       ``test_consumer_build_profile_inventory`` node also writes
+       to ``tmp_path`` so the export directory is never mutated
+       (the profile is observed outside the export). Validate
+       non-empty ``chunks`` / ``per_route_bytes``, integer
+       non-negative totals/values, and the internal sums:
+         ``total_bytes == sum(chunk.bytes) == sum(per_route_bytes.values())``
+       Do not invent any size or chunk-count threshold. Any
+       subprocess invocation strips ``BUILD_PROFILE_OUT_DIR`` so
+       the explicit ``[2]`` argument is the only output
+       destination. Two containment guards run BEFORE the emitter
+       subprocess and fail closed via :class:`PostcutContractError`
+       if the resolved ``output_path`` lies inside (or equals)
+       the resolved ``export_dir`` (including symlinks resolving
+       into the export tree) or anywhere inside the repo root. The
+       intended caller destination is external pytest ``tmp_path``;
+       no repo-owned or export-tree path is allowed. A
+       JSON-root-object guard rejects profiles whose root is not
+       an object (e.g. ``[]``, ``null``) so a malformed profile
+       fails closed with :class:`PostcutContractError` instead of
+       ``AttributeError``.
+
+The three helpers are wrapped by
+``tests/test_g3_postcut_export_contracts.py`` with two layers:
+
+  * ``test_synthetic_*`` — selected by ``pytest -k 'synthetic_'``,
+    run now against ``tmp_path`` synthetic inputs.
+  * ``test_consumer_*`` — deselected by the same selector (NOT
+    skipped), reserved for the future isolated candidate worktree
+    that supplies ``Path.cwd()/out``. The ``test_script_exists``
+    node is also deselected by the same selector; it is NOT a
+    consumer node — it is a self-test that the script exists on
+    disk for both the synthetic and the future consumer layers.
+
+#18 (no accepted JavaScript/CSS size budget) and #20 (G5 evidence /
+capture authorization unresolved) remain blocked in the manifest.
+This module does not introduce them.
 """
 
 from __future__ import annotations
@@ -352,6 +417,27 @@ def _emit_build_profile(
     )
 
 
+def _is_inside_or_equal(child: Path, parent: Path) -> bool:
+    """Return True iff ``child`` is the same as ``parent`` OR
+    resolves inside ``parent`` (after symlink resolution).
+
+    Both inputs are expected to be already-resolved absolute paths;
+    callers that have not yet resolved use
+    ``Path(child).resolve()`` / ``Path(parent).resolve()`` first.
+    ``Path.resolve(strict=False)`` resolves non-existent paths
+    lexically and follows symlinks for existing components so the
+    containment check is observable before any filesystem
+    operation runs.
+    """
+    if child == parent:
+        return True
+    try:
+        child.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
 def verify_build_profile_inventory(export_dir: Path, output_path: Path) -> dict:
     """Invoke ``scripts/emit_build_profile.mjs`` against
     ``export_dir``, writing the profile JSON exactly at the explicit
@@ -367,9 +453,22 @@ def verify_build_profile_inventory(export_dir: Path, output_path: Path) -> dict:
     environment strips ``BUILD_PROFILE_OUT_DIR`` so the explicit
     output argument is the only output destination.
 
-    Reject the emitter's exact repo ``web/dist/build-profile.json`` default
-    as a defense-in-depth safeguard. The consumer supplies pytest
-    ``tmp_path`` as its external output destination.
+    Containment guards (run BEFORE ``_emit_build_profile``):
+
+      (i) The resolved ``output_path`` must NOT lie inside (or
+          equal) the resolved ``export_dir``. ``Path.resolve()``
+          follows symlinks for existing components; a symlink
+          that resolves into the export tree is rejected too.
+          The intended caller destination is external pytest
+          ``tmp_path``; writing the profile into the export
+          directory would mutate the candidate tree and
+          contaminate the inventory surface.
+      (ii) The resolved ``output_path`` must NOT lie anywhere
+          inside the repo root. No repo-owned path is permitted
+          for the profile. The prior ``web/dist/build-profile.json``
+          collision check is subsumed by this stronger guard
+          (any repo-owned path is rejected, not only the
+          emitter's default destination).
 
     A JSON-root-object guard rejects profiles whose root is not an
     object (e.g. ``[]``, ``null``) so a malformed profile fails
@@ -383,11 +482,31 @@ def verify_build_profile_inventory(export_dir: Path, output_path: Path) -> dict:
     export_dir_resolved = Path(export_dir).resolve()
     output_path_resolved = Path(output_path).resolve()
 
-    # Defense in depth: reject the emitter's repo-root default.
-    repo_web_dist = (REPO_ROOT / "web" / "dist" / "build-profile.json").resolve()
-    if output_path_resolved == repo_web_dist:
+    # Containment guard (i): ``output_path`` must not land inside
+    # (or equal) the export tree. ``Path.resolve()`` follows
+    # symlinks for existing components; non-existent paths resolve
+    # lexically via ``strict=False``. The emitter's default output
+    # is ``web/dist/build-profile.json`` (under REPO_ROOT, not
+    # under export_dir), but a future caller might still pass an
+    # ``output_path`` inside the export; we reject it before any
+    # subprocess can write to disk.
+    if _is_inside_or_equal(output_path_resolved, export_dir_resolved):
         raise PostcutContractError(
-            f"output_path collides with repo web/dist default: {output_path}"
+            f"output_path is inside export_dir; profile must be "
+            f"written outside the export tree (use pytest tmp_path): "
+            f"output_path={output_path}, export_dir={export_dir}"
+        )
+
+    # Containment guard (ii): ``output_path`` must not land
+    # anywhere inside the repo root. The prior
+    # ``web/dist/build-profile.json`` collision check is subsumed
+    # by this stronger guard (any repo-owned path is rejected,
+    # not only the emitter's default destination).
+    if _is_inside_or_equal(output_path_resolved, REPO_ROOT):
+        raise PostcutContractError(
+            f"output_path is inside repo root; profile must be "
+            f"written outside the repo (use pytest tmp_path): "
+            f"output_path={output_path}, repo_root={REPO_ROOT}"
         )
 
     # Strip ``BUILD_PROFILE_OUT_DIR`` from the subprocess env so
