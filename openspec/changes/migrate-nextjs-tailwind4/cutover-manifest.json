@@ -395,12 +395,12 @@
     {
       "id": "search-urls-test-ac21-contract-004",
       "ownership_edge": "web_search_urls_js",
-      "current_path": "tests/test_smoke.py::test_search_engine_contract + tests/test_visible_taxonomy_tree.py::test_search_categories_lists_fourteen_engines",
+      "current_path": "tests/test_smoke.py",
       "current_path_lines": "77-100, 4548-4549",
       "current_path_note": "AC-21 server↔legacy byte-shape contract (`tests/test_smoke.py::test_search_engine_contract`) retained AND a focused React bridge assertion (`tests/test_visible_taxonomy_tree.py::test_search_categories_lists_fourteen_engines`) added — one pytest command exercises both contract surfaces",
       "replacement": {
         "status": "selected",
-        "path": "tests/test_smoke.py:77 + tests/test_visible_taxonomy_tree.py:4548",
+        "path": "tests/test_visible_taxonomy_tree.py",
         "note": "Post-cut Re-anchoring Slice A (Follow-up 32, 2026-09-27): explicitly retains the AC-21 server↔legacy metadata consistency contract (`tests/test_smoke.py::test_search_engine_contract`) AND adds a focused React bridge assertion (`tests/test_visible_taxonomy_tree.py::test_search_categories_lists_fourteen_engines`) that pins the 14-entry `SEARCH_ENGINE_LIST`; one pytest command runs both nodes and a structured `pytest_summary` assertion enforces >=2 passed and 0 skipped so a future PR that breaks either surface fails the consumer at the schema gate instead of trusting shell exit (which would still pass against a stale pre-cut reader).",
         "lines": "77-100, 4548-4549"
       },
@@ -411,7 +411,7 @@
     {
       "id": "search-urls-test-search-categories-005",
       "ownership_edge": "web_search_urls_js",
-      "current_path": "tests/test_visible_taxonomy_tree.py (search-categories + SearchTab sections)",
+      "current_path": "tests/test_visible_taxonomy_tree.py",
       "current_path_lines": "4343-4612",
       "current_path_note": "post-cut React contract: focused source-level tests in `tests/test_visible_taxonomy_tree.py` replace the legacy skipped `tests/test_search_categories.py` — `test_search_categories_lists_fourteen_engines` pins the 14-entry bridge, `test_search_categories_exports_five_categories_in_native_order` pins the category order, `test_search_categories_categories_match_legacy_parity` pins the section-order parity, `test_search_tab_renders_five_category_sections` pins the SearchTab rendering surface",
       "replacement": {
