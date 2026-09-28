@@ -486,7 +486,12 @@ def _run_check_with_stdout(cmd: str, *, cwd: Path | None = None,
                             timeout: int = 60) -> tuple[int, str]:
     """Run verification.command via shell; return (rc, stdout).
     Used for non-HTTP expectations where the verifier evaluates
-    `verification.assertions` against captured stdout."""
+    `verification.assertions` against captured stdout. Always
+    returns a `str` for stdout: bytes (observed in hosted CI run
+    36424915843 even though the verifier requests `text=True`) are
+    decoded UTF-8 with replacement so `_evaluate_assertions` never
+    sees bytes and downstream `re.findall(str, stdout)` cannot raise
+    TypeError."""
     try:
         r = subprocess.run(["/bin/sh", "-c", cmd], cwd=cwd,
                            capture_output=True, text=True, check=False,
@@ -495,7 +500,10 @@ def _run_check_with_stdout(cmd: str, *, cwd: Path | None = None,
         return (124, "")
     except OSError:
         return (2, "")
-    return (r.returncode, r.stdout)
+    out = r.stdout
+    if isinstance(out, bytes):
+        out = out.decode("utf-8", errors="replace")
+    return (r.returncode, out)
 
 
 def _check_all(consumers: list[dict],
