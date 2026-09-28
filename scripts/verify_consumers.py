@@ -36,7 +36,9 @@ import sys
 import tempfile
 import time
 import urllib.request
+
 from pathlib import Path
+from typing import cast
 from urllib.error import URLError
 
 
@@ -110,6 +112,57 @@ def _validate_schema(manifest: dict) -> list[str]:
             errs.append(f"consumers[{i}] ({cid}) verification.command must be string")
         if not isinstance(ver.get("expect"), str):
             errs.append(f"consumers[{i}] ({cid}) verification.expect must be string")
+        elif not is_http_status_expectation(ver["expect"]):
+            # Non-HTTP expectations require non-empty structured
+            # `verification.assertions` (machine-evaluated against
+            # captured stdout; HTTP-shape expects use the helper instead).
+            errs.extend(_validate_assertions_schema(
+                ver.get("assertions"),
+                prefix=f"consumers[{i}] ({cid})"))
+    return errs
+
+
+def _validate_assertions_schema(assertions, *, prefix: str) -> list[str]:
+    """Validate non-empty structured assertions for non-HTTP consumers.
+    The two supported types have strict schemas; booleans are not integers
+    for numeric bounds."""
+    def _int_nn(v):
+        return isinstance(v, int) and not isinstance(v, bool) and v >= 0
+    errs: list[str] = []
+    if not isinstance(assertions, list) or not assertions:
+        errs.append(f"{prefix} verification.assertions must be "
+                    f"non-empty list")
+        return errs
+    for j, a in enumerate(assertions):
+        a_prefix = f"{prefix} verification.assertions[{j}]"
+        if not isinstance(a, dict):
+            errs.append(f"{a_prefix} must be an object")
+            continue
+        atype = a.get("type")
+        if atype == "stdout_regex":
+            p, mn, mx = a.get("pattern"), a.get("min_matches"), a.get("max_matches")
+            if not isinstance(p, str):
+                errs.append(f"{a_prefix}.pattern must be string")
+            if not _int_nn(mn):
+                errs.append(f"{a_prefix}.min_matches must be nonnegative int")
+            if not _int_nn(mx):
+                errs.append(f"{a_prefix}.max_matches must be nonnegative int")
+            if (isinstance(mn, int) and not isinstance(mn, bool)
+                    and isinstance(mx, int) and not isinstance(mx, bool)
+                    and cast(int, mn) > cast(int, mx)):
+                errs.append(f"{a_prefix}.min_matches > max_matches")
+            if isinstance(p, str):
+                try:
+                    re.compile(p)
+                except re.error as e:
+                    errs.append(f"{a_prefix}.pattern invalid regex: {e}")
+        elif atype == "pytest_summary":
+            if not _int_nn(a.get("min_passed")):
+                errs.append(f"{a_prefix}.min_passed must be nonnegative int")
+            if not _int_nn(a.get("max_skipped")):
+                errs.append(f"{a_prefix}.max_skipped must be nonnegative int")
+        else:
+            errs.append(f"{a_prefix} unknown type {atype!r}")
     return errs
 
 
@@ -120,9 +173,10 @@ def _validate_schema(manifest: dict) -> list[str]:
 #       `curl -w '%{http_code}'` and a loop of curl calls. These MUST
 #       be validated against the actual emitted status codes (not just
 #       the shell exit code, which is always 0 when curl connected).
-#   (2) Non-HTTP-shape: arbitrary text ("ok", "1 passed", "all passed",
-#       grep output, sed output, etc.) — the verifier falls back to
-#       shell-exit-only validation (the existing behavior).
+#   (2) Non-HTTP-shape: arbitrary descriptive text ("ok", "1 passed",
+#       grep output, sed output, etc.) — the verifier requires structured
+#       `verification.assertions` and evaluates them against captured
+#       stdout; shell exit status alone is not sufficient.
 _HTTP_STATUS_EXPECT_RE = re.compile(
     r"^\s*\d{3}(\s+for\s+each)?\s*$")
 
@@ -351,12 +405,15 @@ class LocalServer:
         return False
 
 
-def _run_check(cmd: str, timeout: int = 60) -> int:
+def _run_check(cmd: str, *, cwd: Path | None = None,
+               timeout: int = 60) -> int:
     """Run verification.command via shell; return exit code only.
-    Synthetic tests use benign commands (e.g. ':') that exit 0 cleanly."""
+    HTTP-shape expectations route through the helper script and
+    discard stdout (the helper does its own validation)."""
     try:
-        r = subprocess.run(["/bin/sh", "-c", cmd], capture_output=True,
-                           text=True, check=False, timeout=timeout)
+        r = subprocess.run(["/bin/sh", "-c", cmd], cwd=cwd,
+                           capture_output=True, text=True, check=False,
+                           timeout=timeout)
     except subprocess.TimeoutExpired:
         return 124
     except OSError:
@@ -364,33 +421,51 @@ def _run_check(cmd: str, timeout: int = 60) -> int:
     return r.returncode
 
 
+def _run_check_with_stdout(cmd: str, *, cwd: Path | None = None,
+                            timeout: int = 60) -> tuple[int, str]:
+    """Run verification.command via shell; return (rc, stdout).
+    Used for non-HTTP expectations where the verifier evaluates
+    `verification.assertions` against captured stdout. Always
+    returns a `str` for stdout: bytes (observed in hosted CI run
+    36424915843 even though the verifier requests `text=True`) are
+    decoded UTF-8 with replacement so `_evaluate_assertions` never
+    sees bytes and downstream `re.findall(str, stdout)` cannot raise
+    TypeError."""
+    try:
+        r = subprocess.run(["/bin/sh", "-c", cmd], cwd=cwd,
+                           capture_output=True, text=True, check=False,
+                           timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return (124, "")
+    except OSError:
+        return (2, "")
+    out = r.stdout
+    if isinstance(out, bytes):
+        out = out.decode("utf-8", errors="replace")
+    return (r.returncode, out)
+
+
 def _check_all(consumers: list[dict],
                *, venv_python: Path | None = None,
                port_rewrite: tuple[int, int] | None = None,
                check_http_script: Path | None = None,
+               check_cwd: Path | None = None,
                ) -> list[tuple[str, str]]:
     """Return [(id, reason)] for every consumer whose check failed.
 
-    Two opt-in rewrites are applied (both strictly opt-in):
+    Opt-in rewrites: `venv_python` rewrites pytest-prefixed commands
+    to use the venv python; `port_rewrite=(old, new)` rewrites
+    127.0.0.1:<old> URLs (fixture-serve port redirection).
 
-    - `venv_python` set: `pytest`-prefixed commands are rewritten to
-      use the venv python (controlled, opt-in via `--venv` /
-      `--repo-root`).
-    - `port_rewrite=(old, new)` set: literal `127.0.0.1:<old>` URLs in
-      each command are rewritten to `127.0.0.1:<new>`. Used by the
-      fixture-serve path to redirect manifest consumers from the
-      legacy 8765 to the isolated free port picked at server spawn.
+    HTTP-shape expects route through the controlled helper
+    (`<check_http_script>`); missing helper fails closed.
 
-    HTTP-shape enforcement (fail-closed, see slice note at the top of
-    this module): when `verification.expect` matches HTTP-shape
-    (`"200"`, `"200 for each"`, etc.), the consumer's command is
-    routed through the controlled HTTP-status verifier
-    (`<check_http_script>`) so the actual emitted status code(s) are
-    validated. If `check_http_script is None` AND the expectation is
-    HTTP-shape, the consumer fails closed (the verifier NEVER silently
-    trusts the shell exit code for HTTP-shape expectations — that was
-    the original bug). Non-HTTP-shape expectations keep the existing
-    shell-exit-only semantics."""
+    Non-HTTP expects run with `check_cwd` (None = inherit verifier's
+    CWD; explicit --repo-root becomes subprocess CWD). Stdout is
+    captured and evaluated against structured assertions (AND).
+    Nonzero exit ALWAYS fails (assertions complement, never replace,
+    the shell-exit gate).
+    """
     failures: list[tuple[str, str]] = []
     for c in consumers:
         if not isinstance(c, dict):
@@ -406,8 +481,9 @@ def _check_all(consumers: list[dict],
             cmd = rewrite_pytest_for_venv(cmd, venv_python)
         if port_rewrite is not None:
             cmd = rewrite_command_port(cmd, port_rewrite[0], port_rewrite[1])
-        # HTTP-shape enforcement (PR3d fail-closed slice).
-        if isinstance(expected, str) and is_http_status_expectation(expected):
+        is_http = (isinstance(expected, str)
+                   and is_http_status_expectation(expected))
+        if is_http:
             if check_http_script is None:
                 failures.append((cid,
                     "HTTP-shape expect requires the controlled "
@@ -415,14 +491,75 @@ def _check_all(consumers: list[dict],
                     "helper (not discoverable; fail-closed to avoid "
                     "silently trusting shell exit on a 404)"))
                 continue
-            cmd = (f'{shlex.quote(sys.executable)} '
-                   f'{shlex.quote(str(check_http_script))} '
-                   f'{shlex.quote(cmd)} '
-                   f'{shlex.quote(expected)}')
-        rc = _run_check(cmd)
-        if rc != 0:
-            failures.append((cid, f"verification.command exited {rc}"))
+            run_cmd = (f'{shlex.quote(sys.executable)} '
+                       f'{shlex.quote(str(check_http_script))} '
+                       f'{shlex.quote(cmd)} '
+                       f'{shlex.quote(cast(str, expected))}')
+            rc = _run_check(run_cmd, cwd=check_cwd)
+            if rc != 0:
+                failures.append((cid,
+                    f"verification.command exited {rc}"))
+        else:
+            rc, stdout = _run_check_with_stdout(cmd, cwd=check_cwd)
+            if rc != 0:
+                failures.append((cid, f"verification.command exited {rc}"))
+                continue
+            for err in _evaluate_assertions(
+                    ver.get("assertions") or [], stdout):
+                failures.append((cid, err))
     return failures
+
+
+def _evaluate_assertions(assertions, stdout: str) -> list[str]:
+    """Evaluate stdout_regex and real pytest-summary assertions with AND semantics.
+    Command exit status is enforced separately by `_check_all`."""
+    errs: list[str] = []
+    for a in assertions:
+        if not isinstance(a, dict):
+            continue  # schema validation already reported
+        atype = a.get("type")
+        if atype == "stdout_regex":
+            pattern = a.get("pattern")
+            min_m = a.get("min_matches")
+            max_m = a.get("max_matches")
+            if not (isinstance(pattern, str)
+                    and isinstance(min_m, int) and not isinstance(min_m, bool)
+                    and isinstance(max_m, int) and not isinstance(max_m, bool)):
+                continue  # schema validation already reported
+            try:
+                matches = re.findall(pattern, stdout)
+            except re.error:
+                continue
+            count = len(matches)
+            if not (min_m <= count <= max_m):
+                errs.append(
+                    f"stdout_regex failed: {count} matches not in "
+                    f"[{min_m}, {max_m}]")
+        elif atype == "pytest_summary":
+            min_p = a.get("min_passed")
+            max_s = a.get("max_skipped")
+            if not (isinstance(min_p, int) and not isinstance(min_p, bool)
+                    and isinstance(max_s, int) and not isinstance(max_s, bool)):
+                continue  # schema validation already reported
+            m_summary = re.search(
+                r"(?m)^[ \t]*=*[ \t]*(\d+)[ \t]+passed\b([^\n]*)$",
+                stdout)
+            tail = m_summary.group(2) if m_summary else ""
+            if (not m_summary or not re.search(
+                    r"\bin[ \t]+[0-9]+(?:\.[0-9]+)?s\b", tail)):
+                errs.append("pytest_summary failed: no pytest summary "
+                            "line in stdout")
+                continue
+            passed_n = int(m_summary.group(1))
+            m_skipped = re.search(r"(\d+)\s+skipped\b", tail)
+            skipped_n = int(m_skipped.group(1)) if m_skipped else 0
+            if passed_n < min_p:
+                errs.append(f"pytest_summary failed: {passed_n} passed "
+                            f"< {min_p}")
+            if skipped_n > max_s:
+                errs.append(f"pytest_summary failed: {skipped_n} skipped "
+                            f"> {max_s}")
+    return errs
 
 
 def _emit_readiness(out: Path, manifest: dict, consumers: list[dict]) -> None:
@@ -463,17 +600,27 @@ def main(argv=None) -> int:
                          "(rewrites to `<venv> -m pytest ...`).")
     ap.add_argument("--repo-root", default=None,
                     help="repo root for `.venv/bin/python` auto-detection; "
-                         "defaults to the manifest's directory.")
+                         "defaults to the manifest's directory. When "
+                         "supplied, verification commands run with this "
+                         "dir as CWD; when omitted, subprocess inherits "
+                         "caller CWD (legacy).")
+    ap.add_argument("--http-status-script", default=None,
+                    help="explicit path to the controlled HTTP-status "
+                         "helper (overrides repo auto-discovery). "
+                         "Absolute paths used as-is; relative paths "
+                         "resolve against --repo-root or caller CWD. "
+                         "Must exist (fail-closed if missing).")
     try:
         ns = ap.parse_args(argv)
     except SystemExit:
         _log("verify_consumers",
              "usage: verify_consumers.py --manifest <path> --out <path> "
-             "[--serve] [--fixture-web-root <dir>] [--venv <python>] "
-             "[--repo-root <dir>] "
-             "(HTTP-shape expects auto-route through "
-             "tools/g3-legacy-fixture/scripts/check_http_status.py "
-             "discovered at --repo-root; fail-closed if absent)")
+             "[--serve] [--fixture-web-root <dir>] [--venv <py>] "
+             "[--repo-root <dir>] [--http-status-script <path>] "
+             "(HTTP-shape auto-routes via controlled helper; "
+             "non-HTTP expects require structured assertions; "
+             "fail-closed on missing/malformed assertions or "
+             "absent HTTP helper)")
         return EXIT_USAGE
     mp = Path(ns.manifest).resolve()
     out = Path(ns.out).resolve()
@@ -499,12 +646,23 @@ def main(argv=None) -> int:
     venv_python = (Path(ns.venv).expanduser() if ns.venv
                    else find_venv_python(repo_root))
 
-    # Resolve the controlled HTTP-status verifier script. Auto-detected
-    # at `<repo_root>/tools/g3-legacy-fixture/scripts/check_http_status.py`
-    # (the fixture shipped in this repo). When NOT discoverable,
-    # HTTP-shape expectations in the manifest will fail-closed per the
-    # PR3d HTTP-shape enforcement slice.
-    check_http_script = find_check_http_status_script(repo_root)
+    # Resolve the controlled HTTP-status verifier script. Explicit
+    # --http-status-script wins; else auto-detect under repo_root.
+    explicit_http_script: Path | None = None
+    if ns.http_status_script is not None:
+        sp = Path(ns.http_status_script)
+        if not sp.is_absolute():
+            sp = (Path(ns.repo_root).resolve() if ns.repo_root
+                  else Path(os.getcwd())) / sp
+        sp = sp.resolve()
+        if not sp.is_file():
+            _log("verify_consumers", f"--http-status-script not found: {sp}")
+            return EXIT_USAGE
+        explicit_http_script = sp
+    check_http_script = (explicit_http_script
+                         or find_check_http_status_script(repo_root))
+    check_cwd: Path | None = (Path(ns.repo_root).resolve()
+                              if ns.repo_root else None)
 
     # Fixture-serve: opt-in via `--serve --fixture-web-root <dir>`.
     # `--fixture-web-root` alone (without `--serve`) is a SILENT no-op:
@@ -536,7 +694,8 @@ def main(argv=None) -> int:
                 port_rewrite = (legacy_port, srv.port)
             failures = _check_all(consumers, venv_python=venv_python,
                                    port_rewrite=port_rewrite,
-                                   check_http_script=check_http_script)
+                                   check_http_script=check_http_script,
+                                   check_cwd=check_cwd)
     except RuntimeError as exc:
         _log("verify_consumers", f"server lifecycle error: {exc}")
         return EXIT_SERVER

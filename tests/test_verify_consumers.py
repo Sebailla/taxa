@@ -34,11 +34,17 @@ def _readiness(out: Path) -> dict:
 def _consumer(*, idx: str, cmd: str = ":", expect: str = "ok",
               repl_status: str = "selected", repl_path: str = "/new/path",
               activation: str = "selected") -> dict:
-    """Build one well-formed consumer dict for synthetic manifests."""
+    """Build one well-formed consumer dict. Non-HTTP expectations
+    get a benign structured assertion; HTTP-shape skip it."""
+    import re
+    ver: dict = {"command": cmd, "expect": expect}
+    if not re.match(r"^\s*\d{3}(\s+for\s+each)?\s*$", expect.strip()):
+        ver["assertions"] = [{"type": "stdout_regex", "pattern": ".*",
+                              "min_matches": 0, "max_matches": 2**31 - 1}]
     return {"id": idx, "ownership_edge": "fastapi_web_mount",
             "current_path": f"web/legacy/{idx}.html",
             "replacement": {"status": repl_status, "path": repl_path},
-            "verification": {"command": cmd, "expect": expect},
+            "verification": ver,
             "activation_status": activation,
             "rollback": f"git revert <pr3e-sha> restores {idx}"}
 
@@ -878,3 +884,181 @@ def test_http_shaped_expect_without_check_http_status_script_fails_closed(
     assert rc != 0, err
     assert not (out / "CONSUMER-READINESS.json").is_file()
     assert "http-status" in err.lower() or "check_http_status" in err.lower(), err
+
+
+# ── Follow-up 29: --repo-root CWD, --http-status-script, assertions ──
+def _consumer_with_assertions(idx, cmd, expect, assertions):
+    c = _consumer(idx=idx, cmd=cmd, expect=expect)
+    c["verification"]["assertions"] = assertions
+    return c
+
+
+def _write_fake_helper(tmp_path, env_var):
+    fake = tmp_path / "fake_helper.py"
+    fake.write_text("#!/usr/bin/env python3\n"
+                    "import os, sys\n"
+                    f"open(os.environ['{env_var}'], 'w').write('invoked')\n"
+                    "sys.exit(0)\n")
+    fake.chmod(0o755)
+    return fake
+
+
+def _cwd_consumer(idx, expect_cwd):
+    import re
+    return _consumer_with_assertions(
+        idx=idx,
+        cmd=("python3 -c 'import os; "
+              "cwd = os.getcwd(); "
+              "open(os.environ[\"CWD_RECORDER\"], \"w\").write(cwd); "
+              "print(cwd)'"),
+        expect="ok",
+        assertions=[{"type": "stdout_regex",
+                     "pattern": re.escape(expect_cwd),
+                     "min_matches": 1, "max_matches": 1}])
+
+
+@pytest.mark.parametrize("use_repo_root,cid", [
+    (True, "cwd-flag-1"),
+    (False, "cwd-legacy-1"),
+], ids=["explicit", "omitted"])
+def test_repo_root_flag_cwd_behavior(tmp_path, monkeypatch, use_repo_root, cid):
+    project = tmp_path / "temp_project"
+    caller_cwd_dir = tmp_path / "caller_dir"
+    manifest_dir = tmp_path / "manifest_dir"
+    for d in (project, caller_cwd_dir, manifest_dir):
+        d.mkdir()
+    cwd_marker = tmp_path / "cwd.out"
+    monkeypatch.setenv("CWD_RECORDER", str(cwd_marker))
+    if use_repo_root:
+        expected_cwd = str(project)
+        mp = _write_manifest(tmp_path, _base_manifest(
+            [_cwd_consumer(cid, expected_cwd)]))
+        argv = ["--manifest", str(mp), "--out", str(tmp_path / "out"),
+                "--repo-root", str(project)]
+    else:
+        expected_cwd = str(caller_cwd_dir)
+        mp = manifest_dir / "manifest.json"
+        mp.write_text(json.dumps(_base_manifest(
+            [_cwd_consumer(cid, expected_cwd)])))
+        argv = ["--manifest", str(mp), "--out", str(tmp_path / "out")]
+    monkeypatch.chdir(caller_cwd_dir)
+    rc, err = _run_in_process(argv)
+    assert rc == 0, err
+    recorded = cwd_marker.read_text().strip()
+    assert recorded == expected_cwd, recorded
+
+
+@pytest.mark.parametrize("scenario", [
+    "override", "no_assertions",
+], ids=["override_auto_discovery", "http_shape_no_assertions"])
+def test_http_status_script_flag(tmp_path, monkeypatch, scenario):
+    marker = tmp_path / "helper_invoked.marker"
+    monkeypatch.setenv("HELPER_MARKER", str(marker))
+    fake_helper = _write_fake_helper(tmp_path, "HELPER_MARKER")
+    if scenario == "override":
+        project_root = tmp_path / "project_no_helper"
+        project_root.mkdir()
+        cs = [_consumer(idx="opt-1",
+                        cmd="curl -sS -o /dev/null -w '%{http_code}' "
+                            "http://127.0.0.1:8765/index.html",
+                        expect="200")]
+        mp = _write_manifest(tmp_path, _base_manifest(cs))
+        argv = ["--manifest", str(mp), "--out", str(tmp_path / "out"),
+                "--repo-root", str(project_root),
+                "--http-status-script", str(fake_helper)]
+    else:
+        cs = [_consumer(idx="http-shape-no-assertions-1",
+                        cmd="printf '200\\n'", expect="200 for each")]
+        cs[0]["verification"].pop("assertions", None)
+        mp = _write_manifest(tmp_path, _base_manifest(cs))
+        argv = ["--manifest", str(mp), "--out", str(tmp_path / "out"),
+                "--http-status-script", str(fake_helper)]
+    rc, err = _run_in_process(argv)
+    assert rc == 0, err
+    assert marker.exists(), f"stderr: {err}"
+    assert marker.read_text() == "invoked", marker.read_text()
+
+
+@pytest.mark.parametrize("bad,cmd,min_passed,should_pass,cid,scenario", [
+    ([{"type": "stdout_regex", "pattern": "hello", "min_matches": 2, "max_matches": 2}],
+     "printf 'hello\\nworld\\nhello\\n'", 0, True, "regex-pass", "regex"),
+    ([{"type": "stdout_regex", "pattern": "hello", "min_matches": 3, "max_matches": 5}],
+     "printf 'hello\\nworld\\n'", 0, False, "regex-under", "regex"),
+    ([{"type": "stdout_regex", "pattern": "hello", "min_matches": 1, "max_matches": 2}],
+     "printf 'hello\\nhello\\nhello\\nhello\\n'", 0, False, "regex-over", "regex"),
+    ([{"type": "unknown_kind", "pattern": "x"}], ":", 0, False, "malformed-type", "malformed"),
+    ([{"type": "stdout_regex", "min_matches": 1, "max_matches": 1}], ":", 0, False,
+     "malformed-no-pat", "malformed"),
+    ([{"type": "pytest_summary", "max_skipped": 0}], ":", 0, False,
+     "malformed-no-min", "malformed"),
+    ([{"type": "pytest_summary", "min_passed": 3, "max_skipped": 0}],
+     "printf 'note: 3 passed are expected\\n'", 3, False, "pytest-not-summary", "pytest"),
+    ([{"type": "pytest_summary", "min_passed": 3, "max_skipped": 0}],
+     "printf '===== 3 passed, 2 skipped in 0.04s =====\\n'", 3, False, "pytest-skip", "pytest"),
+    ([{"type": "stdout_regex", "pattern": "passed", "min_matches": 1, "max_matches": 1},
+      {"type": "pytest_summary", "min_passed": 5, "max_skipped": 0}],
+     "printf '===== 5 passed, 0 skipped in 0.04s =====\\n'", 5, True, "and-pass", "combined"),
+    ([{"type": "stdout_regex", "pattern": "passed", "min_matches": 1, "max_matches": 1},
+      {"type": "pytest_summary", "min_passed": 5, "max_skipped": 0}],
+     "printf '1 passed, 0 skipped\\n'", 5, False, "and-fail", "combined"),
+    ([{"type": "stdout_regex", "pattern": ".*", "min_matches": 0, "max_matches": 999}],
+     "exit 7", 0, False, "cmd-fail-1", "nonzero"),
+    (None, ":", 0, False, "no-assert-1", "missing"),
+], ids=["regex-pass", "regex-under", "regex-over", "unknown_type",
+        "missing_pattern", "missing_min_passed", "pytest-not-summary",
+        "pytest-skip", "both-pass", "one-fails", "cmd-nonzero",
+        "no-assertions"])
+def test_assertions_structured_evaluation(tmp_path, bad, cmd, min_passed,
+                                            should_pass, cid, scenario):
+    if scenario == "missing":
+        cs = [_consumer(idx=cid, cmd=cmd, expect="ok")]
+        cs[0]["verification"].pop("assertions", None)
+    else:
+        cs = [_consumer_with_assertions(idx=cid, cmd=cmd, expect="ok", assertions=bad)]
+    out = tmp_path / "out"
+    mp = _write_manifest(tmp_path, _base_manifest(cs))
+    r = _run(["--manifest", str(mp), "--out", str(out)])
+    if should_pass:
+        assert r.returncode == 0, r.stderr
+    else:
+        assert r.returncode != 0, r.stderr
+        assert not (out / "CONSUMER-READINESS.json").is_file()
+        assert cid in r.stderr
+
+
+def test_assertions_run_check_with_stdout_normalizes_bytes_to_str(
+        tmp_path, monkeypatch):
+    """Regression: hosted CI run 36424915843 on PR #454 head
+    `d6ed7083702a49aad7b02e63d53f6aaddfa2903a` failed structured-
+    assertion tests with `re.findall(str, stdout=b'')` TypeError.
+    The verifier asks subprocess.run for `text=True` and advertises
+    `_run_check_with_stdout -> tuple[int, str]`, but bytes may still
+    reach the return boundary (hosted evidence). `_run_check_with_stdout`
+    MUST normalize bytes to `str` at the return boundary so
+    `_evaluate_assertions` never sees bytes and downstream
+    `re.findall(str, stdout)` cannot raise TypeError."""
+    import scripts.verify_consumers as vc
+
+    class _FakeResult:
+        # Mimic subprocess.run returning bytes despite text=True being
+        # requested by the verifier (the exact failure mode hosted CI
+        # observed: bytes reached the assertion boundary).
+        returncode = 0
+        stdout = b"hello: 1\n"
+        stderr = b""
+
+    def _fake_run(argv, **kwargs):
+        # The verifier asks for text=True; honor it in kwargs capture
+        # only to document intent. We deliberately return bytes anyway.
+        return _FakeResult()
+
+    monkeypatch.setattr(vc.subprocess, "run", _fake_run)
+
+    rc, stdout = vc._run_check_with_stdout("true")
+    assert rc == 0
+    assert isinstance(stdout, str), (
+        f"_run_check_with_stdout must normalize bytes to str, got "
+        f"{type(stdout).__name__}: {stdout!r}")
+    # Decode contract: bytes are decoded UTF-8 so the structured
+    # assertions (re.findall) operate on a real str.
+    assert stdout == "hello: 1\n"
