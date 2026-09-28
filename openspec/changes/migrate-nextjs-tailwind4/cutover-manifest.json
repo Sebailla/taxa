@@ -24,12 +24,12 @@
     {
       "id": "mount-runtime-html-root-001",
       "ownership_edge": "fastapi_web_mount",
-      "current_path": "web/index.html",
-      "current_path_note": "browser/extension/curl GET / via StaticFiles html=True fallback",
+      "current_path": "out/index.html",
+      "current_path_note": "post-cut React static-export root route; checked as GET / against the isolated candidate export",
       "replacement": {
         "status": "selected",
-        "path": "web/index.html",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/index.html` is identified as the pre-cut replacement — served by FastAPI's StaticFiles mount (api/server.py:1815) with `html=True` fallback on 127.0.0.1:8765. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "out/index.html",
+        "note": "Post-cut React route contract (Slice C): the root URL `/` is expected to resolve to the Next static-export root document in the separately selected candidate export served by fixture mode. This is a source-derived target, not real-export evidence or a G3 pass."
       },
       "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/", "expect": "200" },
       "activation_status": "selected",
@@ -38,12 +38,12 @@
     {
       "id": "mount-runtime-html-direct-002",
       "ownership_edge": "fastapi_web_mount",
-      "current_path": "web/index.html",
-      "current_path_note": "browser/extension direct GET /index.html",
+      "current_path": "out/index.html",
+      "current_path_note": "post-cut React static-export root document; checked through direct GET /index.html against the isolated candidate export",
       "replacement": {
         "status": "selected",
-        "path": "web/index.html",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the same legacy `web/index.html` is the pre-cut replacement — direct `GET /index.html` reaches the file through the same StaticFiles mount. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "out/index.html",
+        "note": "Post-cut React route contract (Slice C): direct `/index.html` is expected to resolve to the Next static-export root document in the separately selected candidate export served by fixture mode. This is a source-derived target, not real-export evidence or a G3 pass."
       },
       "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/index.html", "expect": "200" },
       "activation_status": "selected",
@@ -100,15 +100,14 @@
     {
       "id": "mount-runtime-dynamic-import-app-js-settings-006",
       "ownership_edge": "fastapi_web_mount",
-      "current_path": "web/settings.js",
-      "current_path_lines": "88",
-      "current_path_note": "dynamic-imported lazily by web/app.js:88 for settings panel",
+      "current_path": "src/app/settings/page.tsx",
+      "current_path_note": "post-cut React settings page in the static export; fixture-serve checks the emitted `settings.html` artifact",
       "replacement": {
         "status": "selected",
-        "path": "web/settings.js",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/settings.js` (lazy-loaded by `web/app.js:88`) is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "src/app/settings/page.tsx",
+        "note": "Post-cut React page contract (Slice C): check the emitted `/settings.html` artifact in the separately selected candidate export. The generic fixture server does not apply FastAPI route aliases; this validates the static-export page artifact, not browser routing or former lazy-panel behavior. Source mapping only, not real-export evidence or a G3 pass."
       },
-      "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/settings.js", "expect": "200" },
+      "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/settings.html", "expect": "200" },
       "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores web/settings.js atomically"
     },
@@ -133,18 +132,16 @@
     {
       "id": "mount-runtime-dynamic-import-nav-js-008",
       "ownership_edge": "fastapi_web_mount",
-      "current_path": "web/settings.js",
-      "current_paths": ["web/settings.js", "web/file_explorer.js"],
-      "current_path_lines": "252,295,308,331,685",
-      "current_path_note": "brace-expanded list of two module files dynamic-imported lazily by web/nav.js at lines 252, 295, 308, 331, 685",
+      "current_path": "src/app/explorer/page.tsx",
+      "current_paths": ["src/app/explorer/page.tsx", "src/app/settings/page.tsx"],
+      "current_path_note": "post-cut React Explorer and settings pages in the static export; fixture-serve checks their emitted `.html` artifacts, not legacy lazy-module mechanics",
       "replacement": {
         "status": "selected",
-        "path": "web/settings.js",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the two on-disk legacy module files lazy-loaded by `web/nav.js` (`settings.js` and `file_explorer.js`) are individually identified as the pre-cut replacement set. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS.",
-        "paths": ["web/settings.js", "web/file_explorer.js"],
-        "lines": "252,295,308,331,685"
+        "path": "src/app/explorer/page.tsx",
+        "note": "Post-cut React page contract (Slice C): check `/explorer.html` and `/settings.html` artifacts in the separately selected candidate export. The generic fixture server does not apply FastAPI route aliases; this validates static-export pages, not browser routing or the legacy dynamic-import mechanism. Source mapping only, not real-export evidence or a G3 pass.",
+        "paths": ["src/app/explorer/page.tsx", "src/app/settings/page.tsx"]
       },
-      "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/file_explorer.js && curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/settings.js", "expect": "200 for each" },
+      "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/explorer.html && curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/settings.html", "expect": "200 for each" },
       "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores web/nav.js + web/settings.js + web/file_explorer.js atomically"
     },
@@ -181,15 +178,14 @@
     {
       "id": "mount-runtime-dynamic-import-detail-file-explorer-011",
       "ownership_edge": "fastapi_web_mount",
-      "current_path": "web/file_explorer.js",
-      "current_path_lines": "482",
-      "current_path_note": "dynamic-imported lazily by web/detail.js:482 for file viewer",
+      "current_path": "src/app/explorer/page.tsx",
+      "current_path_note": "post-cut React Explorer page in the static export; fixture-serve checks the emitted `explorer.html` artifact",
       "replacement": {
         "status": "selected",
-        "path": "web/file_explorer.js",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `web/file_explorer.js` (lazy-loaded by `web/detail.js:482`) is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "src/app/explorer/page.tsx",
+        "note": "Post-cut React page contract (Slice C): check the emitted `/explorer.html` artifact in the separately selected candidate export, replacing the legacy `file_explorer.js` URL. The generic fixture server does not apply FastAPI route aliases; this validates the static-export page artifact, not browser routing or lazy-import mechanics. Source mapping only, not real-export evidence or a G3 pass."
       },
-      "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/file_explorer.js", "expect": "200" },
+      "verification": { "command": "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/explorer.html", "expect": "200" },
       "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores web/file_explorer.js + web/detail.js atomically"
     },
