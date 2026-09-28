@@ -1024,3 +1024,41 @@ def test_assertions_structured_evaluation(tmp_path, bad, cmd, min_passed,
         assert r.returncode != 0, r.stderr
         assert not (out / "CONSUMER-READINESS.json").is_file()
         assert cid in r.stderr
+
+
+def test_assertions_run_check_with_stdout_normalizes_bytes_to_str(
+        tmp_path, monkeypatch):
+    """Regression: hosted CI run 36424915843 on PR #454 head
+    `d6ed7083702a49aad7b02e63d53f6aaddfa2903a` failed structured-
+    assertion tests with `re.findall(str, stdout=b'')` TypeError.
+    The verifier asks subprocess.run for `text=True` and advertises
+    `_run_check_with_stdout -> tuple[int, str]`, but bytes may still
+    reach the return boundary (hosted evidence). `_run_check_with_stdout`
+    MUST normalize bytes to `str` at the return boundary so
+    `_evaluate_assertions` never sees bytes and downstream
+    `re.findall(str, stdout)` cannot raise TypeError."""
+    import scripts.verify_consumers as vc
+
+    class _FakeResult:
+        # Mimic subprocess.run returning bytes despite text=True being
+        # requested by the verifier (the exact failure mode hosted CI
+        # observed: bytes reached the assertion boundary).
+        returncode = 0
+        stdout = b"hello: 1\n"
+        stderr = b""
+
+    def _fake_run(argv, **kwargs):
+        # The verifier asks for text=True; honor it in kwargs capture
+        # only to document intent. We deliberately return bytes anyway.
+        return _FakeResult()
+
+    monkeypatch.setattr(vc.subprocess, "run", _fake_run)
+
+    rc, stdout = vc._run_check_with_stdout("true")
+    assert rc == 0
+    assert isinstance(stdout, str), (
+        f"_run_check_with_stdout must normalize bytes to str, got "
+        f"{type(stdout).__name__}: {stdout!r}")
+    # Decode contract: bytes are decoded UTF-8 so the structured
+    # assertions (re.findall) operate on a real str.
+    assert stdout == "hello: 1\n"
