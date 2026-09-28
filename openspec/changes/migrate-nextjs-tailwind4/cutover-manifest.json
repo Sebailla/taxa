@@ -272,14 +272,15 @@
     {
       "id": "mount-test-evidence-baseline-modules-017",
       "ownership_edge": "fastapi_web_mount",
-      "current_path": "tests/test_evidence_baseline.py:294",
-      "current_path_note": "test_legacy_module_count_matches_exploration (reads WEB_DIR.glob('*.js'))",
+      "current_path": "tests/test_g3_postcut_export_contracts.py:379",
+      "current_path_note": "Future real-export G3 consumer (Follow-up 33 / Slice B): reads `Path.cwd()/out/index.html` + `Path.cwd()/out`; parses first-party `/_next/static/chunks/*.js` references via stdlib HTMLParser (`src` / `href` attributes only; chunk-shaped substrings in comments, inline scripts, or other non-attribute text are ignored), requires >=1 reference, percent-decodes each candidate before segment validation (encoded traversal such as `%2e%2e/` cannot bypass the check), and resolves each reference against `export_root` via `Path.resolve()` + `relative_to()` containment (avoiding false path escapes). Forward integrity only — no chunk count or inverse all-files-referenced rule. Foreign-origin URLs (https://, //cdn) are silently ignored. Synthetic counterpart `test_synthetic_chunk_references_*` exercises accept/reject cases (zero references, missing target, empty target, traversal, encoded traversal, query, fragment, foreign origin, comment-only ref) against `tmp_path` HTML and synthetic export dirs. Not a G3 pass; not G3 evidence; consumer unrun in this slice.",
       "replacement": {
         "status": "selected",
-        "path": "tests/test_evidence_baseline.py:294",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_evidence_baseline.py:294 test_legacy_module_count_matches_exploration` reader is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "tests/test_g3_postcut_export_contracts.py:379",
+        "note": "Post-cut Re-anchoring Slice B (Follow-up 33, 2026-09-27): replaces the legacy WEB_DIR.glob('*.js') reader with the source-derived `verify_chunk_references(html_path, export_root)` helper that parses first-party `/_next/static/chunks/*.js` references via the stdlib HTMLParser (inspecting `src` / `href` attribute values only, percent-decoding each candidate before segment validation so encoded traversal such as `%2e%2e/` cannot bypass the check), requires >=1 reference, and resolves each against `export_root` via `Path.resolve()` + `relative_to()` containment. Fails closed for traversal / query / fragment / missing / empty targets and for any decoded `.` / `..` / empty path segment; foreign-origin URLs are silently ignored; chunk-shaped substrings in comments / scripts / non-attribute text are dropped. Structured `pytest_summary` requires >=1 passed and 0 skipped. NOT a G3 pass; no real `out/` evidence was inspected; no consumer/G3 command was run in this slice.",
+        "lines": "test_consumer_chunk_references"
       },
-      "verification": { "command": "pytest tests/test_evidence_baseline.py::test_legacy_module_count_matches_exploration -q", "expect": "1 passed" },
+      "verification": { "command": "pytest tests/test_g3_postcut_export_contracts.py::test_consumer_chunk_references -q", "expect": "1 passed, 0 skipped", "assertions": [ { "type": "pytest_summary", "min_passed": 1, "max_skipped": 0 } ] },
       "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores the WEB_DIR.glob('*.js') reader at tests/test_evidence_baseline.py:294"
     },
