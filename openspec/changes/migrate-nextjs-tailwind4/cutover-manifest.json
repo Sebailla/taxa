@@ -257,14 +257,15 @@
     {
       "id": "mount-test-evidence-baseline-html-016",
       "ownership_edge": "fastapi_web_mount",
-      "current_path": "tests/test_evidence_baseline.py:276",
-      "current_path_note": "test_legacy_html_present_and_nontrivial (reads WEB_DIR/index.html)",
+      "current_path": "tests/test_g3_postcut_export_contracts.py::test_consumer_root_shell",
+      "current_path_note": "Future real-export G3 consumer (Follow-up 33 / Slice B): reads `Path.cwd()/out/index.html` and requires both the AppShell `data-app-shell` marker AND a `<main` landmark, anchored to `src/modules/app-shell/presentation/AppShell.tsx`. Synthetic counterpart `test_synthetic_root_shell_*` exercises the helper against `tmp_path` HTML. Not a G3 pass; not G3 evidence; consumer unrun in this slice.",
       "replacement": {
         "status": "selected",
-        "path": "tests/test_evidence_baseline.py:276",
-        "note": "Legacy pre-cut selection (planning artifact, 2026-08-30): the on-disk legacy `tests/test_evidence_baseline.py:276 test_legacy_html_present_and_nontrivial` reader is the pre-cut replacement. Approach A / B / C atomic-cut selection remains evidence-gated by G2/G4/G5/G6. NOT a G3 PASS."
+        "path": "scripts/g3_postcut_export_contracts.py::verify_root_shell + tests/test_g3_postcut_export_contracts.py::test_consumer_root_shell",
+        "note": "Post-cut Re-anchoring Slice B (Follow-up 33, 2026-09-27): replaces the legacy WEB_DIR bytes test with the source-derived `verify_root_shell(html_path)` helper that requires the `data-app-shell` marker AND a `<main` landmark; the synthetic `test_synthetic_root_shell_*` layer exercises accept/reject cases against `tmp_path` HTML and the future `test_consumer_root_shell` node runs in a separately authorized isolated candidate worktree. Structured `pytest_summary` requires >=1 passed and 0 skipped. NOT a G3 pass; no real `out/` evidence was inspected; no consumer/G3 command was run in this slice.",
+        "lines": "test_consumer_root_shell"
       },
-      "verification": { "command": "pytest tests/test_evidence_baseline.py::test_legacy_html_present_and_nontrivial -q", "expect": "1 passed" },
+      "verification": { "command": "pytest tests/test_g3_postcut_export_contracts.py::test_consumer_root_shell -q", "expect": "1 passed, 0 skipped", "assertions": [ { "type": "pytest_summary", "min_passed": 1, "max_skipped": 0 } ] },
       "activation_status": "selected",
       "rollback": "git revert <pr3e-sha> restores the WEB_DIR/index.html reader at tests/test_evidence_baseline.py:276"
     },
